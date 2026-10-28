@@ -226,11 +226,11 @@ vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
 vi.mock('../../../../apps/desktop/src/mobile/partners/PhonePartnersPage', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    PhonePartnersPage: ({ active, newProjectRequest, onPushedChange, onOpenProjectGroup }: { active: boolean; newProjectRequest?: number; onPushedChange: (pushed: boolean) => void; onOpenProjectGroup: (chatId: string, tabChatId?: string) => void }) => (
+    PhonePartnersPage: ({ active, newProjectRequest, onPushedChange, onOpenProjectGroup }: { active: boolean; newProjectRequest?: number; onPushedChange: (pushed: boolean) => void; onOpenProjectGroup: (chatId: string) => void }) => (
       React.createElement('div', { 'data-testid': 'mock-phone-partners', 'data-active': String(active), 'data-new-project-request': String(newProjectRequest ?? 0) },
         React.createElement('button', { type: 'button', 'data-testid': 'mock-phone-partners-push', onClick: () => onPushedChange(true) }, 'push'),
         React.createElement('button', { type: 'button', 'data-testid': 'mock-phone-partners-pop', onClick: () => onPushedChange(false) }, 'pop'),
-        React.createElement('button', { type: 'button', 'data-testid': 'mock-phone-partners-task', onClick: () => onOpenProjectGroup('project-chat', 'task-topic') }, 'task'))
+        React.createElement('button', { type: 'button', 'data-testid': 'mock-phone-partners-group', onClick: () => onOpenProjectGroup('project-chat') }, 'group'))
     )
   }
 })
@@ -277,7 +277,7 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
   }
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
-const sessionPageViewRequests = { request: vi.fn(), openChat: vi.fn(), openSession: vi.fn() }
+const sessionPageViewRequests = { openChat: vi.fn(), openSession: vi.fn() }
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
@@ -569,15 +569,16 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-chat-new-project"]'), 'no phone 新项目 entry on the desktop').toBeNull()
   })
-  it('returns from a project task topic to the retained project directory without showing the root tab bar', async () => {
+  // 伙伴里只有项目群聊那一行(话题不成行,owner 10-28):进去落在群聊页签,❌ 开话题分屏。
+  it('returns from a project group opened in Partners to the retained project directory without showing the root tab bar', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-new-project"]') as HTMLElement)
     await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-push"]') as HTMLElement)
-    await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-task"]') as HTMLElement)
+    await clickElement(harness.container.querySelector('[data-testid="mock-phone-partners-group"]') as HTMLElement)
     const { drainTopicSplitRequest } = await import('../../../../apps/desktop/src/lib/topicSplitRequest')
-    expect(drainTopicSplitRequest('project-chat')).toMatchObject({ chatId: 'task-topic', sourceChatId: 'project-chat' })
+    expect(drainTopicSplitRequest('project-chat')).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-phone-partners"]')?.getAttribute('data-active')).toBe('true')
     expect(harness.container.querySelector('nav')).toBeNull()
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-back"]') as HTMLElement)

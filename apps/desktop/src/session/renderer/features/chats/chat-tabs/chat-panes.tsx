@@ -112,29 +112,22 @@ export const ChatTabChip = observer(function ChatTabChip({
   focused: boolean;
   label: string;
   labelSlot?: ReactNode;
-  /** This block's menu for its chat (announcement, settings, Apps in this chat). */
+  /** The block's available chat or project actions; absent when there are none. */
   menu: ReactNode;
   [data: `data-${string}`]: string | undefined;
 }) {
   const { translate } = useSessionMessages();
+  const chip = <TabChip
+    isActive={tab.isActive} isFocusedPane={focused && (tab.isFocused ?? true)} pairRole={tab.pairRole}
+    label={label} labelSlot={labelSlot} onClick={() => host.setActiveTab(tab.tabId)}
+  />;
   return (
     <TabSlot data-tabid={tab.tabId} data-tab-pair={tab.pairRole} {...data}>
       {tab.pairRole === 'end' ? <PairSeparator label={translate('tabs.separatePair')} onSeparate={() => host.separatePair()} /> : null}
-      <ContextMenu>
-        <ContextMenuTrigger className="flex h-full w-full min-w-0">
-          <TabChip
-            isActive={tab.isActive}
-            isFocusedPane={focused && (tab.isFocused ?? true)}
-            pairRole={tab.pairRole}
-            label={label}
-            labelSlot={labelSlot}
-            onClick={() => host.setActiveTab(tab.tabId)}
-          />
-        </ContextMenuTrigger>
-        <ContextMenuContent finalFocus={false} className="min-w-40">
-          {menu}
-        </ContextMenuContent>
-      </ContextMenu>
+      {menu ? <ContextMenu>
+        <ContextMenuTrigger className="flex h-full w-full min-w-0">{chip}</ContextMenuTrigger>
+        <ContextMenuContent finalFocus={false} className="min-w-40">{menu}</ContextMenuContent>
+      </ContextMenu> : chip}
     </TabSlot>
   );
 });

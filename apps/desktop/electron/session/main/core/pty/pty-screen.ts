@@ -142,7 +142,7 @@ export class PtyScreen {
    * 切点落在一个转义序列中间时(PTY 一次读到半个序列),把这个序列已到的前半截接在屏幕后面,后半截在 `live` 或下一批里。
    * 从不 reject:解析停了或序列化抛错都记 error、交空屏(spec task-renderer:回放有界、照常接上实时输出)。
    */
-  snapshot(): Promise<PtyScreenSnapshot> {
+  snapshot(options: { scrollback?: number } = {}): Promise<PtyScreenSnapshot> {
     if (this.closedSize) return Promise.resolve({ data: '', live: '', size: this.closedSize });
     if (this.stalled) return Promise.resolve({ data: '', live: '', size: this.size() });
     return new Promise((resolve) => {
@@ -177,7 +177,7 @@ export class PtyScreen {
         // 在 xterm 的写入回调里:抛出去会打断它的写入循环,所以就地接住。
         let data = '';
         try {
-          data = this.serialize() + (this.core._inputHandler._parser.currentState === 0 ? '' : carry);
+          data = this.serialize(options.scrollback ?? this.scrollback) + (this.core._inputHandler._parser.currentState === 0 ? '' : carry);
         } catch (error) {
           this.stall(`serialize failed: ${String(error)}`);
         }
@@ -214,8 +214,8 @@ export class PtyScreen {
    * (Claude Code 实测每次改尺寸都 `ESC[2J`,清屏时底色是缺省,超出的格子随之清空、不再输出),
    * 紧跟在快照后面的实时输出把它盖掉。上游 0.15 beta 仍是同一写法。
    */
-  private serialize(): string {
-    let data = this.serializer.serialize({ scrollback: this.scrollback });
+  private serialize(scrollback: number): string {
+    let data = this.serializer.serialize({ scrollback });
     const { coreMouseService, coreService, buffer } = this.core;
     const encoding = MOUSE_ENCODING_SEQUENCE[coreMouseService.activeEncoding];
     if (encoding === undefined) throw new Error(`PtyScreen: unknown xterm mouse encoding ${coreMouseService.activeEncoding}`);

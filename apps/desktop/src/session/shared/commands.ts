@@ -145,13 +145,6 @@ export const COMMANDS = defineCommands({
     iconKey: 'terminal',
     category: 'Task View',
   },
-  'session.toggleTerminalDrawer': {
-    label: 'Toggle Terminal Drawer',
-    description: 'Show or hide the terminal drawer',
-    iconKey: 'terminal',
-    defaultHotkey: 'Mod+J',
-    category: 'Task View',
-  },
   'session.newTerminal': {
     label: 'New Terminal',
     description: 'Create a new terminal session',

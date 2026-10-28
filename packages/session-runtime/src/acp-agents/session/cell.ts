@@ -72,6 +72,9 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { prepareNativePrompt } from './prompt-preparation';
+import { providerRejectedMissingSession } from './provider-admission';
+import { canYieldRepliedAssistant } from '@gugu/session-core/session-record/reply-process';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -147,6 +150,9 @@ export class SessionCell {
   private interruptForSteer = false;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
+  private yieldingRepliedAssistant: string | null = null;
+  /** Cancellation would also withdraw inputs already admitted by the native adapter. */
+  private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
   private providerTurnFailure: string | null = null;
   /**
@@ -172,6 +178,9 @@ export class SessionCell {
   private lastFailureProvisional = false;
   /** 宿主要求关掉这条会话(stop / 删除 / 换运行时)。之后线断了是我们断的,在飞的那一轮是被停下,不是失败。 */
   private closeRequested = false;
+  private providerAdmission: { accept: () => void } | null = null;
+  private preparationRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private preparationRetryDelay = 1500;
   private reverting = false;
   private compacting = false;
   private activeTurnCompletion: Promise<void> | null = null;
@@ -252,6 +261,11 @@ export class SessionCell {
 
   get supportsLoadSession(): boolean {
     return this._supportsLoadSession;
+  }
+
+  /** A dispatched prompt is owned before a state-reporting provider says running. */
+  get hasInFlightPrompt(): boolean {
+    return this.activeTurnCompletion !== null;
   }
 
   private get agent(): NonNullable<SessionCellDeps['agent']> {
@@ -462,6 +476,11 @@ export class SessionCell {
     return merge(texts);
   }
 
+  /** Called by the ACP notification boundary, including updates we do not render. */
+  noteProviderUpdate(): void {
+    if (!this.replayingHistory) this.providerAdmission?.accept();
+  }
+
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
     if (event.kind === 'agent_state') {
@@ -529,6 +548,7 @@ export class SessionCell {
     if (event.kind === 'tool_call') {
       this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall.toolCallId === event.toolCallId)?.toolCall ?? null);
     }
+    if (this.yieldingRepliedAssistant) this.interruptIfAtToolBoundary();
   }
 
   async prompt(
@@ -536,6 +556,7 @@ export class SessionCell {
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const draftRev = this.draftRev;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -543,9 +564,8 @@ export class SessionCell {
       updatedAt: now,
     }, {
       ...opts,
-      // Consume the submitted draft at admission. Completion can arrive minutes later,
-      // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      // Native admission can arrive after the next draft sync; consume only this revision.
+      onAdmission: (result) => { if (result.success && this.draftRev === draftRev) this.clearDraft(); },
     });
   }
 
@@ -585,6 +605,7 @@ export class SessionCell {
   }
 
   queuePrompt(input: PromptInput): Result<void, InvalidStateError> {
+    if (this.closeRequested) return acpErr.invalidState('Session is closing; resume it after teardown');
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     const now = Date.now();
     const result = this.dispatchFor<InvalidStateError>(
@@ -614,6 +635,7 @@ export class SessionCell {
    * 开出来的那一轮怎么结束由 cell 自己结算、上屏(与 `prompt()` 同一条路),这里只交回受理结果。
    */
   async queueBehindTurn(input: PromptInput): Promise<Result<{ queued: boolean }, InvalidStateError>> {
+    const draftRev = this.draftRev;
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     if (this.machine.phase.kind === 'replaying') {
       const queued = this.queuePrompt(input);
@@ -632,7 +654,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draftRev === draftRev) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -833,7 +855,7 @@ export class SessionCell {
       // ACP does not require providers to implement session/close. Once the provider
       // explicitly reports that unsupported method, the host-owned connection scope
       // remains the authoritative teardown path. Other close errors stay fail-loud.
-      if (isUnsupportedSessionClose(error)) return;
+      if (isUnsupportedSessionClose(error) || providerRejectedMissingSession(error)) return;
       // 没关成,会话照旧在管(stop 可重试):之后的失败照实分类。
       this.closeRequested = false;
       throw error;
@@ -860,6 +882,7 @@ export class SessionCell {
   }
 
   requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    this.providerAdmission?.accept();
     const requestId = crypto.randomUUID();
     const fromRequest = requestToolUpdate(params.toolCall);
     this.fillToolCall(fromRequest);
@@ -1249,6 +1272,8 @@ export class SessionCell {
     this.runningTools.clear();
     this.interruptForSteer = false;
     this.interruptedForMessage = false;
+    this.yieldingRepliedAssistant = null;
+    this.nativeInputAfterStart = false;
     this.providerTurnFailure = null;
     this.providerStderrFailure = null;
     this.providerTurnSignIn = false;
@@ -1328,6 +1353,7 @@ export class SessionCell {
       return;
     }
     if (state !== 'idle') {
+      this.providerAdmission?.accept();
       this.idleReported = false;
       if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
       return;
@@ -1419,6 +1445,7 @@ export class SessionCell {
   }
 
   dispose(): void {
+    if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
     this.permissions.drain(this.machine.pendingPermissions);
   }
 
@@ -1625,7 +1652,7 @@ export class SessionCell {
   }
 
   private trackRunningTool(event: NormalizedEvent): void {
-    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary') return;
+    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary' && !this.deps.assistantOwnerId) return;
     if (event.kind !== 'tool_call' && event.kind !== 'tool_update') return;
     if (event.status === 'completed' || event.status === 'failed') {
       if (this.runningTools.delete(event.toolCallId)) this.interruptIfAtToolBoundary();
@@ -1637,7 +1664,18 @@ export class SessionCell {
   }
 
   private interruptIfAtToolBoundary(): void {
-    if (!this.interruptForSteer || this.runningTools.size > 0) return;
+    if (!this.interruptForSteer) return;
+    if (this.yieldingRepliedAssistant && (this.runningTools.size > 0 || this.lastRunningAgentCount > 0 || this.lastRunningCommandTaskIds.length > 0
+      || this.machine.pendingPermissions.length > 0 || this.steerInFlight > 0 || this.nativeInputAfterStart
+      || this.deps.queuedPromptsPersisted?.() !== true
+      || !canYieldRepliedAssistant(this.transcript.activeTurn, this.yieldingRepliedAssistant, this.deps.assistantOwnerId!))) {
+      // A new tool can arrive while QueuePrompt synchronously saves. Abandon yielding,
+      // retaining the normal queue; never wait for that tool and then cancel its work.
+      this.yieldingRepliedAssistant = null;
+      this.interruptForSteer = false;
+      return;
+    }
+    if (this.runningTools.size > 0) return;
     this.interruptForSteer = false;
     // 用户已经自己点了停止(phase 已是 cancelling)⇒ 这一轮是用户停的,❌ 改标成「为插话停下」
     // (界面据此收起「继续 / 丢弃」),也不再发第二次 cancel。插话照旧排在队里,作为下一轮发出。
@@ -1663,6 +1701,7 @@ export class SessionCell {
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
+    if (this.closeRequested) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     // A delivery cannot be steered into the native summarization request. Retain its
     // original id/bytes in the ordinary durable queue, which drains at command completion.
     if (this.compacting) {
@@ -1675,6 +1714,22 @@ export class SessionCell {
       return result;
     }
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
+    if (!opts?.fromQueue && prompt.origin === 'communication' && this.machine.phase.kind === 'working'
+      && this.deps.assistantOwnerId && this.steerInFlight === 0 && !this.nativeInputAfterStart
+      && this.runningTools.size === 0 && this.lastRunningAgentCount === 0 && this.lastRunningCommandTaskIds.length === 0
+      && this.machine.pendingPermissions.length === 0
+      && canYieldRepliedAssistant(this.transcript.activeTurn, prompt.text, this.deps.assistantOwnerId)) {
+      // QueuePrompt synchronously saves through the manager callback. The new input must
+      // remain outside the provider: native cancel withdraws all of its pending inputs.
+      const held = this.dispatchFor<AcpSendPromptError>({ type: 'QueuePrompt', prompt }, ['invalid_state']);
+      if (!held.success) return held;
+      this.yieldingRepliedAssistant = prompt.text;
+      this.interruptForSteer = true;
+      this.interruptIfAtToolBoundary();
+      const queued = ok({ queued: true });
+      opts?.onAdmission?.(queued);
+      return queued;
+    }
     // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
     // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
     // 下面的设置闸认的也是这一个:闸扣着人话时,后到的投递同样扣在它后面。
@@ -1698,6 +1753,9 @@ export class SessionCell {
       if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
       return queued;
     }
+    const transcriptBeforePrompt = this.transcript.snapshotState();
+    const turnContextBeforePrompt = new Map(this.pendingTurnContext);
+    const sessionContextBeforePrompt = this.pendingSessionContext;
     const decision = this.dispatchFor<AcpSendPromptError>(
       {
         type: 'Prompt',
@@ -1717,6 +1775,7 @@ export class SessionCell {
     // 在飞的主 RPC 拥有 turn 结算,这条 steer RPC 不 settleTurn —— 唯一例外见下面的移交守卫。
     const steered = decision.data.some((effect) => effect.type === 'promptSteered');
     const nativeSteer = steered && this.supportsSteering;
+    if (nativeSteer) this.nativeInputAfterStart = true;
     if (steered && !nativeSteer && this.deps.midTurnSteer === 'interrupt-at-tool-boundary') {
       return this.steerByInterrupt(prompt, opts);
     }
@@ -1726,7 +1785,22 @@ export class SessionCell {
       return queued;
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
-    if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    let admissionTimer: ReturnType<typeof setTimeout> | undefined;
+    let providerAccepted = false;
+    let nativeRequest = false;
+    const admit = () => {
+      if (providerAccepted) return;
+      providerAccepted = true;
+      if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    };
+    // Communication keeps the trial's admission watchdog; v2 also uses its explicit native receipt.
+    const providerAdmission: { accept: () => void } | null = started && !steered && prompt.origin === 'communication' && opts?.onAdmission
+      ? { accept: () => {
+        if (this.providerAdmission !== providerAdmission) return;
+        this.providerAdmission = null;
+        if (admissionTimer) clearTimeout(admissionTimer);
+        admit();
+      } } : null;
     if (started && !steered) {
       this.openTurnCompletion();
       const envelope = this.makeTurnEnvelope();
@@ -1782,31 +1856,40 @@ export class SessionCell {
       });
       this.emitTranscriptChanged();
     };
-    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
-    if (!nativeSteer) recordUserMessage();
-    // 转录里画成它自己的一行(来自哪个扩展由信封写明),跟在这一句后面、同属这一轮 ——
-    // `steering` 让它不另开一轮(一轮只由人/投递的那一句开),请求里它是一个块(见 turnContextBlocks)。
-    if (turnContext) {
-      this.transcript.pushEvent({
-        kind: 'message',
-        role: 'user',
-        messageId: `${messageId}-context`,
-        text: turnContext,
-        steering: true,
-      });
-      this.emitTranscriptChanged();
-    }
+    const recordPrompt = () => {
+      if (!nativeSteer) recordUserMessage();
+      if (turnContext) {
+        this.transcript.pushEvent({ kind: 'message', role: 'user', messageId: `${messageId}-context`, text: turnContext, steering: true });
+        this.emitTranscriptChanged();
+      }
+    };
+    let rejectPreparation: (() => Promise<void>) | undefined;
+    let preparationAccepted = false;
     try {
-      // 按路径带的图(`local-file`:另一台机器发来的附件、首轮随启动队列带的附件)只在 agent
-      // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
-      // 照样读得到它。发送的这一刻 agent 已经握过手,这里的判据是它自己报的那一份(#6264)。
-      // 上传来的附件(`attachment`)不在此列:它们没有路径兜底,宿主发之前已经按同一判据分过路。
+      const preparing = prepareNativePrompt(this.sessionId);
+      // Queue-to-transcript projection stays synchronous; preparation is still before admission.
+      if (started) recordPrompt();
+      if (!preparing) {
+        if (!providerAdmission && this.agent.protocolVersion !== 2) admit();
+        if (!started) recordPrompt();
+      }
+      if (providerAdmission) this.providerAdmission = providerAdmission;
+      const prepared = preparing ? await preparing : null;
+      rejectPreparation = prepared?.rejected;
+      if (preparing) {
+        if (!started) recordPrompt();
+        if (!providerAdmission && this.agent.protocolVersion !== 2) admit();
+      }
+      this.preparationRetryDelay = 1500;
       const sendable = (prompt.attachments ?? []).filter(
         (attachment) => attachment.type !== 'local-file' || this.acceptsImagePrompts
       );
       const resolvedAttachments = await Promise.all(
         sendable.map((attachment) => this.deps.resolveAttachment(attachment))
       );
+      const confirmPreparation = () => { preparationAccepted = true; void prepared?.accepted().catch(() => {
+        this.deps.logger.warn('Native prompt preparation checkpoint will retry', { sessionId: this.sessionId });
+      }); };
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
       // 常驻背景,该在用户这一句之前被读到。
       // ⚠️ 在 await 之后、构造请求之前取并清空 —— 并发的第二轮不会再带上它。
@@ -1820,7 +1903,7 @@ export class SessionCell {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }));
-      const turnContextBlocks = turnContext ? [{ type: 'text' as const, text: turnContext }] : [];
+      const turnContextBlocks = [prepared?.text,prepared?.beforeText,turnContext].filter((text): text is string => !!text).map(text => ({ type: 'text' as const,text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
@@ -1832,8 +1915,10 @@ export class SessionCell {
       // 就会静默退化成一句普通的话 —— 用户看见命令芯片、agent 收到的却是散文。
       // ⚠️ 判据用 agent **真的报过**的那份名单,不是「以 / 开头」:后者会把
       // `/Users/foo 这个文件…` 也当成命令(opencode 会把它整轮吞掉)。
+      // Routed envelopes are not commands; with no command list their leading '<' otherwise reorders the reply hint.
       const leadsWithCommand =
-        prompt.text !== undefined
+        prompt.origin !== 'communication'
+        && prompt.text !== undefined
         && invokesCommand(prompt.text, this.config.availableCommands);
       const promptRequest = {
         sessionId: this.acpSessionId,
@@ -1846,6 +1931,7 @@ export class SessionCell {
         sessionId: this.acpSessionId,
         content: promptRequest.prompt,
       });
+      nativeRequest = this.agent.protocolVersion === 2;
       if (nativeSteer) {
         const outcome = await this.requestSteering(promptRequest);
         if (outcome === 'promptRequired') {
@@ -1853,7 +1939,8 @@ export class SessionCell {
           // once; it is sent now, or waits in the queue until the agent reports it stopped.
           const retried = await this.sendPromptInternal(prompt, {
             fromQueue: opts?.fromQueue,
-            skipAdmission: true,
+            skipAdmission: this.agent.protocolVersion !== 2,
+            onAdmission: opts?.onAdmission,
           });
           // 「立即发送」的那句仍在排队 ⇒ 排在队首,与 steerQueuedPrompt 没有在干的活时同一个去处。
           if (opts?.fromQueue && retried.success && retried.data.queued) {
@@ -1864,12 +1951,34 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        confirmPreparation();
+        if (this.agent.protocolVersion === 2) admit();
         // `injected` is an admission receipt. The provider's output remains on the primary
         // prompt's ACP stream, so this call must not settle the cell turn.
         return ok({ queued: false });
       }
 
-      const response = await this.agent.prompt(promptRequest);
+      if (providerAdmission) this.providerAdmission = providerAdmission;
+      const nativePrompt = nativeRequest
+        ? this.agent.prompt(promptRequest, () => { if (providerAdmission) providerAdmission.accept(); else admit(); })
+        : this.agent.prompt(promptRequest);
+      // v1 providers may compact or reason silently for minutes. Only a provider that
+      // declares native state/admission signals can be timed out for not admitting.
+      const response = await (providerAdmission && this.reportsState ? Promise.race([
+        nativePrompt,
+        new Promise<never>((_resolve, reject) => {
+          admissionTimer = setTimeout(() => {
+            if (this.providerAdmission !== providerAdmission) return;
+            // No native progress in the same budget as reconnect admission. End this one turn,
+            // then the procedure owner tears its process down; it must never block the inbox forever.
+            void Promise.resolve().then(() => this.agent.cancel({ sessionId: this.acpSessionId }))
+              .catch(error => this.deps.logger.warn('SessionCell: silent prompt cancellation failed', { sessionId: this.sessionId, error: String(error) }));
+            reject(Object.assign(new Error('Native prompt admission timed out after 60000ms'), { code: 'prompt_admission_timeout' }));
+          }, 60_000);
+        }),
+      ]) : nativePrompt);
+      providerAdmission?.accept();
+      confirmPreparation();
       const reportedFailure = this.deps.turnFailure?.fromPromptResponse?.(response);
       if (reportedFailure) this.providerTurnFailure = reportedFailure;
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
@@ -1919,8 +2028,49 @@ export class SessionCell {
       }
       return ok({ queued: false });
     } catch (e) {
+      if (!preparationAccepted) await rejectPreparation?.().catch(() => {
+        this.deps.logger.warn('Resource change reservation release failed', { sessionId: this.sessionId });
+      });
+      const rejected = nativeRequest && !providerAccepted && toSerializedError(e).code === -32603 && !providerRejectedMissingSession(e);
+      const beforeTurn = providerAdmission !== null && this.providerAdmission === providerAdmission;
+      const preparationRefused = (e as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
+      const refusal = preparationRefused || beforeTurn && providerRejectedMissingSession(e);
+      // Native auth/network/quota failures belong to this turn. Return its receipt so the inbox
+      // advances once and the completion channel reports the original cause, rather than requeueing.
+      if (beforeTurn && !refusal && !nativeRequest) providerAdmission.accept();
+      if (beforeTurn && refusal) this.providerAdmission = null;
+      if (refusal) {
+        this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId,
+          stopReason: null, error: toSerializedError(e) });
+        this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId });
+        // No provider update was received: this was never a turn. Restore only our
+        // tentative projection, before any failed turn can reach durable history.
+        if (!preparationRefused || started) this.transcript.restoreState(transcriptBeforePrompt);
+        this.pendingTurnContext = new Map([...turnContextBeforePrompt, ...this.pendingTurnContext]);
+        if (sessionContextBeforePrompt && this.pendingSessionContext !== sessionContextBeforePrompt) {
+          this.pendingSessionContext = [sessionContextBeforePrompt, this.pendingSessionContext].filter(Boolean).join('\n\n');
+        }
+        if (started) { this.applyEvent({ type: 'PromptRefused' }); this.closeTurnCompletion(); }
+        else if (steered && !nativeSteer) this.steerInFlight -= 1;
+        if (preparationRefused && opts?.fromQueue) {
+          this.dispatch({ type: 'QueuePrompt',prompt });
+          if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
+          this.preparationRetryTimer = setTimeout(() => {
+            this.preparationRetryTimer = undefined;
+            if (!this.closeRequested && this.machine.phase.kind === 'ready'
+              && this.machine.queuedPrompts.some(row => row.id === prompt.id)) {
+              this.releaseQueueAfterEdit();
+            }
+          },this.preparationRetryDelay);
+          this.preparationRetryDelay = Math.min(this.preparationRetryDelay * 2,30_000);
+        }
+        this.emitTranscriptChanged();
+        return preparationRefused ? acpErr.sessionBusy(e instanceof Error ? e.message : '') : acpErr.sessionNotFound(this.sessionId);
+      }
       const cause = toSerializedError(e);
       const err = acpErr.promptFailed(cause);
+      // JSON-RPC Internal error before native admission is an executor failure. Invalid
+      // input and errors from an already admitted turn do not invalidate the session.
       this.deps.logger.error('SessionCell: prompt failed', {
         sessionId: this.sessionId,
         providerId: this.deps.providerId,
@@ -1975,7 +2125,7 @@ export class SessionCell {
         });
         // ⚠️ 只有**真的落定了一轮**才允许把「可改口」打开(评审抓到):`settleTurn` 在没有活跃轮时
         // 什么都不做,而那时若照样置位,后来的异常退出就会去改写**碰巧排在末尾的另一轮**。
-        const settled = this.settleTurn(classified.outcome, { dequeueQueuedPrompt: !opts?.fromQueue });
+        const settled = this.settleTurn(classified.outcome, { dequeueQueuedPrompt: !opts?.fromQueue && !rejected });
         if (settled) this.lastFailureProvisional = classified.provisional;
       } else {
         if (this.steerSettlesTurn && this.steerInFlight === 0) {
@@ -1992,7 +2142,13 @@ export class SessionCell {
           if (settled) this.lastFailureProvisional = classified.provisional;
         }
       }
+      // Native refusal is different from an admitted turn's error at idle. Retiring the
+      // executor feeds the existing lost -> provision/resume path, without matching errors
+      // or replaying this rejected message. Settle its actual failure before the process exits.
+      if (rejected) await this.deps.callbacks?.onPromptRejected?.();
       return err;
+    } finally {
+      if (admissionTimer) clearTimeout(admissionTimer);
     }
   }
 

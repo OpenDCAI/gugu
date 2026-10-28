@@ -101,7 +101,7 @@ for (const [w, h] of [[360, 640], [360, 400]] as const) {
       models: [{ id: 'm1', name: 'Model 1', source: 'harness' }],
       efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }],
     } as unknown as Parameters<typeof CreateOptionsPill>[0]['models'];
-    const selection = { projectId: 'p1', harness: 'codex', model: null, sessionView: null, permissionMode: null, effort: null };
+    const selection = { projectId: 'p1', harness: 'codex', model: null, permissionMode: null, effort: null };
     mount(<CreateOptionsPill options={options} selection={selection} onChange={() => {}} busy={false} models={models} modelsState="ready" />);
     await userEvent.click(page.getByTestId('agent-watch-create-options-open'));
     await until('12 projects in the sheet', () => document.querySelectorAll('[data-testid="agent-watch-create-options"] [data-dimension="project"] [role="radio"]').length === 12);
@@ -179,6 +179,9 @@ it('share intake, mixed: text + 3 images + 25 files keep the text and the thumbn
   mount(<Sheet open onClose={() => {}} fullScreenMobile testId="share-intake-sheet"><ShareIntakeContent share={{ text, files: [...images, ...files], failures: [] }} onDone={() => {}} /></Sheet>);
   await until('the chat row is rendered', () => sheet('share-intake-sheet')?.querySelector('[data-share-target]') != null);
   const box = sheet('share-intake-sheet')!;
+  // A translating entrance can round a 56px DOMRect to 55.99993896484375.
+  // Measure the settled surface; keep the exact minimum-size assertions below.
+  await until('the share sheet entrance finishes', () => box.getAnimations().every(animation => animation.playState === 'finished'));
   const textBox = box.querySelector<HTMLElement>('.gg-si-text')!;
   const thumbs = box.querySelector<HTMLElement>('.gg-si-thumbs')!;
   expect.soft(textBox.getBoundingClientRect().height, 'the text keeps its three lines').toBeGreaterThanOrEqual(3 * parseFloat(getComputedStyle(textBox).fontSize));

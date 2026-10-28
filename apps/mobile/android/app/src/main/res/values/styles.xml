@@ -8,6 +8,10 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <style name="AppTheme.HealthRationale" parent="AppTheme">
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
     <!-- @@@mobile-light-shell - The WebView answers `prefers-color-scheme` from android:isLightTheme of this theme (Capacitor's
          BridgeActivity makes it the activity's and the application's; Chromium DarkModeHelper reads it there), and a Light
          parent says true even on a dark phone: 「跟随系统」 was always light. It says what the system is (values-night); the

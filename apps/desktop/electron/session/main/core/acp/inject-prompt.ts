@@ -7,7 +7,7 @@ export async function injectEmdashPromptDetached(
   sessionId: string,
   text: string,
   opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
-): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
+): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient();
   // Plain user text keeps its manual queue policy; only actual envelopes may be merged as deliveries.
   const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
@@ -16,7 +16,7 @@ export async function injectEmdashPromptDetached(
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
   // A replaceable queued prompt must not take ownership of unrelated App context.
   }), Boolean(opts?.deferredDispatch || opts?.coalesceKey));
-  if (result.declined) return { outcome: 'declined', completion: Promise.resolve() };
+  if (result.declined) return { outcome: result.missing ? 'missing' : 'declined', completion: Promise.resolve() };
   return {
     outcome: result.queued ? 'queued' : 'started',
     completion: client.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),

@@ -1,5 +1,5 @@
 /*
- * #7199 手机底栏「助理」那一格(owner 10-16:咕咕底栏一直在):页头(它的头像 + 名字、搜索、齿轮)、页顶分段、聊天或某一格。
+ * #7199 手机咕咕页:页头一行返回、头像、四格分段和搜索,下方是聊天或某一格。
  * 内容组件沿用桌面助理的数据与动作，手机表面、字阶和触控尺寸收在 #7333 母版上。
  */
 
@@ -61,6 +61,9 @@
   color: var(--ta-fg);
 }
 .ta-phone-head { gap: 4px; }
+/* Keep the search lane on every tab so the shared header never changes shape. */
+.ta-phone-head .gg-pane-actions { flex: none; width: var(--control-h-touch); }
+.ta-phone-head .gg-pane-actions > [hidden] { display: none; }
 .ta-phone-head .ta-phone-identity { width: var(--control-h-touch); justify-content: center; border-radius: var(--radius-circle); }
 .ta-phone-head .ta-phone-identity[aria-pressed='true'] { background: var(--ta-seg-active); }
 
@@ -82,6 +85,12 @@
 .ta-phone-seg .gg-segtabs::-webkit-scrollbar { display: none; }
 .ta-phone-seg .gg-segtab { flex: 1 0 auto; min-height: 36px; padding: 4px 8px; border-radius: var(--radius-capsule); justify-content: center; white-space: nowrap; font-size: var(--font-body); }
 .ta-phone-seg .gg-segtab[data-selected] { background: var(--ta-seg-active); color: var(--fg); }
+/* Avatar pages select no segment; clear touch hover and the previous color transition immediately. */
+.ta-phone[data-tab='profile'] .ta-phone-seg .gg-segtab {
+  background: transparent;
+  color: var(--muted-fg);
+  transition-property: color, border-color, transform !important;
+}
 @media (max-width: 380px) { .ta-phone-seg .gg-segtab { padding: 4px; } .ta-phone-head .gg-pane-actions { gap: 0; } }
 @media (max-width: 340px) { .ta-phone-seg { margin: 0; } .ta-phone-seg .gg-segtab { font-size: var(--font-caption); } }
 
@@ -91,7 +100,7 @@
 .ta-phone-chat[hidden] { display: none; }
 .ta-phone .ta-chat { padding-top: 0; }
 /* 这一层没有底栏(owner 10-26):输入条自己垫安全区;❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
-.ta-phone .ta-chat [data-chat-composer] { padding: 8px 8px max(8px, env(safe-area-inset-bottom)) !important; border-top: 0 !important; }
+.ta-phone .ta-chat [data-chat-composer] { padding: 0 8px max(8px, env(safe-area-inset-bottom)) !important; border-top: 0 !important; }
 .ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 8px 16px 24px; -webkit-overflow-scrolling: touch; }
 /* 空间足够时居中；短屏/键盘打开时从内容顶端滚动，不裁掉引导开头。 */
 .ta-phone-gate { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; align-items: center; padding: 16px; }
@@ -128,6 +137,7 @@
 .ta-phone .ta-row + .ta-row::before { content: none; }
 .ta-phone .ta-skin .gg-settings-row + .gg-settings-row { border-top: 0; }
 .ta-phone .ta-skin .gg-settings-row { min-height: 56px; padding-inline: 0; }
+.ta-phone .ta-skin .gg-settings-row.device-machine-version { padding: 16px; border-radius: var(--radius-control); }
 .ta-phone .ta-skin .gg-settings-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
 .ta-phone .ta-skin .gg-settings-note,
 .ta-phone .ta-skin .gg-settings-row-description { font-size: var(--phone-font-note); line-height: var(--lh-body); }
@@ -199,15 +209,3 @@
 /* ── 底栏「咕咕」一格在还没有它时:默认咕咕淡一点 + 角上小「+」(底栏在 .ta-phone 之外,只读咕咕自己的 token) ── */
 .ta-phone-bar-gugu { position: relative; display: inline-flex; }
 .ta-phone-bar-gugu > :first-child { opacity: 0.5; }
-.ta-phone-bar-plus {
-  position: absolute;
-  right: -7px;
-  bottom: -4px;
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-circle);
-  background: var(--primary);
-  color: var(--primary-fg);
-}

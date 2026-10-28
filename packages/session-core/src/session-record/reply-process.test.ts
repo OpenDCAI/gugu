@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { replyProcess, replyProcesses } from './reply-process';
+import { canYieldRepliedAssistant, replyProcess, replyProcesses } from './reply-process';
+import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
 const messageId = '6417511d-8f36-4cbc-8cbb-81ce9f97df73';
@@ -17,6 +18,32 @@ function turn(tool = send()): TranscriptTurn {
   ] };
 }
 describe('explicit message streaming and reply effort', () => {
+  it('uses a real owner envelope and successful root receipt to authorize yielding', () => {
+    const next = renderDeliveryEnvelope({ route: 'chat', from: 'Owner', fromId: 'user:owner',
+      chat: 'dm', messageId: 'msg:' + messageId, content: 'Next', at: '2026-10-27T04:10:00Z' });
+    const sent = { ...send(), status: 'done' as const, outputText: `replied (id=msg:${messageId})` };
+    const record = turn(sent);
+    expect(canYieldRepliedAssistant(record, next, 'owner')).toBe(true);
+    expect(canYieldRepliedAssistant(record, next, 'another-owner')).toBe(false);
+    expect(canYieldRepliedAssistant(record, 'typed text', 'owner')).toBe(false);
+    for (const tool of [{ ...sent, parentToolCallId: 'child' }, { ...sent, server: 'not-gugu' },
+      { ...sent, status: 'error' as const }, { ...sent, outputText: 'I sent it' },
+      { ...sent, rawInput: '{truncated' }]) {
+      expect(canYieldRepliedAssistant(turn(tool), next, 'owner')).toBe(false);
+    }
+    record.items.push({ kind: 'message', id: 'new-unanswered', seq: 5, role: 'user', text: next });
+    expect(canYieldRepliedAssistant(record, next, 'owner')).toBe(false);
+  });
+  it('yields after a reply to the last owner delivery in a batch, never a mixed-sender batch', () => {
+    const envelope = (id: string, fromId = 'user:owner') => renderDeliveryEnvelope({ route: 'chat', from: 'Sender', fromId,
+      chat: 'dm', messageId: 'msg:' + id, content: 'Hi', at: '2026-10-27T04:10:00Z' });
+    const record = turn({ ...send({ reply_to_message_id: 'msg:last' }), status: 'done', outputText: `replied (id=msg:${messageId})` });
+    const input = record.items[0]; if (input.kind !== 'message') throw Error('fixture');
+    input.text = mergeDeliveryEnvelopes([envelope('first'), envelope('last')]);
+    expect(canYieldRepliedAssistant(record, envelope('next'), 'owner')).toBe(true);
+    input.text = mergeDeliveryEnvelopes([envelope('first', 'user:peer'), envelope('last')]);
+    expect(canYieldRepliedAssistant(record, envelope('next'), 'owner')).toBe(false);
+  });
   it('previews growing explicit text while message_send is still running', () => {
     expect(liveReplyOf(turn())?.activity).toEqual({ phase: 'draft', id: 'send', text: 'First part' });
     expect(liveReplyOf(turn(send({ text: 'First part, then more' })))?.activity).toMatchObject({ text: 'First part, then more' });

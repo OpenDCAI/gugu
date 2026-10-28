@@ -18,6 +18,7 @@ import {
 } from '@shared/lib/ipc/host-ws-protocol';
 import type { HostIpc, HostIpcInvokeEvent, HostIpcMain } from '../lib/host-ipc';
 import { log } from '../lib/logger';
+import type { RemotePtyPacer } from './remote-pty-pacer';
 
 type InvokeListener = (event: HostIpcInvokeEvent, ...args: unknown[]) => unknown;
 type EventListener = (event: HostIpcInvokeEvent, ...args: unknown[]) => void;
@@ -126,7 +127,9 @@ class Connection {
   constructor(
     readonly id: number,
     private readonly socket: FrameSocket,
-    private readonly host: FrameSessionHost
+    private readonly host: FrameSessionHost,
+    /** 这条线往外发的每一帧先过它(别的电脑经设备连接时:终端输出合帧限速,remote-pty-pacer.ts)。 */
+    private readonly outgoing?: RemotePtyPacer
   ) {
     this.sender = {
       id,
@@ -152,9 +155,15 @@ class Connection {
 
   unsubscribe(channel: string): void {
     this.subscriptions.delete(channel);
+    this.outgoing?.unsubscribe(channel);
   }
 
   send(message: HostWsServerMessage): void {
+    if (this.outgoing) this.outgoing.outgoing(message, (paced) => this.write(paced));
+    else this.write(message);
+  }
+
+  private write(message: HostWsServerMessage): void {
     try {
       this.socket.send(encodeHostWsMessage(message));
     } catch (error) {
@@ -167,6 +176,7 @@ class Connection {
   }
 
   dispose(): void {
+    this.outgoing?.dispose();
     for (const port of [...this.ports.values()]) port.detach();
     this.ports.clear();
   }
@@ -286,10 +296,10 @@ export class FrameSessionHost implements HostIpc {
   }
 
   /** 接上一条线。返回断开它的函数。 */
-  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy } = {}): () => void {
+  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy; outgoing?: RemotePtyPacer } = {}): () => void {
     const remote = options.remote ?? '?';
     const label = this.options.label ?? 'task-host';
-    const connection = new Connection(nextSenderId++, socket, this);
+    const connection = new Connection(nextSenderId++, socket, this, options.outgoing);
     this.connections.add(connection);
     log.info(`[${label}] client connected`, { sender: connection.id, remote });
     connection.send({

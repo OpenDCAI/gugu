@@ -16,7 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
-export { readCurrentActivityInput } from './core/sessions/session-activity-source'
+export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
 import { openLink } from './core/extensions/gugu-links'
 import type { LinkOpenOutcome } from '@shared/extensions/open-link'
@@ -66,6 +66,7 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
@@ -74,6 +75,8 @@ import { registerRPCRouter } from '@shared/lib/ipc/rpc'
 // this separately bundled module graph. Re-export the setter so the host can
 // install the same gate in this bundle instead of mutating a duplicate module.
 export { setPlatformRecoveryReadyGate } from './core/sessions/platform-recovery-gate'
+export { setSessionAdmissionPreparation } from './core/sessions/session-admission-preparation'
+export { assistantPanelLocal } from './core/app/assistant-panel-local'
 import { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 import { setupPreviewProtocol } from '@main/core/files/preview-protocol'
 import {
@@ -188,6 +191,7 @@ import { LocalExecutionContext } from '@main/core/execution-context/local-execut
 import { automationsService } from '@main/core/automations/automations-service'
 import { appService } from '@main/core/app/service'
 import { appSettingsService } from '@main/core/settings/settings-service'
+import { settleTerminalEnabled } from '@main/core/settings/terminal-visibility'
 import { browserWebContentsRegistry } from '@main/core/browser/browser-webcontents-registry'
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
@@ -338,15 +342,10 @@ import {
 import { projectManager } from '@main/core/projects/project-manager'
 import { runtimeManager } from '@main/core/runtime/runtime-manager'
 import { appScope } from '@main/app/app-scope'
-// @@@sessionpage TASKPAGE-FUSION otty-state — the consolidated agent-attention tracker (below) taps the
-// agentHookService in-process 'agent:event' hook (NOT the events bus: `events` is a main↔renderer IPC
-// bridge — a main-side events.on only receives renderer→main sends, so it would NEVER see the status
-// events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
-import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, mostUrgentAttention, parseAgentStatusView, type AgentAttention, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { type AgentEvent } from '@shared/core/agents/agentEvents'
+import { busyForVersionSwitch, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
-  sessionInScope,
   type AgentStatusChange,
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
@@ -650,6 +649,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
+  // 「终端」开关还没定值(升级上来的第一次启动)就按老用户迁移规则算一次写回,渲染层与新会话都读这一份。
+  await settleTerminalEnabled().catch((e) => log.warn('terminal setting: migration failed; it stays off until set', { error: e }))
   if (browserFeatures) {
     browserWebContentsRegistry.setKeyboardSettings(await appSettingsService.get('keyboard'))
   }
@@ -671,11 +672,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     log.error('Failed to start agent-config runtime process:', e)
   })
   acpAgentStatusBridge.initialize()
-  // @@@sessionpage TASKPAGE-FUSION otty-state — start the consolidated agent-attention tracker so the gugu
-  // host can badge the 任务 sidebar tab with how many agents are blocked on the human. Additive listener on
-  // the already-emitting status channel (must run AFTER agentHookService/acpAgentStatusBridge so the
-  // channel is live). See onEmdashAttentionChanged below.
-  installAttentionTracker()
+  installPlatformCheckpointFeed()
   // #6334 用量页的运行时长底账:同一条 'agent:status' 输出的第二个订阅者,外加每分钟一次与
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
@@ -2239,56 +2236,17 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent attention for the gugu host shell.
-// The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance signal on gugu's 消息 rail cell (gugu-dev#181: amber while someone waits on you, red only when
-// the only trouble is an error), so a blocked/errored agent is visible
-// WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
-// BLOCKED on the human: needs_user or error. working/idle are NOT attention.
-//
-// Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
-// agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the most urgent one to
-// subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
-// (owner #43: the host reaches the session backend only through exported entries; this is the session
-// backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
-const attentionStatusBySession = new Map<
-  string,
-  { status: AgentStatus; projectId: string }
->()
-const attentionSubscribers = new Set<(attention: AgentAttention) => void>()
-
-// Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
-// hook). Silent in production so the main-process log isn't spammed on every agent status change.
-const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
-
-function computeAttention(): AgentAttention {
-  return mostUrgentAttention([...attentionStatusBySession.values()].map(({ status }) => status))
-}
-
-function notifyAttentionSubscribers(): void {
-  const attention = computeAttention()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention=${attention} (subscribers=${attentionSubscribers.size})`)
-  for (const cb of attentionSubscribers) {
-    try {
-      cb(attention)
-    } catch (err) {
-      log.warn('session-page attention subscriber threw', { error: String(err) })
-    }
-  }
-}
-
 let extensionAgentFeedInstalled = false
 /**
  * Feeds「这个 agent 动了」to open extension surfaces.
  *
- * Every event type is forwarded, not just the ones the attention tracker keeps:
+ * Every event type is forwarded:
  * an extension asked to be told when agents change state, and「开始生成」is a
  * change even though nobody is blocked on a human. The bridge coalesces the
  * burst and filters by each surface's declared scope, so forwarding freely here
  * is cheap and is the only place that cannot wrongly narrow the answer.
  *
- * Same channel warning as `installAttentionTracker`: ❌ events.on(...) —— 那条是
+ * Channel warning: ❌ events.on(...) —— 那条是
  * main→renderer 单向发的,main 侧监听器永不触发。
  */
 function installExtensionAgentChangeFeed(): void {
@@ -2309,47 +2267,14 @@ function installExtensionAgentChangeFeed(): void {
   // 装上一个不响的铃比没有铃更糟。
 }
 
-let attentionListenersInstalled = false
-function installAttentionTracker(): void {
-  if (attentionListenersInstalled) return
-  attentionListenersInstalled = true
-  // Tap the in-process hook, NOT events.on(sessionAgentStatusChangedChannel): that channel is emitted
-  // main→renderer, and the main-side events bus only delivers renderer→main — a main-side listener on it
-  // never fires. The 'agent:event' hook is the in-process source both the ACP bridge and PTY hooks feed.
+let platformCheckpointFeedInstalled = false
+function installPlatformCheckpointFeed(): void {
+  if (platformCheckpointFeedInstalled) return
+  platformCheckpointFeedInstalled = true
   agentHookService.on('agent:event', (event) => {
     if (event.type === 'stop' || event.type === 'error') {
       void checkpointEmdashPlatformSession(event.sessionId)
     }
-  })
-  agentStatusWriter.on('agent:status', ({ sessionId, projectId, reading }) => {
-    // @@@otty-debug — trace the written status so an e2e can confirm the real pipeline reaches the
-    // attention tracker. Gated behind OTTY_DEBUG so it's silent in production.
-    if (OTTY_DEBUG) console.log(`[otty-tracker] status=${reading.status} conv=${sessionId.slice(0, 8)}`)
-    attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-    notifyAttentionSubscribers()
-  })
-  // 开机收残不清 `error`,角标从写入者的快照起算;已经被事件写过的会话以事件为准。
-  void agentStatusWriter
-    .snapshot()
-    .then((entries) => {
-      let changed = false
-      for (const { sessionId, projectId, reading } of entries) {
-        if (!reading || attentionStatusBySession.has(sessionId)) continue
-        attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-        changed = true
-      }
-      if (changed) notifyAttentionSubscribers()
-    })
-    .catch((err: unknown) => log.warn('session-page attention snapshot failed', { error: String(err) }))
-  // Prune removed conversations so one removed while still in an attention state can't leave a stale count.
-  onSessionsGone((scope) => {
-    let changed = false
-    for (const [sessionId, entry] of [...attentionStatusBySession]) {
-      if (!sessionInScope({ sessionId, ...entry }, scope)) continue
-      attentionStatusBySession.delete(sessionId)
-      changed = true
-    }
-    if (changed) notifyAttentionSubscribers()
   })
 }
 
@@ -2368,7 +2293,7 @@ export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()
 
-/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者、注意力计数与宿主按 agent 的流都据此回收。 */
+/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者与宿主按 agent 的流都据此回收。 */
 export function onSessionsGone(cb: (scope: SessionScope) => void): () => void {
   sessionsGoneSubscribers.add(cb)
   return () => {
@@ -2412,14 +2337,6 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (attention: AgentAttention) => void): () => void {
-  attentionSubscribers.add(cb)
-  cb(computeAttention())
-  return () => {
-    attentionSubscribers.delete(cb)
-  }
-}
-
 /**
  * TEST-ONLY (host exposes it env-gated behind GUGU_SESSION_TEST_HOOKS). Feed a REAL AgentEvent into the
  * REAL agentHookService pipeline for a REAL conversation — the exact call the ACP status bridge and the
@@ -2455,6 +2372,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
  */
 export async function emdashSessionpageSessionFacts(): Promise<Array<{
   sessionId: string
+  projectId: string
   title: string
   projectName: string
   status: AgentStatusView | null
@@ -2465,8 +2383,9 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
+    projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
-    projectName: projectName.get(session.projectId) ?? '',
+    projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
       ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null }
@@ -2528,7 +2447,7 @@ export function sessionpageSessionDigest(): Array<{
     .map((session) => ({
       conversationId: session.conversationId,
       projectId: session.projectId,
-      projectName: projectName.get(session.projectId) ?? '',
+      projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
       title: session.title,
       harness: session.harness,
       agentStatus: session.agentStatus,
@@ -2587,3 +2506,5 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 export function setSessionpageLogFileOwner(ownerUserId: string | null): string | undefined {
   return setLogFileOwner(ownerUserId)
 }
+
+export {readAssistantWorkReceipts} from '@main/core/session-timeline/task-exchanges'

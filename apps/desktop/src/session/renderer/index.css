@@ -1818,12 +1818,6 @@ html[data-gugu-dragging] :is(webview, iframe) {
   display: none;
 }
 
-/* 模式按钮(#7167)同一档让位:只剩当前模式的图标,名字收起 —— 与换模型那颗只剩厂商图形同一个说法。
-   图标一直在,所以收不成空按钮。 */
-.session-tab-bar[data-strip-narrow] [data-testid="session-mode-trigger"] [data-slot="session-mode-label"] {
-  display: none;
-}
-
 /* 一块左上的 ⋮⋮(spec session-page「一屏几块」,照 Zen 分屏块的拖柄):平时只留位置,指着页签条才淡淡显出来,
    指着它时深一档,整块描一圈 —— 告诉你抓的是整块。点是两列三行的小圆点,不是图标。 */
 .screen-block-grip {

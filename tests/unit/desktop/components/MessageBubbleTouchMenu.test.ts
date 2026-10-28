@@ -38,7 +38,7 @@ describe('MessageBubble touch menu', () => {
     })
   })
   it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -53,7 +53,7 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('routes native in-menu Copy through the same clipboard feedback', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
@@ -67,16 +67,27 @@ describe('MessageBubble touch menu', () => {
     expect(writeText).toHaveBeenCalledWith('hello')
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
-  it('copies only the URL when long-pressing a link', async () => {
-    const writeText = vi.fn(async () => {})
+  it('keeps external-link copying without resource actions on ordinary messages', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
     await longPress(messageBubble().querySelector('a')!)
     expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
     await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
-    expect(writeText).toHaveBeenCalledWith('https://example.com/path?copy=1025')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+    expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
+  })
+  it('offers one resource pair for an attachment file and copies its pinned version', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, true, vi.fn(), { content: '[附件] notes.txt (text/plain)\n[Size] 12\n[Kind] file', file: { id: '12345678-1234-1234-1234-123456789abc', version: 3 } })
+    await longPress()
+    expect(document.querySelectorAll('[data-testid="message-action-copy-resource-url"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-testid="message-action-send-resource-url"]')).toHaveLength(1)
+    await clickElement(document.querySelector('[data-testid="message-action-copy-resource-url"]')!)
+    expect(writeText).toHaveBeenCalledWith('gugu-file://12345678-1234-1234-1234-123456789abc?v=3')
   })
   it('opens a link through its existing anchor action', async () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
@@ -114,7 +125,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     selectMessageText('hello')
@@ -133,7 +144,7 @@ describe('MessageBubble touch menu', () => {
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }))
   })
   it('ignores a selection outside the message and retains whole-message copying', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await renderMessage(undefined, false)
     const outside = document.createTextNode('unrelated selection')
@@ -228,7 +239,8 @@ describe('MessageBubble touch menu', () => {
     })
     const receipt = harness.container.querySelector('[data-testid="message-read-receipt"]') as HTMLElement | null
     const bubble = messageBubble()
-    const innerRow = bubble.parentElement as HTMLElement | null
+    const innerRow = bubble.closest<HTMLElement>('[data-message-bubble-row="true"]')
+    expect(innerRow?.contains(receipt)).toBe(true)
     expect(receipt?.style.position).toBe('absolute')
     // 浮层锚在气泡那一行上(不是整列),贴着气泡左侧 —— 原先 left:-14px 钉在整列最左边,离短气泡半个屏幕
     expect(receipt?.style.right).toBe('100%')
@@ -432,6 +444,7 @@ async function renderMessage(
   onReaction = vi.fn(),
   options: {
     content?: string
+    file?: { id: string; version: number }
     isMine?: boolean
     isAgent?: boolean
     isGroup?: boolean
@@ -449,6 +462,7 @@ async function renderMessage(
       msg: message({
         id: 'msg-1',
         content: options.content ?? 'hello from mobile',
+        ...(options.file ? { content_type: 'attachment', file_item_id: options.file.id, file_version: options.file.version } as const : {}),
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',

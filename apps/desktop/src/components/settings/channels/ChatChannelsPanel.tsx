@@ -11,8 +11,6 @@ import { SettingsGroup, SettingsNote, SettingsRow } from '../SettingsPrimitives'
 import { ChannelAgentPicker } from './ChannelAgentPicker'
 import { useOwnedAgents } from './channelAgents'
 import { ChannelBrandIcon } from './ChannelBrandIcon'
-import { useChatChannels } from './useChatChannels'
-import { WechatConnectDialog } from './WechatConnectDialog'
 
 const body = 'text-[length:var(--font-body)] leading-[1.5]'
 
@@ -82,17 +80,6 @@ function DisconnectDialog({ onCancel, onConfirm }: { onCancel: () => void; onCon
   )
 }
 
-function ComingSoonRow({ kind }: { kind: 'feishu' | 'dingtalk' }) {
-  const { t } = useTranslation('settings')
-  return (
-    <SettingsRow
-      leading={<ChannelBrandIcon kind={kind} size={28} />}
-      title={t(`channels.${kind}`)}
-      control={<span className="gg-chip">{t('channels.comingSoon')}</span>}
-    />
-  )
-}
-
 /** 默认聊天工具:agent 主动找你(到点提醒等)推到哪一个;选项 = 已连接的 + 不要默认。 */
 function DefaultChannelPicker({ channels, onPick }: { channels: ChatChannel[]; onPick: (kind: ChatChannelKind | null) => void }) {
   const { t } = useTranslation('settings')
@@ -139,7 +126,7 @@ function DefaultChannelPicker({ channels, onPick }: { channels: ChatChannel[]; o
   )
 }
 
-function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient; list: ChatChannelList; apply: (next: ChatChannelList) => void }) {
+export function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient; list: ChatChannelList; apply: (next: ChatChannelList) => void }) {
   const { t } = useTranslation('settings')
   const agents = useOwnedAgents()
   const time = useTimeLabel()
@@ -198,65 +185,5 @@ function ConnectedChannels({ client, list, apply }: { client: ChatChannelsClient
         />
       ) : null}
     </>
-  )
-}
-
-/**
- * 聊天渠道的整块内容(「连接聊天工具」):已连接 / 默认聊天工具 / 可用,点「连接」弹扫码框。
- * 收发由云电脑管家替用户挂着(#7199),电脑关着也能聊;这一块只是管家 /channels 的界面,桌面、网页、手机都能用。
- *
- * 挂载合同(「助理」App 的「能力 · 聊天工具」页、设置 →「聊天渠道」兼容入口都用它):
- *  · 无 props,自己读数据(管家 /channels,10 秒刷新一次)、自己弹扫码框与断开确认;外壳只给页框(标题、滚动)。
- *  · 依赖:登录态(`getRendererAccessToken`)、`ContactsProvider`(列自己名下的 agent);弹层用 `--z-settings-modal`。
- *  · 根节点 data-testid = `chat-channels-panel`;这个环境没开放时整块只有一句「聊天渠道暂未开放」(`channels-not-open`)。
- */
-export function ChatChannelsPanel() {
-  const { t } = useTranslation('settings')
-  const { client, list, status, error, refresh, apply } = useChatChannels()
-  const [connecting, setConnecting] = useState(false)
-
-  if (status === 'not_open' || !client) {
-    return (
-      <div className="gg-settings-page" data-testid="chat-channels-panel">
-        <SettingsNote data-testid="channels-not-open">{t('channels.notOpen')}</SettingsNote>
-      </div>
-    )
-  }
-
-  const wechatConnected = list?.channels.some((c) => c.kind === 'wechat') ?? false
-  return (
-    <div className="gg-settings-page" data-testid="chat-channels-panel">
-      <SettingsNote>{t('channels.intro')}</SettingsNote>
-      {status === 'failed' ? (
-        <SettingsNote tone="danger" data-testid="channels-load-failed">
-          {error}{' '}
-          <Button size="sm" variant="ghost" onClick={() => void refresh()}>{t('channels.reload')}</Button>
-        </SettingsNote>
-      ) : null}
-
-      {list ? <ConnectedChannels client={client} list={list} apply={apply} /> : null}
-
-      <SettingsGroup title={t('channels.available')}>
-        {wechatConnected ? null : (
-          <SettingsRow
-            data-testid="wechat-channel-available"
-            leading={<ChannelBrandIcon kind="wechat" size={28} />}
-            title={t('channels.wechat')}
-            description={t('channels.wechatHint')}
-            control={(
-              <Button size="sm" variant="primary" disabled={!list} onClick={() => setConnecting(true)} data-testid="wechat-channel-connect">
-                {t('channels.connect')}
-              </Button>
-            )}
-          />
-        )}
-        <ComingSoonRow kind="feishu" />
-        <ComingSoonRow kind="dingtalk" />
-      </SettingsGroup>
-
-      {connecting && list ? (
-        <WechatConnectDialog client={client} list={list} refresh={refresh} apply={apply} onClose={() => setConnecting(false)} />
-      ) : null}
-    </div>
   )
 }

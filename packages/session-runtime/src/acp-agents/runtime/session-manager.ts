@@ -1,3 +1,6 @@
+import { findToolImage, trimItemsForTransport, type ToolImageLookup } from '@gugu/session-core/session-record';
+import { randomUUID } from 'node:crypto';
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type {
@@ -120,6 +123,7 @@ type StartupSettingDimension = 'model' | 'effort';
 const TRANSCRIPT_TICK_MS = 100;
 
 interface SessionRecordBase {
+  closing?: boolean;
   idleCompaction?: IdleCompaction;
   input: AcpStartInput;
   cell: SessionCell;
@@ -220,6 +224,11 @@ function collectToolNodes(nodes: readonly TranscriptItem[], out: Array<{ id: str
 export interface HistoryPage {
   turns: TranscriptTurn[];
   nextCursor: number | null;
+  /** 此刻的改动游标:下一次带着它问 `changedSince`,只拿这之后新增或改过的回合(@@@history-change-cursor)。 */
+  cursor: HistoryCursor;
+  reset: boolean;
+  /** 此刻已提交的回合数:比手里的少 = 有回合被拿掉了(回退 / 分叉)。 */
+  count: number;
 }
 
 /**
@@ -362,10 +371,17 @@ export class SessionManager implements InboundRouter {
   private readonly invalidatingProcesses = new Map<string, Promise<void>>();
   /** Terminal transcript retained for the session page after an abnormal provider exit (spec boundary). */
   private readonly closedSessionHistories = new Map<string, TranscriptTurn[]>();
+  /**
+   * @@@history-change-cursor — 每条会话一个改动游标:已提交的每一轮(按对象身份)记下它是在第几次改动时出现的。
+   * reducer 不原地改回合:新增的、改过的轮都是新对象,于是「游标之后有哪些轮」= 没见过的对象 + 记号比游标大的对象。
+   * 界面每提交一轮只取这一段(远程看的人每一字节都经咕咕云中转,10-26 事故里是每轮重读整份 7 MB)。
+   */
+  private readonly historyRevs = new Map<string, { epoch: string; rev: number; of: WeakMap<TranscriptTurn, number> }>();
   /** Suppress the cell's close callback while onProcessClosed owns cleanup ordering. */
   private readonly processingProcessClose = new Set<string>();
   /** A deliberate stop must not be reclassified as an abnormal provider failure. */
   private readonly intentionalProcessCloses = new Set<string>();
+  private readonly stoppingSessions = new Map<string, Promise<Result<void, AcpStopSessionError>>>();
   /** Starts whose owner stopped them mid-flight: their failure names the step that was abandoned. */
   private readonly abandonedStarts = new Set<string>();
   /**
@@ -382,10 +398,15 @@ export class SessionManager implements InboundRouter {
   ) {}
 
   start(input: AcpStartInput): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
+    const stopping = this.stoppingSessions.get(input.sessionId);
+    if (stopping) return stopping.then(() => this.start(input));
     const starting = this.startingSessions.get(input.sessionId);
     if (starting) return starting;
 
     const existing = this.cells.get(input.sessionId);
+    if (existing?.closing) return this.stop(input.sessionId).then(result => result.success
+      ? this.start(input)
+      : acpErr.initializeFailed(toSerializedError(result.error)));
     if (existing && existing.phase !== 'lost') {
       return Promise.resolve(ok({ providerSessionId: existing.cell.acpSessionId }));
     }
@@ -608,6 +629,7 @@ export class SessionManager implements InboundRouter {
           });
         });
     }
+    this.deps.logger.warn('SessionManager: starting provider process', { sessionId: input.sessionId, providerId: input.providerId, reason: this.reconnectingSessions.get(input.sessionId)?.kind ?? (input.providerSessionId ? 'resume-unspecified' : 'startup'), hostPid: process.pid, model: input.platformModel ?? null });
     const acquire = await acquireAsResult(
       this.connections,
       processKey,
@@ -899,46 +921,15 @@ export class SessionManager implements InboundRouter {
             await acquired.release();
             return acpErr.newSessionFailed(toProviderSerializedError(e));
           }
-          // 断线重连(lost 记录)也一样:那次续的 id 是 lost 记录钉回来的,没跑完过一轮的接不上就新开。
-          if (!neverRan && this.reconnectingSessions.has(input.sessionId)) throw e;
-          // ⚠️ 这里**不抛**。dev 的会话模型重做曾把这一处改成 `throw e`,理由是「load 失败绝不是
-          // 创建另一条 provider 会话的许可 —— 那会保住产品会话 id 而悄悄换掉它的 provider 历史」。
-          // 那条理由成立的前提是**降级只能是静默的**;它不再成立了:
-          //   ① 会话页现在自己存着历史(#5381),会话照常打开、用户说过的话照常在屏幕上;
-          //   ② 换引擎这件事下面会在转录开头画一条线写明原因 —— 降级看得见,不是悄悄换。
-          // 而抛出去的代价是屏幕上只剩「Failed to load chat」加一个**注定失败**的 Retry
-          // (#5553 自己量到:provider 那侧确实不在了,点多少次都是同一个失败)。
-          // owner 2026-09-13 的裁决:「不可能打不开,打不开是 bug 级别的问题,基本代表产品不可用」
-          // ⇒ 「打不开」不是可以拿来换「合同更严格」的一边,它是 P0。❌ 别再改回 throw。
-          //
-          // ⚠️ **原因必须带上**。这条 warn 是历史丢失唯一的痕迹,而
-          // `session-history-replay` 的合同写着「截断与失败都要留下可诊断的痕迹 ——
-          // 『少了一截』和『本来就没有』在界面上长得一模一样」。只写「failed」的话,
-          // 事后没有任何东西能分开「provider 认不出这条会话」与「进程换了家、找不到 rollout」
-          // (2026-09-07 隔离栈实撞:换计费路那一跳 load 失败,日志里查不出为什么)。
+          // A failed resume is not permission to replace an existing provider history.
+          // Only the host's explicit never-ran declaration may create its first session.
+          if (!neverRan) throw e;
           this.deps.logger.warn(
-            neverRan
-              ? 'SessionManager: provider session missing and the session never ran; starting a new session'
-              : 'SessionManager: loadSession failed, starting a new session',
-            {
-              sessionId: input.sessionId,
-              cause: toSerializedError(e),
-            }
+            'SessionManager: provider session missing and the session never ran; starting a new session',
+            { sessionId: input.sessionId, cause: toSerializedError(e) }
           );
-          // #5381 ④ 日志不是给用户看的。会话页现在自己存着历史 ⇒ 屏幕上照旧是满屏对话,
-          // 而 agent 那边一个字都没有 —— 降级到这里为止都还是**静默**的。
-          // 把原因带出去,下面在新会话的转录开头画一条界。
-          // #7223 那支也画:「没聊过」是宿主按记录推断的,万一是 #5381 之前聊过的老会话,这条界就是如实告知。
           contextResetReason = e instanceof Error ? e.message : String(e);
-          // ⚠️ 重放窗口在 cell 那一侧也必须关。上面 `beginReplay()` 把状态机推进了 `replaying`,
-          // 成功路径在 try 里 `endReplay()` 关掉它;失败退回 `session/new` 这条路原先谁都没关 ——
-          // 于是这条会话此后**一条回合都不记录**:2026-09-13 追 dev 时对照实测,load 成功的会话
-          // 发一句话得到 `[["message"]]`,而降级后的会话得到 `[]`,连用户自己刚打的字都没留下,
-          // 重启就什么都没有了。它不报错、界面照常能打字,是一处静默失败。
-          // ❌ 不要挪进下面的 finally:成功路径已经在 try 里关过一次,再关就是重复触发。
-          // #7223 没跑完过一轮的那支关窗但留在 starting(见 `abandonReplay`):排着的话等新 id 到手再发。
-          if (neverRan) record.cell.abandonReplay(Date.now());
-          else record.cell.endReplay(Date.now());
+          record.cell.abandonReplay(Date.now());
         } finally {
           this.removeLoading(connection.key, input.sessionId);
           // 重放窗口关。放在 finally:失败路径上也必须关,否则这条 record 之后所有真实回合
@@ -1103,6 +1094,7 @@ export class SessionManager implements InboundRouter {
   async prompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpSendPromptError>> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1118,6 +1110,7 @@ export class SessionManager implements InboundRouter {
   }, AcpSendPromptError> {
     const record = this.cells.get(input.sessionId);
     if (!record) return acpErr.sessionNotFound(input.sessionId);
+    if (record.closing) return acpErr.sessionBusy('Session is closing; resume it after teardown');
     if (record.phase === 'lost') {
       return acpErr.invalidState(
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
@@ -1135,7 +1128,8 @@ export class SessionManager implements InboundRouter {
     startInput?: AcpStartInput,
   ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
-    if (!record && startInput) {
+    if (record?.closing) return acpErr.invalidState('Session is closing; resume it after teardown');
+    if ((!record || record.phase === 'lost') && startInput) {
       if (startInput.sessionId !== input.sessionId) {
         return acpErr.invalidState(
           `Queue prompt session ${input.sessionId} does not match startup session ${startInput.sessionId}`
@@ -1256,8 +1250,18 @@ export class SessionManager implements InboundRouter {
     return record.cell.setPromptDraft(draft);
   }
 
-  async stop(sessionId: string): Promise<Result<void, AcpStopSessionError>> {
+  async stop(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
+    const pending = this.stoppingSessions.get(sessionId);
+    if (pending) return pending;
     let record = this.cells.get(sessionId);
+    if (onlyIfIdle && record) {
+      const state = record.cell.sessionState;
+      if (record.phase !== 'ready' || state.lifecycle !== 'ready' || state.isGenerating || record.cell.hasInFlightPrompt
+        || state.pendingPermissions.length > 0 || state.queuedPrompts.length > 0
+        || state.backgroundAgentCount > 0 || state.backgroundCommandCount > 0) {
+        return acpErr.stopFailed(toSerializedError(new Error('Session is no longer idle; reclamation declined')));
+      }
+    }
     if (!record) {
       // 一次起不来的启动只留下摘要(`lost` + start-failed),没有 record。停止 / 删除这条会话时它也得走,
       // 否则状态投影会一直说 error,会话编排一直当它 lost —— 连会话删了都还在。
@@ -1279,11 +1283,38 @@ export class SessionManager implements InboundRouter {
       record = this.cells.get(sessionId);
     }
     if (!record || record.phase !== 'ready') return ok();
-    let stopPending = false;
+    // Withdraw admission synchronously, before session/close can remove the provider-side id.
+    record.closing = true;
+    this.syncRecord(record);
+    const operation = this.stopReadyRecord(sessionId, record);
+    this.stoppingSessions.set(sessionId, operation);
+    try { return await operation; } finally {
+      if (this.stoppingSessions.get(sessionId) === operation) this.stoppingSessions.delete(sessionId);
+    }
+  }
+
+  private async stopReadyRecord(
+    sessionId: string,
+    record: SessionRecord & { phase: 'ready' },
+  ): Promise<Result<void, AcpStopSessionError>> {
     const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
+    // session/close is courteous cleanup, not authority to keep the process alive.
+    // Its transport can be silent/broken; SIGTERM and actual exit own final teardown.
     try {
-      if (!alreadyStopping) await record.cell.closeSession();
+      if (!alreadyStopping) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            record.cell.closeSession(),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error('Provider session/close timed out after 1000ms')), 1_000);
+            }),
+          ]);
+        } catch (error) {
+          this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
+        } finally { if (timer) clearTimeout(timer); }
+      }
       this.deps.promptQueueStore?.clear(sessionId);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
@@ -1291,12 +1322,9 @@ export class SessionManager implements InboundRouter {
       return ok();
     } catch (error) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending') {
-        stopPending = true;
         return acpErr.stopPending();
       }
       return acpErr.stopFailed(toSerializedError(error));
-    } finally {
-      if (!stopPending) this.intentionalProcessCloses.delete(record.processKey);
     }
   }
 
@@ -1708,6 +1736,14 @@ export class SessionManager implements InboundRouter {
     };
   }
 
+  getToolImage(sessionId: string, itemId: string, index: number): ToolImageLookup {
+    const live = this.cells.get(sessionId);
+    const history = live ? live.cell.transcript.history : (this.closedSessionHistories.get(sessionId) ?? []);
+    const active = live?.cell.transcript.activeTurn;
+    // Inspect the authoritative turn, cloning only the requested image.
+    return structuredClone(findToolImage(active ? [...history, active] : history, itemId, index, Number.POSITIVE_INFINITY));
+  }
+
   exportParsedTranscript(sessionId: string): Result<string, AcpExportTranscriptError> {
     const record = this.cells.get(sessionId);
     if (!record) return acpErr.sessionNotFound(sessionId);
@@ -1720,12 +1756,28 @@ export class SessionManager implements InboundRouter {
     return ok(record.cell.exportRawLog());
   }
 
-  getHistory(sessionId: string, before?: number, limit = 50): HistoryPage {
-    const turns = this.getChatHistory(sessionId).committed;
+  /**
+   * 一页已提交的回合(由旧到新),或者 `changedSince` 给了时:那个游标之后新增或改过的全部回合(不分页 —— 它们就是
+   * 这段时间里新产生的内容)。只克隆交出去的那几轮,❌ 为了取一页把整份历史克隆一遍。
+   */
+  getHistory(sessionId: string, before?: number, limit = 50, changedSince?: HistoryCursor): HistoryPage {
+    const live = this.cells.get(sessionId);
+    const turns: readonly TranscriptTurn[] = live ? live.cell.transcript.history : (this.closedSessionHistories.get(sessionId) ?? []);
+    let tracker = this.historyRevs.get(sessionId);
+    if (!tracker) this.historyRevs.set(sessionId, (tracker = { epoch: randomUUID(), rev: 0, of: new WeakMap() }));
+    for (const turn of turns) if (!tracker.of.has(turn)) tracker.of.set(turn, ++tracker.rev);
+    const marks = tracker.of;
+    const head = { cursor: { epoch: tracker.epoch, seq: tracker.rev }, count: turns.length, reset: false };
+    if (changedSince !== undefined) {
+      if (changedSince.epoch !== tracker.epoch || changedSince.seq > tracker.rev) {
+        return { turns: [], nextCursor: null, ...head, reset: true };
+      }
+      return { turns: structuredClone(turns.filter((turn) => marks.get(turn)! > changedSince.seq)), nextCursor: null, ...head };
+    }
     const filtered = before === undefined ? turns : turns.filter((turn) => turn.seq < before);
     const page = [...filtered].sort((a, b) => b.seq - a.seq).slice(0, limit);
     const nextCursor = page.length === limit ? page.at(-1)!.seq : null;
-    return { turns: page.reverse(), nextCursor };
+    return { turns: structuredClone(page.reverse()), nextCursor, ...head };
   }
 
   getSessionState(sessionId: string): SessionState {
@@ -1749,7 +1801,8 @@ export class SessionManager implements InboundRouter {
   syncTerminals(sessionId: string): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
-    const terminals = this.getTerminals(sessionId);
+    // Output already has its own live log; metadata must not replay the accumulated buffer.
+    const terminals = this.getTerminals(sessionId).map((terminal) => ({ ...terminal, output: '' }));
     publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
     record.lastSynced.terminals = terminals;
   }
@@ -1790,6 +1843,7 @@ export class SessionManager implements InboundRouter {
       sessionId: params.sessionId,
       update: params.update,
     });
+    record.cell.noteProviderUpdate();
     this.applyRawMeta(record.cell, params.update);
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
     // (`unregisterRoutes` 按 conversationId 清)。
@@ -2037,10 +2091,10 @@ export class SessionManager implements InboundRouter {
    * 都包含自身 id，因此停止后重新启动必须取得新的 adapter 进程；key 与 pid 一并给出，便于
    * 诊断是否真的建立了新的进程归属。
    */
-  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null } | null {
+  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null; closing?: true } | null {
     const record = this.cells.get(sessionId);
     if (!record || record.phase !== 'ready') return null;
-    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid };
+    return { connectionKey: record.processKey, pid: record.connectionLease.value.pid, ...(record.closing ? { closing: true as const } : {}) };
   }
 
   /**
@@ -2085,6 +2139,9 @@ export class SessionManager implements InboundRouter {
   ): SessionRecord {
     const record = {} as SessionRecord;
     const provider = this.deps.agentHost.get(input.providerId);
+    const assistant = input.sessionMeta?.guguAssistant;
+    const assistantOwnerId = input.providerId === 'claude' && isRecord(assistant)
+      && typeof assistant.ownerId === 'string' && assistant.ownerId.trim() ? assistant.ownerId : null;
     const callbacks: SessionCellCallbacks = {
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
@@ -2101,6 +2158,9 @@ export class SessionManager implements InboundRouter {
       onClosed: () => {
         if (this.processingProcessClose.has(input.sessionId)) return;
         this.removeRecord(input.sessionId, true, true);
+      },
+      onPromptRejected: async () => {
+        await record.connectionLease?.value.stopProcess();
       },
     };
     const cell = new SessionCell({
@@ -2138,6 +2198,10 @@ export class SessionManager implements InboundRouter {
         : {}),
       resolveAttachment: this.deps.resolveAttachment,
       acceptsImagePrompts: false,
+      ...(assistantOwnerId && this.deps.promptQueueStore ? {
+        assistantOwnerId,
+        queuedPromptsPersisted: () => record.queuePersistenceError === null,
+      } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
       logger: this.deps.logger,
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。
@@ -2178,7 +2242,6 @@ export class SessionManager implements InboundRouter {
       },
     });
     this.cells.set(input.sessionId, record);
-    const assistant = input.sessionMeta?.guguAssistant;
     if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
       record.idleCompaction = new IdleCompaction(
         () => ({ ...cell.idleCompactionState, idle: record.phase === 'ready' && cell.idleCompactionState.idle }),
@@ -2498,7 +2561,9 @@ export class SessionManager implements InboundRouter {
     publishLiveModelState(record.live.states.agents, agentSnapshot, record.lastSynced.agents);
     record.lastSynced.agents = agentSnapshot;
 
-    const activeTurn = record.cell.transcript.activeTurn;
+    const sourceTurn = record.cell.transcript.activeTurn;
+    const items = sourceTurn ? trimItemsForTransport(sourceTurn.items) : null;
+    const activeTurn = sourceTurn && items !== sourceTurn.items ? { ...sourceTurn, items: items! } : sourceTurn;
     publishLiveModelState(record.live.states.activeTurn, activeTurn, record.lastSynced.activeTurn);
     record.lastSynced.activeTurn = activeTurn;
 
@@ -2534,6 +2599,7 @@ export class SessionManager implements InboundRouter {
       projectId: input.projectId,
       providerId: input.providerId,
       lifecycle: state.lifecycle,
+      ...(this.cells.get(input.sessionId)?.closing ? { closing: true } : {}),
       isGenerating: state.isGenerating,
       lastStopReason: cell?.sessionState.lastStopReason ?? null,
       lastTurnOutcome: cell?.sessionState.lastTurnOutcome ?? 'none',
@@ -2602,6 +2668,7 @@ export class SessionManager implements InboundRouter {
   private deleteSessionSummary(sessionId: string): void {
     this.recentActions.delete(sessionId)
     this.closedSessionHistories.delete(sessionId)
+    this.historyRevs.delete(sessionId)
     this.sessionsList.states.list.produce((draft) => {
       delete draft[sessionId];
     });

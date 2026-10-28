@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { verifyCliConnectionRecord } from '../../helpers/cli-connection';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
@@ -9,11 +10,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'wecom',
-    name: '企业微信',
-    description: {
-      en: 'WeCom messages, docs, calendar, to-dos and meetings',
-      'zh-CN': '企业微信的消息、文档、日程、待办和会议',
-    },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://work.weixin.qq.com',
     abilities: [
       { en: 'Send messages and files to chats', 'zh-CN': '给会话发消息、发文件' },

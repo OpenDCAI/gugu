@@ -6,6 +6,8 @@
  * - 订上之前要发的帧全部按先后排着,订上后照原序发完 —— 窗口帧按 seq 拼,❌ 只留最新一份(createTopicPublisher 那种
  *   只适合整份状态)。排队有上限(`queueFrames` 条 / `queueChars` 字):超了说明这条一直订不上,离开它(见下),
  *   发问端下一问会重新报到、窗口重开。
+ * - ACK 超时不表示丢帧,不拆线也不让它阻塞后续帧与心跳;只有明确拒收(error)才离开。
+ *   流量在历史增量/裁剪与远端 PTY pacer 处减少,不拿可能丢失的 ACK 给整条线发配额。
  * - 离开之前先在这条上说 `taskhost.detached`,再走:发问端据此下一问前重新报到;那一声丢了,它的一问会超时,超时就重新报到、
  *   原样重发一次(同一个 request_id,宿主按它去重 —— deviceRpcResponder)。离开时经它开的会话页窗口一并关掉。
  * - 什么时候离开:`idleMs` 里它一问都没问(开着窗口的发问端每 20 s 有一拍心跳,不会算空闲);报到的发问端超过 `maxAskers`
@@ -131,8 +133,12 @@ export function createDeviceRpcAskers<TChannel>(input: {
   }
 
   const send = (asker: Asker, payload: unknown) => {
-    if (!asker.channel) return
-    sendBroadcast(asker.channel, 'broadcast', payload).catch((error: unknown) => {
+    const channel = asker.channel
+    if (!channel) return
+    void channel.send({ type: 'broadcast', event: 'broadcast', payload }).then((result) => {
+      if (result === 'error') throw new Error('broadcast refused')
+    }).catch((error: unknown) => {
+      if (asker.channel !== channel || asker.leaving) return
       warn(`[device-rpc] send failed on ${asker.id.slice(0, 8)}: ${(error as Error)?.message ?? String(error)}`)
       // 这一帧没送到,发问端那边按 seq 会一直等它:离开这条(经它开的窗口一并关掉),发问端下一问重新报到、窗口重开。
       leave(asker, 'send_failed')

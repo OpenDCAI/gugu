@@ -29,6 +29,7 @@ export function executeFromItem(
   return {
     kind: 'execute',
     id: item.id,
+    ...(item.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: item.trimmedChars }) } : {}),
     command: item.command ?? item.title,
     ...(item.inputSummary !== undefined ? { inputSummary: item.inputSummary } : {}),
     ...(outputText !== undefined ? { outputText } : {}),

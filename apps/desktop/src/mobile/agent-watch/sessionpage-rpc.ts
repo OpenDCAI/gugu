@@ -3,7 +3,9 @@ import { invokePhoneHost } from '../local-agent/phoneHostRpc'
 import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
-import { readCachedDevices } from '@/store/devicesCache'
+import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
+import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
+import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { callDeviceRpc } from '@/lib/deviceRpc'
@@ -55,10 +57,28 @@ import type { SessionpageSessionOptionsWithMenu } from '@main/core/session-timel
 const log = rendererLogger('mobile/agent-watch')
 const hosts = new Map<string, SessionHostClient>()
 
+function reachable(deviceId: string): boolean {
+  const device = readCachedDevices().find((row) => row.device_id === deviceId)
+  const snapshot = getCloudComputerState().snapshot
+  const cloud = snapshot?.deviceId === deviceId ? snapshot.state : device?.cloud_computer
+  // An empty/unfinished device directory is unknown, not proof of an offline host.
+  return remoteHostReachable({
+    isOnline: device?.is_online !== false,
+    directTerminal: false,
+    ...(cloud === 'awake' || cloud === 'asleep' || cloud === 'waking' ? { cloudComputer: cloud } : {}),
+  })
+}
+
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+      isReachable: () => reachable(deviceId),
+      subscribeReachability: (listener) => {
+        const stopCloud = subscribeCloudComputerState(listener)
+        const stopDevices = subscribeCachedDevices(listener)
+        return () => { stopCloud(); stopDevices() }
+      },
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -114,6 +134,7 @@ export function machineRpc(deviceId: string) {
  */
 function once(deviceId: string) {
   return createRPCClient<RpcRouter>(async (channel, ...args) => {
+    if (!reachable(deviceId)) throw new SessionpageRpcError('unreachable', translateSessionMessage('deviceScope.unreachable', { device: deviceId.slice(0, 8) }))
     const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
     return reply.result?.value
@@ -214,6 +235,19 @@ export function cancelSessionTurn(deviceId: string, sessionId: string): Promise<
   return value(rpc(deviceId).sessionTimeline.sessionCancel({ conversationId: sessionId }))
 }
 
+/**
+ * 运行时说还在跑的后台命令(#6582 的筛子,`null` = 那台机器的运行时没报这一格、不筛)。
+ * 老版本电脑没有这条路由 ⇒ 抛;调用方当作「不知道」(不筛、没有停止键),同桌面遇到旧运行时。
+ */
+export function fetchBackgroundTasks(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }> {
+  return value(rpc(deviceId).sessionTimeline.sessionBackgroundTasks({ conversationId: sessionId }))
+}
+
+/** 停一个后台任务:命令给 asyncTaskId,子智能体给派它的 tool_use id(同桌面那一行的停止键)。 */
+export function stopBackgroundTask(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }> {
+  return value(rpc(deviceId).sessionTimeline.sessionStopBackgroundTask({ conversationId: sessionId, stopId }))
+}
+
 /** 重命名 / 置顶 / 归档(桌面侧栏同三条)。 */
 export function updateSession(
   deviceId: string,
@@ -252,7 +286,7 @@ export function fetchCreateOptions(deviceId: string): Promise<SessionpageSession
   return value(rpc(deviceId).sessionTimeline.sessionCreateOptions())
 }
 
-/** 选定 harness 在那台机器上能跑哪些模型。 */
+/** 选定 harness 在那台机器上能跑哪些模型。`sessionView` 给 null = 那台电脑按自己的「终端」开关定。 */
 export function fetchCreateModels(
   deviceId: string,
   harness: string,

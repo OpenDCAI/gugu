@@ -165,6 +165,16 @@ export function conversationLink(chatId: string, messageId?: string): string {
   return href
 }
 
+const MESSAGE_UUID = new RegExp(`^${UUID}$`, 'i')
+
+/**
+ * The link to a message that was read from the database. Links address messages by UUID; a failure notice written
+ * before its id was one (`turn-failure:batch:<hash>`) is still a real message, and its link opens its conversation.
+ */
+export function storedMessageLink(chatId: string, messageId: string): string {
+  return conversationLink(chatId, MESSAGE_UUID.test(messageId) ? messageId : undefined)
+}
+
 export function parseConversationLink(href: string): ConversationLink | null {
   const match = LINK.exec(href.trim())
   return match ? { chatId: match[1]!.toLowerCase(), ...(match[2] ? { messageId: match[2].toLowerCase() } : {}) } : null
@@ -211,10 +221,18 @@ function buildAppLink(input: ParsedExtensionLink, scheme: string): string {
 }
 
 /** Stored chat/file links are independent of the build that writes or reads the message. */
+export const APP_VARIANT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
+export type AppDetailLink = { kind: 'app-detail'; extensionId: string; deviceId?: string; variant?: string }
+function validAppDetail(target: AppDetailLink): boolean {
+  return /^[a-z0-9][a-z0-9-]{1,63}$/.test(target.extensionId)
+    && (target.deviceId === undefined || (!!target.deviceId && target.deviceId.trim() === target.deviceId && !/\s/.test(target.deviceId)))
+    && (target.variant === undefined || (target.deviceId !== undefined && APP_VARIANT_NAME_PATTERN.test(target.variant)))
+}
 export type GuguLinkTarget =
   | ({ kind: 'chat' } & ConversationLink)
   | ({ kind: 'file' } & GroupFileLink)
   | ({ kind: 'app' } & ParsedExtensionLink)
+  | AppDetailLink
   | { kind: 'session'; sessionId: string }
   | { kind: 'project'; projectId: string }
   | { kind: 'server-login'; code: string }
@@ -237,6 +255,14 @@ export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {
   }
   const scheme = url.protocol.slice(0, -1)
   if (!/^gugu(?:-[a-z0-9-]+)?$/.test(scheme)) return null
+  if (url.hostname === 'app') {
+    if (url.username || url.password || url.port || url.hash || !/^\/[^/]+$/.test(url.pathname)
+      || [...url.searchParams.keys()].some((key) => !['device', 'variant'].includes(key) || url.searchParams.getAll(key).length !== 1)) return null
+    const target: AppDetailLink = { kind: 'app-detail', extensionId: url.pathname.slice(1),
+      ...(url.searchParams.has('device') ? { deviceId: url.searchParams.get('device')! } : {}),
+      ...(url.searchParams.has('variant') ? { variant: url.searchParams.get('variant')! } : {}) }
+    return validAppDetail(target) ? target : null
+  }
   if (url.hostname === 'ext') {
     if (raw.length > MAX_EXTENSION_LINK_LENGTH) return null
     const [extensionId, tab, ...rest] = url.pathname.split('/').filter(Boolean)
@@ -280,6 +306,11 @@ export function guguLink(target: Exclude<GuguLinkTarget, { kind: 'server-login' 
     case 'app':
       if (!scheme) throw new Error('An App link needs the build scheme')
       return buildAppLink(target, scheme)
+    case 'app-detail': {
+      if (!scheme || !validAppDetail(target)) throw new Error('An App detail link needs an App id, the build scheme, and a device for its variant')
+      const query = new URLSearchParams({ ...(target.deviceId ? { device: target.deviceId } : {}), ...(target.variant ? { variant: target.variant } : {}) })
+      return `${scheme}://app/${target.extensionId}${query.size ? `?${query}` : ''}`
+    }
     case 'session':
     case 'project':
       if (!scheme) throw new Error('An external resource link needs the build scheme')
@@ -294,6 +325,13 @@ export function linkTargetOf(args: Record<string, unknown>, own: { id: string; c
     return value
   }
   switch (args.kind ?? 'app') {
+    case 'app-detail': {
+      const target: AppDetailLink = { kind: 'app-detail', extensionId: args.app === undefined ? own.id : text(args.app, 'app'),
+        ...(args.device === undefined ? {} : { deviceId: text(args.device, 'device') }),
+        ...(args.variant === undefined ? {} : { variant: text(args.variant, 'variant') }) }
+      if (!validAppDetail(target)) throw new Error('Invalid App detail reference: a variant needs a device and an ASCII slug')
+      return target
+    }
     case 'chat': return { kind: 'chat', chatId: text(args.chat, 'chat'), ...(args.message ? { messageId: text(args.message, 'message') } : {}) }
     case 'file': {
       const file = typeof args.file === 'object' && args.file ? (args.file as { id?: unknown }).id : args.file

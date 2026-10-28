@@ -1,3 +1,7 @@
+import { peekAssistantPanelIntegrations } from '@/components/assistant/assistant-panel-integrations';
+import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries';
+import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
+import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -17,7 +21,7 @@ import type { IntegrationFormInput } from './types';
 export const ISSUE_CONNECTION_STATUS_QUERY_KEY = ['issues:connection-status'] as const;
 export const INTEGRATIONS_LIST_QUERY_KEY = ['integrations:list'] as const;
 
-export type IntegrationMetadata = Awaited<ReturnType<typeof rpc.integrations.list>>[number];
+export type IntegrationMetadata = Awaited<ReturnType<typeof rpc.integrations.list>>[number] & { metadataOnly?: true; summaryNameMissing?: boolean; catalogVersion?: string };
 export type CliLoginStartResult = Awaited<ReturnType<typeof rpc.integrations.cliLoginStart>>;
 export type CliLoginWaitResult = Awaited<ReturnType<typeof rpc.integrations.cliLoginWait>>;
 
@@ -83,6 +87,12 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   const queryClient = useQueryClient();
   const host = useLibraryHost();
   const api = host.integrations;
+  useEffect(() => {
+    if (!host.assistantPanelExpected) return;
+    const refresh = () => { void queryClient.invalidateQueries({ predicate: query => query.queryKey.includes(host.key) }); };
+    window.addEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+    return () => window.removeEventListener(ASSISTANT_PANEL_CHANGED,refresh);
+  },[host.assistantPanelExpected,host.key,queryClient]);
   const remote = !!host.remote;
   const statusKey = useMemo(() => [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key] as const, [host.key]);
   const [mutatingIntegrationIds, setMutatingIntegrationIds] = useState<Set<string>>(
@@ -90,51 +100,61 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
   );
 
   // 那台机器离线就不问(问不到,只会挂满超时)。
-  const enabled = host.remote?.online !== false;
+  const enabled = host.assistantPanelExpected ? !!host.assistantPanel || !!host.assistantPanelError : host.remote?.online !== false;
   // 插件的中英两份由那台机器的主进程按这台桌面的界面语言解析成字符串;换语言重取。
   const locale = useSyncExternalStore(subscribeSessionLocale, () => getSessionLocaleSnapshot().resolvedLocale);
   const {
-    data: integrations = [],
+    data: listData,
     error: listError,
-    isFetched: listFetched,
     refetch: refetchList,
   } = useQuery({
     queryKey: [...INTEGRATIONS_LIST_QUERY_KEY, host.key, locale],
     queryFn: () => api.list(locale),
+    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.items,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     enabled,
-    ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
+
+  const integrations = useAssistantIntegrationSummaries(host.assistantPanel,listData ?? EMPTY_INTEGRATION_SUMMARIES,locale);
 
   useEffect(() => {
     // @issue 的图标是聊天里用的,聊天只跟本机那一份走。
     if (!remote) registerIssueMentionIcons(integrations);
   }, [integrations, remote]);
 
-  const { data: statusData, error: connectionCheckError, isFetching: isCheckingConnections } = useQuery({
+  const { data: statusData, error: connectionReadError, isFetching: isCheckingConnections } = useQuery({
     queryKey: statusKey,
     queryFn: () => api.checkAllConnections(),
+    initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.statuses,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     enabled,
-    ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
   });
 
   const { data: configuredData, error: configuredConnectionsError, isFetching: isCheckingConfiguredConnections } =
     useQuery({
       queryKey: [...statusKey, 'configured'],
       queryFn: () => api.checkConfiguredConnections(),
+      initialData: () => peekAssistantPanelIntegrations(host.assistantPanel,locale)?.configured,
       staleTime: Infinity,
       refetchOnWindowFocus: false,
       enabled,
-      ...(remote ? { retry: false } : {}),
+    refetchInterval: query => host.assistantPanelExpected && isAssistantPanelReadRetryable(query.state.error) ? 30_000 : false,
+      ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => isAssistantPanelReadRetryable(query.state.error) } : remote ? { retry: false } : {}),
     });
   const configuredConnections = configuredData ?? {};
 
   const invalidateStatuses = useCallback(() => {
+    // A completed authorization invalidates both the file snapshot and all visible consumers.
+    // The host's subsequent publication uses the same event when authorization finishes elsewhere.
+    host.assistantPanel?.invalidate();
     void queryClient.invalidateQueries({ queryKey: statusKey });
-  }, [queryClient, statusKey]);
+  }, [queryClient, statusKey, host.assistantPanel]);
 
   const setIntegrationMutating = useCallback((integrationId: string, isMutating: boolean) => {
     setMutatingIntegrationIds((current) => {
@@ -165,7 +185,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           const name = integrations.find((integration) => integration.id === integrationId)?.name ?? integrationId;
           return { success: false, error: integrationErrorText(translateSessionMessage, name, result) || fallbackError };
         }
-        await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
+        if (!host.assistantPanelExpected || change.operation !== 'removed') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
           resource: 'integrations', operation: change.operation, id: change.id ?? integrationId, deviceId: host.remote?.deviceId,
           ...(change.operation === 'removed' ? {} : { after: { name: integrations.find(integration => integration.id === integrationId)?.name ?? integrationId } }),
         }, ownerId);
@@ -175,7 +195,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         invalidateStatuses();
       }
     },
-    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
+    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId,host.assistantPanelExpected]
   );
 
   const connectIntegration = useCallback(
@@ -273,12 +293,12 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         integrationById,
         connectionStatus,
         checkedConnections: statusData ?? {},
-        connectionCheckError,
+        connectionCheckError: host.assistantPanelExpected && statusData !== undefined && isAssistantPanelReadRetryable(connectionReadError) ? null : connectionReadError,
         hasConfiguredConnections: configuredData !== undefined,
-        configuredConnectionsError,
+        configuredConnectionsError: host.assistantPanelExpected && configuredData !== undefined && isAssistantPanelReadRetryable(configuredConnectionsError) ? null : configuredConnectionsError,
         configuredConnections,
         isCheckingConfiguredConnections,
-        isCheckingConnections,
+        isCheckingConnections: isCheckingConnections,
         reloadConnections: invalidateStatuses,
         connectIntegration,
         disconnectIntegration,
@@ -289,7 +309,7 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
         readCliProgress,
         isIntegrationMutating,
         listError,
-        hasList: listFetched && !listError,
+        hasList: listData !== undefined,
         reloadList: () => void refetchList(),
       }}
     >

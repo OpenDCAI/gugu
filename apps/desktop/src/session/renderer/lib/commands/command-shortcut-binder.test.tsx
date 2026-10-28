@@ -43,6 +43,19 @@ async function press(key: string) {
 }
 
 describe('global commands before widget key consumption', () => {
+  it('leaves App-declared commands in the registry without inventing a built-in hotkey', async () => {
+    const run = vi.fn();
+    let remove!: () => void;
+    await act(async () => {
+      remove = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id: 'extension:board.main:new', label: 'Board: New card', execute: run }] });
+    });
+    try {
+      expect(commandRegistry.activeCommands.some((command) => command.id === 'extension:board.main:new')).toBe(true);
+      await press('f');
+      expect(find).toHaveBeenCalledOnce();
+      expect(run).not.toHaveBeenCalled();
+    } finally { await act(async () => remove()); }
+  });
   it('lets the shortcut recorder capture an assigned chord without executing it', async () => {
     const open = vi.fn();
     const recorded = vi.fn();

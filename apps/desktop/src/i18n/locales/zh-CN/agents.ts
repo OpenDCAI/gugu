@@ -5,7 +5,6 @@ export default {
     "cancel": "取消",
     "close": "关闭",
     "collapse": "收起",
-    "comingSoon": "即将开放",
     "save": "保存",
     "saving": "保存中…"
   },
@@ -21,8 +20,6 @@ export default {
     "chooseAnother": "换一个",
     "chooseType": "选择 Agent 类型",
     "close": "关闭",
-    "coming": "即将",
-    "comingSoon": "即将支持",
     "composer": {
       "addAttachment": "添加附件",
       "attachmentPreview": "附件",
@@ -229,32 +226,6 @@ export default {
     "ariaLabel": "Agent 设置",
     "back": "返回",
     "close": "关闭",
-    "contacts": {
-      "comingSoon": "该 Agent 的联系人即将开放",
-      "title": "该 Agent 的联系人"
-    },
-    "finance": {
-      "cost": "运行成本",
-      "costHint": "计入所有者额度的 LLM 与沙箱开销。",
-      "custom": "自定义",
-      "net": "净额",
-      "netHint": "已结算收入减去运行成本。",
-      "overview": "概览",
-      "pending": "待结算",
-      "pendingHint": "已创建但尚未完成的收款。",
-      "settled": "已结算收入",
-      "settledHint": "所选时间窗内已完成的收款。",
-      "sevenDays": "近 7 天",
-      "title": "账务",
-      "today": "今天",
-      "yesterday": "昨天"
-    },
-    "history": {
-      "comingSoon": "历史会话即将开放",
-      "pause": "暂停 Agent",
-      "pauseHint": "开启后，该 Agent 将停止响应群聊、其他私聊、Webhook 与定时任务。只有你与它的一对一私聊仍可触发它。",
-      "sessions": "历史会话"
-    },
     "look": {
       "colors": {
         "apricot": "杏子",
@@ -360,10 +331,6 @@ export default {
       "tryStateAria": "让它演下一个状态（现在：{{state}}）",
       "unsaved": "未保存"
     },
-    "memory": {
-      "comingSoon": "记忆文件查看与编辑即将开放",
-      "directory": "工作目录"
-    },
     "model": {
       "originalSourceNote": "沿用开通时的模型和额度来源。",
       "original": "沿用原有配置",
@@ -395,34 +362,16 @@ export default {
     },
     "nav": {
       "aiModel": "AI 模型",
-      "contacts": "联系人",
-      "finance": "账务",
-      "history": "聊天记录",
       "look": "形象",
-      "memory": "记忆",
-      "permissions": "权限",
       "profile": "资料",
-      "secrets": "密钥",
       "settings": "设置",
       "share": "分享",
       "tasks": "定时任务"
     },
-    "permissions": {
-      "active": "活跃授权",
-      "create": "创建授权",
-      "createHint": "选择一个角色包，再添加 allow / deny 覆盖以精确控制能力。",
-      "custom": "自定义",
-      "description": "授权该 Agent 以你的身份执行 CLI / API 动作。高风险动作仍需逐次批准。",
-      "empty": "暂无活跃授权",
-      "expires": "到期",
-      "fullAccess": "完全访问",
-      "fullAccessHint": "允许该 Agent 以你的身份执行几乎所有操作；高风险动作可能仍需逐次批准或永久放行。",
-      "neverExpires": "留空表示永不过期。",
-      "readOnly": "只读",
-      "role": "角色",
-      "title": "Agent 权限"
-    },
     "profile": {
+      "pause": "暂停 Agent",
+      "pauseHint": "暂停后只回应你和它的私聊。",
+      "pauseFailed": "没能更改暂停状态，请重试。",
       "avatar": "头像",
       "bio": "简介",
       "bioPlaceholder": "描述这个 Agent 的能力（可选）",
@@ -443,13 +392,6 @@ export default {
       "upload": "上传图片",
       "uploadHint": "PNG、JPEG、GIF 或 WebP，最大 5 MB"
     },
-    "secrets": {
-      "add": "添加",
-      "description": "为 Agent 配置环境变量密钥。运行用户脚本时，Agent 通过 secret call 注入到子进程；值仅在子进程生命周期内存在，绝不写入 env。",
-      "empty": "暂无密钥",
-      "emptyHint": "添加后，Agent 执行用户脚本时会用 <command>secret call NAME -- command</command> 把值注入子进程。",
-      "title": "密钥"
-    },
     "share": {
       "copied": "已复制",
       "copy": "复制",
@@ -458,18 +400,14 @@ export default {
       "enableFailed": "开启对外分享失败",
       "enabling": "开启中…",
       "external": "对外分享",
-      "fee": "对外分享费用：¥10（暂未计费）",
-      "feeBadge": "¥10",
       "forward": "转发给联系人",
       "forwarding": "发送邀请中…",
       "noContacts": "暂无联系人",
       "open": "扫码或用链接打开",
       "openHint": "任何人都能与该 Agent 对话并把它加入消息列表",
       "qrAlt": "对外分享二维码",
-      "search": "搜索会话",
+      "search": "搜索联系人",
       "title": "分享 Agent",
-      "unavailable": "对外分享暂不可用",
-      "unavailableReason": "对外分享尚未配置，暂时无法生成链接。"
     },
     "tasks": {
       "content": "任务内容",

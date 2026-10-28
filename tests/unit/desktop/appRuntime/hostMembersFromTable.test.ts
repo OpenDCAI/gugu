@@ -21,8 +21,8 @@ const SESSIONS = ['sessions.index', 'sessions.read']
 const FORUM = ['list', 'read', 'post', 'reply', 'react', 'remove', 'block', 'assign', 'award', 'subscribe', 'unsubscribe'].map((verb) => `forum.${verb}`).concat('onForumChanged')
 const EVERYONE = ['getContext', 'onContextChanged', 'onFilesChanged', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'openBrowserTab', 'reportError', 'listAgents', 'readAgentHistory', 'stopAgent', 'dispatch', ...MESSAGES, ...PROJECTS, ...SESSIONS, 'readData', 'writeData', 'listData', 'callProgram', 'onProgramNotification', 'notify', 'onNotificationClicked', 'linkTo', 'onLink', ...FILES]
 const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalFocus']
-const PAGE_ONLY = [...MODAL, ...FORUM, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
-const PHONE = [...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download']
+const PAGE_ONLY = ['showContextMenu', 'appFiles.viewPreferences', ...MODAL, ...FORUM, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
+const PHONE = ['showContextMenu', 'appFiles.viewPreferences', ...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download']
 
 const desktop = (caller: 'page' | 'background') => hostMembers(caller, () => true, vi.fn(), hostEventHub().on)
 const overMessages = (flags: { framed?: true; program?: true; session?: true }) => messageHost({ post: vi.fn(), listen: () => undefined }, flags) as Record<string, unknown>
@@ -66,5 +66,19 @@ describe('one table, the members each host had', () => {
     const heard: unknown[] = []
     host.onLink!((value) => heard.push(value))
     expect(heard).toEqual([{ tab: 'main', path: '', query: {}, file: null }])
+  })
+
+  it('a command that opened a cold page reaches its first subscriber once, without replaying on resubscribe', () => {
+    const events = hostEventHub()
+    events.deliver({ type: 'command', commandId: 'new' })
+    const first = vi.fn()
+    const stop = events.on('command', first)
+    expect(first).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'new' })
+    stop()
+    const next = vi.fn()
+    events.on('command', next)
+    expect(next).not.toHaveBeenCalled()
+    events.deliver({ type: 'command', commandId: 'refresh' })
+    expect(next).toHaveBeenCalledExactlyOnceWith({ type: 'command', commandId: 'refresh' })
   })
 })

@@ -88,9 +88,11 @@
 .ta-wide-btn[data-tone='danger'] { min-height: 44px; }
 .ta-wide-btn[data-tone='danger'] { color: var(--danger); }
 
-/* 账号名、状态和连接动作都要保留，窄屏把动作放在下一行。 */
-@media (max-width: 360px) {
-  .ta-phone .ta-connector-row { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
-  .ta-phone .ta-connector-row > .ta-row { flex-basis: 100%; padding: 0; }
-  .ta-phone .ta-connector-row > button { margin-left: auto; }
-}
+/* One app, one row action; the detail page owns connection controls. */
+.ta-phone-connectors-inline { display: flex; flex-direction: column; gap: 24px; }
+.ta-phone .ta-phone-connectors-inline .ta-row,
+.ta-phone .ta-phone-connectors-page .ta-row { min-height: 64px; padding-block: 8px; }
+.ta-phone .ta-phone-connectors-inline .ta-row-body,
+.ta-phone .ta-phone-connectors-page .ta-row-body { gap: 4px; }
+.ta-phone .ta-phone-connectors-inline .ta-row-sub,
+.ta-phone .ta-phone-connectors-page .ta-row-sub { display: block; white-space: nowrap; }

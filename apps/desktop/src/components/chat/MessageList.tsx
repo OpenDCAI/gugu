@@ -20,6 +20,8 @@ import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { TopicAnchorCard } from './TopicAnchorCard'
 import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
+import { visibleReplyQuoteIds } from './replyQuoteVisibility'
+import { MESSAGE_SEEN_THRESHOLDS, messageSeen } from './messageSeen'
 
 // #1163 perf — 在父层为单条消息预算「发送/已读态」(primitive 字符串)，下传给 memo 化的 MessageBubble，
 // 取代旧的「整个 memberReadSeqs map 下传、气泡自己 derive」。任一成员已读回执会换 map 引用、破气泡浅比较
@@ -145,6 +147,7 @@ const SelectionCheckbox = ({ checked }: { checked: boolean }) => (
 // memo:面板因为与消息无关的状态重渲时(头栏、输入区、运行条),rowProps 不变 ⇒ 行连同气泡都不重算。
 const MessageListRow = memo(function MessageListRow({
   index,
+  showReplyQuote,
   rows,
   messages,
   isFiltering,
@@ -171,6 +174,7 @@ const MessageListRow = memo(function MessageListRow({
   onEnterSelectMode,
 }: {
   index: number
+  showReplyQuote: boolean
 } & MessageListRowProps) {
   const row = rows[index]
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -184,11 +188,12 @@ const MessageListRow = memo(function MessageListRow({
       onVisible(msg)
       return
     }
+    // Measured against the message scroller, so "fills the view" means the chat column, not the window.
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
+      if (entries.some(messageSeen)) {
         onVisible(msg)
       }
-    }, { threshold: 0.6 })
+    }, { root: node.closest<HTMLElement>('[data-unread-stream-surface]'), threshold: [...MESSAGE_SEEN_THRESHOLDS] })
     observer.observe(node)
     return () => observer.disconnect()
   }, [row, onVisible])
@@ -199,8 +204,6 @@ const MessageListRow = memo(function MessageListRow({
   const msg = row.message
   const memberProfile = msg.sender_user_id === null ? null : (memberProfiles[msg.sender_user_id] ?? null) // @@@2051 null=注销,无档、非 agent
   const isAgentMessage = memberProfile?.type === 'agent'
-  // #2086 owner 定:引用块对齐微信/主流 IM,所有回复(含回复正上方那条)都显示引用块。
-  // 原 @@@adjacent-reply-quote(#453)对「紧邻回复」隐藏引用块的优化已按 owner 意愿撤销。
   const prevRow = index > 0 ? rows[index - 1] : undefined
 
   const isSelected = selectedIds.has(msg.id)
@@ -228,6 +231,8 @@ const MessageListRow = memo(function MessageListRow({
   const bubble = (
     <MessageBubble
       msg={msg}
+      hideTime
+      showReplyQuote={showReplyQuote}
       onReaction={onReaction}
       sendState={isAgentChat && sendState === 'read' ? 'sent' : sendState}
       readReceiptRead={readReceipt?.read}
@@ -259,15 +264,13 @@ const MessageListRow = memo(function MessageListRow({
   return (
     <MessageRow rowRef={rowRef} index={index} count={rows.length} messageId={msg.id} className={msg.id === flashMessageId ? 'msg-src-flash' : undefined} style={{ paddingBottom: 'var(--spacing-xs)' }} onContextMenu={mentionFromAvatar}>
       {showTimeDivider && (
-        /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
-           原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */
         <div style={{ textAlign: 'center', margin: 'var(--spacing-sm) 0 var(--spacing-xs)', userSelect: 'none' }}>
           <Chip>{formatCalendarDayTime(msg.created_at)}</Chip>
         </div>
       )}
       {/* @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；内层气泡 pointer-events:none
           全面禁交互（连带隐藏悬浮操作条/菜单/长按）。非多选态原样渲染。 */}
-      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} /> : selectMode ? (
+      {row.type === 'task-exchange' ? <TaskExchangeBubble message={msg} recipientUserId={row.recipientUserId} mobile={mobile} onOpenFile={onOpenFile} /> : selectMode ? (
         <div
           data-message-select-row={msg.id}
           onClick={() => onToggleSelect(msg.id)}
@@ -357,6 +360,7 @@ export function MessageList({
     scrollerRef?.(element)
   }, [scrollerRef])
   const rowIds = useMemo(() => rows.map((row) => row.message.id), [rows])
+  const quoteIds = useMemo(() => visibleReplyQuoteIds(rowProps.messages,rowProps.isGroupChat || !!rowProps.threeParty || rowProps.isFiltering), [rowProps.messages,rowProps.isGroupChat,rowProps.threeParty,rowProps.isFiltering])
   const { start, end } = useFlowList({ scrollerRef: ownScrollerRef, contentRef, resetKey, rowIds, landing: initialTopMostItemIndex, followTail, atBottomThreshold: 80, onAtBottomChange, onTotalHeightChanged: onTotalListHeightChanged, onStartReached, handleRef: listRef })
   // 未读行不在窗口里:比窗口最早一条还早 = 在上方(-1);否则是尾部对账还没回来,先不判(null)。
   const unreadIndex = unreadAbove ? rows.findIndex((row) => row.message.id === unreadAbove.messageId) : -1
@@ -369,7 +373,7 @@ export function MessageList({
       {/* 每换一条线(resetKey)换一个滚动容器:落点、贴底电平、锚定都从这条线自己的第一帧开始。 */}
       <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-image-gallery="" style={scrollerStyle}>
         <div ref={contentRef}>
-          {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} />)}
+          {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} showReplyQuote={quoteIds.has(row.message.id)} />)}
           {end >= rows.length ? footer : null}
           {/* 会话底部那一摞浮在消息流上(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
           <div aria-hidden className="h-[var(--chat-dock-h,0px)]" />

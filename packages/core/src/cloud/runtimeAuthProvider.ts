@@ -7,7 +7,7 @@ export interface RuntimeAuth {
 }
 
 export interface RuntimeAuthProvider {
-  getAuth: () => Promise<RuntimeAuth | null>
+  getAuth: (options?: { forceRefresh?: boolean }) => Promise<RuntimeAuth | null>
 }
 
 export class RuntimeAuthError extends Error {
@@ -210,7 +210,7 @@ export function createRefreshingRuntimeAuthProvider(
     }
   }
 
-  async function ensureFresh(): Promise<void> {
+  async function ensureFresh(forceRefresh = false): Promise<void> {
     if (expired) throw expired
     try {
       assertExpectedUser(accessToken, 'initial')
@@ -219,11 +219,11 @@ export function createRefreshingRuntimeAuthProvider(
       throw err
     }
     const exp = accessTokenExpirySeconds(accessToken)
-    if (exp !== null && exp - skew > now()) return
+    if (!forceRefresh && exp !== null && exp - skew > now()) return
     // Inside the transient backoff window: don't re-hit GoTrue. If the cached token is still usable,
     // serve it; otherwise fail loud (the host will surface lastError) until the holdoff elapses.
     if (now() * 1000 < backoffUntilMs) {
-      if (exp !== null && exp > now()) return
+      if (!forceRefresh && exp !== null && exp > now()) return
       throw new RuntimeAuthUnavailableError('Supabase token refresh is backing off after a transient failure')
     }
     // Single-flight: concurrent ticks share one refresh so the rotating chain isn't double-spent.
@@ -232,9 +232,9 @@ export function createRefreshingRuntimeAuthProvider(
   }
 
   return {
-    async getAuth() {
+    async getAuth(options) {
       if (!accessToken || !refreshToken) return null
-      await ensureFresh()
+      await ensureFresh(options?.forceRefresh)
       return runtimeAuthFromSupabaseTokens({ accessToken, refreshToken })
     }
   }

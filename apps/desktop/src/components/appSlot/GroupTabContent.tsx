@@ -13,6 +13,7 @@ import type { AppOpenWithDetail } from '../../session/shared/extensions/app-runt
 import { displayNameOf, openerAhead, openerChoice } from '../../session/shared/extensions/file-openers'
 import { installPackageOf, packageKey, sharedPackagesOf, subscribeSharedPackages, type PackageCard, type SharedPackage } from '../extensionBundle/sharedPackages'
 import { compareExtensionVersions, parseExtensionTabKind, type ExtensionManifest } from '../../session/shared/extensions/manifest'
+import type { ExtensionOrigin } from '../../session/shared/extensions/upgrade'
 import { groupUpdateFor } from '../../session/shared/extensions/app-card-state'
 import { isInstallRefused } from '../../session/shared/extensions/attachment-install'
 import { groupPageSlot, isFolderItem, type PanelItem } from '../../session/renderer/features/chats/chat-tabs/chat-panel-item'
@@ -64,13 +65,13 @@ interface MarketOffer {
  * ranks (`openerAhead`), over this chat's shared packages and then the market's Apps (one shared in the chat is the
  * group's own: the market's copy of the same App is not offered beside it). An installed App is only offered if newer.
  */
-function offerFor(typedName: string, shared: ReadonlyMap<string, SharedPackage>, market: readonly MarketOffer[], installed: ExtensionManifest[], all: readonly ExtensionManifest[] = installed): Offer | null {
+function offerFor(typedName: string, shared: ReadonlyMap<string, SharedPackage>, market: readonly MarketOffer[], installed: ExtensionManifest[], all: readonly ExtensionManifest[], origins: Readonly<Record<string, ExtensionOrigin>>): Offer | null {
   const notHere = (manifest: ExtensionManifest) => {
     const mine = all.find((candidate) => candidate.id === manifest.id)
     return !mine || compareExtensionVersions(mine.version, manifest.version) < 0
   }
   const sharedHere = [...shared.values()].filter((pkg) => notHere(pkg.manifest))
-  const marketHere = market.filter((entry) => notHere(entry.manifest) && !shared.has(entry.manifest.id))
+  const marketHere = market.filter((entry) => origins[entry.manifest.id] !== 'fork' && notHere(entry.manifest) && !shared.has(entry.manifest.id))
   const best = openerAhead(typedName, installed, [...sharedHere.map((pkg) => pkg.manifest), ...marketHere.map((entry) => entry.manifest)], 'chat')
   if (!best) return null
   const pkg = sharedHere.find((candidate) => candidate.manifest.id === best.extensionId)
@@ -186,8 +187,8 @@ export const GroupTabContent = observer(function GroupTabContent({ chatId, tabId
       return undefined
     }
     return reaction(
-      () => ({ installed: enabledApps(), all: installedExtensionsStore.manifests.slice() }),
-      ({ installed, all }) => setOffer(offerFor(typedName, shared.packages, fromMarket, installed, all)),
+      () => ({ installed: enabledApps(), all: installedExtensionsStore.manifests.slice(), origins: installedExtensionsStore.origins }),
+      ({ installed, all, origins }) => setOffer(offerFor(typedName, shared.packages, fromMarket, installed, all, origins)),
       { fireImmediately: true },
     )
   }, [typedName, market, chatId, shared])

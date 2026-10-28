@@ -53,6 +53,8 @@ export type SubagentRosterEntry = {
   calls: readonly SubagentCall[];
   /** 派出去到现在过了多久(毫秒);拿不到起点时是 0。 */
   elapsedMs: number;
+  /** 派出去的那一刻(毫秒);拿不到就没有。转录末尾那一行自己按它走秒,❌ 等花名册重算。 */
+  startedAt?: number;
   canCancel?: boolean;
 };
 
@@ -204,6 +206,7 @@ export function collectSubagentRoster(
       // 按时序 —— 面板那条时间线照这个顺序画。
       calls: [...calls].sort((a, b) => a.seq - b.seq),
       elapsedMs,
+      ...(startedAt !== undefined ? { startedAt } : {}),
       canCancel: item.canCancel === true,
     });
   }

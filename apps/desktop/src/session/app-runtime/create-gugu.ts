@@ -75,12 +75,12 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean }) => {
+    open: (file: unknown, options?: { readOnly?: boolean; appData?: boolean }) => {
       const counts = countsOf(host);
       counts?.opened();
       return withRef(file, (ref) => {
         const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
-        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const requested = host.appFiles.open({ ref, ...(options?.appData === true ? { appData: true } : {}), ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
         const opening = loadFiles().then((m) => m.openFile(host, requested));
         // Observe a fast refusal even while the runtime is still loading.
         return Promise.all([opening, requested]).then(([opened]) => opened);
@@ -90,7 +90,7 @@ export function createGugu(
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
     recent: (options?: unknown) => loadFiles().then((m) => m.recentEntries(host, options)),
-    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) =>
+    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) =>
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
@@ -98,6 +98,7 @@ export function createGugu(
     mkdir: (target: unknown) => loadFiles().then((m) => m.makeFolder(host, target)),
     move: (file: unknown, to: unknown) => loadFiles().then((m) => m.moveFile(host, file, to)),
     onChanged,
+    viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
     versions: (file: unknown) => withRef(file, (ref) => host.appFiles.versions({ ref })),

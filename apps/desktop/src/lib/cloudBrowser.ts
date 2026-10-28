@@ -7,6 +7,7 @@ import { rpc } from '@renderer/lib/ipc'
 import { platform } from '../platform'
 import { callDeviceRpc } from './deviceRpc'
 import { rendererLogger } from './log'
+import { cloudHostSuspended } from './cloudHostSuspended'
 import { SESSION_HOST_RPC } from '../session/shared/lib/ipc/session-host-device-frames'
 import {
   CLOUD_BROWSER_PROTOCOL,
@@ -31,6 +32,7 @@ export class CloudBrowserCallError extends Error {
 type RpcResult<T> = { success: true; data: T } | { success: false; error: { type?: string } }
 
 async function callCloudBrowser<T>(deviceId: string, method: 'status' | 'snapshot', args: unknown[], timeoutMs: number): Promise<RpcResult<T>> {
+  if (cloudHostSuspended(deviceId)) throw new CloudBrowserCallError('unreachable', 'cloud computer is sleeping or waking')
   const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel: `cloudBrowser.${method}`, args }, { timeoutMs })
   if (reply.error) throw new CloudBrowserCallError(reply.error.code, reply.error.message)
   const value = reply.result?.value as RpcResult<T> | null | undefined

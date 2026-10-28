@@ -1,3 +1,4 @@
+import { deviceMachines } from '@/lib/deviceMachines'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -21,7 +22,7 @@ import {
 } from '../../lib/assistantShellBridge'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
 import { assistantIdentityState, reloadMyAssistant, useMyAssistantContact } from '../../lib/myAssistant'
-import { assistantHomePlace, canSetUpCloudAssistant } from '../../lib/assistantHome'
+import { assistantHomePlace, canSetUpCloudAssistant, withoutAssistantHome } from '../../lib/assistantHome'
 import { readSetupStep, subscribeSetupStep, writeSetupStep } from '../../lib/assistantSetupState'
 import { pendingLocalAssistant, resumeLocalAssistant, setupStillStarting } from '../../lib/assistantSetup'
 import { keepFinishingLocalAssistant } from '../../lib/assistantSetupFinish'
@@ -137,7 +138,7 @@ const ASSISTANT_SLOT_PREFIX = 'assistant:'
 export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页那一屏此刻摆在眼前(MainLayout 的 tab 在「任务」)。 */ visible: boolean } & AssistantChatHandlers) {
   const { user } = useAuth()
   const { contacts, contactsStatus, updateAgentProfile } = useContactsStore()
-  const { cloudComputer, devices } = useDevicesStore()
+  const { cloudComputer, devices, phones } = useDevicesStore()
   const snapshot = cloudComputer?.snapshot ?? null
   const cloudDeviceId = snapshot?.deviceId ?? null
   // 按库里的标记认(lib/myAssistant.ts),❌ 按名字、❌ 按住在哪台:会员住云上、非会员住自己的电脑,它会搬家。
@@ -228,8 +229,10 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     () => readSetupStep(ownerUserId),
   )
   const setup: AssistantSetupStep | null = contact ? storedStep : assistantState === 'none' ? 'shell' : null
+  const deviceCount = deviceMachines(withoutAssistantHome([...devices, ...(phones ?? [])], cloudDeviceId)).length
   useEffect(() => {
     publishAssistantShell({
+      deviceCount,
       cloudAvailable: !!cloudComputer?.available,
       canHostHere: !!localDeviceId,
       cloud: snapshot,
@@ -237,13 +240,16 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       assistant: contact ? { id: contact.id, display_name: contact.display_name, avatar: contact.avatar, created_at: contact.created_at ?? null } : null,
       assistantState,
       ownerName: user?.nickname ?? null,
+      ownerId: user?.id ?? null,
+      ownerAvatar: user?.avatarUrl ?? null,
       chatId: dm.chatId,
+      chatReadFailed: !!dm.failed,
       home,
       setup,
       member,
       preparing,
     })
-  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, dm.chatId, home, setup, member, preparing])
+  }, [deviceCount, cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, user?.id, user?.avatarUrl, dm.chatId, dm.failed, home, setup, member, preparing])
 
   const shellSlots = readShellSlots()
   const slots = useSyncExternalStore(
@@ -256,8 +262,8 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       case 'onboarding': return <OnboardingSlot />
       // 格子挂着 = 「助理」App 开在「聊天」那一页;再加上会话页那一屏摆在眼前,才算人在看。
       case 'chat': return contact ? <AssistantChatSlot dm={dm} assistantId={contact.id} assistantName={contact.display_name} visible={visible} {...chatHandlers} /> : null
-      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
-      case 'connectors': return <ConnectorsSection />
+      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} panelNavigation />
+      case 'connectors': return <ConnectorsSection panelNavigation />
       case 'settings': return <AssistantSettingsPage />
     }
   }

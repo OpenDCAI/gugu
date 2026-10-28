@@ -392,15 +392,18 @@ export function subscribeSshSignInPrompts(listener: (event: SshLinkPromptEvent) 
   })
 }
 
-/** #6264 这台桌面报给咕咕 server 的版本(主进程算,开发 / 测试可覆盖);没有主进程 / 问不到 = null(调用方退回自己的版本)。 */
-export async function desktopMatchVersion(): Promise<string | null> {
+/**
+ * #6264 这台桌面报给咕咕 server 的版本(主进程算,开发 / 测试可覆盖)。null = 主进程说 ❌ 报(不是发布流水线出的包,
+ * 见 core reportedDesktopVersion);undefined = 没有主进程 / 问不到(调用方退回自己的版本)。
+ */
+export async function desktopMatchVersion(): Promise<string | null | undefined> {
   const electron = bridge()
-  if (!electron) return null
+  if (!electron) return undefined
   try {
     const value = await electron.invoke(SSH_LINK_CHANNELS.desktopVersion)
     return typeof value === 'string' && value ? value : null
   } catch {
-    return null
+    return undefined
   }
 }
 

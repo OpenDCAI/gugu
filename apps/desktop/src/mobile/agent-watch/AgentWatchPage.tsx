@@ -19,7 +19,6 @@ import { SessionTimelinePage } from './SessionTimelinePage'
 import { CreateSessionPage } from './CreateSessionPage'
 import './agent-watch.css'
 import './phone-conversation.css'
-import { usePhoneAgentDirectory } from '../local-agent/usePhoneAgentDirectory'
 import { PhoneAgentGrants } from '../local-agent/PhoneAgentGrants'
 import { PhoneAgentActions } from '../local-agent/PhoneAgentActions'
 import '@/i18n/registerMobileWorkspaceCatalog'
@@ -53,7 +52,6 @@ export function AgentWatchRoot() {
   const { devices, phones = [] } = useDevicesStore()
   const all = [...devices, ...phones]
   useAgentWatchAlerts(all)
-  usePhoneAgentDirectory(all)
   return <><PhoneAgentGrants /><PhoneAgentActions /></>
 }
 

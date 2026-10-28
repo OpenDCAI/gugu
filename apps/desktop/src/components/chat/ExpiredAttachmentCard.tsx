@@ -43,7 +43,7 @@ export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: Parse
   }
   return <div>
     <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileExpired')} onOpen={() => undefined} />
-    {isMine && <>
+    {isMine && meta.source.kind !== 'attachment' && <>
       <Button variant="ghost" size="sm" disabled={busy} onClick={() => needsOriginal ? picker.current?.click() : void reupload()}>{t(needsOriginal ? 'attachmentView.selectOriginal' : 'attachmentView.reupload')}</Button>
       <input ref={picker} type="file" hidden aria-label={t('attachmentView.selectOriginal')} onChange={(event) => {
         const file = event.currentTarget.files?.[0]

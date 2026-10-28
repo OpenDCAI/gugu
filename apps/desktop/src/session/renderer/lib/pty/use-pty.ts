@@ -9,9 +9,10 @@ import { useCallback, useContext, useEffect, useRef } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
 import { events, rpc } from '@renderer/lib/ipc';
+import { observePtyOutput } from '../session-output-observers';
 import { log } from '@renderer/utils/logger';
 import type { AppSettings } from '@shared/core/app-settings';
-import { ptyDataChannel, ptyExitChannel } from '@shared/core/pty/ptyEvents';
+import { ptyExitChannel } from '@shared/core/pty/ptyEvents';
 import { TERMINAL_FONT_SIZE_DEFAULT } from '@shared/core/terminals/terminal-settings';
 import { appPasteChannel, terminalContextMenuActionChannel } from '@shared/events/appEvents';
 import { terminalIsBehindModal } from './terminal-behind-modal';
@@ -492,19 +493,11 @@ export function usePty(
       const detachInputHandler = frontendPty.attachInputHandler(handleTerminalInput);
       cleanups.push(detachInputHandler);
 
-      // ── ptyStartedRef — detect first PTY output ────────────────────────────
-      // FrontendPty owns the data subscription and writes directly to the
-      // terminal.  We add a lightweight IPC listener here solely to flip the
-      // ptyStartedRef flag, which is used to suppress focus-reporting escape
-      // sequences before the PTY shell has initialised.
-      const offPtyData = events.on(
-        ptyDataChannel,
-        () => {
-          ptyStartedRef.current = true;
-        },
-        ptySessionId
-      );
-      cleanups.push(offPtyData);
+      // Observe FrontendPty's existing output stream. A second IPC listener
+      // would keep the remote terminal subscribed after the view is hidden.
+      cleanups.push(observePtyOutput((id) => {
+        if (id === ptySessionId) ptyStartedRef.current = true;
+      }));
 
       // ── Auto-copy on selection ─────────────────────────────────────────────
       let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;

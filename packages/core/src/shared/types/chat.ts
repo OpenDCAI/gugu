@@ -276,6 +276,8 @@ export interface Device {
    * 两个 build 是两条设备行;通讯录等「按电脑归类」的展示要拿这一列归并,❌ 把一台电脑显示成两台。
    */
   machine_id?: string | null
+  /** Registered build/configuration name; absent on older cached rows. */
+  tier?: string
   capabilities: DeviceCapabilities
   /**
    * 这台机器上会话的**状态摘要**（identity.gugu_devices.session_digest，随心跳写）。

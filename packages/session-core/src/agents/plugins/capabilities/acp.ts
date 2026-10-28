@@ -211,7 +211,8 @@ export interface AcpAgentApi {
   loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
   unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse>;
-  prompt(params: PromptRequest): Promise<PromptResponse>;
+  /** v2 acknowledges admission before the foreground turn ends. v1 has no separate receipt. */
+  prompt(params: PromptRequest, onAccepted?: () => void): Promise<PromptResponse>;
   cancel(params: CancelNotification): Promise<void>;
   /** Optional — only available when the agent advertises `sessionCapabilities.list`. */
   listSessions?(params: ListSessionsRequest): Promise<ListSessionsResponse>;

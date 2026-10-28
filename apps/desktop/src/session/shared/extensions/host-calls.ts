@@ -21,6 +21,7 @@ export const HOST_CALLS = {
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
+  showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
   /** `level: 'hint'` (摩擦单 F62): a note for the App's author, recorded, no red dot. */
@@ -78,6 +79,7 @@ export const HOST_CALLS = {
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },
+  'appFiles.viewPreferences': { verb: 'filesViewPreferences' },
   'appFiles.remove': { verb: 'filesRemove' },
   'appFiles.rename': { verb: 'filesRename' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
@@ -136,11 +138,11 @@ export type HostMember = keyof typeof HOST_CALLS | keyof typeof HOST_EVENTS;
 export type HostCaller = 'page' | 'background' | 'program';
 
 /**
- * #6387 Events a page may not be listening for yet when they arrive — a link or a banner click that opened this very page
+ * #6387 Events a page may not be listening for yet when they arrive — a link, command or banner click that opened this page
  * lands while its script is still loading: held for the first subscriber, the newest kept (a page that never subscribes
  * must not grow it forever).
  */
-const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'notificationClicked']);
+const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'command', 'notificationClicked']);
 export function hostEventHub() {
   const listeners = new Map<ExtensionHostEvent['type'], Set<(event: ExtensionHostEvent) => void>>();
   const held: ExtensionHostEvent[] = [];

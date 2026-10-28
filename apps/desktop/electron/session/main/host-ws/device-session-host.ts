@@ -35,6 +35,8 @@ import { SESSION_SHELL_CHANNELS } from '@shared/lib/ipc/shell-port';
 import { serializeHostWsError } from '@shared/lib/ipc/host-ws-protocol';
 import { log } from '../lib/logger';
 import { FrameSessionHost, type FrameInvokePolicy, type FrameSocket } from './frame-host';
+import { createRemotePtyPacer } from './remote-pty-pacer';
+import { ptySessionRegistry } from '../core/pty/pty-session-registry';
 
 /**
  * 别的电脑连进来时不给的:属于「看界面的那台电脑」的动作(窗口、剪贴板、对话框、内置浏览器、界面布局记忆),
@@ -232,7 +234,15 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       close: shut,
     };
     clients.set(client, link);
-    frameHost.attach(socket, { remote: `device:${client.slice(0, 8)}`, policy: remoteInvokePolicyForCaller(callerId) });
+    // 开与关成对落盘(关那句在 shut 里),两头的日志才对得上是哪一条窗口(桌面那头按同一个 client 记,remoteSessionHost)。
+    // 用 warn 是因为会话进程默认只落 warn 及以上(@gugu/session-shared/logger 的 resolveLogLevel):frame-host 那句
+    // info 的「client connected」在用户机器上落不了盘,2026-10-27 d22 上就只剩关、没有开。一条窗口一行,❌ 按帧记。
+    log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
+    frameHost.attach(socket, {
+      remote: `device:${client.slice(0, 8)}`,
+      policy: remoteInvokePolicyForCaller(callerId),
+      outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
+    });
   };
   const readClient = (payload: unknown): string | null => {
     const client = (payload as { client?: unknown } | null)?.client;

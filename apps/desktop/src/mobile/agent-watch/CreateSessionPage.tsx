@@ -50,7 +50,6 @@ const createLog = rendererLogger('mobile/agent-watch')
 const LAST_USED_ITEM_LABEL_KEYS: Record<LastUsedItem, string> = {
   project: 'agentWatch.create.project',
   harness: 'agentWatch.create.harness',
-  sessionView: 'agentWatch.create.view',
   permissionMode: 'agentWatch.create.permissionLabel',
   model: 'agentWatch.create.model',
   effort: 'agentWatch.create.effort',
@@ -107,7 +106,7 @@ export function CreateSessionPage({
   const [options, setOptions] = useState<SessionpageSessionCreateOptions | null>(null)
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
-  const [selection, setSelection] = useState<CreateSelection>({ projectId: null, harness: null, model: null, sessionView: null, permissionMode: null, effort: null })
+  const [selection, setSelection] = useState<CreateSelection>({ projectId: null, harness: null, model: null, permissionMode: null, effort: null })
   /** 人动过选择没有 —— 动过之后「上次那一套没沿用上」就不再说(那是人自己的改动)。 */
   const [touched, setTouched] = useState(false)
   /** 选定 harness 的模型目录 —— 按 harness 现探,换家就重读;探不到不拦发送(默认档照建)。 */
@@ -132,16 +131,15 @@ export function CreateSessionPage({
         const attempt = phone && ownerId ? readPhoneSessionCreate(ownerId, device.device_id) : null
         setPhoneAttempt(attempt)
         setOptions(next)
-        setSelection(attempt ? { ...initialSelection(next), ...(attempt.projectId ? { projectId: attempt.projectId } : {}), harness: attempt.harness, model: attempt.model ?? null, sessionView: attempt.sessionView ?? 'general' } : initialSelection(next))
+        setSelection(attempt ? { ...initialSelection(next), ...(attempt.projectId ? { projectId: attempt.projectId } : {}), harness: attempt.harness, model: attempt.model ?? null } : initialSelection(next))
       })
       .catch((err) => { if (!cancelled) setOptionsError(describe(err)) })
     return () => { cancelled = true }
   }, [device.device_id, online, reloadKey, phone, ownerId])
 
   // 目录跟着 harness 走。⚠️ 目录要在那台机器上起一次 harness 进程探,几秒是常态 —— 所以它**不**挡发送:
-  // 人不选模型就按默认建,目录只是「想换的话有哪些」。
+  // 人不选模型就按默认建,目录只是「想换的话有哪些」。展示不由手机选:那台电脑按自己的「终端」开关定。
   const harness = selection.harness
-  const sessionView = selection.sessionView
   const model = selection.model
   useEffect(() => {
     if (!online || !harness) { setModels(null); setModelsState('idle'); return }
@@ -151,7 +149,7 @@ export function CreateSessionPage({
     setModels((prev) => (prev && prev.harness === harness ? prev : null))
     setModelsState('loading')
     const readModels = phone ? fetchPhoneCreateModels : fetchCreateModels
-    readModels(device.device_id, harness, sessionView, model)
+    readModels(device.device_id, harness, null, model)
       .then((next) => {
         if (cancelled) return
         setModels(next)
@@ -160,7 +158,7 @@ export function CreateSessionPage({
       })
       .catch(() => { if (!cancelled) setModelsState('failed') })
     return () => { cancelled = true }
-  }, [device.device_id, online, harness, sessionView, model, reloadKey, phone])
+  }, [device.device_id, online, harness, model, reloadKey, phone])
 
   const blocker = options ? createBlocker(options, selection) : null
   const creating = pendingText !== null
@@ -205,7 +203,6 @@ export function CreateSessionPage({
           harness: selection.harness!,
           prompt: text,
           ...(selection.model ? { model: selection.model } : {}),
-          ...(selection.sessionView ? { sessionView: selection.sessionView } : {}),
           ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
           ...(selection.effort ? { effort: selection.effort } : {}),
           ...(birthGroup ? { chatId: birthGroup.chatId } : {}),

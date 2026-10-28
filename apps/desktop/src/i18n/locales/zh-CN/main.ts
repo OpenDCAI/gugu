@@ -163,7 +163,7 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 已截断 {{chars}} 字 · 在桌面上看完整输出",
+      "outputTrimmed": "… 此预览省略了 {{chars}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",
@@ -202,7 +202,7 @@ export default {
       "decline": "不回答",
       "cancelled": "这条已经不需要回答了",
       "noOptions": "这条要在桌面端回答：机器没有把可选项发过来。",
-      "answerInTerminal": "这条要在桌面端的终端里回答：终端会话手机答不了。",
+      "answerInTerminal": "这条要在电脑上回答。",
       "answerOnDesktop": "这条要在桌面端回答：这一类手机还答不了。",
       "byDesktop": "桌面端",
       "byMobile": "手机端"
@@ -216,12 +216,6 @@ export default {
       "project": "项目",
       "harness": "Harness",
       "model": "模型",
-      "view": "模式",
-      "sessionView": {
-        "label": "模式",
-        "code": { "name": "编程", "desc": "在终端里跑，看到的是 harness 自己的界面" },
-        "general": { "name": "通用", "desc": "聊天式界面，手机上能完整看回复与审批" }
-      },
       "permission": {
         "plan": { "name": "只出方案", "desc": "只想不动手，不真的执行工具" },
         "read-only": { "name": "只读", "desc": "能看不能改，动手前问你;你在 harness 自己设置里放行过的工具除外" },
@@ -401,6 +395,8 @@ export default {
       "notificationsTestFailed": "这台设备不支持系统通知。",
       "notificationsTestSentMobile": "系统收下了这条通知。还是没看到 → 去「我的 → 权限 → 通知」确认咕咕的通知已打开、允许弹出横幅。",
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
+      "terminal": "终端",
+      "terminalDescription": "显示终端,新任务在终端里运行。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
       "trayBadgeEnabled": "在托盘图标上显示未读数",
@@ -413,7 +409,7 @@ export default {
     "guguNumberUnassigned": "咕咕号未分配",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "apps": {
       "intro": "装在这台手机上的 App:从聊天里的卡片装的，和从市场装的。咕咕自带的不在这里。",
       "empty": "还没有装过 App。",
@@ -436,7 +432,6 @@ export default {
       "account": "账户",
       "activity": "活跃",
       "apps": "App",
-      "channels": "聊天渠道",
       "browser": "浏览器",
       "devices": "设备",
       "general": "通用",
@@ -456,6 +451,8 @@ export default {
       "batteryOptimization": "后台运行",
       "batteryOptimizationPurpose": "用来在你切走咕咕之后仍然第一时间提醒你；点一下把咕咕移出系统的电池优化名单",
       "camera": "相机",
+      "microphone": "麦克风",
+      "microphonePurpose": "发语音消息",
       "cameraPurpose": "用来扫码加好友、进群",
       "fileAccess": "文件与文件夹访问",
       "fileAccessPurpose": "用来打开你电脑上的项目目录",
@@ -463,7 +460,7 @@ export default {
       "off": "未开启",
       "offPrompt": "未开启，点击开启",
       "offBlocked": "未开启，去系统设置开启",
-      "unknown": "查不到，去系统设置看",
+      "unknown": "去系统设置查看",
       "settingsUnreachable": "跳不到系统设置。请自己打开系统设置，找到咕咕，把「{{name}}」打开。",
       "readFailed": "读不到系统的权限状态，请回到这一页再看一次。"
     },
@@ -543,7 +540,7 @@ export default {
     "messages": "消息 (⌘1)",
     "my": "我的",
     "newAgent": "新建 Agent",
-    "newTask": "新建会话",
+    "newTask": "新建任务",
     "usage": "用量",
     "resizeChatList": "调整聊天列表宽度",
     "sessionExpired": {

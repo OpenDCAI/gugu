@@ -25,6 +25,7 @@ import {
 } from './SessionSettingsRows';
 import { SidebarTintRow } from './SidebarTintRow';
 import TerminalSettingsCard from './TerminalSettingsCard';
+import { useTerminalEnabled } from '../use-terminal-enabled';
 import ChatViewCard from './ChatViewCard';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { DeviceScopeProvider } from '@renderer/features/remote-hosts/device-scope-picker';
@@ -62,6 +63,8 @@ function GeneralSettingsPage() {
 
 function InterfaceSettingsPage() {
   const { translate } = useSessionMessages();
+  // 「终端」开关关着:终端那张卡不出现(开关在设置 → 通用)。
+  const terminalEnabled = useTerminalEnabled();
   return (
     <SettingsPage>
       <PageHeader
@@ -71,7 +74,7 @@ function InterfaceSettingsPage() {
         <SidebarTintRow />
       </SettingsGroup>
       <ChatViewCard />
-      <TerminalSettingsCard />
+      {terminalEnabled ? <TerminalSettingsCard /> : null}
       <SidebarMetadataSettingsCard />
       <InterfaceSettingsCard />
       <SettingsGroup title={translate('settings.keyboardShortcuts')}>
@@ -109,6 +112,7 @@ export type SessionSettingsContext = {
   /** 咕咕住哪(云上 / 某台电脑);给了就按它读写集成(住电脑 = 那台电脑自己的),不给才退回 cloudDeviceId 那台云端。 */
   home?: AssistantHomePlace | null;
   assistantName?: string;
+  panelNavigation?: boolean;
 };
 
 const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsContext) => ReactNode> = {
@@ -119,9 +123,9 @@ const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsC
   // 订阅与任务里的机器组共用一份机器选择。
   subscriptions: () => <DeviceScopeProvider store={settingsDeviceStore}><SubscriptionsSettingsPage /></DeviceScopeProvider>,
   // 咕咕那一组的「连接应用 · 云端」:资源库「集成」的同一份数据,机器钉死在它住的那台(助理 App 的资料页读的也是它)。
-  connectors: ({ cloudDeviceId, home, assistantName }) =>
+  connectors: ({ cloudDeviceId, home, assistantName, panelNavigation }) =>
     home ? (
-      <HomeConnectorsSettings home={home} assistantName={assistantName ?? ''} />
+      <HomeConnectorsSettings home={home} assistantName={assistantName ?? ''} panelNavigation={panelNavigation} />
     ) : cloudDeviceId ? (
       <CloudConnectorsSettings cloudDeviceId={cloudDeviceId} assistantName={assistantName ?? ''} />
     ) : null,

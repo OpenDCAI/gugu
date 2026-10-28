@@ -1,3 +1,5 @@
+import {useEffect,useState} from 'react'
+
 const SKELETON_ROWS = [
   { side: 'other', width: '60%' },
   { side: 'me', width: '45%' },
@@ -8,9 +10,16 @@ const SKELETON_ROWS = [
 ] as const
 
 /** 会话在加载、手上又一行可画的都没有时的占位(从 ChatAreaPanel 抽出,样式未变)。 */
-export function MessageListSkeleton() {
+export function MessageListSkeleton({delayMs=0,overlay=false}:{delayMs?:number;overlay?:boolean}={}) {
+  const [ready,setReady]=useState(delayMs===0)
+  useEffect(()=>{
+    if(delayMs===0){setReady(true);return}
+    const timer=setTimeout(()=>setReady(true),delayMs)
+    return()=>clearTimeout(timer)
+  },[delayMs])
+  if(!ready)return null
   return (
-    <div className="gg-message-skeleton">
+    <div className="gg-message-skeleton" style={overlay?{position:'absolute',inset:0,pointerEvents:'none'}:undefined}>
       {SKELETON_ROWS.map((row, i) => (
         <div key={i} style={{ display: 'flex', justifyContent: row.side === 'me' ? 'flex-end' : 'flex-start' }}>
           <div

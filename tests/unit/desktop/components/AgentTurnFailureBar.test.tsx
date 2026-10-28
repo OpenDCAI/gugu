@@ -13,7 +13,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   requeueErroredDeviceCommand: vi.fn(async () => false)
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
-vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn() }) }))
+vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn(), markNotified: vi.fn(), wasNotified: () => false }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentTurnFailure', () => ({
   useAgentTurnFailure: () => ({
     failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, rawMessage: 'deliver failed' },
@@ -129,11 +129,11 @@ describe('durable provider failure notice', () => {
     id: 'turn-failure:batch:fixture', content, content_type: 'system' as const, sender_user_id: 'agent-1',
     client_message_id: `turn-failure:turn-failure:batch:fixture:${reason}`,
   })
-  it('says the recorded reason in the viewer language, names the sender and opens its model settings', async () => {
-    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('weeklyQuota') }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 周限额度不足，当前账号暂时无法回复。切换模型')
-    await clickElement(harness.container.querySelector<HTMLButtonElement>('button')!)
-    expect(harness.container.querySelector('[data-model-settings="agent-1"]')?.getAttribute('data-model-tab')).toBe('aimodel')
+  it('额度/模型类的失败行不再渲染——由运行条那一排的 agent 状态位说（#7685）', async () => {
+    for (const reason of ['weeklyQuota', 'monthlyQuota', 'quota', 'modelUnavailable']) {
+      await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow(reason) }))
+      expect(harness.container.textContent).toBe('')
+    }
   })
   it('offers no model change for a reason another model would not get past', async () => {
     await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('rateLimited') }))

@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { notify } from '../lib/notices'
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
@@ -24,6 +25,7 @@ import { MOBILE_TABS, SIDEBAR_TABS, type SidebarTab } from '@gugu/core/shared/en
 import { AgentWatchPage, AgentWatchRoot } from '@/mobile/agent-watch/AgentWatchPage'
 import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
 import { useAppShowSession } from '@/mobile/agent-watch/useAppShowSession'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { MobileTabPager } from '@/mobile/MobileTabPager'
 import { navigateMobile } from '@/mobile/navigateMobile'
 import { PhoneLayer } from '@/mobile/PhoneLayer'
@@ -44,7 +46,6 @@ import { useOpenNewSessionOnDeviceHost } from '../components/sessionpage/openNew
 import { MobileCreatePage } from '../components/MobileAgentCreatePage'
 import { AcpAgentCreateComposer } from '../components/AcpAgentCreateComposer'
 import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels'
-import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { ResizableChatListPane } from './ResizableChatListPane'
 import {
   readStoredChatListPaneWidth,
@@ -57,6 +58,8 @@ import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
+import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
@@ -80,6 +83,7 @@ import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agen
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticAgentChat, createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
 import { AGENT_SESSION_STARTED_EVENT, readAgentConversationStartedEvent } from '../lib/agentConversationEvents'
+import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { createAgentStartedNotificationPayload, createAgentTurnFailedNotificationPayload, shouldNotifyForAgentStarted, shouldNotifyForAgentTurnFailed } from '../lib/agentNotificationModels'
 import { agentTurnFailureUserMessage } from '../lib/agentTurnFailure'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
@@ -162,8 +166,7 @@ function InnerLayout({
     !sessionHostAvailable || readMobileShell() ? 'chats' : 'tasks',
   )
   useSessionpageReveal(setActiveTab)
-  // @@@sessionpage otty-state — the most urgent way a 会话页 agent is blocked on the human (needs_user over error),
-  // pushed from the session backend; dots the 消息 rail cell so a stuck agent is visible without opening the session page.
+  // The same live task directory drives pending actions and the existing rail attention priority.
   const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
@@ -317,7 +320,13 @@ function InnerLayout({
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
   }, [openChatBlock, setActiveChatId])
+  const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
+    openAppDetail: target => {
+      if (target.deviceId || target.variant) throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
+      setAppDetail(target)
+      openSettingsSection('apps')
+    },
     openFile: (chatId, target, source) => { openChatTarget(chatId); askChat(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
     openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); askChat(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
@@ -825,6 +834,8 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; messageId?: string | null; error?: string } | undefined
       if (!detail?.agentUserId) return
+      // #7685 额度/模型类由运行条的 agent 状态位 + 恢复前只弹一次的提示说(AgentTurnFailureSlot)，❌ 每条失败的投递再弹一条。
+      if (agentFailureNeedsModelChoice(agentFailureReason(detail.error))) return
       const agentId = detail.agentUserId
       const messages = failedDeliveries.current.get(agentId) ?? new Set<string>()
       failedDeliveries.current.set(agentId, messages)
@@ -848,18 +859,6 @@ function InnerLayout({
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
   }, [contacts, t])
-
-  // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
-  // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
-  useEffect(() => {
-    const handleSessionpageAttention = (event: Event) => {
-      const detail = (event as CustomEvent).detail
-      if (detail !== null && detail !== 'needs_user' && detail !== 'error') throw new Error(`unexpected session attention: ${String(detail)}`)
-      setSessionAttention(detail)
-    }
-    window.addEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
-  }, [])
 
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
   // 头像从**通讯录同一份数据**取(自有 agent 就在 contacts 里),再交给既有的 SharePosterDialog 出卡片 ——
@@ -993,19 +992,13 @@ function InnerLayout({
     void refreshChats()
   }
 
-  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string, view?: 'code' | 'general'): Promise<void> => {
+  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string): Promise<void> => {
     const api = (window as unknown as {
       electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
     }).electronAPI
     if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    const target = await api.invoke('sessionpage:open-agent-session', agentUserId) as { sessionId?: unknown } | null
+    await api.invoke('sessionpage:open-agent-session', agentUserId)
     setActiveTab('tasks')
-    // #7167 模式按钮选了编程 / 通用:任务打开之后请会话页换成那种。能不能换、换前问不问由会话页说。
-    if (!view) return
-    const sessionId = typeof target?.sessionId === 'string' ? target.sessionId : null
-    const bridge = readSessionpageViewRequestBridge()
-    if (!sessionId || !bridge) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    bridge.request(sessionId, view)
   }, [t])
 
   const handleOpenSessionpageAgentFile = useCallback(async (
@@ -1264,7 +1257,7 @@ function InnerLayout({
                       activeTab={activeTab}
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && phoneAssistant.available ? <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} /> : undefined}
+                      lead={mobile && (phoneAssistant.available || sessionAttention === 'needs_user') ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
@@ -1328,11 +1321,10 @@ function InnerLayout({
                       onLeave={() => navigateMobile(() => setActiveTab('chats'), 'pop')}
                       onSwitchToChat={handleSwitchToChat}
                       onOpenGroupChat={handleOpenGroupChat}
-                      onOpenProjectGroup={(chatId, tabChatId) => navigateMobile(() => {
+                      onOpenProjectGroup={(chatId) => navigateMobile(() => {
                         setProjectChatFromPartners(true)
                         openChatTarget(chatId)
-                        if (tabChatId) requestTopicSplit({ chatId: tabChatId, name: chats.find((chat) => chat.id === tabChatId)?.name ?? '', sourceChatId: chatId })
-                        else closeTopicTab(chatId)
+                        closeTopicTab(chatId)
                       }, 'push')}
                     />
                   ) : (
@@ -1387,6 +1379,7 @@ function InnerLayout({
               <SettingsPanel
                 key={settingsSection}
                 mobile
+                appDetail={appDetail}
                 inline
                 initialSection={settingsSection}
                 pane={settingsPane}
@@ -1474,6 +1467,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
+      <NeedsYouHost onAttentionChange={setSessionAttention} />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

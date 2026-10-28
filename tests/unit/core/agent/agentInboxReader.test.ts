@@ -30,11 +30,14 @@ import {
   unreadRowFromRpc,
   combineCoalescedPulls,
   isSaidInChat,
+  agentSpokeAfterViaRpc,
   postDeliveryDisclosureRow,
 } from '@gugu/core/local/agent/agentInboxReader'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
+import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
 const HUMAN = 'human-0000-0000-0000-000000000002'
@@ -191,6 +194,7 @@ function makeDeps(
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
     fetchChatFacts: async () => null,
+    agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
       injections.push({ messageId: input.messageId, text: input.text, attachments: input.attachments })
@@ -567,6 +571,44 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const second = await pullAgentInbox(AGENT, deps)
     expect(second).toMatchObject({ injected: 0, verdict: 'idle' })
     expect(injections).toHaveLength(3)
+  })
+
+  it('a row no host can deliver is skipped on its own: the rest is delivered and the cursor passes it', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before' })
+    // An id that is already typed cannot be encoded into an envelope: every host refuses it, on every pull.
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 2, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Agent 本次回复出错，未能完成' })
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-000000000010', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after' })
+    const disclosed: unknown[] = []
+    const { deps, injections, outcomes } = makeDeps(cloud, { postDisclosure: async (row) => { disclosed.push(row) } })
+
+    const result = await pullAgentInbox(AGENT, deps)
+
+    expect(result).toMatchObject({ injected: 2, verdict: 'accepted' })
+    expect(injections.map((injection) => injection.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
+    expect(cloud.watermark(chat, AGENT)).toBe(3)
+    expect(disclosed).toEqual([])
+    expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
+    // The next pull no longer sees it: it does not fail every later delivery to this agent.
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'idle' })
+  })
+
+  it('a batch of only undeliverable rows injects nothing and still moves the cursor past them', async () => {
+    const chat = '00000000-0000-4000-8000-000000000003'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, 'group')
+    cloud.join(chat, AGENT, { listenMode: 'active' })
+    cloud.join(chat, HUMAN)
+    cloud.post({ chatId: chat, id: 'msg:20000000-0000-4000-8000-000000000001', seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'notice' })
+    const { deps, injections } = makeDeps(cloud)
+
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'accepted' })
+    expect(injections).toEqual([])
+    expect(cloud.watermark(chat, AGENT)).toBe(1)
   })
 
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
@@ -1083,6 +1125,75 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toEqual([])
   })
 
+  it('keeps the real ACP pre-turn refusal unread, then delivers that exact message once after recovery without an error card', async () => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const notices = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', notices)
+    try {
+      expect((await runtime.startSession(makeStartInput())).success).toBe(true)
+      h.agent.prompt.mockRejectedValueOnce(Object.assign(new Error('Internal error'), {
+        code: -32603, data: { details: 'Session not found' },
+      }))
+      const cloud = seed()
+      const { deps, wakes } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      } })
+      expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ verdict: 'not-live', injected: 0 })
+      expect(cloud.markReadCalls).toEqual([])
+      expect(wakes).toEqual([AGENT])
+      expect(notices).not.toHaveBeenCalled()
+      expect((await runtime.startSession(makeStartInput({ providerSessionId: 'session-1' }))).success).toBe(true)
+      const delivered = await pullAgentInbox(AGENT, deps)
+      await delivered.completion
+      expect(delivered).toMatchObject({ verdict: 'accepted', injected: 1 })
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect(notices).not.toHaveBeenCalled()
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(2)
+      expect(h.agent.prompt.mock.calls[0]?.[0].prompt).toEqual(h.agent.prompt.mock.calls[1]?.[0].prompt)
+    } finally {
+      await runtime.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    ['ECONNRESET', 'network'], ['401 Unauthorized', 'authentication'],
+  ])('settles a native failure before first output once, with its cause and no re-delivery: %s', async (cause, reason) => {
+    const { AcpRuntime, createAcpProcedures } = await import('@gugu/session-runtime/acp-agents')
+    const { makeAcpHarness, makeStartInput } = await import('../../../../packages/session-runtime/src/acp-agents/acp-test-support')
+    const h = makeAcpHarness()
+    const runtime = new AcpRuntime(h.deps)
+    const api = createAcpProcedures(runtime)
+    const cloud = seed()
+    const notices: Array<{ reason: string }> = []
+    try {
+      await runtime.startSession(makeStartInput())
+      h.agent.prompt.mockRejectedValueOnce(new Error(cause))
+      const { deps } = makeDeps(cloud, { inject: async input => {
+        const result = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: input.text, origin: 'communication' } })
+        return result.declined ? 'not-live' : {
+          verdict: 'accepted', completion: api.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+        }
+      }, postDisclosure: async input => { notices.push(input) } })
+      const accepted = await pullAgentInbox(AGENT, deps)
+      await accepted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ reason })])
+      expect(cloud.markReadCalls).toHaveLength(1)
+      expect((await pullAgentInbox(AGENT, deps)).injected).toBe(0)
+      expect(h.agent.prompt).toHaveBeenCalledTimes(1)
+      expect(runtime.sessionsListLiveModel().states.list.snapshot().data['conv-1'])
+        .toMatchObject({ isGenerating: false, lastTurnOutcome: 'errored' })
+    } finally { await runtime.dispose() }
+  })
+
   it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
     const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
     vi.stubGlobal('fetch', post)
@@ -1165,39 +1276,90 @@ describe('三态判决与失败面', () => {
     expect(isSaidInChat(new Error('never pulled'))).toBe(false)
   })
 
-  it('reports a quota failure after admission, even when a wake pull owns the turn instead of a command', async () => {
+  // #7685 额度/模型类失败是 agent 的状态位，❌ 聊天里的失败行；留成「没说」，由设备命令结果(reply_notice=context)带到界面。
+  it.each([
+    "Internal error: You've hit your weekly limit; private trace x123",
+    'insufficient_quota',
+    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
+    'Selected model is at capacity. Please try a different model.',
+  ])('keeps a quota or model failure out of the chat and leaves it unsaid: %s', async (reason) => {
     const cloud = seed()
     let fail!: (error: Error) => void
     const completion = new Promise<void>((_, reject) => { fail = reject })
-    const notices: Array<{ reason: string; chatId: string }> = []
+    const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     const settled = admitted.completion!.catch((error: unknown) => error)
-    expect(cloud.markReadCalls).toHaveLength(1)
-    // A subsequent nudge sees no unread rows. It cannot own this provider failure.
-    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
-    fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
-    expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'weeklyQuota' })])
+    fail(new Error(reason))
+    const thrown = await settled
+    expect(notices).toEqual([])
+    expect(isSaidInChat(thrown)).toBe(false)
+    expect((thrown as Error).message).toBe(reason)
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
-  it.each([
-    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
-    'Selected model is at capacity. Please try a different model.',
-  ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
+  it('[positive control] still says a non-quota failure in the chat', async () => {
     const cloud = seed()
     const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
-      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('HTTP 429 too many requests')) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
-    await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
+    expect(isSaidInChat(await admitted.completion!.catch((error: unknown) => error))).toBe(true)
+    expect(notices).toEqual([expect.objectContaining({ reason: 'rateLimited' })])
+  })
+
+  // Beta 1042: the agent's message_send landed, then the provider rejected the request after it (API Error: 400) and the
+  // chat got 「Agent 本次回复出错，未能完成」 under the reply it had just read.
+  it('posts no failure row under a reply the agent already sent on that line', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    const admitted = await pullAgentInbox(AGENT, deps)
+    const error = await admitted.completion!.catch((failure: unknown) => failure)
+    expect(asked).toEqual([{ agentUserId: AGENT, chatId: '00000000-0000-4000-8000-000000000003', threadRootId: null, afterSeq: 1 }])
+    expect(notices).toEqual([])
+    // The chat holds its answer: the host adds no notice of its own either.
+    expect(isSaidInChat(error)).toBe(true)
+  })
+
+  it('still says the failure when the agent did not answer, or when that cannot be read', async () => {
+    for (const spoke of [async () => false, async () => { throw new Error('history read refused') }]) {
+      resetAgentInboxReaderStateForTests()
+      const cloud = seed()
+      const notices: unknown[] = []
+      const { deps } = makeDeps(cloud, {
+        inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Invalid request parameters.')) }),
+        agentSpokeAfter: spoke,
+        postDisclosure: async (input) => { notices.push(input) },
+      })
+      const admitted = await pullAgentInbox(AGENT, deps)
+      await admitted.completion!.catch(() => {})
+      expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'generic' })])
+    }
+  })
+
+  it('does not ask whether the agent answered a batch that was never admitted', async () => {
+    const cloud = seed()
+    const asked: unknown[] = []
+    const notices: unknown[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => { throw new Error('runtime not ready') },
+      agentSpokeAfter: async (input) => { asked.push(input); return true },
+      postDisclosure: async (input) => { notices.push(input) },
+    })
+    await pullAgentInbox(AGENT, deps).catch(() => {})
+    expect(asked).toEqual([])
+    expect(notices).toHaveLength(1)
   })
 
   it('keeps a completion failure unsaid if its durable notice could not be written', async () => {
@@ -1392,5 +1554,101 @@ describe('#6264 合并触发的合账', () => {
       { pulled: 2, injected: 2, verdict: 'accepted' },
       { pulled: 1, injected: 0, verdict: 'not-live' },
     )).toEqual({ pulled: 3, injected: 2, verdict: 'not-live' })
+  })
+})
+
+// Beta 1040: a turn-failure notice is stored under a structured key (`turn-failure:batch:<hash>`) and answers the message
+// that dispatched the failed turn, so it reaches the agent that sent that message. Its reader delivers it like any row —
+// one id it cannot address must not stop that agent's whole inbox — and a row it cannot prepare is disclosed, not dropped.
+describe('a failure notice from another agent reaches the agent whose message it answers', () => {
+  const CHAT = '00000000-0000-4000-8000-0000000000a1'
+  const NOTICE = 'turn-failure:batch:6b62191fcf9bbff3312a90753053be57'
+  const LATER = '10000000-0000-4000-8000-0000000000a2'
+
+  function seed(): FakeCloud {
+    const cloud = new FakeCloud()
+    cloud.addChat(CHAT, 'group')
+    cloud.join(CHAT, AGENT)
+    cloud.join(CHAT, OTHER_AGENT)
+    cloud.post({
+      chatId: CHAT, id: NOTICE, seq: 1, senderUserId: OTHER_AGENT, senderType: 'agent', content: 'Delivery failed.',
+      replyToMessageId: '10000000-0000-4000-8000-0000000000a0', replyToSenderUserId: AGENT,
+    })
+    cloud.post({ chatId: CHAT, id: LATER, seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'still there?' })
+    return cloud
+  }
+
+  it('delivers the notice under its own id and the message after it, and reads both', async () => {
+    const cloud = seed()
+    const { deps, injections } = makeDeps(cloud)
+    const result = await pullAgentInbox(AGENT, deps)
+    expect(result.injected).toBe(2)
+    expect(injections[0]!.text).toContain(`msg="msg:${NOTICE}"`)
+    expect(injections[1]!.text).toContain(`msg="msg:${LATER}"`)
+    expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
+  })
+
+  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+    const cloud = seed()
+    const disclosures: Array<{ chatId: string; reason: string }> = []
+    const { deps, injections, outcomes } = makeDeps(cloud, {
+      resolveGuguIds: async () => { throw new Error('identity lookup refused') },
+      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, reason: input.reason }) },
+    })
+    const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
+    expect((thrown as Error).message).toBe('identity lookup refused')
+    expect(isSaidInChat(thrown)).toBe(true)
+    expect(injections).toEqual([])
+    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(cloud.markReadCalls).toEqual([])
+    expect(outcomes).toEqual([{ ok: false }])
+  })
+
+  it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {
+    const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', post)
+    try {
+      const row = { agentUserId: OTHER_AGENT, chatId: CHAT, key: NOTICE, threadRootId: null, reason: 'quota' as const }
+      await postDeliveryDisclosureRow(row, 'test-token')
+      await postDeliveryDisclosureRow(row, 'test-token')
+      const [first, second] = post.mock.calls.map((call) => JSON.parse(call[1]!.body as string))
+      expect(first.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(second.id).toBe(first.id)
+      expect(parseSystemNotice({ id: first.id, content_type: 'system', sender_user_id: OTHER_AGENT, client_message_id: first.client_message_id }))
+        .toEqual({ kind: 'turn-failure', reason: 'quota' })
+      expect(storedMessageLink(CHAT, first.id)).toBe(`gugu-chat://${CHAT}/${first.id}`)
+      // A notice stored under its key before this: still a message, reached through its conversation.
+      expect(storedMessageLink(CHAT, NOTICE)).toBe(`gugu-chat://${CHAT}`)
+    } finally { vi.unstubAllGlobals() }
+  })
+})
+
+describe('agentSpokeAfterViaRpc', () => {
+  const input = { agentUserId: AGENT, chatId: 'chat-1', threadRootId: null, afterSeq: 5 }
+  const reply = (rows: unknown[]) => (async () => new Response(JSON.stringify(rows), { status: 200 })) as unknown as typeof fetch
+
+  beforeEach(() => {
+    vi.stubEnv('GUGU_SUPABASE_URL', 'https://db.test')
+    vi.stubEnv('GUGU_SUPABASE_ANON_KEY', 'anon')
+    return () => { vi.unstubAllEnvs() }
+  })
+
+  it('reads the line as the agent and counts only its own non-system message after the batch', async () => {
+    let body: unknown
+    const spy = (async (_url: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('[]') }) as unknown as typeof fetch
+    await agentSpokeAfterViaRpc(input, 'token', spy)
+    expect(body).toEqual({ p_chat_id: 'chat-1', p_as_user_id: AGENT, p_thread_root_id: null, p_limit: 20 })
+    const others = [
+      { seq: 7, sender_user_id: AGENT, content_type: 'system' },
+      { seq: 5, sender_user_id: AGENT, content_type: 'text' },
+      { seq: 8, sender_user_id: 'someone-else', content_type: 'text' },
+    ]
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply(others))).resolves.toBe(false)
+    await expect(agentSpokeAfterViaRpc(input, 'token', reply([...others, { seq: 6, sender_user_id: AGENT, content_type: 'text' }]))).resolves.toBe(true)
+  })
+
+  it('throws when the history cannot be read', async () => {
+    const refused = (async () => new Response('nope', { status: 403 })) as unknown as typeof fetch
+    await expect(agentSpokeAfterViaRpc(input, 'token', refused)).rejects.toThrow('message_history_as failed: HTTP 403')
   })
 })

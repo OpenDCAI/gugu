@@ -4,7 +4,7 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { cn } from '@/lib/cn'
 import { X } from '@/lib/icons'
 import { useDisplayDevices } from '@/hooks/useAssistantHomeLabel'
-import { useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { useLiveDeviceSessions,usePhoneTaskDirectory } from '@/session/shared/remote-sessions/session-directory'
 import { useAgentDisplayStatus } from '../../hooks/useAgentDisplayStatus'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -56,6 +56,7 @@ export interface MemberPickerProps {
 }
 
 export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialSelectedIds = [], lockedIds, peopleDenied, agentNote, busy = false, busyLabel, footer }: MemberPickerProps) {
+  usePhoneTaskDirectory()
   const { t } = useTranslation('contacts')
   const mobile = useMobileShell()
   const { contacts, contactsStatus, loadingContacts, refreshContacts } = useContactsStore()

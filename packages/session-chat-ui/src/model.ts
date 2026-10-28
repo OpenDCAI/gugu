@@ -1,4 +1,6 @@
 import type { HookNotice } from './lib/hook-notice';
+import type { BackgroundCommandEntry } from './lib/background-command-roster';
+import type { SubagentRosterEntry } from './lib/subagent-roster';
 import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
 import type {
   AcpPermissionRequest,
@@ -78,6 +80,10 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
+  /** View-only reference to the input this agent output responds to. */
+  conversationReply?: { itemId: string; text: string };
+  /** View-only disclosure of the completed thinking/execution segment. */
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number };
   /**
    * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
@@ -118,11 +124,15 @@ export type ChatToolCall = {
   request?: string;
   /** What the tool returned, shown in the expanded result panel. */
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 工具交回来的图(画图用的地址),在头下面画成一条缩略图 —— 不用点开就看得见,见 tool-images.ts。
    * 缺席 = 这次调用没交图,行和从前一样。
    */
   images?: string[];
+  /** Includes pictures represented by lazy transport references. */
+  imageCount?: number;
   /** Id of the parent tool call (for hierarchical rendering). */
   parentId?: string;
 };
@@ -167,6 +177,8 @@ export type ChatSubagentToolCall = {
   agentId?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 这个子任务被要求做什么（#4981）——供应商在派活时给的那句描述。
    *
@@ -233,6 +245,8 @@ export type ChatFileOpToolCall = {
   status: ToolStatus;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
   error?: string;
@@ -266,6 +280,8 @@ export type ChatExecute = {
   outputText?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
@@ -587,6 +603,23 @@ export type SessionConditionCode =
 
 export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
 
+/**
+ * 还在跑的后台任务 —— 主智能体起的后台命令、派出去的子智能体 —— 贴在消息列表**最后一行**。
+ *
+ * owner 2026-10-27:右上角「摘要」按钮去掉,后台任务直接放进主对话。它们不挂住这一轮(后台命令轮当场收口、
+ * 进程照跑),所以「还有东西在跑」只能由列表末尾这一行来说;点开就地展开成一张逐行的单子,能停、能收起。
+ *
+ * 与 `session-condition` 同族:视图按此刻的状态当场造出来,❌ 不进历史 —— 跑完、停掉、收起,这一行就没了。
+ */
+export type BackgroundTasksItem = {
+  kind: 'background-tasks';
+  id: string;
+  commands: readonly BackgroundCommandEntry[];
+  subagents: readonly SubagentRosterEntry[];
+  /** 单子展开着没有(人点那一行切换;默认收着)。 */
+  expanded: boolean;
+};
+
 /** Successful file edits presented once below a settled turn's reply. */
 export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
@@ -597,6 +630,7 @@ export type FileChangeSummaryItem = {
 
 export type SyntheticItem =
   | SessionConditionItem
+  | BackgroundTasksItem
   | TurnOutcomeItem
   | OpenedOutputItem
   | FileChangeSummaryItem

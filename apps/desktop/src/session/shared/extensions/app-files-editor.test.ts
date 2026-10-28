@@ -18,7 +18,7 @@ const identities = vi.fn(async (_token: string, ids: readonly string[]) => ids.m
 const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: HUMAN }),
-  hasCapability: () => true, sync: {} as never, identities, faces: async () => ({}),
+  hasCapability: () => true, sync: { ensureFor: () => undefined,} as never, identities, faces: async () => ({}),
   filesUrl: () => 'http://files.invalid', warn: () => undefined,
 });
 

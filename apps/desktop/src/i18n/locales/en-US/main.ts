@@ -169,7 +169,7 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars trimmed · open on desktop for the full output",
+      "outputTrimmed": "… {{chars}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",
@@ -208,7 +208,7 @@ export default {
       "decline": "Decline",
       "cancelled": "This no longer needs an answer",
       "noOptions": "Answer this on the desktop: the machine did not send the available options.",
-      "answerInTerminal": "Answer this in the terminal on the desktop: a terminal task can't be answered from the phone.",
+      "answerInTerminal": "Answer this on the computer.",
       "answerOnDesktop": "Answer this on the desktop: this kind can't be answered from the phone yet.",
       "byDesktop": "the desktop",
       "byMobile": "the phone"
@@ -222,12 +222,6 @@ export default {
       "project": "Project",
       "harness": "Harness",
       "model": "Model",
-      "view": "Mode",
-      "sessionView": {
-        "label": "Mode",
-        "code": { "name": "Code", "desc": "Runs in a terminal; you see the harness's own UI" },
-        "general": { "name": "Work", "desc": "Chat-style; replies and approvals show fully on the phone" }
-      },
       "permission": {
         "plan": { "name": "Plan only", "desc": "Think it through without running tools" },
         "read-only": { "name": "Read-only", "desc": "Can look but not change; asks before acting, except for tools you have allowed in the harness's own settings" },
@@ -407,6 +401,8 @@ export default {
       "notificationsTestFailed": "This device does not support system notifications.",
       "notificationsTestSentMobile": "The system accepted it. Still nothing? Go to Me → Permissions → Notifications and make sure notifications and pop-up banners are on for 咕咕.",
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
+      "terminal": "Terminal",
+      "terminalDescription": "Show the terminal, and run new tasks in it.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
@@ -419,7 +415,7 @@ export default {
     "guguNumberUnassigned": "Gugu ID not assigned",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "apps": {
       "intro": "Apps installed on this phone — from cards in chats and from the market. The ones that come with Gugu are not listed.",
       "empty": "No App installed yet.",
@@ -442,7 +438,6 @@ export default {
       "account": "Account",
       "activity": "Activity",
       "apps": "Apps",
-      "channels": "Chat channels",
       "browser": "Browser",
       "devices": "Devices",
       "general": "General",
@@ -462,6 +457,8 @@ export default {
       "batteryOptimization": "Background running",
       "batteryOptimizationPurpose": "Keeps alerts coming after you switch away from 咕咕; tap to exempt it from battery optimization",
       "camera": "Camera",
+      "microphone": "Microphone",
+      "microphonePurpose": "Send voice messages",
       "cameraPurpose": "Scans QR codes to add friends and join groups",
       "fileAccess": "Files and folders",
       "fileAccessPurpose": "Opens project folders on your computer",
@@ -469,7 +466,7 @@ export default {
       "off": "Off",
       "offPrompt": "Off · tap to turn on",
       "offBlocked": "Off · turn on in system settings",
-      "unknown": "Unknown · check in system settings",
+      "unknown": "Check system settings",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",
       "readFailed": "Couldn't read permission status from the system. Come back to this page to try again."
     },
@@ -549,7 +546,7 @@ export default {
     "messages": "Messages (⌘1)",
     "my": "Me",
     "newAgent": "New Agent",
-    "newTask": "New Task",
+    "newTask": "New task",
     "usage": "Usage",
     "resizeChatList": "Resize chat list",
     "sessionExpired": {

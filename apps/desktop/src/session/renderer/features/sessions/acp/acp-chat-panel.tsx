@@ -1,3 +1,5 @@
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
@@ -19,7 +21,10 @@ import type {
   MentionItem,
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
+import { autorun } from 'mobx';
 import { observer, useObserver } from 'mobx-react-lite';
+import { collectBackgroundCommands, collectSubagents } from '@renderer/features/sessions/view/background-task-rosters';
+import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
@@ -64,6 +69,7 @@ import { useNavigate } from '@renderer/lib/layout/navigation-actions';
 import type { SessionCondition as ChatSessionCondition } from '@gugu/session-chat-ui';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
+import { machineLabel } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -1629,6 +1635,7 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -2099,6 +2106,14 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             detail: error.message,
             actions: [{ label: translate('transcript.condition.reconnect'), run: () => store.retry() }],
           };
+        case 'connection_lost':
+          // 断的是到那台机器的线,❌ 引擎:说是哪台、连上后会自己重新打开(store 在线变通时再开);等不及的照样能点。
+          return {
+            code: 'machine-unreachable',
+            label: translate('transcript.condition.machineLinkLost', { device: machineLabel(error.deviceId) }),
+            detail: error.message,
+            actions: [retry],
+          };
         default: {
           // 咕咕这一侧的失败按原因表说、给原因表的按钮(#7103);咕咕以外的(harness / provider)递它的原话(#4657)+ 重试。
           const reason = failureReason(error.message);
@@ -2126,6 +2141,21 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     })();
     setCondition(condition);
   }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock]);
+
+  /**
+   * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。
+   * 收集逻辑与从前那张卡同一套(`background-task-rosters.ts`):每来一条消息、运行时报的在跑集合变了、人按了 ×,重算一次;
+   * 内容没变,转录那一格自己会挡住(`sameBackgroundTasks`)。
+   */
+  useEffect(() => {
+    if (!store) return;
+    return autorun(() => {
+      store.chatState.session.setBackgroundTasks({
+        commands: collectBackgroundCommands(store.sessionId, translate('transcript.backgroundCommand')),
+        subagents: collectSubagents(store.sessionId, translate('transcript.subagent')),
+      });
+    });
+  }, [store, translate]);
 
   useMarkSeenWhenShown(sessionStore, useContext(PageShownContext) && !store?.isTransient);
 
@@ -2188,9 +2218,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const historyActionsEnabled = store?.canRevertHistory ?? false;
   const messageEdit = store?.messageEdit;
   const messageEditPending = store?.reverting ?? false;
+  const conversationAgentName = store ? sessionAgentNames.nameFor(store.sessionId) ?? null : null;
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
+      onConversationReply: (itemId) => viewRef.current?.scrollToItem(itemId),
+      conversationAgentName: () => conversationAgentName,
       classifyLink: classifyFileLink,
       onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
@@ -2283,6 +2316,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           arg.urls.map((url, index) => ({ url, alt: '', thumb: index === arg.index ? arg.thumb : undefined })),
           arg.index
         ),
+      resolveToolImage: (itemId, index) => store?.resolveToolImage(itemId, index) ?? Promise.resolve(null),
       resolveAttachment: (attachment) =>
         store ? resolveAttachmentDataUrl(store, attachment.id) : Promise.resolve(null),
       onViewMermaid: (arg) => {
@@ -2332,8 +2366,13 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             });
         }
       },
+      // 列表末尾那一行后台任务上的两颗键(原来在右上角「摘要」卡里)。停 = 真停;× = 只收起,它照旧在跑。
+      onStopBackgroundTask: ({ stopId }) => store?.stopSubagent(stopId),
+      onDismissBackgroundTask: ({ entryId }) => {
+        if (store) dismissSubagent(store.sessionId, entryId);
+      },
     }),
-    [store, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching
@@ -2392,7 +2431,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             commands={transcriptCommands}
             onAtBottomChange={setAtBottom}
             onReachStart={handleReachStart}
-            layout={chatLayout}
+            layout={{ ...chatLayout, agentConversation: true }}
             style={{ position: 'absolute', inset: 0 }}
           />
         </div>

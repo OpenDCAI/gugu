@@ -1,5 +1,5 @@
 import { rendererLogger } from '@/lib/log';
-import { messageForUser } from '@/lib/userFacingError';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '../../session/renderer/lib/ui/input'
@@ -8,10 +8,10 @@ import { Button } from '../ui/Button'
 import { PageHead } from '../../session/renderer/features/assistant/assistant-ui-parts'
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core'
 import type { UserLibraryEntry, UserLibraryKind } from '../../session/shared/user-library'
-import { assistantAppProgram, publishAssistantAppChange } from './assistant-app-client'
-import { toast } from '../../session/renderer/lib/hooks/use-toast'
+import { assistantAppProgram, reportAssistantAppChange } from './assistant-app-client'
 import { libraryDeviceId } from './assistant-library-client'
 import { cachedDevicesAccount } from '../../store/devicesCache'
+import { assistantPanelLibrary } from './assistant-panel-library'
 
 export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onClose, onSaved }: {
   assistantId: string;
@@ -30,17 +30,17 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
     event.preventDefault(); if (!name.trim() || saving) return
     setSaving(true); setFailed('')
     try {
-      const saved = await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', { kind, name: name.trim(), description, group: group.trim() || null, content,
-        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }, ownerId)
+      const changeInput = { kind, name: name.trim(), description, group: group.trim() || null, content,
+        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }
+      const saved = machine?.panel ? await assistantPanelLibrary(machine.panel).save(changeInput)
+        : await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', changeInput, ownerId)
       const change = saved.activity?.at(-1)
-      try {
-        if (assistantId) await publishAssistantAppChange(machine, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
+      if (assistantId) await reportAssistantAppChange(machine, assistantId, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
           operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),
           ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
-            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, assistantId, ownerId)
-      } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error: error }, 'action failed'); toast({ title: t('library.savedNotificationFailed'), description: messageForUser(error), tier: 'warning' }) }
+            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, ownerId)
       onSaved()
-    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(messageForUser(error)) }
+    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(assistantPanelFailure(error,t)) }
     finally { setSaving(false) }
   }}>
     <PageHead title={t(entry ? 'library.edit' : 'library.add')} />

@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore
 import { chatService } from '../lib/chat'
 import { recentMachineLimitRefusal } from '../lib/device-labels'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
+import { isLocalDeviceUnidentified } from '../lib/localDeviceIdentity'
 import { rendererLogger } from '../lib/log'
 import { partitionPhones, sortDevices } from '../lib/devicesSort'
 import { thisPhoneDeviceId } from '../mobile/phone-device/phoneDeviceSettings'
 import { useAuth } from './auth'
 import { useChatStore } from './chatContext'
 import { DevicesContext } from './devicesContext'
+import { publishDirectoryDevices } from '@/session/shared/remote-sessions/session-directory'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { cachedDevicesAccount, deviceCacheAction, readCachedDevices, writeCachedDevices } from './devicesCache'
 import { withDeviceProjects } from '@gugu/core/cloud/deviceProjects'
@@ -73,6 +75,12 @@ export function DevicesProvider({ children, active = true }: { children: React.R
         if (options.throwOnError) throw err
         return
       }
+      // Not a failure: this computer is not identified yet, so no row of this read can be told apart as its own.
+      // The list on screen (its own row marked) stays; the read is repeated the moment it is identified (below).
+      if (isLocalDeviceUnidentified(err)) {
+        devicesLog.info({}, 'device list kept until this computer is identified among the account devices')
+        return
+      }
       // fail-loud：列表加载失败显式呈现，不静默留空列表。
       // 原因只进日志，不拼进用户那句话（#4891）——用户拿到的是「怎么办」，排查的人拿到的是「为什么」。
       // ❌ 别把这一行删了只留 setError：那样两边都看不到原因，比原样外泄更糟。
@@ -83,6 +91,13 @@ export function DevicesProvider({ children, active = true }: { children: React.R
       setLoading(false)
     }
   }, [userId])
+
+  // 这台电脑在账号的设备里认出自己的那一刻(本机宿主拿到登录、查到自己那一行)再读一次:之前那次读分不出哪行是本机。
+  // 订在首读之前:认出若发生在首读途中,这一声不会落空。
+  useEffect(() => {
+    if (!userId) return
+    return platform.subscribeLocalDeviceIdentified?.(() => { void refresh() })
+  }, [userId, refresh])
 
   useEffect(() => {
     /*
@@ -174,6 +189,8 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   // 在手机上,这台手机自己那一行标成本机。
   const thisPhoneId = useMemo(() => (platform.kind === 'capacitor' && userId ? thisPhoneDeviceId(userId) : null), [userId])
   const { machines, phones } = useMemo(() => partitionPhones(listedHere, thisPhoneId), [listedHere, thisPhoneId])
+  const directoryDevices = useMemo(() => [...machines, ...phones], [machines, phones])
+  useEffect(() => { publishDirectoryDevices(directoryDevices) }, [directoryDevices])
 
   // 开通、唤醒途中每 3 秒问一次管家(它的进度只在 /state 上),连设备列表一起刷。
   const pollMs = userId ? cloudComputerPollMs(cloudComputer.snapshot, listedHere) : null

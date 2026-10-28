@@ -74,3 +74,17 @@ describe('悬停拍一拍', () => {
     expect(harness.container.querySelector('canvas[data-agent-avatar]')).toBeNull()
   })
 })
+
+it('adds transparent wing drawing room without enlarging the avatar layout, and resizes its rectangular bitmap', async () => {
+  await harness.render(createElement(AgentAvatar, { id: 'profile-padding-agent', name: 'A', size: 72, canvasPaddingX: 24 }))
+  expect(canvas().style.width).toBe('120px')
+  expect(canvas().style.height).toBe('72px')
+  expect(canvas().style.marginInline).toBe('-24px')
+  const dpr = Math.min(2.5, window.devicePixelRatio || 1)
+  expect(canvas().width).toBe(Math.round(120 * dpr))
+  expect(canvas().height).toBe(Math.round(72 * dpr))
+  await harness.render(createElement(AgentAvatar, { id: 'profile-padding-agent', name: 'A', size: 40 }))
+  expect(canvas().width).toBe(Math.round(40 * dpr))
+  expect(canvas().height).toBe(Math.round(40 * dpr))
+  expect(canvas().style.marginInline).toBe('0px')
+})

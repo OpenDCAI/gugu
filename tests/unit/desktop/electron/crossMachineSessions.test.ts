@@ -534,6 +534,20 @@ describe('the family across machines', () => {
 
 // #7199 云电脑休眠中 ≠ 离线:发过去之前先叫醒,醒了照常发;醒不来说清是哪台、为什么,什么都不发。
 describe('a sleeping cloud computer', () => {
+  it('does not wake a paused host to inspect or locate a session, even with stale online presence', async () => {
+    for (const online of [true, false]) {
+      const wakeCloudComputer = vi.fn(async () => true)
+      const { xm, call } = makeCrossMachine(undefined, {
+        listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', online)],
+        cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+        wakeCloudComputer,
+      })
+      await expect(xm.runOnDevice('dev-c', CALLER, { action: 'get', session_id: 'child' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      await expect(xm.call('dev-c', CALLER, { action: 'locate', session_ids: ['child'] })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      expect(wakeCloudComputer).not.toHaveBeenCalled()
+      expect(call).not.toHaveBeenCalled()
+    }
+  })
   it('wakes it, then sends as usual once it is online', async () => {
     let online = false
     const wakeCloudComputer = vi.fn(async (deviceId: string) => {
@@ -576,8 +590,31 @@ describe('a sleeping cloud computer', () => {
     expect(rows.find((row) => row.device_id === 'dev-b')).not.toHaveProperty('cloud_computer')
   })
 
+  it('wakes a paused cloud computer even when the device row still says online', async () => {
+    const order: string[] = []
+    const wakeCloudComputer = vi.fn(async () => { order.push('wake'); return true })
+    const { xm, call } = makeCrossMachine(async () => { order.push('deliver'); return { result: { ok: true } } }, {
+      listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', true)],
+      cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+      wakeCloudComputer,
+    })
+    await xm.call('dev-c', CALLER, { action: 'message', session_ids: ['assistant'], text: 'result' })
+    expect(wakeCloudComputer).toHaveBeenCalledOnce()
+    expect(call).toHaveBeenCalledOnce()
+    expect(order).toEqual(['wake', 'deliver'])
+  })
+
   it('session_devices still lists machines when the manager cannot be reached', async () => {
     const { xm } = makeCrossMachine(undefined, { cloudComputerState: async () => { throw new Error('down') } })
     expect((await xm.listDeviceRows()).map((row) => row.device_id)).toEqual(['dev-a', 'dev-b', 'dev-c'])
   })
+})
+
+
+it('prepares a dormant work seat only through the dedicated capability and never falls back to old spawn', async () => {
+  const { xm, call } = makeCrossMachine(async (_device, channel) => channel === 'assistantWork.prepare'
+    ? { error: { code: 'unknown_method', message: 'No handler registered for assistantWork.prepare' } } : { result: { started: true } })
+  await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+  expect(call).toHaveBeenCalledOnce()
+  expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
 })

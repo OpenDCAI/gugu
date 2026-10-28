@@ -1,4 +1,5 @@
 import { currentAuthSessionSignal } from './authSessionLoss'
+import { chatSendTimings } from './chatSendTiming'
 
 // @@@clock-skew-guard-removed (#4935, owner 2026-09-04) — 这里曾有 #2755 的时钟偏移守卫:拿「响应被处理的时刻」减
 // 响应头 Date,两次一致就整屏锁死并指控用户电脑。它把页面挂起(合盖/App Nap/后台冻结)期间在路上的响应
@@ -30,6 +31,9 @@ async function fetchWithSignals(
   init: RequestInit | undefined,
   signals: AbortSignal[],
 ): Promise<Response> {
+  if (requestPath(input) === '/rest/v1/rpc/send_message_idempotent' && typeof init?.body === 'string') {
+    try { const timing = chatSendTimings.get(JSON.parse(init.body).p_message_id); if (timing) timing.http ??= performance.now() } catch { /* Diagnostics must not change request validation. */ }
+  }
   // PostgREST reads the finite body after fetch resolves; keep that read inside the same deadline and signal cleanup.
   const complete = async (response: Response): Promise<Response> => requestPath(input).startsWith('/rest/v1/') && response.body
     ? response.clone().arrayBuffer().then(() => response)

@@ -164,6 +164,7 @@ export interface MarketUpdatesSummary {
    * owner 10-19)。照常能用,❌ 卸载。可选:App 页看的另一台机器(#6264)是更早的咕咕时,它的回答里没有这一项。
    */
   gone?: string[];
+  forkBehind?: Record<string, import('./variants').ForkBehind>;
 }
 
 /**

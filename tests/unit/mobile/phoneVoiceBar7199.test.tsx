@@ -32,6 +32,7 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/phoneVoiceRuntime', () => ({
   phoneVoiceRecorder: { stop: mocks.stop, pause: mocks.pause, resume: mocks.resume, cancel: mocks.cancel, clearError: mocks.clearError },
   phoneVoiceJobs: { discard: mocks.discard, retry: mocks.retry, dismiss: mocks.dismiss },
 }))
+vi.mock('../../../apps/desktop/src/mobile/phone-device/phonePermissionsNavigation', () => ({ openPhonePermissions: mocks.openSettings }))
 vi.mock('../../../apps/desktop/src/lib/cloudComputerStore', () => ({ wakeCloudComputer: mocks.wake }))
 
 const job = (extra: Partial<VoiceJobView> = {}): VoiceJobView => ({ id: 'note-1', phase: 'recording', failure: null, dismissed: false, createdAt: '2026-10-16T09:00:00.000Z', held: null, ...extra })
@@ -105,38 +106,16 @@ describe('系统没给麦克风', () => {
   })
 })
 
-describe('有录音在等它家里:系统连它,录音先存在手机上', () => {
-  it('宿主收回着:渲染即叫一次(同一条不重复叫),说「正在连接」,没有「叫醒它」也没有「休息」', async () => {
-    mocks.jobs = [job({ phase: 'uploading', held: 'asleep' })]
+describe('录音尚未上传:保留手机备份，不依赖执行设备', () => {
+  it.each(['asleep','waking','unreachable'] as const)('设备 %s 时不叫宿主，也没有连接或重连按钮', async held => {
+    mocks.jobs = [job({ phase: 'uploading',held })]
     await render()
-    expect(q('phone-voice-bar-held')?.getAttribute('data-held')).toBe('asleep')
-    expect(q('phone-voice-bar-held')?.textContent).toContain('正在连接')
-    expect(q('phone-voice-bar-held')?.textContent).not.toMatch(/休息|叫醒/)
-    expect(mocks.wake).toHaveBeenCalledTimes(1)
-    await render()
-    expect(mocks.wake).toHaveBeenCalledTimes(1)
-    expect(q('phone-voice-bar-wake')).toBeNull()
-  })
-
-  it('叫不起来:说原因、录音还在手机上,给重试;点重试再叫一次', async () => {
-    mocks.wake.mockRejectedValueOnce(new Error('boom'))
-    mocks.jobs = [job({ phase: 'uploading', held: 'asleep' })]
-    await render()
-    await vi.waitFor(() => expect(q('phone-voice-bar-held')?.getAttribute('data-held')).toBe('connect-failed'))
     expect(q('phone-voice-bar-held')?.textContent).toContain('录音先存在手机上')
-    await clickElement(q('phone-voice-bar-retry-connect')!)
-    expect(mocks.wake).toHaveBeenCalledTimes(2)
-  })
-
-  it('正在起来 / 连不上:只说,不叫、不给钮', async () => {
-    mocks.jobs = [job({ phase: 'uploading', held: 'waking' })]
-    await render()
-    expect(q('phone-voice-bar-held')?.getAttribute('data-held')).toBe('waking')
-    expect(q('phone-voice-bar-held')?.textContent).toContain('正在连接')
-    mocks.jobs = [job({ phase: 'uploading', held: 'unreachable' })]
-    await render()
-    expect(q('phone-voice-bar-held')?.getAttribute('data-held')).toBe('unreachable')
+    expect(q('phone-voice-bar-held')?.textContent).not.toMatch(/连接|叫醒|休息/)
     expect(mocks.wake).not.toHaveBeenCalled()
+    await render()
+    expect(mocks.wake).not.toHaveBeenCalled()
+    expect(q('phone-voice-bar-wake')).toBeNull()
     expect(q('phone-voice-bar-retry-connect')).toBeNull()
   })
 })

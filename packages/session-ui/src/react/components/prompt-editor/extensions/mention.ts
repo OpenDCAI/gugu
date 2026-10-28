@@ -53,6 +53,8 @@ export function buildMentionExtension(
     },
   }).configure({
     HTMLAttributes: { class: 'mention-chip' },
+    // Backspace removes the whole pill (❌ TipTap's default turns it back into a bare「@」).
+    deleteTriggerWithBackspace: true,
     renderText({ node }) {
       const label = (node.attrs.label as string | null) ?? (node.attrs.id as string | null) ?? '';
       const name = node.attrs.name as string | null;

@@ -1,4 +1,5 @@
 export default {
+  "resourceKinds": {"memory": "记忆", "personality": "性格约定", "files": "资料", "skills": "技能", "schedules": "定时任务", "integrations": "应用", "voice-notes": "语音笔记", "capabilities": "能力", "device-notes": "设备说明", "tasks": "任务"},
   "library": {
     "saveFailed": "保存失败，输入已保留。若条目已被修改，请重新打开后再编辑。",
     "emptyContent": "还没有补充说明。",
@@ -9,14 +10,13 @@ export default {
     "entryName": "名称",
     "add": "添加条目",
     "edit": "编辑条目",
-    "savedNotificationFailed": "已保存，暂未确认助理收到变更",
     "memory": "记忆", "workspace": "项目", "capabilities": "能力", "devices": "设备",
-    "loading": "正在读取…", "failed": "暂时读不到资源，请重试", "items": "{{count}} 条记录",
+    "loading": "正在读取…", "failed": "暂时读不到资源，系统会自动再读", "items": "{{count}} 条记录",
     "notConfigured": "还没有配置", "setup": "一起设置", "organize": "在对话中整理", "backToIndex": "返回目录",
     "setupNote": "按用途分组整理，每项保留自己的说明与索引。", "emptyIndex": "还没有资料条目，可以直接添加，也可以在对话中一起整理。",
     "setupPrompt": "请读取咕咕已有的{{kind}}条目和实际连接状态，帮我按用途分组整理说明与索引。已有条目直接沿用，缺少的按我的需要建立。不存密码或令牌，不把说明当作已授权。",
     "useFolder": "关联这个文件夹为项目", "projectPrompt": "请将已有文件夹 {{path}} 关联为项目。先核对实际设备、目录及已有项目，沿用现有文件，不重复创建；需要我选择或补充的信息先问我。",
-    "sources": "记忆来源", "deviceAccess": "设备连接与授权",
+    "deviceAccess": "设备连接与授权",
     "onThisComputer": "资料保存在这台电脑上", "onAssistantDevice": "资料保存在助理所在的设备上",
     "ungrouped": "其他", "hasIndex": "查看说明与索引", "missingIndex": "还没有条目说明", "longTerm": "长期了解与约定",
     "guguProjects": "与咕咕项目页使用同一份项目。", "noGuguProjects": "还没有咕咕项目。",
@@ -52,13 +52,11 @@ export default {
   "hints": {
     "phone": {
       "assistant": "咕咕是你的个人助理，记安排、办事情都可以找它。",
-      "collaboration": "在这里找项目和朋友，点进去就能开始协作。",
-      "topics": "每件任务一个话题，点页签看进度和结果。"
+      "collaboration": "在这里找项目和朋友，点进去就能开始协作。"
     },
     "desktop": {
       "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
-      "collaboration": "一个项目一个群，和 Agent 一起推进工作。",
-      "topics": "每件任务一个话题，进度和结果单独看。"
+      "collaboration": "一个项目一个群，和 Agent 一起推进工作。"
     },
     "dismiss": "知道了",
     "unreadable": "读不到提示进度，请重试。",
@@ -92,18 +90,19 @@ export default {
     "more": "更多操作"
   },
   "machine": {
-    "connecting": "正在连接{{name}}…",
-    "connectFailed": "连不上{{name}}：",
-    "dropped": "和{{name}}的连接断了。",
-    "reconnect": "重新连接",
-    "unreachable": "现在连不上{{name}}，这一块暂时读不到。去齿轮里看看它怎么了。",
-    "computerOff": "{{name}}住在{{device}}上，那台开着它才在。现在那台没开，这一块暂时读不到。",
-    "computerGone": "{{name}}住的那台电脑不在你的设备里了，这一块读不到。",
-    "noWorkdir": "找不到{{name}}自己的会话，读不到它存的东西。",
+    "stale": "这份资料尚未更新到当前版本。",
+    "applicationFailed": "{{domain}}「{{resource}}」未能应用。",
+    "changed": "这项内容已被修改，请重新打开后编辑。",
+    "authorizationUnavailable": "这次授权未能开始：执行环境暂时不可用。",
+    "accessFailed": "暂时无法验证这份资料的访问权限。",
+    "identityFailed": "暂时无法确定这位助理的资料归属。",
+    "invalidResource": "这项资料的名称或内容不符合要求。",
+    "tooLarge": "这份资料超过了保存上限。",
+    "unprepared": "还没整理好",
+    "readTimedOut": "这部分内容暂时读不出来，系统会继续读取。",
+    "collectionFailed": "暂时读不到这份资料，系统会自动再读。",
     "openFailed": "没打开{{name}}存东西的地方",
     "readFailed": "读取失败：{{message}}",
-    "updating": "{{where}}正在更新到新版本，好了这里会自己出来。",
-    "updateFailed": "{{where}}没能更新到新版本。",
     "retry": "重试"
   },
   "onboarding": {
@@ -424,7 +423,14 @@ export default {
   "tasks": {
     "closeChat": "关闭任务聊天",
     "agent": "Agent",
-    "chatUnavailable": "暂未读到这个任务的 Agent，请刷新后重试。",
+    "chatUnavailable": "暂时无法读取这个任务。",
+    "starting": "正在开始",
+    "liveWaking": "正在唤醒，实时记录会自动接上。",
+    "liveUnavailable": "实时记录暂时无法连接",
+    "liveTimedOut": "没有及时连上执行设备。",
+    "liveDisconnected": "执行设备的连接已断开。",
+    "liveDeviceOffline": "执行设备目前不在线。",
+    "workState": { "active": "进行中", "completed": "已完成", "cancelled": "已取消", "failed": "未完成" },
     "collaborationLoading": "正在读取助理与任务 Agent 的协作记录…",
     "collaborationUnavailable": "暂时无法读取完整的协作记录。",
     "collaborationReady": "含个人助理的协作记录",
@@ -442,7 +448,6 @@ export default {
     "unseen": "有没看过的结果",
     "emptyTitle": "还没有任务",
     "loadFailed": "任务列表没读到",
-    "notRead": "{{name}}醒着时才读得到它开的任务。"
   },
   "routines": {
     "loadFailed": "定时任务没读到，稍后再试。",
@@ -477,22 +482,6 @@ export default {
     "gone": "它可能已经被删掉了。"
   },
   "memory": {
-    "pending": {
-      "title": "没办完的事",
-      "count": "{{count}} 项",
-      "note": "清空只移除这里的恢复记录，不会取消任务。",
-      "retry": "暂时读不到，重试",
-      "loading": "正在读取…",
-      "empty": "没有待跟进记录",
-      "uncertain": "投递结果待核实",
-      "needsSource": "缺少来源，无法自动恢复",
-      "blocked": "等待设备开启任务宿主",
-      "question": "等你回答",
-      "executor": "等待任务回报",
-      "source": "原始需求",
-      "clear": "清空记录",
-      "clearFailed": "清空失败，请重试"
-    },
     "loadFailed": "记忆没读到，稍后再试。",
     "aboutUserTitle": "我对{{owner}}的了解",
     "updated": "更新于 {{time}}",
@@ -500,7 +489,6 @@ export default {
     "fasterPrompt": "请帮我更快地设置记忆。",
     "all": "全部",
     "voiceNotes": "语音笔记",
-    "voiceNotesCount": "会议与语音",
     "voiceNotesEmptyTitle": "还没有语音笔记",
     "voiceLoadFailed": "语音笔记没读到",
     "items": "{{n}} 项",
@@ -517,6 +505,7 @@ export default {
     "noContent": "暂无内容。",
     "editInChat": "在对话中修改",
     "editPrompt": "关于“{{name}}”这条记忆，我想改一下：",
+    "editAboutMePrompt": "你记的关于我的那些，我想改一下：",
     "deleteTitle": "删除这条记忆？",
     "deleteBody": "“{{name}}”将被永久移除。此操作无法撤销。",
     "deleted": "已删除",
@@ -535,11 +524,11 @@ export default {
     "emptyStateTitle": "让健康状况一目了然",
     "emptyStateSubtitle": "连接健康数据，在一处查看睡眠、恢复、活动等信息。",
     "state": {
-      "noPhone": "在手机上的咕咕里打开 我的 → 这台手机，打开「让助理用这台手机」，再连上「健康」。",
+      "noPhone": "到“我的 → 权限”允许健康数据读取。",
       "oldApp": "{{device}} 上的咕咕版本太旧，还读不了健康数据。更新后再试。",
       "offline": "{{device}} 现在离线（最后在线 {{time}}）。打开手机上的咕咕后重试。",
       "offlineNever": "{{device}} 现在离线。打开手机上的咕咕后重试。",
-      "notGranted": "在 {{device}} 上的咕咕里打开 我的 → 这台手机，连上「健康」。",
+      "notGranted": "在 {{device}} 上打开“我的 → 权限”，允许健康数据读取。",
       "osPermission": "{{device}} 还没在 Health Connect 里允许咕咕读健康数据。",
       "unsupported": "{{device}} 没有 Health Connect（安卓 14 起系统自带），读不了健康数据。",
       "failed": "这次没读出来：{{message}}",
@@ -553,9 +542,9 @@ export default {
       "notAndroid": "健康数据只有在咕咕安卓 App 里才读得到。",
       "oldApp": "这台手机上的咕咕版本太旧，还读不了健康数据。更新后再试。",
       "unsupported": "这台手机没有 Health Connect（安卓 14 起系统自带），读不了健康数据。",
-      "notGranted": "还没在 Health Connect 里允许咕咕读健康数据。",
-      "osPermission": "系统现在不让咕咕读健康数据，去 Health Connect 里重新允许。",
-      "grant": "去授权"
+      "notGranted": "到“我的 → 权限”允许健康数据读取。",
+      "osPermission": "系统尚未授权，到“我的 → 权限”管理。",
+      "grant": "管理权限"
     },
     "retry": "重试",
     "today": "今天",
@@ -640,6 +629,7 @@ export default {
     }
   },
   "files": {
+    "saveFailed": "部分文件未能保存。",
     "note": "添加与你有关的文件，放进{{name}}的「{{folder}}」里，它随时能看。",
     "upload": "上传文件",
     "uploading": "正在上传 {{name}}…",
@@ -715,6 +705,18 @@ export default {
     "title": "能力与连接"
   },
   "connectors": {
+    "wechatDescription": "在微信里和咕咕聊天",
+    "paused": "已暂停",
+    "retrying": "正在恢复",
+    "savedCount": "已添加 {{count}} 个",
+    "connectedCount": "已连接 {{count}} 个",
+    "deviceCount": "{{count}} 台设备",
+    "unverified": "尚未验证",
+    "prepareFailed": "暂时无法完成授权准备。",
+    "authorizationUnavailable": "暂时无法使用授权所需的云端服务。",
+    "authorizationTimedOut": "授权环境准备超时，尚未开始授权。",
+    "authorizationCreditsExhausted": "积分不足，无法开始授权。",
+    "authorizationMembershipExpired": "会员已到期，无法开始授权。",
     "title": "连接应用",
     "note": "账号服务和设备上的数据，{{name}}替你干活时用得上",
     "pageSub": "连接服务与数据，让{{name}}更好地帮你。",
@@ -727,7 +729,6 @@ export default {
     "cloudNote": "授权保存在：{{name}}的云设备。换设备登录、你的电脑关着也能用。",
     "connectedGroup": "已连接",
     "savedGroup": "已添加",
-    "retryCheck": "重新检查",
     "manage": "管理连接",
     "availableGroup": "可用",
     "connect": "连接",
@@ -751,7 +752,7 @@ export default {
     "connectOnDesktop": "在咕咕电脑 App 的「助理」里连接",
     "reconnectOnDesktop": "要重新连接，去咕咕电脑 App 的「助理」",
     "loadFailed": "没读到连接应用",
-    "connectInApp": "要在咕咕手机 App 或电脑 App 里连接{{name}}",
+    "connectInApp": "要在咕咕手机 App 或电脑 App 里连接 {{name}}",
     "addAccount": "添加另一个账号",
     "accounts": "账号",
     "accountsFailed": "没读到已连接的账号",
@@ -767,7 +768,6 @@ export default {
     "disconnectAccountBody": "只会断开 {{account}}，其他账号不受影响。",
     "setup": {
       "downloadProgress": "下载进度",
-      "progressUnreadable": "暂时读不到下载进度，安装仍在进行。",
       "installing": "正在校验并安装…",
       "downloading": "正在准备下载…",
       "downloadBytes": "已下载 {{received}} / {{total}} MB",
@@ -799,9 +799,9 @@ export default {
         "not-callback": "这不像授权结果。要复制同意授权后浏览器地址栏里的完整网址。",
         "state-mismatch": "这个网址不是这一次授权的，请回到浏览器再复制一次，或重新授权。"
       },
-      "cliIntro": "咕咕会在{{assistant}}那边装好{{name}}的官方命令行并登录；你在{{name}}里确认授权后，{{assistant}}就能用它。",
+      "cliIntro": "在{{name}}确认授权，即可完成连接。",
       "prerequisiteLink": "打开管理后台",
-      "cliPreparing": "正在准备{{name}}命令行，第一次要下载，可能需要一分钟…",
+      "cliPreparing": "正在准备连接…",
       "cliWaiting": "等待授权中…",
       "cliDeviceHint": "打开{{name}}授权页并同意授权，页面上显示的授权码应为：",
       "cliCode": "授权码",

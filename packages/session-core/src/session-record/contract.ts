@@ -444,7 +444,7 @@ export interface SessionTimeline {
 
 export const AGENT_SESSION_ACTIONS = [
   'activity_list', 'activity_context', 'peers', 'locate', 'list_harnesses', 'list_models', 'spawn', 'children', 'message',
-  'get', 'stop', 'archive', 'set_parent', 'app_install', 'read_file', 'app_call',
+  'get', 'stop', 'archive', 'set_parent', 'app_install', 'app_manage', 'read_file', 'app_call',
   'project_list', 'project_create', 'project_get', 'project_add_folder', 'project_remove_folder',
   'project_remove_device', 'project_restore_device', 'project_prepare_device', 'project_bind_folder',
 ] as const;
@@ -738,7 +738,7 @@ export type SessionpageSessionCreateOptions = {
 export type SessionpageSessionCreateModelsRequest = {
   /** provider id，取自 `sessionCreateOptions` 报的那一份。 */
   harness: string;
-  /** 目录按腿算(咕咕那组 provider × 腿),所以要说清是哪种展示;不给 = 这家给的第一种。 */
+  /** 目录按腿算(咕咕那组 provider × 腿);不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。 */
   sessionView?: SessionpageSessionView;
   /** 已选的模型(与 create 请求同一套编码);推理档按模型算(桌面同一条),没选就按默认模型。 */
   model?: string;
@@ -908,7 +908,7 @@ export type SessionpageSessionCreateRequest = {
   model?: string;
   /** 第一句话。空的不建 —— 一条没有开场白的会话建出来就是个空壳。 */
   prompt: string;
-  /** 展示;不给 = 这家给的第一种(通用优先)。须在 `sessionViews` 里。 */
+  /** 展示;不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。给了须在 `sessionViews` 里。 */
   sessionView?: SessionpageSessionView;
   /** 咕咕权限档;不给 = 这家的默认。须在该 harness 的 `permissionModes` 里。 */
   permissionMode?: SessionpagePermissionMode;
@@ -917,8 +917,8 @@ export type SessionpageSessionCreateRequest = {
   /** 生在哪个群里(群成员里「新建 Agent」):它的身份第一次建出来时进这个群,群规照常生效。老宿主不认这一格。 */
   chatId?: string;
   /**
-   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给);
-   * 项目群里卡上开一条话题,agent 回在话题里(OpenDCAI/gugu#446)。老宿主不认这一格。
+   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给)。
+   * 老宿主不认这一格。
    */
   taskChatId?: string;
   /** 在项目的哪个文件夹里开工(那台机器上的绝对路径或 `~` 开头),须是这个项目的文件夹;不给 = 项目根目录。老宿主不认这一格。 */
@@ -932,7 +932,7 @@ export type SessionpageSessionCreateResult = {
   title: string;
   /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
   birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
-  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里;项目群里话题从它开出来)。老宿主不带这一格。 */
+  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里)。老宿主不带这一格。 */
   taskMessageId?: string;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:

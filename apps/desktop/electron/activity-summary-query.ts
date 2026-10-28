@@ -23,9 +23,9 @@ const UNKNOWN = '未采集，不能断定在不在工作'
 
 function gapDuration(gaps: Timeline['coverage']['gaps']): string {
   const minutes = Math.floor(gaps.reduce((total, gap) => total + Date.parse(gap.until) - Date.parse(gap.since), 0) / 60_000)
-  if (minutes < 1) return '不足 1 分钟'
+  if (minutes < 1) return '共不足 1 分钟'
   const hours = Math.floor(minutes / 60), rest = minutes % 60
-  return hours ? `${hours} 小时${rest ? ` ${rest} 分钟` : ''}` : `${minutes} 分钟`
+  return hours ? `共 ${hours} 小时${rest ? ` ${rest} 分钟` : ''}` : `共 ${minutes} 分钟`
 }
 
 function clock(at: number, zone: string): string {
@@ -125,8 +125,8 @@ export function createActivitySummaryQuery(options: { now?: () => number; timeZo
       const ownGaps = snapshot.timeline.coverage.gaps.filter(gap => gap.device_id === device.device_id)
       const sleep = ownGaps.filter(gap => gap.reason === 'sleep'), unknown = ownGaps.filter(gap => gap.reason !== 'sleep')
       const parts = [`${device.device_label ?? device.device_id}：${status}，${count} 条事件`]
-      if (sleep.length) parts.push(`休眠 ${sleep.length} 段共 ${gapDuration(sleep)}，期间没有任务在运行`)
-      if (unknown.length) parts.push(`未采集 ${unknown.length} 段共 ${gapDuration(unknown)}，不能断定在不在工作`)
+      if (sleep.length) parts.push(`休眠 ${sleep.length} 段${gapDuration(sleep)}，期间没有任务在运行`)
+      if (unknown.length) parts.push(`未采集 ${unknown.length} 段${gapDuration(unknown)}，不能断定在不在工作`)
       return { device_id: device.device_id, device_label: device.device_label, status, event_count: count,
         summary: `${parts.join('；')}。`,
         ...(error ? { error } : {}) }

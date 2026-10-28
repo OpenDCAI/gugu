@@ -30,8 +30,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarSessions, type ShellChatDialog, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
-import { SidebarSessionLineRow } from './SidebarSessionLineRow'
+import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, type ShellChatDialog } from '../lib/sidebarChatsBridge'
 import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { useLongPress } from '../hooks/useLongPress'
@@ -523,7 +522,6 @@ export function ChatListPanel({
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
   const sidebarView = useSidebarChatView()
-  const sidebarSessions = useSidebarSessions()
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
   const assistantShell = useAssistantShell()
@@ -629,25 +627,16 @@ export function ChatListPanel({
   const isTopLevel = (c: ChatItem) => isTopLevelChatRow(c, topicNesting, isListed, matchesSearch)
   const pinnedChats = chats.filter((c) => c.is_pinned && isTopLevel(c)).sort(byTime)
   const normalChats = chats.filter((c) => !c.is_pinned && isTopLevel(c)).sort(byTime)
-  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排;拼在一屏的同一组的几行并在一处
-  // (spec session-page「拼在一屏的几块是一组」,同「项目」那边,lib/sidebarJoinedGroups)。置顶的只在置顶里并。
-  const sessionLines = inSidebar ? sidebarSessions : []
+  // The Chats tab contains conversations; projectless tasks live in the Projects tab.
   const joinedGroups = inSidebar ? sidebarView.groups : NO_JOINED_GROUPS
   const pinnedRows = joinRows(pinnedChats, (chat) => blockKey.chat(chat.id), joinedGroups)
-  const normalLines = joinRows(
-    [
-      ...normalChats.map((chat) => ({ key: blockKey.chat(chat.id), at: new Date(chatActivityAt(chat)).getTime(), chat })),
-      ...sessionLines.map((line) => ({ key: blockKey.session(line.sessionId), at: line.time, line })),
-    ].sort((a, b) => b.at - a.at),
-    (entry) => entry.key,
-    joinedGroups,
-  )
+  const normalLines = joinRows(normalChats, (chat) => blockKey.chat(chat.id), joinedGroups)
   // @@@5856 顶层不再有「沉降」这一段:isSunkTopic 只对话题为真,而话题现在永不占顶层 ⇒ 那一段恒空。
   // 沉降下沉到**子行**这一层(每条来源线自己一行「更多」),见 renderChatRow。
   // 键盘上下走的是「看得见的那些行」,所以子行也要在里面 —— ❌ 不能让话题只能用鼠标点。
   // 没摊开的那些❌ 不在里面:它们不在这条侧边栏上,键盘也不该能走到看不见的行。
   // 键盘上下走的次序与画出来的一致:并过组之后的次序。
-  const shownChats = pinnedRows.map(({ row }) => row).concat(normalLines.flatMap(({ row }) => ('chat' in row ? [row.chat] : [])))
+  const shownChats = pinnedRows.map(({ row }) => row).concat(normalLines.map(({ row }) => row))
   const visibleChats = useMemo(
     () => shownChats.flatMap((chat) => {
       if (mobile || collapsedTopicSources.has(chat.id)) return [chat]
@@ -719,21 +708,7 @@ export function ChatListPanel({
     )
   }
 
-  const openSessionLine = (line: SidebarSessionLine, beside: boolean) => {
-    const sessionPage = readSessionpageViewRequestBridge()
-    if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
-    sessionPage.openSession({ projectId: line.projectId, sessionId: line.sessionId }, beside)
-  }
-  const normalRows = normalLines.map(({ row, join }) =>
-    'chat' in row ? renderChatRow(row.chat, join) : (
-      <SidebarSessionLineRow
-        key={row.key}
-        line={row.line}
-        join={join}
-        isActive={row.line.sessionId === sidebarView.focusedSessionId}
-        onClick={(event) => openSessionLine(row.line, event.metaKey || event.ctrlKey)}
-      />
-    ))
+  const normalRows = normalLines.map(({ row, join }) => renderChatRow(row, join))
 
   const focusChatRow = (chatId: string | null) => {
     if (!chatId) return

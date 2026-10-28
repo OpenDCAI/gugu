@@ -7,9 +7,13 @@
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
+export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export {
   bootEmdashModule,
+  setSessionAdmissionPreparation,
+  assistantPanelLocal,
   readCurrentActivityInput,
+  readCurrentAssistantWorkInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
@@ -58,6 +62,7 @@ export {
   // agent 的 session_* 跨机器(owner 2026-09-30):别的机器发来的动作、本机发起方的自述、「这个 id 在不在本机」。
   // 同 runEmdashExtensionAction 那条教训:漏在这张清单外只会在真有人跨机器时才炸。
   runRemoteSessionAction,
+  readAssistantWorkReceipts,
   sessionCallerFacts,
   localSessionIds,
   // 宿主的唤醒入口要读它:引擎进程在不在跑、归宿主还是 tmux(漏在这里只会在唤醒时才发现)。
@@ -92,9 +97,6 @@ export {
   emdashExtensionCheckAvailable,
   // 少了它,guide_read apps-ui 只有字没有图 —— agent 写之前看不到咕咕的样子长什么样。
   emdashLookPicture,
-  // @@@sessionpage TASKPAGE-FUSION otty-state — subscribe to the consolidated agent-attention count
-  // (agents blocked on the human) so the host can badge the 任务 sidebar tab.
-  onEmdashAttentionChanged,
   // #4008 —— 会话页会话的 agent 状态(working/…)是「这个 agent 在不在干活」的事实源;宿主读它、发布成
   // 权威 activity,咕咕的单聊/会话列表/群于是显示同一件事,而不再各自从投递命令的执行区间反推。
   onAgentStatus,

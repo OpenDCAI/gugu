@@ -78,7 +78,11 @@ async function agent(
     const result = await client.callTool({ name: 'app_install', arguments: args })
     return { isError: result.isError === true, body: text(result) }
   }
-  return { install, sessions, extensions }
+  const manage = async (args: Record<string, unknown>) => {
+    const result = await client.callTool({ name: 'app_manage', arguments: args })
+    return { isError: result.isError === true, body: text(result) }
+  }
+  return { install, manage, sessions, extensions }
 }
 
 describe('app_install { device }: installed on another of the owner\'s machines', () => {
@@ -170,5 +174,39 @@ describe('app_install { device }: installed on another of the owner\'s machines'
     expect(answer.isError).toBe(true)
     expect(answer.body).toContain('device installs it on that machine only')
     expect([...sessions, ...extensions]).toEqual([])
+  })
+})
+
+
+describe('App resource URLs manage the named installed fork without package transfer', () => {
+  const url = 'gugu://app/reader?device=other&variant=mine'
+  it('reads the target device, with no install or local lookup', async () => {
+    const { manage, sessions, extensions } = await agent(async () => ({ active: 'mine', selected: { name: 'mine', dir: '/target/source' } }))
+    const answer = await manage({ url })
+    expect(answer.isError, answer.body).toBe(false)
+    expect(JSON.parse(answer.body).selected.dir).toBe('/target/source')
+    expect(sessions).toEqual([{ action: 'devices' }, { action: 'app_manage', device: 'other', operation: 'read', url }])
+    expect(extensions).toEqual([])
+  })
+  it('rejects an unknown device instead of finding a local namesake', async () => {
+    const { manage, sessions, extensions } = await agent()
+    expect((await manage({ url: url.replace('other', 'missing') })).body).toContain('not registered')
+    expect(sessions).toEqual([{ action: 'devices' }])
+    expect(extensions).toEqual([])
+  })
+  it('returns deletion confirmation to the source session, then sends only the exact consent', async () => {
+    const ask = { manifest: { id: 'reader', name: 'Reader' }, manifestDigest: 'fork-state', removeVariant: { name: 'mine', active: true } }
+    const { manage, sessions, extensions } = await agent(async (action) => (action.consent as { kind: string }).kind === 'return'
+      ? { outcome: 'ask', ask, asks: true } : { removed: true, active: 'upstream' })
+    const answer = await manage({ url, operation: 'remove' })
+    expect(answer.isError, answer.body).toBe(false)
+    expect(JSON.parse(answer.body)).toMatchObject({ removed: true, active: 'upstream', device_id: 'device:other' })
+    expect(sessions.slice(1).map((row) => row.consent)).toEqual([{ kind: 'return' }, { kind: 'given', digest: 'fork-state' }])
+    expect(extensions).toEqual([{ action: 'ask_install', request: { ...ask, machine: 'mac1 B' } }])
+  })
+  it('a declined switch never sends given consent to the target', async () => {
+    const { manage, sessions } = await agent(async () => ({ outcome: 'ask', asks: true, ask: { manifestDigest: 'upstream' } }), async () => ({ outcome: 'declined' }))
+    expect(JSON.parse((await manage({ url, operation: 'switch' })).body)).toMatchObject({ installed: false, outcome: 'declined' })
+    expect(sessions).toHaveLength(2)
   })
 })

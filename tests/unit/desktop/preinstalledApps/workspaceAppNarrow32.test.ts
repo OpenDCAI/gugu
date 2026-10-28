@@ -31,6 +31,7 @@ const gugu = {
   codemirror: vi.fn(() => new Promise(() => {})),
   markdown: vi.fn(() => new Promise(() => {})),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),

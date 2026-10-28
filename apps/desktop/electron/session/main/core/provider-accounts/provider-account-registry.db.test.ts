@@ -1,5 +1,5 @@
 import { openRegistryFixture, type RegistryFixture } from '@tooling/utils/provider-accounts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultCredentialRef } from './provider-account-registry';
 
 describe('ProviderAccountRegistry', () => {
@@ -16,6 +16,38 @@ describe('ProviderAccountRegistry', () => {
   async function upsert(providerId: string, accountId: string, secret = `secret-${accountId}`) {
     return fixture.registry.upsertAccount({ providerId, accountId, secret });
   }
+
+  it('notifies only after durable account mutations and removes an unsubscribed observer', async () => {
+    const snapshots: Promise<unknown>[] = [];
+    const listener = vi.fn(() => { snapshots.push(fixture.registry.listAccounts('mail')); });
+    const off = fixture.registry.onChanged(listener);
+    await upsert('mail', 'one');
+    await upsert('mail', 'two');
+    await fixture.registry.setDefaultAccount('mail', 'two');
+    await fixture.registry.removeAccount('mail', 'one');
+    const rows = await Promise.all(snapshots) as { accountId: string; isDefault: boolean }[][];
+    expect(rows.map(items => items.map(item => item.accountId))).toEqual([['one'], ['one', 'two'], ['one', 'two'], ['two']]);
+    expect(rows[2]!.find(row => row.accountId === 'two')?.isDefault).toBe(true);
+    expect(listener.mock.calls).toEqual([[], [], [], []]);
+    await fixture.registry.listAccounts('mail');
+    await fixture.registry.getAccount('mail', 'two');
+    expect(listener).toHaveBeenCalledTimes(4);
+    off();
+    await fixture.registry.removeAllAccounts('mail');
+    expect(listener).toHaveBeenCalledTimes(4);
+  });
+
+  it('notifies a committed removal even if secret cleanup fails, without turning observer failures into auth failures', async () => {
+    await upsert('mail', 'one');
+    const listener = vi.fn();
+    fixture.registry.onChanged(listener);
+    fixture.registry.onChanged(() => { throw new Error('observer failed'); });
+    await expect(upsert('mail', 'two')).resolves.toMatchObject({ status: 'created' });
+    fixture.secretStore.deleteSecret = async () => { throw new Error('secret cleanup unavailable'); };
+    await expect(fixture.registry.removeAccount('mail', 'one')).rejects.toThrow('secret cleanup unavailable');
+    expect((await fixture.registry.listAccounts('mail')).map(row => row.accountId)).toEqual(['two']);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
 
   it('creates an account with its secret behind the credentialRef', async () => {
     const { account, status } = await fixture.registry.upsertAccount({

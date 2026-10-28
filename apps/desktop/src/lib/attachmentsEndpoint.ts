@@ -30,7 +30,9 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   if ('staging_key' in prepared) return commitAttachment(endpoint, { ...args, staging_key: prepared.staging_key })
   if (args.is_whisper || !window.electronAPI) throw new Error('Project file audience changed')
   const file = prepared.local
-  const row = await publishNative({ chatId: args.chat_id, file: { name: file.name, path: window.electronAPI.getPathForFile(file), size: file.size, contentType: resolveFileMimeType(file) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
+  // A pasted file is memory-backed and has no disk path: hand main its bytes instead.
+  const path = window.electronAPI.getPathForFile(file), data = path ? undefined : await file.arrayBuffer()
+  const row = await publishNative({ chatId: args.chat_id, file: { name: file.name, path, size: file.size, contentType: resolveFileMimeType(file), ...(data && { data }) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
   // A policy changed after planning: the same cloud provider must authorize any upload afresh.
   if (!row) return commitPreparedChatAttachment(endpoint, await cloudChatAttachment(endpoint, file, args.chat_id, args.sender_user_id), args)
   const message = row.message

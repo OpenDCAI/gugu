@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto'
 import { sessionInjectionCapabilityFor } from './session-injection'
 import { createLogger } from '../lib/logger'
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions'
 
@@ -40,7 +41,7 @@ export interface EmdashDeliveryBridge {
     sessionId: string,
     text: string,
     opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
-  ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }>
+  ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
   cancelEmdashTurn?(sessionId: string): Promise<boolean>
@@ -49,6 +50,7 @@ export interface EmdashDeliveryBridge {
     /** 这条 ACP 会话跑的 harness —— per-harness 注入时机声明按它查(spec session-injection)。 */
     providerId: string
     lifecycle: string
+    closing?: boolean
     isGenerating: boolean
     recentActions?: string[]
     lastActionAt?: number | null
@@ -73,6 +75,7 @@ export interface LocalSessionPeerIdentity {
 /** What the user's task sidebar shows for the same conversation (this machine's task DB). */
 export interface LocalSessionFacts {
   sessionId: string
+  projectId?: string
   title: string
   projectName: string
   status: AgentStatusView | null
@@ -165,7 +168,7 @@ export function resolveLocalSessionPeers(
       identity: { users: { id: row.id, gugu_number: row.gugu_number, display_name: row.display_name } },
       sessionId: binding.sessionId,
       title: session.title,
-      project: session.projectName,
+      project: isImplicitSessionHomeProjectId(session.projectId) ? '' : session.projectName,
       status: session.status?.status ?? null,
       detail: session.status?.detail ?? null,
       pinned: session.isPinned,
@@ -202,7 +205,7 @@ class EmdashAgentRegistry {
    * another wake, until that start ends either way — then the record goes and things are as before (148 r3: the retry a person
    * sends after that row must not sink without a word).
    */
-  private readonly reconnects = new Map<string, { batch: string; outcome?: 'up' | Error; overdue?: true }>()
+  private readonly reconnects = new Map<string, { batch: string; outcome?: 'up' | Error; overdue?: true; refused?: true }>()
   private onReconnectSettled: ((guguAgentUserId: string) => void) | null = null
 
   /** Inject the session-backend module-boundary bridge (main.ts, after loadEmdashBridge). */
@@ -303,7 +306,7 @@ class EmdashAgentRegistry {
   async waitUntilReady(sessionId: string): Promise<void> {
     const summary = (await this.bridge?.emdashSessionSummaries())
       ?.find((candidate) => candidate.sessionId === sessionId)
-    if (!summary || !['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
+    if (!summary || summary.closing || !['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
       throw new Error(`ACP session ${sessionId} has not admitted after reopen (${summary?.lifecycle ?? 'absent'})`)
     }
   }
@@ -317,7 +320,7 @@ class EmdashAgentRegistry {
   ): Promise<{ providerId: string; surface: 'acp' } | null> {
     const summary = (await this.bridge?.emdashSessionSummaries())
       ?.find((candidate) => candidate.sessionId === sessionId)
-    return summary ? { providerId: summary.providerId, surface: 'acp' } : null
+    return summary && !summary.closing ? { providerId: summary.providerId, surface: 'acp' } : null
   }
 
   /** Reopen one mapped conversation (`ensureEmdashSession` is idempotent: ACP counts `starting` as live, PTY hydrate merges in its supervisor). */
@@ -422,6 +425,10 @@ class EmdashAgentRegistry {
     const summaries = await bridge.emdashSessionSummaries()
     const summary = summaries.find((candidate) => candidate.sessionId === sessionId)
     const reconnect = opts?.suppressWake ? undefined : this.reconnects.get(sessionId)
+    const batch = createHash('sha256').update(text).digest('hex')
+    if (reconnect?.refused && reconnect.batch === batch) {
+      throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+    }
     // 编号 5: the reconnect a delivery kicked gave up — the pull it triggered fails the batch in hand (the one that kicked it is
     // in it: the cursor did not move), said in its chat as before (「…咕咕这边出错了」): never silence. A failed start says it
     // once, and a later message is a new try; one over the budget and still going fails every batch at once, without another
@@ -438,7 +445,7 @@ class EmdashAgentRegistry {
     // `replaying` = the session is being loaded (a reconnect's session/load): not up yet, so the batch waits on the cursor
     // like `starting` — the start's own session-live pull brings it — instead of failing as「while session is 'replaying'」.
     // 不在跑的会话由调用方经路由器的唯一唤醒口唤醒(SessionpageLocalDeliveryRouter.wakeSession),这里只答「没收」。
-    if (!summary || summary.lifecycle === 'starting' || summary.lifecycle === 'replaying' || summary.lifecycle === 'closed') {
+    if (!summary || summary.closing || summary.lifecycle === 'starting' || summary.lifecycle === 'replaying' || summary.lifecycle === 'closed') {
       return false
     }
     // 编号 5 (10-12 片场试演): an adapter that exited on its own (a crash, a stop) leaves the session `lost`. This message kicks
@@ -447,7 +454,6 @@ class EmdashAgentRegistry {
       if (opts?.suppressWake) return false
       if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
       if (reconnect && !reconnect.outcome) return false
-      const batch = createHash('sha256').update(text).digest('hex')
       if (reconnect?.batch === batch) {
         throw new Error(`Session '${sessionId}' lost its ACP adapter again after it was reconnected for these messages; not reconnecting it again for them`)
       }
@@ -464,6 +470,7 @@ class EmdashAgentRegistry {
       ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),
       ...(opts?.deferredDispatch ? { deferredDispatch: true as const } : {}),
     }
+    let nativeMissing = false
     try {
       const result = await bridge.injectEmdashPromptDetached(
         sessionId,
@@ -472,6 +479,17 @@ class EmdashAgentRegistry {
       )
       // 会话此刻不收(原位回退进行中):没收下,消息留在来源侧。
       if (result.outcome === 'declined') return false
+      if (result.outcome === 'missing') {
+        nativeMissing = true
+        if (opts?.suppressWake) return false // The session-direct sender owns its one reopen attempt.
+        if (reconnect?.batch === batch) {
+          reconnect.refused = true
+          throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
+        }
+        if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
+        this.kickReconnect(sessionId, batch, bridge.ensureEmdashSession.bind(bridge))
+        return false
+      }
       if (result.outcome === 'queued' && !result.turnId) {
         throw new Error(
           `session-page session ${sessionId} returned queued without an admission identity; `
@@ -487,9 +505,12 @@ class EmdashAgentRegistry {
         queued: result.outcome === 'queued',
       }
     } catch (error) {
+      if (nativeMissing) throw error
       const afterFailure = await bridge.emdashSessionSummaries()
       const current = afterFailure.find((candidate) => candidate.sessionId === sessionId)
-      if (!current || current.lifecycle === 'closed') return false
+      // Native admission can discover a dead executor after the liveness read. Hand the
+      // unaccepted message back to the same wake owner as an already-lost session.
+      if (!current || current.lifecycle === 'closed' || current.lifecycle === 'lost') return false
       throw error
     }
   }

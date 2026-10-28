@@ -1,19 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { EMPTY_INTEGRATION_SUMMARIES,useAssistantIntegrationSummaries } from '@/components/assistant/useAssistantIntegrationSummaries'
 import { useLocale } from '@/i18n'
-import { rendererLogger } from '@/lib/log'
 import { splitInstructions, splitPersona } from '@/session/renderer/features/assistant/assistant-files'
 import { readText } from '@/session/renderer/features/assistant/assistant-machine-core'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import type { ConnectionStatus } from '@/session/shared/issue-providers'
-import { machineRpc } from '../agent-watch/sessionpage-rpc'
-import type { PhoneMachineState, PhoneReadiness } from './phoneMachine'
+import { cachedAssistantPanelIntegration,peekAssistantPanelIntegration,peekAssistantPanelIntegrations,readAssistantPanelIntegrations,readAssistantPanelIntegration } from '@/components/assistant/assistant-panel-integrations'
+import { machineKey, usePhoneRead } from './usePhoneRead'
+import type { PhoneMachineState } from './phoneMachine'
 import type { Persona } from './phoneProfileModel'
 
-const log = rendererLogger('mobile/assistant')
 
 export type PhonePersona = {
   /** 读到的性格;还没读到(在休息、正在醒、读失败)= null。 */
   persona: Persona | null
+  revision?: string
   loading: boolean
   error: unknown
   /** 重读(读失败时的「重试」、保存之后核一遍写进去的)。 */
@@ -26,33 +26,15 @@ export type PhonePersona = {
  */
 export function usePhonePersona(machine: PhoneMachineState): PhonePersona {
   const ready = machine.state === 'ready' ? machine.machine : null
-  const [attempt, setAttempt] = useState(0)
-  const [read, setRead] = useState<{ key: unknown; attempt: number; persona?: Persona; error?: unknown } | null>(null)
-  useEffect(() => {
-    if (!ready) return
-    let cancelled = false
-    readText(ready, ready.paths.instructions).then(
-      (raw) => {
-        if (!cancelled) setRead({ key: ready, attempt, persona: splitPersona(splitInstructions(raw ?? '').user) })
-      },
-      (error: unknown) => {
-        log.warn({ error: error instanceof Error ? error.message : String(error) }, 'read assistant persona failed')
-        if (!cancelled) setRead({ key: ready, attempt, error })
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [ready, attempt])
-  const reload = useCallback(() => setAttempt((n) => n + 1), [])
-  const sameMachine = !!ready && read?.key === ready
-  const fresh = sameMachine && read?.attempt === attempt
-  return {
-    persona: sameMachine ? read?.persona ?? null : null,
-    loading: !!ready && !fresh,
-    error: fresh ? read?.error ?? null : null,
-    reload,
-  }
+  const read = usePhoneRead(ready ? `persona|${machineKey(ready)}` : null,async () => {
+    const raw = await readText(ready!,ready!.paths.instructions)
+    return { persona: splitPersona(splitInstructions(raw ?? '').user),revision: ready!.panel?.revision(ready!.paths.instructions) }
+  },'read assistant personality')
+  return { persona: read.state === 'ok' ? read.data.persona : null,
+    revision: read.state === 'ok' ? read.data.revision : undefined,
+    loading: !!ready && read.state === 'loading',
+    error: read.state === 'error' ? read.error : read.state === 'ok' ? read.refreshError ?? null : null,reload: read.reload }
+
 }
 
 export type PhoneIntegrations = {
@@ -68,49 +50,22 @@ export type PhoneIntegrations = {
  * 云端连接应用:问它家里那台(与桌面资源库「集成」同一组动词 integrations.*,手机走 machineRpc 那条线)。
  * 醒着、且人在连接应用那几页(`active`)才问;每次走进来重问一遍(人可能刚在电脑上连好),重问时先留着上一次的。
  */
-export function usePhoneIntegrations(
-  homeDeviceId: string | null,
-  readiness: PhoneReadiness,
-  active: boolean,
-): { data: PhoneIntegrations | null; loading: boolean; error: unknown; retry: () => void } {
+export function usePhoneIntegrations(machine: PhoneMachineState, active: boolean): { data: PhoneIntegrations | null; loading: boolean; error: unknown; retry: () => void } {
   const { resolvedLocale } = useLocale()
-  const [attempt, setAttempt] = useState(0)
-  const [read, setRead] = useState<{ key: string; data?: PhoneIntegrations; error?: unknown } | null>(null)
-  const device = readiness === 'ready' ? homeDeviceId : null
-  const key = `${device}|${resolvedLocale}|${attempt}`
-  useEffect(() => {
-    if (!active || !device) return
-    let cancelled = false
-    const integrations = machineRpc(device).integrations
-    void (async () => {
-      try {
-        const [items, configured] = await Promise.all([integrations.list(resolvedLocale), integrations.checkConfiguredConnections()])
-        if (cancelled) return
-        setRead({ key, data: { items, configured, statuses: null } })
-        // 账号名要每一家联网查一次,慢:列表先出来,查到了再补上。查不到只是不写账号名(连没连上已按凭据说了)。
-        try {
-          const statuses = await integrations.checkAllConnections()
-          if (!cancelled) setRead({ key, data: { items, configured, statuses } })
-        } catch (error) {
-          log.warn({ error: error instanceof Error ? error.message : String(error) }, 'check assistant connector statuses failed')
-          if (!cancelled) setRead({ key, data: { items, configured, statuses: null, statusError: error } })
-        }
-      } catch (error) {
-        log.warn({ error: error instanceof Error ? error.message : String(error) }, 'list assistant connectors failed')
-        if (!cancelled) setRead({ key, error })
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // key 已含 device / 语言 / 第几次;active 由关到开 = 人又走进来,重问一遍。
-  }, [active, device, resolvedLocale, key])
-  const retry = useCallback(() => setAttempt((n) => n + 1), [])
-  const fresh = read?.key === key
-  return {
-    data: read?.data ?? null,
-    loading: !!device && !fresh,
-    error: fresh ? read?.error ?? null : null,
-    retry,
-  }
+  const ready = machine.state === 'ready' ? machine.machine : null
+  const read = usePhoneRead(active && ready ? `integrations|${machineKey(ready)}|${resolvedLocale}` : null,
+    () => readAssistantPanelIntegrations(ready!.panel!,resolvedLocale),'read assistant integration metadata',undefined,() => peekAssistantPanelIntegrations(ready?.panel,resolvedLocale))
+  const items = useAssistantIntegrationSummaries(ready?.panel,read.state === 'ok' ? read.data.items : EMPTY_INTEGRATION_SUMMARIES,resolvedLocale)
+  return { data: read.state === 'ok' ? { ...read.data,items } : null,loading: read.state === 'loading',error: read.state === 'error' ? read.error : null,retry: read.reload }
+}
+
+export function usePhoneIntegrationDetail(machine: PhoneMachineState,summary: IntegrationMetadata | null | undefined) {
+  const { resolvedLocale } = useLocale()
+  const panel = machine.state === 'ready' ? machine.machine.panel : undefined
+  const cached = cachedAssistantPanelIntegration(panel,summary?.id,resolvedLocale,summary?.catalogVersion)
+  const read = usePhoneRead(panel && summary?.metadataOnly && !cached ? `integration-detail|${panel.ownerId}|${panel.assistantId}|${summary.id}|${summary.catalogVersion ?? ''}|${resolvedLocale}` : null,
+    () => readAssistantPanelIntegration(panel!,summary!.id,resolvedLocale,summary?.catalogVersion),'read selected application',undefined,() => peekAssistantPanelIntegration(panel,summary?.id,resolvedLocale))
+  return { data: summary?.metadataOnly ? cached ?? (read.state === 'ok' ? read.data : null) : summary,
+    error: !cached && summary?.metadataOnly && read.state === 'error' ? read.error : null,
+    loading: summary?.metadataOnly === true && !cached && read.state === 'loading',reload: read.reload }
 }

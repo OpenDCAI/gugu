@@ -51,7 +51,7 @@ export interface IncomingShare {
 }
 
 /** 手机「权限」页列出的系统权限。只列咕咕真用到、要用户点头的(product spec)。 */
-export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization'
+export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization' | 'microphone'
 
 /**
  * 系统当下给的真值,按「点这一行该做什么」切成四档:
@@ -93,6 +93,8 @@ export interface AppPlatform {
    * 宿主答不上来就不实现它,调用方退回 visibilityState —— 那是没有前台服务的宿主,不会被骗。
    */
   subscribeAppActive?: (listener: (active: boolean) => void) => () => void
+  /** 本机宿主在当前账号的设备里认出了这台电脑(拿到登录、查到自己那一行)。没有本机设备的宿主不实现。 */
+  subscribeLocalDeviceIdentified?: (listener: () => void) => () => void
   selectDirectory: () => Promise<string | null>
   checkForUpdates: () => Promise<unknown>
   updateState?: () => Promise<unknown> // @@@5837 问宿主更新现在什么状态(main.ts updates:state);答不上来就不实现

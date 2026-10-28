@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import type { VerifyResult } from '../../capabilities/auth';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { verifyLinearCredentials } from './client';
@@ -7,8 +8,8 @@ import { LINEAR_MCP_URL } from './types';
 const plugin = defineIntegrationPlugin(
   {
     id: 'linear',
-    name: 'Linear',
-    description: { en: 'Work on Linear tickets', 'zh-CN': '处理 Linear 工单' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://linear.app',
     abilities: [
       { en: 'Search, read and create issues', 'zh-CN': '搜索、读取、新建工单' },

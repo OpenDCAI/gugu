@@ -353,17 +353,17 @@ describe('安装标识', () => {
 
   it('无原生绑定的旧标识不能证明来自这台手机;验证后标识保持不变', () => {
     store.set('gugu.phoneDevice.install', 'old-install')
-    const verified = phoneInstallId('key-a')
+    const verified = phoneInstallId('key-a', 'registration-key-a')
     expect(verified).not.toBe('old-install')
-    expect(phoneInstallId('key-a')).toBe(verified)
+    expect(phoneInstallId('key-a', 'registration-key-a')).toBe(verified)
   })
 
   it('从别的手机的备份里恢复来的(install_key 对不上)⇒ 换一个,❌ 两台手机共用一个设备行', () => {
-    const first = phoneInstallId('key-a')
-    expect(phoneInstallId('key-a')).toBe(first)
-    const restored = phoneInstallId('key-b')
+    const first = phoneInstallId('key-a', 'registration-key-a')
+    expect(phoneInstallId('key-a', 'registration-key-a')).toBe(first)
+    const restored = phoneInstallId('key-b', 'registration-key-b')
     expect(restored).not.toBe(first)
-    expect(phoneInstallId('key-b')).toBe(restored)
+    expect(phoneInstallId('key-b', 'registration-key-b')).toBe(restored)
   })
 })
 
