@@ -29,6 +29,9 @@ const STRINGS = {
     newFolder: '新建文件夹',
     newFolderName: '新建文件夹',
     attachments: '附件',
+    machineOf: '{owner} 的机器',
+    storedOnMine: '保存在 {machine} 上，有人打开时才上传。按你在「设置 › 设备 › 文件存储与读取」里的设置。',
+    storedOnOther: '保存在 {owner} 的机器上，有人打开时才上传。按 {owner} 的文件存储设置。',
     up: '上一级',
     move: '移动到…',
     moveTitle: '把「{name}」移到',
@@ -104,6 +107,9 @@ const STRINGS = {
     newFolder: 'New folder',
     newFolderName: 'New folder',
     attachments: 'Attachments',
+    machineOf: '{owner}’s machine',
+    storedOnMine: 'Kept on {machine}; uploaded only when someone opens it. Follows your Settings › Devices › File storage.',
+    storedOnOther: 'Kept on {owner}’s machine; uploaded only when someone opens it. Follows {owner}’s file storage settings.',
     up: 'Up',
     move: 'Move to…',
     moveTitle: 'Move “{name}” to',
@@ -633,6 +639,19 @@ function fileMark(entry) {
   return mark
 }
 
+// A project chat's file that stays on its host machine (entry.storedOn): the faint server mark tasks carry, beside the name;
+// which machine, that it is uploaded only when someone opens it, and whose file storage setting, only on hover.
+function storedOnMark(storedOn) {
+  const t = state.t
+  const machine = storedOn.machine ?? fmt(t.machineOf, { owner: storedOn.owner })
+  const mark = document.createElement('gugu-icon')
+  mark.setAttribute('name', 'server')
+  mark.className = 'file-stored-on'
+  mark.title = storedOn.mine ? fmt(t.storedOnMine, { machine }) : fmt(t.storedOnOther, { owner: storedOn.owner })
+  mark.setAttribute('aria-label', mark.title)
+  return mark
+}
+
 function listItem(entry) {
   const t = state.t
   const li = document.createElement('li')
@@ -657,6 +676,7 @@ function listItem(entry) {
     title.append(fileMark(entry))
   }
   title.append(name)
+  if (entry.storedOn) name.append(storedOnMark(entry.storedOn))
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = pathOf(entry)
   // Who made it and when, then a separate edit time (folders also say how much is in them).

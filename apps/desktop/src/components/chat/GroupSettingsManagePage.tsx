@@ -2,7 +2,6 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { GroupChatSettings, GroupJoinMode, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
 import { GroupAgentFloodSettings } from './GroupAgentFloodSettings'
-import { ProjectFileSettings } from './ProjectFileSettings'
 import { joinModeDescription } from './chatPresentation'
 import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { GroupInviteLinkBlock, SettingsToggleRow } from './groupSettingsUi'
@@ -51,7 +50,6 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
   const projectGroup = isProjectGroupChat(chatId)
   return (
     <>
-      {projectGroup && <ProjectFileSettings key={chatId} chatId={chatId} />}
       <div style={firstSectionLabelStyle}>{t('group.settings.sectionJoin')}</div>
       {/* 项目群不拉人(gugu-dev#181):入群方式、成员邀请、邀请链接都不提供,说一句原因;agent 那几样照旧。 */}
       {projectGroup ? (

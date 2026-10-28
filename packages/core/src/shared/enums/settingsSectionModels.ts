@@ -7,6 +7,8 @@ export type ActiveSection =
   | 'account'
   | 'general'
   | 'devices'
+  // 文件存储与读取(owner 10-27):设备页里的一个内页(你名下机器上的项目群怎么存文件),❌ 再占左栏一行。只作直达链接。
+  | 'files'
   | 'model'
   | 'usage'
   // 用户自己在各家买的订阅(product spec):这台电脑上各家 Harness 的套餐与这一期还剩多少。

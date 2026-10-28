@@ -6,12 +6,12 @@ vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRende
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: f.upload, commitAttachment: f.commit,
   configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }) }))
 const endpoint = { supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'published-test-token' }
-const args = { message_id: 'message', chat_id: 'group', sender_user_id: 'owner', file_name: 'selected.png', to_user_ids: ['agent'], thread_root_id: 'thread', caption: 'caption' }
+const args = { message_id: 'message', chat_id: 'group', sender_user_id: 'owner', file_name: 'selected.pdf', to_user_ids: ['agent'], thread_root_id: 'thread', caption: 'caption' }
 const message = { id: 'message', chat_id: 'group', sender_user_id: 'owner', file_item_id: 'item', file_version: 3 }
-const file = () => new File(['png'], 'selected.png', { type: 'image/png' })
+const file = () => new File(['pdf'], 'selected.pdf', { type: 'application/pdf' })
 function native(local = true) {
   const invoke = vi.fn(async (_channel: string, request: { file?: unknown }) => request.file ? { id: 'item', version: 3, message } : local)
-  const getPathForFile = vi.fn(() => '/project/actual.png')
+  const getPathForFile = vi.fn(() => '/project/actual.pdf')
   vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile } })
   return { invoke, getPathForFile }
 }
@@ -25,7 +25,7 @@ describe('project composer attachments use the group-file publisher', () => {
     expect(n.invoke).toHaveBeenCalledExactlyOnceWith('files:publish', { chatId: 'group' })
     expect(n.getPathForFile).not.toHaveBeenCalled()
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual(message)
-    expect(n.invoke).toHaveBeenLastCalledWith('files:publish', { chatId: 'group', file: { name: 'selected.png', path: '/project/actual.png', size: 3, contentType: 'image/png' }, message: args })
+    expect(n.invoke).toHaveBeenLastCalledWith('files:publish', { chatId: 'group', file: { name: 'selected.pdf', path: '/project/actual.pdf', size: 3, contentType: 'application/pdf' }, message: args })
     expect(arrayBuffer).not.toHaveBeenCalled(); expect(f.upload).not.toHaveBeenCalled(); expect(f.commit).not.toHaveBeenCalled()
   })
   it('the single-file sender uses the same preparation and atomic commit', async () => {
@@ -39,8 +39,14 @@ describe('project composer attachments use the group-file publisher', () => {
     const prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner' })
     expect(prepared).toEqual({ staging_key: 'staging' }); await commitPreparedChatAttachment(endpoint, prepared, args)
     expect(n.invoke).toHaveBeenCalledOnce(); expect(n.getPathForFile).not.toHaveBeenCalled()
-    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: selected, name: selected.name, contentType: 'image/png' }, { chat_id: 'group', as: 'owner' })
+    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' })
     expect(f.commit).toHaveBeenCalledWith(endpoint, { ...args, staging_key: 'staging' })
+  })
+  it('uploads an image when sent, also in a project chat that keeps other files on the machine', async () => {
+    const n = native(), image = new File(['png'], 'shot.png', { type: 'image/png' })
+    await expect(prepareChatAttachment(endpoint, image, { chat_id: 'group', as: 'owner' })).resolves.toEqual({ staging_key: 'staging' })
+    expect(n.invoke).not.toHaveBeenCalled()
+    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: image, name: 'shot.png', contentType: 'image/png' }, { chat_id: 'group', as: 'owner' })
   })
   it('does not put a whisper into the shared project folder', async () => {
     const n = native(), selected = file(), prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner', is_whisper: true })
@@ -52,7 +58,7 @@ describe('project composer attachments use the group-file publisher', () => {
     const n = native(), selected = file(), prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner' })
     n.invoke.mockResolvedValueOnce(null as never)
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual({ id: 'cloud-message' })
-    expect(f.upload).toHaveBeenCalledExactlyOnceWith(endpoint, { bytes: selected, name: selected.name, contentType: 'image/png' }, { chat_id: 'group', as: 'owner' })
+    expect(f.upload).toHaveBeenCalledExactlyOnceWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' })
     expect(f.commit).toHaveBeenCalledExactlyOnceWith(endpoint, { ...args, staging_key: 'staging' })
   })
   it('propagates a host fence or atomic message refusal without falling back to cloud', async () => {

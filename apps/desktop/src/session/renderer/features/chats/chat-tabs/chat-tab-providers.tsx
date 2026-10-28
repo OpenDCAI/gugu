@@ -6,6 +6,8 @@ import { chatTabSlotKey, readShellSlots } from '@/lib/shellSlots';
 import { readChatSummary, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { chatFolderNameKeyOf } from '@/components/chat/chatFolderName';
 import { RailAppIcon } from '@/components/RailAppIcon';
+import { FileHostMark } from '@/components/appSlot/FileHostMark';
+import { openFileStorageSettings, useFileHost } from '@/lib/fileHost';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { declaredMenuCommands, runExtensionCommand } from '@renderer/features/extensions/extension-commands';
@@ -124,6 +126,9 @@ const PanelTabItem = observer(function PanelTabItem({ tab, host, ctx }: TabBarIt
   const { label, hint, tooltip } = usePanelPresentation(chatId, tab.tabId, item);
   const surface = extensionSurfaceStore.said(null, groupPageSlot(chatId, tab.tabId));
   const ownBlock = useContext(ChatTabHostContext)?.ownBlock;
+  const { t } = useTranslation('messaging');
+  // A project chat's file kept on its machine: the machine mark before the name, as a task row's, its setting one ⋯ away (owner 10-27).
+  const fileHost = useFileHost(item.itemId && !isFolderItem(item) ? item.itemId : null);
   // 「单独一块」(spec session-page「一屏几块」,同任务里 App 那一枚):这张页自己占一块,贴在这一块右边;这个对话里就不留它了。
   // App 声明的菜单命令跟在后面,同任务里的 App 页签(工具栏那一行去掉了,owner 10-26 选 A)。
   const kindCommands = item.kind
@@ -134,9 +139,10 @@ const PanelTabItem = observer(function PanelTabItem({ tab, host, ctx }: TabBarIt
         })),
       ]
     : [];
+  if (fileHost) kindCommands.push({ id: `${tab.tabId}:file-storage`, label: t('fileStoredOn.settings'), group: 'file', run: openFileStorageSettings });
   return (
     <div className="contents" data-panel-tab={isFolderItem(item) ? 'folder' : (item.kind ?? 'preview')}>
-      <GenericTabItem tab={tab} host={host} ctx={ctx} label={label} hint={hint} tooltip={tooltip} hasError={surface.error !== null} preSlot={<PanelIcon item={item} />} statusSlot={<ExtensionTabBadge badge={surface.badge} />} kindCommands={kindCommands} />
+      <GenericTabItem tab={tab} host={host} ctx={ctx} label={label} hint={hint} tooltip={tooltip} hasError={surface.error !== null} preSlot={<><PanelIcon item={item} />{fileHost ? <FileHostMark host={fileHost} /> : null}</>} statusSlot={<ExtensionTabBadge badge={surface.badge} />} kindCommands={kindCommands} />
     </div>
   );
 });
