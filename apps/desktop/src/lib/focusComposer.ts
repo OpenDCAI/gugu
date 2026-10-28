@@ -17,7 +17,7 @@ import { AUTOMATION_TEST_IDS } from './automationDom'
  * ③ **移动壳「刚发出一条」收键盘**(owner 10-28 手机试用):这句话已经说完，键盘该收起把消息区还回来。
  *    以前它算续接动作要重新聚焦 —— 点发送键时焦点先落到按钮上、键盘开始收、壳跟着可视视口长高，
  *    下一帧又被抢回输入框、键盘再弹、壳再缩：整个 App 上下抽一下(「发一条消息全屏闪一下」)。
- *    现在只收一次，❌ 不再抢回来。
+ *    手机发送后收键盘由 ChatComposer.handleSubmit 负责；这里只禁止发送后抢回焦点。
  */
 export type ComposerFocusReason =
   | 'chat-entry'
