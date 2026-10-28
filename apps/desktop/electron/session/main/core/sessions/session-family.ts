@@ -61,12 +61,14 @@ export function otherMachines(): OtherMachines {
 
 /**
  * 这个账号的会话图:本机库里的(归档的要不要看调用方定),加上每台在线机器报来的。`since` = 那之前就离线的机器
- * 不必问(见 OtherMachines.sessions);null = 都问。
+ * 不必问(见 OtherMachines.sessions);null = 都问。`askOthers` 看过本机的之后说还要不要问别的机器(不给 = 要);
+ * 要问时 `fresh` = 现问,不用几秒内问过的那份。
  */
 async function sessionGraph(options: {
   includeArchived: boolean;
   since: string | null;
   fresh?: boolean;
+  askOthers?: (local: Linked[]) => boolean;
 }): Promise<{ nodes: Linked[]; unreached: UnreachedMachine[] }> {
   const rows = await db
     .select({
@@ -86,6 +88,7 @@ async function sessionGraph(options: {
       label: null,
       parentId: sessionParentId(row),
     }));
+  if (options.askOthers && !options.askOthers(local)) return { nodes: local, unreached: [] };
   const elsewhere = others ? await sessionsElsewhere(others, options.since, options.fresh) : { sessions: [], unreached: [] };
   return { nodes: [...local, ...elsewhere.sessions], unreached: elsewhere.unreached };
 }
@@ -172,13 +175,28 @@ export async function setSessionParent(
   childId: string,
   parentId: string | null
 ): Promise<{ parent_session_id: string | null; not_reached: string[] }> {
-  const { nodes, unreached } = await sessionGraph({ includeArchived: true, since: null });
-  // 够不着的机器只在它挡住了这一次判断时才说:父会话没找到,或往上走断在一条看不见的会话上。
-  const notReached = () => unreached.map((machine) => machine.label ?? machine.detail);
   let not_reached: string[] = [];
   let parent: SessionParent = null;
+  // 挪回顶层什么都不用查。挂上去时,父会话和它往上一串都在本机库里,判环就只用本机的(别的机器上的会话
+  // 不会出现在一条全在本机的链上):❌ 每次都等所有在线机器回话 —— 一台标成在线、实际不回话的机器
+  // 会让每次本机拖本机都白等它超时(12–60 s)。
   if (parentId !== null) {
     if (parentId === childId) throw new Error('a session cannot be its own parent');
+    const { nodes, unreached } = await sessionGraph({
+      includeArchived: true,
+      since: null,
+      askOthers: (local) => {
+        const parentOf = new Map(local.map((node) => [node.id, node.parentId]));
+        const seen = new Set<string>();
+        for (let at: string | null | undefined = parentId; at && !seen.has(at); at = parentOf.get(at)) {
+          if (!parentOf.has(at)) return true;
+          seen.add(at);
+        }
+        return false;
+      },
+    });
+    // 够不着的机器只在它挡住了这一次判断时才说:父会话没找到,或往上走断在一条看不见的会话上。
+    const notReached = () => unreached.map((machine) => machine.label ?? machine.detail);
     const node = nodes.find((candidate) => candidate.id === parentId);
     if (!node) {
       const missed = notReached();
