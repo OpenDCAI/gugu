@@ -80,8 +80,8 @@ it('replaces the gradient with pure white in every shared scope, using neutral g
   }
   for (const scope of [shell, phone, desktop, menu]) {
     const style = getComputedStyle(scope)
-    expect(style.getPropertyValue('--ta-panel-bg').trim()).toBe('#fff')
-    expect(style.getPropertyValue('--ta-glass').trim()).toBe('#fff')
+    expect(style.getPropertyValue('--ta-panel-bg').trim()).toBe(style.getPropertyValue('--bg').trim())
+    expect(style.getPropertyValue('--ta-glass').trim()).toBe(style.getPropertyValue('--card').trim())
     expect(style.getPropertyValue('--ta-tint-ink').trim()).toBe(style.getPropertyValue('--fg').trim())
   }
 })

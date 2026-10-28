@@ -129,10 +129,10 @@
 
 /* 素白复用浅色字阶与对话几何,只把共享表面换成白底和中性色。手机壳、咕咕和 portal 同步消费。 */
 [data-theme-preference='plain-white'] :is(.ta-app, .ta-dialog, .ta-phone, [data-ta-menu], [data-ta-scope]) {
-  --ta-app-bg: #fff;
-  --ta-panel-bg: #fff;
+  --ta-app-bg: var(--bg);
+  --ta-panel-bg: var(--bg);
   --ta-panel-border: var(--border);
-  --ta-glass: #fff;
+  --ta-glass: var(--card);
   --ta-glass-strong: var(--muted);
   --ta-glass-hover: var(--hover);
   --ta-glass-edge: var(--border);
