@@ -22,30 +22,33 @@ export async function prepareLocalAssistantSetup(ipc: DesktopIpc, input: Prepare
     const state = data as LocalAssistantPreparationState & { id: string }
     if (state.id === started.id && (state.phase === 'committing' || state.phase === 'committed')) markInstalling()
   })
-  try {
-    for (;;) {
-      if (options.signal?.aborted && !installing) {
-        if (await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCancel, started.id)) throw cancelled()
-        markInstalling()
+  const run = async () => {
+    try {
+      for (;;) {
+        if (options.signal?.aborted && !installing) {
+          if (await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCancel, started.id)) throw cancelled()
+          markInstalling()
+        }
+        const state = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStatus, started.id) as LocalAssistantPreparationState
+        if (state.phase === 'failed') throw new Error(state.error)
+        if (state.phase === 'cancelled') throw cancelled()
+        if (state.phase === 'ready') break
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
-      const state = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStatus, started.id) as LocalAssistantPreparationState
-      if (state.phase === 'failed') throw new Error(state.error)
-      if (state.phase === 'cancelled') throw cancelled()
-      if (state.phase === 'ready') break
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    if (options.signal?.aborted && await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCancel, started.id)) throw cancelled()
-    const home = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCommit, started.id, input) as PrepareLocalHomeResult
-    markInstalling()
-    return home
-  } catch (error) {
-    const state = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStatus, started.id).catch(() => null) as LocalAssistantPreparationState | null
-    if (state?.phase === 'failed' && state.installationStarted) markInstalling()
-    throw error
-  } finally {
-    off()
-    const release = async () => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationRelease, started.id) }
+      if (options.signal?.aborted && await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCancel, started.id)) throw cancelled()
+      const home = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationCommit, started.id, input) as PrepareLocalHomeResult
+      markInstalling()
+      return home
+    } catch (error) {
+      const state = await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationStatus, started.id).catch(() => null) as LocalAssistantPreparationState | null
+      if (state?.phase === 'failed' && state.installationStarted) markInstalling()
+      throw error
+    } finally { off() }
+  }
+  const release = async () => { await ipc.invoke(ASSISTANT_HOME_CHANNELS.preparationRelease, started.id) }
+  const cleanup = async () => {
     try { await release() }
     catch (cause) { throw new AssistantSetupCleanupError(release, cause) }
   }
+  return run().then(async home => { await cleanup(); return home }, async error => { await cleanup(); throw error })
 }
