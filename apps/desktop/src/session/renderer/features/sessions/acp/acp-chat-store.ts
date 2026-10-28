@@ -143,6 +143,11 @@ export class AcpChatStore {
   /** #6552 这段里用户选的模型 / 强度(已交给运行时)。会话挂上之后以活会话报的为准,这份清空。 */
   startupChoice: { model?: string; effort?: string } = {};
   messageCount = 0;
+  /**
+   * 转录每同步一次就 +1。子智能体跑的那些调用折进**已收口**那一轮的派发卡下面(`reduceSubagentStream`),
+   * 顶层条数不变 ⇒ `messageCount` 不动;后台列表的步数与悬停时间线跟它走就一直停在打开会话那一刻。
+   */
+  transcriptRevision = 0;
   draftText = '';
   queuedEditDraft: { id: string; text: string } | null = null;
   queueEditPending = false;
@@ -301,6 +306,7 @@ export class AcpChatStore {
       starting: computed,
       startupChoice: observable.ref,
       messageCount: observable,
+      transcriptRevision: observable,
       draftText: observable,
       queuedEditDraft: observable.ref,
       queueEditPending: observable,
@@ -2589,6 +2595,7 @@ export class AcpChatStore {
     const activeCount = state.activeTurnSnapshot?.items.length ?? 0;
     const pendingPromptCount = this.chatState.session.state.pendingPrompt ? 1 : 0;
     this.messageCount = committedCount + activeCount + pendingPromptCount;
+    this.transcriptRevision += 1;
   }
 
   /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
