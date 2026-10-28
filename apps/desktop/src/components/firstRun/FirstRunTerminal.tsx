@@ -8,6 +8,7 @@ import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-
 import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled'
 import { Toggle } from '../settings/SettingsPrimitives'
 import { Button } from '../ui/Button'
+import { Hint } from '../ui/Tooltip'
 import film from '../../assets/first-run/session-terminal.webm'
 import poster from '../../assets/first-run/session-terminal.webp'
 import './first-run-terminal.css'
@@ -67,6 +68,7 @@ function TerminalFilm() {
   const video = useRef<HTMLVideoElement>(null)
   const still = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const [playing, setPlaying] = useState(!still)
+  const playbackLabel = playing ? t('firstRun.terminalPause') : t('firstRun.terminalPlay')
   if (still) return <img className="first-run-terminal-film" src={poster} alt={t('firstRun.terminalTitle')} data-testid="first-run-terminal-film" />
   const toggle = () => {
     const el = video.current
@@ -79,10 +81,12 @@ function TerminalFilm() {
       <video ref={video} className="first-run-terminal-film" src={film} poster={poster} autoPlay muted loop playsInline
         onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
         aria-label={t('firstRun.terminalTitle')} data-testid="first-run-terminal-film" />
-      <Button variant="secondary" size="icon" className="first-run-terminal-film-toggle rounded-full" onClick={toggle}
-        aria-label={playing ? t('firstRun.terminalPause') : t('firstRun.terminalPlay')} data-testid="first-run-terminal-film-toggle">
-        {playing ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
-      </Button>
+      <Hint label={playbackLabel} side="top">
+        <Button variant="secondary" size="icon" className="first-run-terminal-film-toggle rounded-full" onClick={toggle}
+          aria-label={playbackLabel} data-testid="first-run-terminal-film-toggle">
+          {playing ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
+        </Button>
+      </Hint>
     </div>
   )
 }
