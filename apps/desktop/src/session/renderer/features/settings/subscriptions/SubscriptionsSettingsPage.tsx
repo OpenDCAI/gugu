@@ -152,7 +152,7 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
       }
       scope={
         manageable && connections.data
-          ? translate('subscriptions.connections.count', { count: String(connections.data.length) })
+          ? translate('subscriptions.connections.count', { count: connections.data.length })
           : translate('subscriptions.connections.device')
       }
       action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice} /> : undefined}

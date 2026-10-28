@@ -33,6 +33,7 @@ function unreadThreadChat(): ChatItem {
       message_id: 'reply-1',
       message_seq: 51,
       unread_count: 1,
+      addressed_count: 0,
       cursor_seq: 0,
       version: 0,
       is_marked_unread: false,
