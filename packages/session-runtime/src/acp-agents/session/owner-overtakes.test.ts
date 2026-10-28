@@ -134,16 +134,18 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
 
   it('the first frame a scheduled turn is visible in already carries its trigger, before the engine reports running', async () => {
     const frames: Array<{ lifecycle: string; active: boolean; trigger: unknown }> = [];
-    let cell!: SessionCell;
+    let cell: SessionCell | undefined;
     const record = () => {
+      if (!cell) return;
       const active = cell.history().active;
       frames.push({ lifecycle: cell.sessionState.lifecycle, active: !!active, trigger: active?.trigger });
     };
-    cell = steeringCell(true, { onTranscriptChanged: record, onSessionStateChanged: record }).cell;
+    const created = steeringCell(true, { onTranscriptChanged: record, onSessionStateChanged: record }).cell;
+    cell = created;
 
-    void cell.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
+    void created.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
     await Promise.resolve();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    created.push({ kind: 'agent_state', state: 'running' });
 
     const visible = frames.filter((frame) => frame.active || frame.lifecycle === 'working');
     expect(visible.length).toBeGreaterThan(0);
