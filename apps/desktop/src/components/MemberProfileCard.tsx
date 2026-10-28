@@ -227,8 +227,6 @@ export function MemberProfileCard({
   const { presence } = useAgentDisplayStatus(isAgent ? member.id : null)
   const statusLabel = useAgentContactStatusLabel(status, presence.presentation)
   const { user } = useAuth()
-  // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
-  const canOpenChat = !!onOpenChat && (!isAgent || member.ownerUserId === user?.id)
   // Desktop: the session bridge the task bundle publishes. The phone has no such bundle: it finds the agent's session in
   // its session directory, as its agent chat header and Partners rows do (#673, #658).
   const phone = useMobileShell()
@@ -237,6 +235,10 @@ export function MemberProfileCard({
   const session: AgentSession | undefined = phone
     ? (row ? { projectId: row.session.projectId, sessionId: row.session.conversationId } : undefined)
     : bridged
+  // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
+  // An agent's「发消息」opens its session and nothing else (#622): no session found → no button, ❌ a DM fallback. The DM
+  // itself stays reachable where the product offers it; only this entry is closed.
+  const canOpenChat = !!onOpenChat && (!isAgent || (member.ownerUserId === user?.id && !!session))
   const editBusy = !!editControls?.busy
   const showEdits = isGroupProfile && (editControls?.canChangeRole || editControls?.canRemove)
   const roleLabel = member.role === 'owner' ? t('profile.roles.owner') : member.role === 'admin' ? t('profile.roles.admin') : t('profile.roles.member')

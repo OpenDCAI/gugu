@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // 项目里的 agent 就是一条会话:资料卡「发消息」打开的是它的会话(这台电脑或连着的哪台机器上的,会话页那棵树经
-// project-group-chats 桥告诉聊天页),❌ 另开一个空私聊。不是任何机器上的会话的 agent / 人:照旧开私聊。
+// project-group-chats 桥告诉聊天页),❌ 另开一个空私聊。不是任何机器上的会话的 agent:不画「发消息」(#622,不留私聊入口);
+// 人:照旧开私聊。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemberProfileCard, type MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { publishProjectGroupChats } from '../../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
@@ -40,9 +41,10 @@ describe('profile card「发消息」on an agent that is a session', () => {
     expect(await send(agent)).toEqual(expect.objectContaining({ id: 'a-mine', session: onLinux1 }))
   })
 
-  it('an agent that is no session anywhere still opens the chat', async () => {
+  it('an agent that is no session anywhere gets no「发消息」, ❌ a DM fallback', async () => {
     publishProjectGroupChats([], new Map(), new Map([['someone-else', onLinux1]]))
-    expect((await send(agent))?.session).toBeUndefined()
+    await renderWithAppProviders(harness, createNode(MemberProfileCard, { member: agent, onOpenChat: vi.fn() }), { chat: {}, contacts: {} })
+    expect(harness.container.querySelector('[data-testid="member-profile-send-message-button"]')).toBeNull()
   })
 
   it('a person still opens the chat, even if an id collides', async () => {
