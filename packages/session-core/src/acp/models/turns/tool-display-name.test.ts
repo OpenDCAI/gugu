@@ -49,6 +49,7 @@ describe('经 catalog_call 跑的工具,各处写它自己的名字', () => {
       toolCall: mcpCall('catalog_call', catalogRoll),
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
     });
+    expect(pending.origin).toEqual({ source: 'harness-permission' });
     expect(pending.title).toBe('plugin_gugu-product_gugu · dice__roll');
     expect(pending.detail).toBe(catalogRoll);
     const noInput = permissionToPendingRequest({ requestId: 'p3', toolCall: mcpCall('message_send'), options: [] });

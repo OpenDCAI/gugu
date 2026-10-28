@@ -112,7 +112,7 @@ function PendingTask({ task, onOpenTask }: { task: NeedsYouTask; onOpenTask: () 
   const pending = useMemo(() => Object.values(read.timeline.settlements).filter(item => item.state === 'pending'), [read.timeline.settlements])
   // The host's timeout and answers on another device withdraw the same permission sheet here.
   useEffect(() => {
-    const installs = ready ? pending.filter(item => appInstallAskOf(item.host)).map(item => item.itemId) : []
+    const installs = ready ? pending.filter(item => appInstallAskOf(item.origin)).map(item => item.itemId) : []
     for (const id of previousInstalls.current) if (!installs.includes(id)) closeInShell(id)
     previousInstalls.current = installs
   }, [ready, pending])

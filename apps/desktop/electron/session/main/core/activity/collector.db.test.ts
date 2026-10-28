@@ -89,7 +89,7 @@ describe('boot-installed collector and real committed producers', () => {
     const request = { itemId: 'agent-question:q1', kind: 'question', title: 'SECRET QUESTION',
       options: [{ optionId: 'yes', name: 'SECRET OPTION' }],
       questions: [{ question: 'SECRET QUESTION', multiSelect: false, options: [{ optionId: 'yes', name: 'SECRET OPTION' }] }],
-      host: { kind: 'agent-question', payload: { deliveryVersion: 1,
+      origin: { source: 'agent-question', payload: { deliveryVersion: 1,
         answerMessageId: '22222222-2222-4222-8222-222222222222', sourceLink: null } },
     } as PendingRequest;
     rememberAgentQuestion('s1', request);

@@ -1,3 +1,5 @@
+import { ask, respond, withdrawAll } from '../../asks';
+import { hostAsks } from '../../asks/ask';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -35,8 +37,6 @@ const DRIVING_IDLE_MS = 3_000;
  * (10-15 实测),CDP 也没有标题事件 —— 只能拉 Target.getTargets。
  */
 const TAB_REFRESH_MS = 2_000;
-/** 求助挂着等人的上限:人一直没来,工具照实交回,❌ 把 agent 的这一轮永远卡住。 */
-const ASSISTANCE_WAIT_MS = 10 * 60_000;
 /** 人填了但没勾「保存」:多步登录(先账号、下一页才要密码)在这段时间里接着用,❌ 再问一遍。 */
 const REMEMBER_UNSAVED_MS = 10 * 60_000;
 /** 交还前读密码框的上限:页面卡死也得交还(❌ agent 一直被挡着),读不到的只进日志。 */
@@ -53,13 +53,8 @@ export const STOPPED_MESSAGE =
 
 type ChangeListener = () => void;
 
-type PendingAssistance = CloudBrowserAssistance & {
-  sessionId: string;
-  settle: (outcome: AssistanceOutcome) => void;
-};
-
 type AssistanceOutcome =
-  | { kind: 'filled'; fill: FillResult; saved: boolean }
+  | { kind: 'filled'; fill: FillResult }
   | { kind: 'returned' }
   | { kind: 'dismissed' }
   | { kind: 'stopped' }
@@ -83,8 +78,9 @@ export class CloudBrowser {
   private tabRefresh: ReturnType<typeof setInterval> | null = null;
   private holder: string | null = null;
   private pendingHolder: string | null = null;
-  private assistance: PendingAssistance | null = null;
   private readonly remembered = new Map<string, { credential: Credential; until: number }>();
+  /** What the vault filled for a login ask, kept here until its answer comes back (the Ask carries no credentials). */
+  private readonly filled = new Map<string, FillResult>();
   /**
    * 填进过页面的密码(各种写法)。Playwright 的页面快照会把密码框的值原样写出来(`textbox "密码": …`,10-15 实测),
    * 所以交回 agent 的每个浏览器工具结果都过一遍 redact —— ❌ 指望 agent 不去看。
@@ -133,9 +129,10 @@ export class CloudBrowser {
   }
 
   sessionInUse(sessionId?: string): boolean {
+    const pending = this.pendingAssistance();
     return (sessionId === undefined ? this.totalInFlight() : this.inFlight.get(sessionId) ?? 0) > 0
       || !!this.holder || !!this.pendingHolder
-      || (!!this.assistance && (sessionId === undefined || this.assistance.sessionId === sessionId));
+      || (!!pending && (sessionId === undefined || pending.sessionId === sessionId));
   }
 
   /** Release the owning task's page, including the last Chrome process. Ordinary tool disconnects keep it. */
@@ -254,7 +251,7 @@ export class CloudBrowser {
     this.idleTimer = null;
     // 这次浏览器会话结束了,「停止」跟着它结束:下次起来的是新的一次(❌ 卡片收起后没人能放行)。
     this.automation = 'idle';
-    this.assistance?.settle({ kind: 'ended', reason });
+    withdrawAll(undefined, 'browser-assistance');
     log.info('Cloud browser: Chrome is gone', { reason });
     this.notify();
   }
@@ -425,6 +422,7 @@ export class CloudBrowser {
     }
     const outcome = await this.waitForPerson(sessionId, { kind: 'login', site, url: tab.url, ...(args.reason ? { text: args.reason } : {}) }, signal);
     if (outcome.kind === 'filled') return { ok: true, message: filledMessage(site, outcome.fill, 'person') };
+    if (outcome.kind === 'returned') return { ok: true, message: 'The person finished the login step. Submit the form and check the result with browser_snapshot.' };
     return { ok: false, message: outcomeMessage(outcome, 'login') };
   }
 
@@ -446,32 +444,34 @@ export class CloudBrowser {
     return null;
   }
 
-  private waitForPerson(
-    sessionId: string,
-    ask: { kind: 'login' | 'takeover'; site?: string; url?: string; text?: string },
-    signal?: AbortSignal
-  ): Promise<AssistanceOutcome> {
-    // 同一时刻只挂一个求助;前一个还挂着(另一条会话的)就让它先照实收场。
-    this.assistance?.settle({ kind: 'dismissed' });
-    return new Promise<AssistanceOutcome>((resolve) => {
-      const requestId = randomUUID();
-      let done = false;
-      const timer = setTimeout(() => settle({ kind: 'timeout' }), ASSISTANCE_WAIT_MS);
-      timer.unref?.();
-      const onAbort = () => settle({ kind: 'dismissed' });
-      signal?.addEventListener('abort', onAbort, { once: true });
-      const settle = (outcome: AssistanceOutcome) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        if (this.assistance?.requestId === requestId) this.assistance = null;
-        this.notify();
-        resolve(outcome);
-      };
-      this.assistance = { requestId, sessionId, ...ask, settle };
-      this.notify();
-    });
+  private pendingAssistance(): (CloudBrowserAssistance & { sessionId: string }) | null {
+    for (const [sessionId, requests] of hostAsks) for (const { request } of requests.values()) {
+      if (request.origin.source === 'browser-assistance') return { ...(request.origin.payload as Omit<CloudBrowserAssistance, 'requestId'>), sessionId, requestId: request.itemId };
+    }
+    return null;
+  }
+
+  private async waitForPerson(sessionId: string, assistance: Omit<CloudBrowserAssistance, 'requestId'>, signal?: AbortSignal): Promise<AssistanceOutcome> {
+    withdrawAll(undefined, 'browser-assistance');
+    const itemId = randomUUID();
+    const result = await ask(sessionId, { itemId, kind: 'permission', title: assistance.text ?? (assistance.kind === 'login' ? `Log in to ${assistance.site}` : 'Take over the browser'),
+      options: [{ optionId: 'done', name: 'Done', kind: 'allow_once' }, { optionId: 'cancel', name: 'Cancel', kind: 'reject_once' }], origin: { source: 'browser-assistance', payload: assistance } }, { signal });
+    const fill = this.filled.get(itemId);
+    this.filled.delete(itemId);
+    if (fill) return { kind: 'filled', fill };
+    if (typeof result !== 'string' && result.optionId === 'done') {
+      if (this.holder) await this.releaseControl(this.holder);
+      return { kind: 'returned' };
+    }
+    if (result === 'unavailable') return { kind: 'ended', reason: 'This task is unavailable; no request was opened.' };
+    return result === 'timeout' ? { kind: 'timeout' } : this.endedReason ? { kind: 'ended', reason: this.endedReason } : { kind: this.automation === 'stopped' ? 'stopped' : 'dismissed' };
+  }
+
+  private answerAssistance(requestId: string, optionId: string): void {
+    const pending = this.pendingAssistance();
+    if (pending?.requestId === requestId) void respond({ conversationId: pending.sessionId, itemId: requestId, kind: 'permission', optionId, by: 'desktop' })
+      .then(result => { if (!result.ok) log.warn('Cloud browser: the answer was refused', { code: result.error.code }); })
+      .catch((error: unknown) => log.warn('Cloud browser: the answer could not be delivered', { error: String(error) }));
   }
 
   private recall(site: string): Credential | null {
@@ -499,7 +499,7 @@ export class CloudBrowser {
 
   /** 人在保险箱里点「确认添加」。返回给保险箱的结果(失败的原因让人看得懂;❌ 回显密码)。 */
   async submitCredential(requestId: string, credential: Credential, save: boolean): Promise<{ ok: true } | { ok: false; reason: 'gone' | 'noForm' | 'saveFailed' }> {
-    const pending = this.assistance;
+    const pending = this.pendingAssistance();
     if (!pending || pending.requestId !== requestId || pending.kind !== 'login' || !pending.site) return { ok: false, reason: 'gone' };
     const targetId = this.sessionTab.get(pending.sessionId);
     if (!targetId) return { ok: false, reason: 'gone' };
@@ -513,17 +513,15 @@ export class CloudBrowser {
       } catch (error) {
         log.warn('Cloud browser: saving the login failed', { site: pending.site, error: String(error) });
         this.remembered.set(pending.site, { credential, until: Date.now() + REMEMBER_UNSAVED_MS });
-        pending.settle({ kind: 'filled', fill, saved: false });
+        this.filled.set(requestId, fill);
+        this.answerAssistance(requestId, 'done');
         return { ok: false, reason: 'saveFailed' };
       }
     }
     if (!saved) this.remembered.set(pending.site, { credential, until: Date.now() + REMEMBER_UNSAVED_MS });
-    pending.settle({ kind: 'filled', fill, saved });
+    this.filled.set(requestId, fill);
+    this.answerAssistance(requestId, 'done');
     return { ok: true };
-  }
-
-  dismissAssistance(requestId: string): void {
-    if (this.assistance?.requestId === requestId) this.assistance.settle({ kind: 'dismissed' });
   }
 
   /** 人「接管浏览器」。agent 正在做一步 = 先排着(pending),这一步做完就给。 */
@@ -567,7 +565,8 @@ export class CloudBrowser {
   private finishRelease(clientId: string): void {
     if (this.holder === clientId) {
       this.holder = null;
-      if (this.assistance?.kind === 'takeover') this.assistance.settle({ kind: 'returned' });
+      const pending = this.pendingAssistance();
+      if (pending?.kind === 'takeover') this.answerAssistance(pending.requestId, 'done');
     }
     this.notify();
   }
@@ -602,7 +601,7 @@ export class CloudBrowser {
     this.automation = 'stopped';
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
-    this.assistance?.settle({ kind: 'stopped' });
+    withdrawAll(undefined, 'browser-assistance');
     this.notify();
   }
 
@@ -640,7 +639,6 @@ export class CloudBrowser {
   }
 
   status(livePort: { port: number; token: string } | null): CloudBrowserStatus {
-    const assistance = this.assistance;
     return {
       available: !!this.binary(),
       running: !!this.hub(),
@@ -651,9 +649,6 @@ export class CloudBrowser {
       completed: this.completed,
       controlled: !!this.holder || !!this.pendingHolder,
       lastActivityAt: this.lastActivityAt ? new Date(this.lastActivityAt).toISOString() : null,
-      assistance: assistance
-        ? { requestId: assistance.requestId, kind: assistance.kind, ...(assistance.site ? { site: assistance.site } : {}), ...(assistance.url ? { url: assistance.url } : {}), ...(assistance.text ? { text: assistance.text } : {}) }
-        : null,
       live: livePort,
     };
   }

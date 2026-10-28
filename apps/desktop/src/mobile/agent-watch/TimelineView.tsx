@@ -100,10 +100,10 @@ export function SettlementCard({
   const by = responderName(settlement.resolvedBy, t)
   // 宿主能往终端写键的提问带着整份题目,按一套表单画;别的提问仍是第一题的一排按钮。
   const questions = settlement.questions
-  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.host) : null
+  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.origin) : null
   const multi = (questions?.length ?? 0) > 1
   // D-31 An App install the host asks for this agent: who asks for what; 「查看并安装」 opens this phone's own sheet first.
-  const install = appInstallAskOf(settlement.host)
+  const install = appInstallAskOf(settlement.origin)
   const words = install ? appInstallWords(install, translateSessionMessage) : null
   const answer = (optionId: string) => {
     if (!install) {
