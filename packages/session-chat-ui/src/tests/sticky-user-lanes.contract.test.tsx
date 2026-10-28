@@ -147,17 +147,20 @@ describe('sticky user lanes', () => {
       text: '<gugu_delivery route="chat" msg="msg:b" from="小王" from_id="user:wang"><![CDATA[来自群里的一条消息]]></gugu_delivery>' } as TranscriptTurn['items'][number];
     const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
     const t = await mount([longTurn('a', 0, 150), delivered], undefined, theme);
-    let st = 2600;
-    while (!(t.cardTop('b-user') !== null && t.cardTop('b-user')! < 250 && t.cardTop('b-user')! > 120)) {
-      st += 100;
-      expect(st, 'b-user came into view').toBeLessThan(40_000);
+    // 投进来的那条不是钉顶单元,在对话布局里画成右侧一个气泡:按它那一行找。
+    const deliveredRow = () => t.host.querySelector<HTMLElement>('[data-row-kind="message"][data-item-id="b-user"]');
+    const rowTop = () => { const el = deliveredRow(); return el ? el.getBoundingClientRect().top - t.scrollEl.getBoundingClientRect().top : null; };
+    let st = 0;
+    while (!(rowTop() !== null && rowTop()! < 260 && rowTop()! > 80)) {
+      st += 80;
+      expect(st, 'b-user came into view').toBeLessThan(80_000);
       await t.scrollTo(st);
     }
     // MBP 验收 10-28:前一条打字消息的钉顶副本一直盖着投进来的那条。
     for (let i = 0; i < 40; i++) {
       t.scrollEl.scrollTop = st + i * 6;
       const a = t.card('a-user');
-      const b = t.card('b-user')!;
+      const b = deliveredRow()!;
       if (a) expect(a.getBoundingClientRect().bottom, `step ${i}`).toBeLessThanOrEqual(b.getBoundingClientRect().top + 1);
     }
   });
