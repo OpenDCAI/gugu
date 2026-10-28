@@ -29,6 +29,16 @@ if (typeof window !== 'undefined') {
     disconnect(): void {}
   }
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
+  // Agent conversations now mount the shared transcript in the IM shell as well.
+  // jsdom has neither font loading nor intersection layout; browser geometry is tested in Chromium.
+  Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [], ready: Promise.resolve() } })
+  class IntersectionObserverMock {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): IntersectionObserverEntry[] { return [] }
+  }
+  globalThis.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver
 
   // Shared rich-text composers use native caret geometry and popup scrolling. jsdom has no layout.
   Element.prototype.scrollIntoView = () => {}

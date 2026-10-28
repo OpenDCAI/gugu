@@ -32,15 +32,30 @@ import { useMessageFilePreview } from './useMessageFilePreview'
 import { useToast } from '../toastContext'
 import { messageForUser } from '@/lib/userFacingError'
 import { MessageLoadFailure } from './MessageLoadFailure'
+import { MessageProvider } from '@gugu/session-ui/react/components'
+import { ThemeProvider } from '@gugu/session-ui/react/primitives'
+import { useLocale } from '@/i18n'
+import { useTheme } from '@/store/theme'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
+import { ConversationErrorBoundary } from './ConversationErrorBoundary'
 
 type Chrome = { attachGlyph: import('react').ReactNode; attachMenu?: readonly ComposerAttachAction[]; composerHeader?: import('react').ReactNode }
 
 type Target = { deviceId: string; sessionId: string; local: boolean }
 
 /** DM navigation ends here. No agent DM is rendered by the legacy IM page. */
-export function AgentDmConversation({ chat, shown, mobile = false, onBack, chrome }: {
+type Props = {
   chat: ChatItem; shown: boolean; mobile?: boolean; onBack?: () => void; chrome?: Chrome
-}) {
+}
+export function AgentDmConversation(props: Props) {
+  const { resolvedLocale } = useLocale()
+  const { theme } = useTheme()
+  return <ConversationErrorBoundary key={props.chat.id}><ThemeProvider theme={theme} target="documentElement">
+    <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}><AgentDmSession {...props} /></MessageProvider>
+  </ThemeProvider></ConversationErrorBoundary>
+}
+
+function AgentDmSession({ chat, shown, mobile = false, onBack, chrome }: Props) {
   const { session } = useAgentDmSession(chat.peer_user_id ?? null)
   const target = session.state === 'ready' ? session : null
   return <DmConversation key={`${chat.id}/${target?.sessionId ?? 'im'}`} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} />
@@ -104,7 +119,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
     <ConversationSettlements sessionId={target?.sessionId ?? `dm:${chat.id}`} settlements={read.timeline.settlements} runtime="acp" mobile={mobile} busyItemId={read.respondingItemId} respond={read.respond} />
     {chrome?.composerHeader}
     {error ? <MessageLoadFailure error={error} inline onRetry={async () => { await refreshMessages(chat.id); read.reload() }} /> : null}
-    {messages.filter(message => message.local_send_state === 'failed').map(message => <button key={message.id} type="button" data-failed-message={message.id} onClick={() => retrySend(message.id)}>{t('message.sendFailed')} · {t('agent.dm.retry')}</button>)}
+    {messages.filter(message => message.local_send_state === 'failed').map(message => <button key={message.id} type="button" data-failed-message={message.id} onClick={() => retrySend(message.id)}>{t('outbox.sendFailed')} · {t('agent.dm.retry')}</button>)}
     {read.actionError ? <div role="alert">{read.actionError}</div> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <ChatMessageComposer chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
@@ -116,7 +131,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome }: {
   return <div data-testid="agent-dm-conversation" data-agent-user-id={chat.peer_user_id ?? undefined} className="relative flex h-full min-h-0 flex-1">
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {!chrome && <PaneHeader title={name} titleLevel="panel" mobile={mobile}
-      leading={onBack ? <IconButton aria-label={t('chatArea.back')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
+      leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
       commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),

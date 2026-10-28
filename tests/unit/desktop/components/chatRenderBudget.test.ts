@@ -16,6 +16,12 @@ import { chat, chatStore, createReactHarness, device, displayIdentity, message }
 
 const counts = vi.hoisted(() => ({ bubble: new Map<string, number>(), metaRow: 0, panelCommits: 0 }))
 
+// Solid's DOM renderer runs in the Chromium project; keep the React host/providers real here.
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript')>(),
+  ChatTranscript: () => null,
+}))
+
 vi.mock('../../../../apps/desktop/src/components/chat/MessageBubble', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../apps/desktop/src/components/chat/MessageBubble')>()
   const real = actual.MessageBubble as unknown as { type: FunctionComponent<{ msg: MessageItem }>; compare: ((a: object, b: object) => boolean) | null }
@@ -88,7 +94,7 @@ function makeStore(kind: ChatItem['kind']) {
   const base = chatStore({
     identitiesById: {
       'user-1': displayIdentity('user-1', { display_name: 'User' }),
-      [PEER]: displayIdentity(PEER, { type: 'agent', display_name: 'Deploy Bot' }),
+      [PEER]: displayIdentity(PEER, { type: kind === 'dm' ? 'human' : 'agent', display_name: 'Deploy Bot' }),
     },
     activeChatId: 'chat-1',
   })
@@ -161,7 +167,7 @@ async function receiveMessage(store: ReturnType<typeof makeStore>) {
 }
 
 describe('聊天页渲染预算', () => {
-  it.each(['ai', 'group'] as const)('%s:收到一条新消息只渲染新那一条气泡', async (kind) => {
+  it.each(['dm', 'group'] as const)('%s:收到一条新消息只渲染新那一条气泡', async (kind) => {
     const store = makeStore(kind)
     await mount(store)
     await receiveMessage(store)
@@ -182,9 +188,8 @@ describe('聊天页渲染预算', () => {
     expect(bubbleRenders()).toBe(0)
   })
 
-  // 上一条的阳控:同一个事件打到**当前**会话,面板必须真的重渲(证明事件确实送达、计数器确实在数),
-  // 而气泡仍一条都不重渲 —— 流式正文不在历史气泡里,运行条的变化不该波及它们。
-  it('当前会话的流片段让面板重渲,但历史气泡一条都不重渲', async () => {
+  // Agent DMs now consume the project timeline, not the retired IM stream path.
+  it('旧 IM 流事件不再驱动共享 agent 转录', async () => {
     const store = makeStore('ai')
     await mount(store)
     await act(async () => {
@@ -192,7 +197,7 @@ describe('聊天页渲染预算', () => {
     })
     await flushFrames()
     console.info(`[render-budget] own stream chunk: panelCommits=${counts.panelCommits} bubbles=${bubbleRenders()}`)
-    expect(counts.panelCommits).toBeGreaterThan(0)
+    expect(counts.panelCommits).toBe(0)
     expect(bubbleRenders()).toBe(0)
   })
 
@@ -211,7 +216,7 @@ describe('聊天页渲染预算', () => {
 // 骨架盖住一切,乐观行在加载完成前不可见;且 loading 一翻转列表整个卸载重挂。
 describe('加载中也画已有的行', () => {
   it('loading 期间的乐观行照样渲染,不出骨架', async () => {
-    const store = makeStore('ai')
+    const store = makeStore('dm')
     const pending = message({ id: 'm-pending', seq: -1, sender_user_id: 'user-1', is_mine: true, local_send_state: 'sending' })
     store.set({ loadingMessages: true, messages: [pending] })
     await mount(store)
@@ -220,7 +225,7 @@ describe('加载中也画已有的行', () => {
   })
 
   it('loading 且一行都没有:才出骨架', async () => {
-    const store = makeStore('ai')
+    const store = makeStore('dm')
     store.set({ loadingMessages: true, messages: [] })
     await mount(store)
     expect(harness.container.querySelector('[data-skeleton-bubble]')).not.toBeNull()

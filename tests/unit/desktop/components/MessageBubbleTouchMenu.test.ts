@@ -416,22 +416,10 @@ describe('MessageBubble touch menu', () => {
     await openMenuAndCopy()
     expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'clipboard denied [path] [redacted token]')
   })
-  it('exposes working copy, quote and more actions below a private agent answer without hovering', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    const toast = vi.fn(), onQuote = vi.fn()
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: false, onQuote })
-    const bar = harness.container.querySelector('[data-testid="agent-answer-actions"]')!
-    const buttons = [...bar.querySelectorAll('button')]
-    expect(buttons.map(button => button.getAttribute('aria-label'))).toEqual(['复制文本', '回复', '更多'])
-    await clickElement(buttons[0])
-    expect(writeText).toHaveBeenCalledWith('hello from mobile')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
-    await clickElement(buttons[1])
-    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
-    await clickElement(buttons[2])
-    expect(document.body.textContent).toContain('转发')
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: true })
+  it('does not retain the retired private-agent answer toolbar in the IM bubble', async () => {
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: false })
+    expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: true })
     expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
   })
 })

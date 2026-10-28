@@ -38,10 +38,6 @@
     "how": "keyed-map",
     "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
   },
-  "apps/desktop/src/hooks/useAgentRunningStatus.ts::useAgentRunningStatus": {
-    "how": "derived",
-    "why": "无自有 state:全部由下游 hook 当场派生,再经 gateActivityToAgent / gateRunningStatusToChat 两维门控。"
-  },
   "apps/desktop/src/hooks/useAgentStream.ts::useAgentStream": {
     "how": "keyed-map",
     "why": "map[agentStreamKey(当前 conversationId, threadRootId)] —— 换主体立刻换 key。"

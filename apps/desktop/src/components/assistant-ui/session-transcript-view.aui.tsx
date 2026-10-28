@@ -6,6 +6,8 @@ import { useSessionChatLayout } from '@renderer/lib/chat/use-session-chat-layout
 import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view'
 import { createSessionChatContext } from '@renderer/lib/chat/shared-chat-context'
 import { planHistorySync, splitActiveTurn } from './transcript-sync'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '@renderer/lib/query-client'
 
 export type SessionBackgroundTasks = Parameters<ChatState['session']['setBackgroundTasks']>[0]
 
@@ -22,7 +24,11 @@ type Model = { uri: string; context: ChatContext; state: ChatState }
  *
  * `mobile`:手机壳里画(窄屏、底部安全区)。点按、展开这些交互由转录自己按视口处理。
  */
-export function SessionTranscriptView({
+export function SessionTranscriptView(props: Parameters<typeof SessionTranscriptContent>[0]): ReactElement {
+  return <QueryClientProvider client={queryClient}><SessionTranscriptContent {...props} /></QueryClientProvider>
+}
+
+function SessionTranscriptContent({
   uri,
   turns,
   layout,

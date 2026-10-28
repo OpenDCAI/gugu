@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as asks from '../asks';
+import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
   RecordCursor,
@@ -40,7 +41,7 @@ const state = vi.hoisted(() => ({
   pendingWatchCalls: [] as string[],
   pendingWatchDisposed: 0,
   /** 用例手里的那根线：调它就等于运行时报了一批新的待答审批。 */
-  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void),
+  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[]) => void),
   /** 活运行时报的会话选项(live-options 的桩);默认三格都没有。 */
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
@@ -188,7 +189,7 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
     conversationId: string,
-    onChange: (requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void
+    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[]) => void
   ) => {
     state.pendingWatchCalls.push(conversationId);
     if (!state.pendingWatchAvailable) return null;
@@ -895,7 +896,7 @@ describe('session timeline service', () => {
     const { timeline } = makeTimeline();
     service.setSessionTimelineFactory(async () => timeline);
     await service.snapshot({ conversationId: 'conv-1' });
-    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句' }]);
+    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句', origin: 'manual' }]);
     expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({
       ok: true,
       value: { queuedPrompts: [{ id: 'qp-1', text: '排着的那句' }] },
