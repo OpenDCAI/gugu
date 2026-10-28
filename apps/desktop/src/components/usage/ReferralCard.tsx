@@ -7,6 +7,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatNumber } from '@/i18n'
+import { creditCount } from '../../lib/billing'
 import { Copy, UserPlus } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { useAuth } from '../../store/auth'
@@ -54,7 +55,7 @@ export function ReferralCard() {
             {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.invited', { count: referral ? formatNumber(referral.invitedCount) : '—' })}
           </span>
           <span data-testid="settings-quota-credits-earned">
-            {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.earned', { credits: referral ? t('referral.amountCredits', { credits: formatNumber(referral.creditsEarned) }) : '—' })}
+            {pending && !referral ? <span className="gg-usage-skeleton na-referral-stat-skeleton" aria-hidden /> : t('referral.earned', { credits: referral ? t('referral.amountCredits', { credits: formatNumber(referral.creditsEarned), count: creditCount(referral.creditsEarned) }) : '—' })}
           </span>
           </>}
         </div>

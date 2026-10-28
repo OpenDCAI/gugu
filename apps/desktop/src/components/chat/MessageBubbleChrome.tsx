@@ -1,11 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { Chip } from '../ui/Chip'
+import { Button } from '../ui/Button'
 import { useAuth } from '../../store/auth'
 import { BODY_COLORS } from '../agentAvatar/engine/identity'
 import { resolveAgentLook } from '../agentAvatar/look'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { fmtMsgTime } from './messageRowTime'
 import './messageBubbleChrome.css'
+import { useMessageSenderTarget } from './MessageSenderContext'
+import { openMessageSender } from '../../lib/openMessageSender'
 
 // 气泡自己的「谁说的 / 什么时候」(owner 10-25「名字进气泡、时间进右下角」,照 Telegram):
 // 名字在气泡第一行、小一号、按这个人的颜色;时间在气泡右下角,和最后一行正文同一行。
@@ -15,6 +18,7 @@ import './messageBubbleChrome.css'
 export function BubbleSender({ member, senderId }: { member: MemberProfileCardModel | null; senderId: string | null }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
+  const target = useMessageSenderTarget()
   const hue = BODY_COLORS[resolveAgentLook(senderId, member?.avatar ?? null).color].hue
   const tag = member?.type !== 'agent' ? null
     : member.ownerUserId && member.ownerUserId === user?.id ? t('message.myAgentTag')
@@ -22,7 +26,8 @@ export function BubbleSender({ member, senderId }: { member: MemberProfileCardMo
     : t('message.agentOwnerUnavailableTag')
   return (
     <div data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as React.CSSProperties}>
-      <span className="msg-sender-name">{member?.displayName ?? ''}</span>
+      {target ? <Button variant="ghost" size="sm" className="msg-sender-name msg-sender-link" onClick={event => { event.stopPropagation(); openMessageSender(target) }}>{member?.displayName ?? ''}</Button>
+        : <span className="msg-sender-name">{member?.displayName ?? ''}</span>}
       {tag && <Chip appearance="filled" data-message-agent-owner="true">{tag}</Chip>}
     </div>
   )

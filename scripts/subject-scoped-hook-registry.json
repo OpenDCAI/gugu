@@ -106,6 +106,16 @@
     "how": "derived",
     "why": "无自有 state:渲染期由当前 agentId 从通讯录与设备两个 store 当场派生「它所在的设备是不是这个账号已知的手机」,换 agent 立刻换答案。"
   },
-  "apps/desktop/src/hooks/useSourceMessageReveal.ts::useSourceMessageReveal": {"how": "keyed-map", "why": "External requests are consumed by the current presentation key and chatId; the stable local callback reads the current viewport reveal."},
-  "apps/desktop/src/hooks/useUnreadLocatorNavigation.ts::useUnreadLocatorNavigation": {"how": "subject-scoped", "why": "Pending requests belong to this viewport and carry their chatId; the returned pending flag checks the current chat before the effect clears a previous target."}
+  "apps/desktop/src/hooks/useSourceMessageReveal.ts::useSourceMessageReveal": {
+    "how": "keyed-map",
+    "why": "External requests are consumed by the current presentation key and chatId; the stable local callback reads the current viewport reveal."
+  },
+  "apps/desktop/src/hooks/useUnreadLocatorNavigation.ts::useUnreadLocatorNavigation": {
+    "how": "subject-scoped",
+    "why": "Pending requests belong to this viewport and carry their chatId; the returned pending flag checks the current chat before the effect clears a previous target."
+  },
+  "apps/desktop/src/hooks/useAgentDmSession.ts::useAgentDmSession": {
+    "how": "derived",
+    "why": "Its only own state is a retry counter; which session the agent DM draws is computed on the spot from useSessionpageAgentProjection (subject-scoped, answers \"not yet known\" for another agent), the session directory row and the device list, all read for the current agentUserId."
+  }
 }

@@ -23,6 +23,8 @@
 }
 /* 长名先让:名字截断,归属标签不让位。 */
 .msg-sender-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msg-sender-link { border: 0; border-radius: 0; padding: 0; min-height: 0; height: auto; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.msg-sender-link:hover, .msg-sender-link:focus-visible { text-decoration: underline; }
 .msg-sender > .gg-chip { flex-shrink: 0; font-weight: var(--font-weight-regular); }
 
 /* 时间:标注字号的灰字,钉在气泡右下角。 */

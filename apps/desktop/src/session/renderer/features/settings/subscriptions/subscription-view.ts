@@ -72,8 +72,8 @@ function windowSpan(window: SubscriptionUsageWindow, translate: Translate): stri
   if (minutes === undefined) return translate('subscriptions.window.other');
   if (minutes === 300) return translate('subscriptions.window.fiveHour');
   if (minutes === 10_080) return translate('subscriptions.window.week');
-  if (minutes % 1_440 === 0) return translate('subscriptions.window.days', { days: minutes / 1_440 });
-  return translate('subscriptions.window.hours', { hours: Math.round((minutes / 60) * 10) / 10 });
+  if (minutes % 1_440 === 0) return translate('subscriptions.window.days', { count: minutes / 1_440 });
+  return translate('subscriptions.window.hours', { count: Math.round((minutes / 60) * 10) / 10 });
 }
 
 /** 用了多少:有绝对数(Copilot 的次数)给绝对数，否则给百分比;百分比保留到整数，小于 1 的非零值保留一位。 */

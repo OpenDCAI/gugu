@@ -17,6 +17,7 @@
 //   · 在线态复用 agent presence 这份现成真值(useAgentDisplayStatuses → Avatar 角标),#2178 ②。
 //     **人这一段没有在线态**:产品里压根没有「某个人在不在线」的真值(聊天列表、通讯录的绿点都只画 agent),
 //     所以这一格不显 —— ❌ 不拿 desired_status 这类 agent 字段冒充人的在线。
+import { ArchivedAgentLabel } from './ArchivedAgentLabel'
 import { GroupNameInlineEdit } from './GroupNameInlineEdit'
 import { TopicMemberInviteButton, type TopicMemberInvitation } from './TopicMemberInviteButton'
 import { Button } from '../ui/Button'
@@ -201,6 +202,7 @@ function MemberRow({
           >
             {identity?.display_name ?? diagnostic}
           </span>
+          <ArchivedAgentLabel status={statusBadge} />
           {roleLabel ? (
             <span
               data-member-role={memberId}

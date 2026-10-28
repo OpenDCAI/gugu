@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CLI_PREPARE_LINK_BUDGET_MS, prepareThenStartCliLogin, type CliToolPrepareResult } from './cli-tool-prepare';
+import { CLI_PREPARE_LINK_BUDGET_MS, CLI_PREPARE_REQUEST_TIMEOUT_MS, prepareThenStartCliLogin, type CliToolPrepareResult } from './cli-tool-prepare';
 
 const started = { success: true as const, prompt: { kind: 'link' as const, url: 'https://login.test', code: 'ABCD' } };
 
@@ -9,6 +9,62 @@ function clock() {
 }
 
 describe('prepareThenStartCliLogin', () => {
+  it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized', 'credits_exhausted', 'membership_expired', 'plan_required'])('does not retry a terminal %s refusal', async code => {
+    const failure = Object.assign(new Error('Rejected by the host'), { code });
+    const api = { cliToolPrepare: vi.fn(async () => { throw failure; }), cliLoginStart: vi.fn() };
+    await expect(prepareThenStartCliLogin(api, 'feishu')).rejects.toBe(failure);
+    expect(api.cliToolPrepare).toHaveBeenCalledOnce();
+    expect(api.cliLoginStart).not.toHaveBeenCalled();
+  });
+
+  it('bounds an unanswered request and never starts a login from its late response', async () => {
+    vi.useFakeTimers();
+    try {
+      let answer!: (result: CliToolPrepareResult) => void;
+      const api = { cliToolPrepare: vi.fn(() => new Promise<CliToolPrepareResult>(resolve => { answer = resolve; })), cliLoginStart: vi.fn() };
+      const run = prepareThenStartCliLogin(api, 'feishu');
+      const rejected = expect(run).rejects.toMatchObject({ code: 'connection_prepare_timeout' });
+      await vi.advanceTimersByTimeAsync(CLI_PREPARE_REQUEST_TIMEOUT_MS);
+      await rejected;
+      answer({ status: 'ready' });
+      await Promise.resolve();
+      expect(api.cliToolPrepare).toHaveBeenCalledOnce();
+      expect(api.cliLoginStart).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('allows a cold wake and handshake to exceed the link retry budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = {
+        cliToolPrepare: vi.fn(() => new Promise<CliToolPrepareResult>(resolve => setTimeout(() => resolve({ status: 'ready' }), 170_000))),
+        cliLoginStart: vi.fn(async () => started),
+      };
+      const run = prepareThenStartCliLogin(api, 'feishu');
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect(api.cliLoginStart).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(70_000);
+      await expect(run).resolves.toBe(started);
+      expect(api.cliToolPrepare).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('settles cancellation while the preparation call is still unanswered', async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelled = false;
+      let signal: AbortSignal | undefined;
+      const api = { cliToolPrepare: vi.fn((_id: string, abort?: AbortSignal) => { signal = abort; return new Promise<CliToolPrepareResult>(() => {}); }), cliLoginStart: vi.fn() };
+      const run = prepareThenStartCliLogin(api, 'feishu', { cancelled: () => cancelled });
+      cancelled = true;
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(run).resolves.toBeNull();
+      expect(signal?.aborted).toBe(true);
+      expect(api.cliLoginStart).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it('asks until the tool is installed, then starts the login once', async () => {
     const answers: CliToolPrepareResult[] = [{ status: 'installing' }, { status: 'installing' }, { status: 'ready' }];
     const api = { cliToolPrepare: vi.fn(async () => answers.shift()!), cliLoginStart: vi.fn(async () => started) };

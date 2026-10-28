@@ -14,6 +14,8 @@ export function UserMessageActions(props: {
   generating: boolean;
   readOnly?: boolean;
   vars: MessageVars;
+  /** 常驻在这一行最前面的一小段(对话布局里发出去的气泡:「发到 群名」)。 */
+  prefix?: string;
 }) {
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -26,6 +28,7 @@ export function UserMessageActions(props: {
   return (
     <div data-user-message-actions={props.itemId} class={userMessageActions}
       style={{ height: `${userMessageActionsHeight(props.vars)}px` }}>
+      <Show when={props.prefix}>{(prefix) => <span data-slot="sent-to" class={userMessageTime}>{prefix()}</span>}</Show>
       <Show when={timestamp()}>
         {(date) => <time class={userMessageTime} dateTime={date().toISOString()} title={date().toLocaleString()}>
           {`${date().getHours()}:${String(date().getMinutes()).padStart(2, '0')}`}

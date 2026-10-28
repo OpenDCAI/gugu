@@ -64,7 +64,7 @@ import {
 } from '@shared/core/sessions/sessions';
 import { UNATTENDED_SESSION_PERMISSION_MODE } from '@shared/core/sessions/unattended-session-autonomy';
 import type { SessionViewLockState } from './session-view-lock';
-import { useSessionViewPreference } from './session-view-preference';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
 import { stringifyMention } from '@gugu/session-shared/markdown';
@@ -513,11 +513,10 @@ export function useInitialSessionState(
   const lastStartedConfiguration = memory?.lastStarted ?? null;
   /** 正在编辑一条已存记录(自动化)—— 它的 agent 是那条记录的属性,❌ 不写进全局的「我上次选的」。 */
   const editingStoredRecord = initialProvider !== undefined;
-  // 新会话的展示跟本机「终端」开关走(开 → 编程,关 → 通用);人不再在框里选。只有编辑一条已存的自动化时,
-  // 由那条记录自己的展示覆盖(`setSessionView`,❌ 写回任何全局设置)。
-  const terminalSessionView = useSessionViewPreference();
+  // 新会话一律通用;「终端」开关只管终端能不能用(终端页签与入口),❌ 决定新会话的展示(owner 10-28)。
+  // 只有编辑一条已存的自动化时,由那条记录自己的展示覆盖(`setSessionView`,❌ 写回任何全局设置)。
   const [sessionViewOverride, setSessionViewOverride] = useState<SessionView | null>(null);
-  const sessionViewPreference = sessionViewOverride ?? terminalSessionView;
+  const sessionViewPreference = sessionViewOverride ?? DEFAULT_SESSION_VIEW;
   // #6264 远端创建框:只经云端连着的机器只有聊天界面那条腿(终端画面走不了云端消息通道),
   // 所以钉在它上面 —— 显示「编程」却建出「通用」就是界面说假话。
   // 在这台桌面上用 SSH 装上的机器和本机一样两种都给(behavior「别的机器上的编程只给用 SSH 装上的机器」)。

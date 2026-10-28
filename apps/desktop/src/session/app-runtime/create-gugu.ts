@@ -94,6 +94,8 @@ export function createGugu(
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
+    /** 「设为临时 / 一直保留」: `'temporary'` clears its cloud copy after the uploader's period, from now; `'permanent'` keeps it. */
+    keep: (file: unknown, how: 'temporary' | 'permanent') => withRef(file, (ref) => host.appFiles.keep({ ref, how })),
     /** 子文件夹: a chat's folder at `path` (made all the way down), and a file or folder moved into another (`''` the top). */
     mkdir: (target: unknown) => loadFiles().then((m) => m.makeFolder(host, target)),
     move: (file: unknown, to: unknown) => loadFiles().then((m) => m.moveFile(host, file, to)),

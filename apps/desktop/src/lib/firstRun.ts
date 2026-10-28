@@ -1,6 +1,5 @@
 import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
 import { completedFirstRunHarness, firstRunStage, parseOccupation, withOccupation, type FirstRunStage, type FirstRunHarness, type Occupation } from '@gugu/core/shared/firstRun'
-import { parseProductTourPosition, type ProductTourPosition } from './productTour'
 import { identityDb } from './supabase'
 import { readOwnOnboardedAt } from './identityReadAdapter'
 
@@ -9,7 +8,11 @@ import { readOwnOnboardedAt } from './identityReadAdapter'
 const settingsClient = identityDb as unknown as SettingsTableClient
 const USER_SCOPE = 'user'
 
-export type FirstRunProgress = { stage: FirstRunStage; occupation: Occupation | null; harness: FirstRunHarness[] | null; tour: ProductTourPosition | null }
+export type FirstRunProgress = { stage: FirstRunStage; occupation: Occupation | null; harness: FirstRunHarness[] | null; terminalSeen: boolean }
+
+// 终端模式那一页按过「继续」:只记「看过」,开关的值在本机设置里(terminal.enabled),❌ 记进账号。
+// 中途退出再进,没看过就回到这一页(规范 7-7)。
+const TERMINAL_SEEN = 'firstRunTerminal'
 
 // 走完是单向的(onboarded_at 只会从空变成有):这台设备读到过一次「走完」(或在这里走完)就按账号记下,以后门口直接放行,
 // ❌ 每次再联网核(断网 / 网慢时老用户被挡在门口)。没记过的照旧读,读不到照旧如实说。存不下(隐私模式)= 下次照旧读。
@@ -24,7 +27,7 @@ export async function readFirstRunProgress(userId: string): Promise<FirstRunProg
     readUserSettingsConfig(settingsClient, userId, USER_SCOPE),
   ])
   const occupation = parseOccupation(config)
-  return { stage: firstRunStage({ onboardedAt, occupation }), occupation, harness: completedFirstRunHarness(config), tour: onboardedAt ? null : parseProductTourPosition(config) }
+  return { stage: firstRunStage({ onboardedAt, occupation }), occupation, harness: completedFirstRunHarness(config), terminalSeen: config[TERMINAL_SEEN] === true }
 }
 
 export async function readOccupation(userId: string): Promise<Occupation | null> {
@@ -40,6 +43,11 @@ export async function writeOccupation(userId: string, occupation: Occupation): P
 export async function writeFirstRunHarness(userId: string, harness: FirstRunHarness[]): Promise<void> {
   const config = await readUserSettingsConfig(settingsClient, userId, USER_SCOPE)
   await writeUserSettingsConfig(settingsClient, userId, USER_SCOPE, { ...config, firstRunHarness: harness })
+}
+
+export async function writeFirstRunTerminalSeen(userId: string): Promise<void> {
+  const config = await readUserSettingsConfig(settingsClient, userId, USER_SCOPE)
+  await writeUserSettingsConfig(settingsClient, userId, USER_SCOPE, { ...config, [TERMINAL_SEEN]: true })
 }
 
 /**

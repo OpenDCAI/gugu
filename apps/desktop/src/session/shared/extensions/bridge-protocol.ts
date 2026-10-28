@@ -67,7 +67,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 17: explicit-device App programs, read-only external session history/context, and dispatch spawn.device.
  */
 // 18: explicit App-data create/open options, metadata, per-chat folder preferences and the shared host context menu.
-export const EXTENSION_API_VERSION = 18;
+// 19: a chat file's cloud copy kept for a while or until deleted (`files.keep`), and how long it is kept (`entry.keep`).
+export const EXTENSION_API_VERSION = 19;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -791,6 +792,8 @@ export const BRIDGE_VERBS = {
   filesViewPreferences: { needs: 'files:read', only: 'page' },
   filesRemove: { needs: 'files:write' },
   filesRename: { needs: 'files:write' },
+  /** 「设为临时 / 一直保留」: the person's own upload, from the page they act in (an App's program has no say in it). */
+  filesKeep: { needs: 'files:write', only: 'page' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */
   filesMkdir: { needs: 'files:write' },
   filesMove: { needs: 'files:write' },

@@ -49,7 +49,10 @@ vi.mock('@main/db/client', () => {
   };
 });
 
-vi.mock('@main/core/settings/terminal-visibility', () => ({ preferredSessionView: async () => 'general' }));
+// 这台电脑的「终端」开关开着:新任务也照样走通用(owner 10-28)。
+vi.mock('@main/core/settings/settings-service', () => ({
+  appSettingsService: { get: async (key: string) => (key === 'terminal' ? { enabled: true } : {}) },
+}));
 vi.mock('../sessions/platform-model-selection', () => ({ sessionPlatformModel: async () => undefined }));
 
 vi.mock('@main/core/agents/controller', () => ({
@@ -192,6 +195,15 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     state.acpStart = { success: true };
     state.warnings = [];
     state.warned = Promise.withResolvers<void>();
+  });
+
+  // #639 后续(owner 10-28):「终端」开关只管终端入口显不显示,新任务没说展示时永远走通用 —— 群里「新任务」卡片交给
+  // agent 的那一条也是这样;要编程(终端)的人在会话里再开终端页签。
+  it('没说展示:走通用(acp),❌ 跟终端开关进编程', async () => {
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi' }, { ensureAgentInstalled: async () => {} });
+    expect(result.ok).toBe(true);
+    expect(state.calls).toContain('acp.startSession');
+    expect(state.calls).not.toContain('hydrateSession');
   });
 
   for (const sessionView of ['general', 'code'] as const) {

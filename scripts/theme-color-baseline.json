@@ -46,11 +46,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
-    "count": 3
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "apps/desktop/src/components/ContactQrShare.tsx",
     "count": 2
   },
@@ -253,11 +248,6 @@
     "rule": "undefined-var",
     "file": "apps/desktop/src/components/chat/StickyGroupAvatar.tsx",
     "count": 1
-  },
-  {
-    "rule": "undefined-var",
-    "file": "apps/desktop/src/components/cloudBrowser/cloudBrowser.css",
-    "count": 4
   },
   {
     "rule": "undefined-var",

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { settleComposerAfterSend, shouldFocusComposer } from '@/lib/focusComposer'
+import { scheduleComposerFocus, shouldFocusComposer } from '@/lib/focusComposer'
 
 // owner 10-28 手机试用:发完一条键盘不收、整个 App 闪一下(键盘收了又被抢回输入框)。
 describe('after a message is sent', () => {
@@ -14,16 +14,13 @@ describe('after a message is sent', () => {
     return { editor, send }
   }
 
-  it('the phone shell dismisses the keyboard and never takes focus back', async () => {
+  it('the phone shell never takes focus back after the shared composer blurs', async () => {
     const { editor, send } = mount()
     send.focus()
     expect(shouldFocusComposer('message-sent', { mobileShell: true })).toBe(false)
-    settleComposerAfterSend({ target: () => editor, mobileShell: true })
+    send.blur()
+    scheduleComposerFocus('message-sent', { target: () => editor, mobileShell: true })
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(document.activeElement).toBe(document.body)
-
-    editor.focus()
-    settleComposerAfterSend({ target: () => editor, mobileShell: true })
     expect(document.activeElement).toBe(document.body)
   })
 
@@ -31,7 +28,7 @@ describe('after a message is sent', () => {
     const { editor, send } = mount()
     send.focus()
     expect(shouldFocusComposer('message-sent', { mobileShell: false })).toBe(true)
-    settleComposerAfterSend({ target: () => editor, mobileShell: false })
+    scheduleComposerFocus('message-sent', { target: () => editor, mobileShell: false })
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(document.activeElement).toBe(editor)
   })
