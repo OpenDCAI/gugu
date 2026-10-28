@@ -28,6 +28,7 @@ describe('first-run terminal labels and playback hint', () => {
     try {
       await h.render(createNode(Tooltip.Provider, { delay: 0, closeDelay: 0 }, createNode(FirstRunTerminal, { userId: 'owner-1', onBack: vi.fn(), onDone: vi.fn() })))
       expect(h.container.querySelector('h1')?.textContent).toBe(title)
+      expect(h.container.querySelector('video')?.getAttribute('aria-label')).toBe(title)
       expect(h.container.querySelector(`[aria-label="${enable}"]`)).not.toBeNull()
       expect(h.container.textContent).toContain(enable)
       const control = () => h.container.querySelector<HTMLButtonElement>('[data-testid="first-run-terminal-film-toggle"]')!
