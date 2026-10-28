@@ -22,8 +22,12 @@ vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => ({
 }))
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); agentStatus = undefined; joins.status = new Map() })
-afterEach(() => { harness.cleanup() })
+beforeEach(() => {
+  // The markup snapshot compares the card, not elapsed spinner frames on a busy runner.
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  harness = createReactHarness(); agentStatus = undefined; joins.status = new Map()
+})
+afterEach(() => { harness.cleanup(); vi.useRealTimers() })
 
 const TASK: TaskCard = {
   v: 1, type: 'task', text: '用一句话介绍你自己', agentUserId: 'agent-1', agentName: 'Codex 1', agentType: 'codex',
