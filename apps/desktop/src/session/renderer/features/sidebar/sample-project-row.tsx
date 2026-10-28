@@ -67,7 +67,7 @@ const SampleProjectRow = observer(function SampleProjectRow() {
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <FolderClosed className="size-4 shrink-0" />
         <SidebarMenuAction aria-label={translate('sidebar.openProject', { project: name })} className="truncate font-medium transition-colors select-none">
-          <ProjectRowTitle name={name}>
+          <ProjectRowTitle name={name} keepChildren>
             <Chip>{translate('projects.sample.tag')}</Chip>
           </ProjectRowTitle>
         </SidebarMenuAction>
