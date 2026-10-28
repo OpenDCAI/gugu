@@ -4,6 +4,11 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createAssistantPanelRuntime } from '../../apps/desktop/electron/sessionpage/assistant-panel-runtime'
 
+// Drive the explicit library/integration callbacks without fixture filesystem events starting an unrelated full publication.
+vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof import('node:fs')>(),
+  watch: () => ({ on() { return this }, close() {} }),
+}))
+
 const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[],domains:[] as string[], stalled:true,collectIntegrations: false,blockedDomain:null as string|null,hold: null as Promise<void> | null }))
 vi.mock('../../apps/desktop/electron/sessionpage/assistant-panel-admission',async importOriginal=>{
   const original=await importOriginal<typeof import('../../apps/desktop/electron/sessionpage/assistant-panel-admission')>()
