@@ -98,7 +98,7 @@ export const subagentPanel = style({
   borderRadius: vars.radiusMd,
   border: `1px solid ${vars.border}`,
   backgroundColor: vars.bg,
-  boxShadow: '0 4px 16px rgb(0 0 0 / 0.12)',
+  boxShadow: `0 4px 16px color-mix(in srgb, ${vars.fg} 10%, transparent)`,
   color: vars.fg,
   fontSize: vars.typeChromeFontSize,
   lineHeight: '20px',
