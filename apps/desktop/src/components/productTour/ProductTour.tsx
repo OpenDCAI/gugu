@@ -26,7 +26,9 @@ function Spotlight({ rect }: { rect: DOMRect }) {
       {shade({ left: 0, top: y + h, right: 0, bottom: 0 })}
       {shade({ left: 0, top: y, width: x, height: h })}
       {shade({ left: x + w, top: y, right: 0, height: h })}
-      <div className="product-tour-ring" style={{ left: x, top: y, width: w, height: h }} aria-hidden />
+      <svg className="product-tour-ring" aria-hidden>
+        <rect x={x - 1} y={y - 1} width={w + 2} height={h + 2} />
+      </svg>
     </div>
   )
 }
