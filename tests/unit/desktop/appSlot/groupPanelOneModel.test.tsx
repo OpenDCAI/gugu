@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { folderItem, isFolderItem, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
-import { askChat, chatLayoutOf, openPanelItem, panelFull, panelTabsOf, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { askChat, chatLayoutOf, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, shownPanelTab, takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { tabFullscreen } from '../../../../apps/desktop/src/session/renderer/features/tabs/tab-fullscreen'
 import { extensionSurfaceStore } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-surface-store'
 import { extensionViewStore, residentPageKey, residentPlace } from '../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store'
@@ -261,3 +261,27 @@ describe('an App opened in the group (「在本群打开」)', () => {
     expect(shownPanelTab(chatId)?.tabId).toBe(folder)
   })
 })
+
+describe('the split default is remembered per kind of tab (owner 10-28)', () => {
+  it('separating a group file panel keeps members / settings opening beside the chat; a peek leaves nothing remembered', async () => {
+    const chatId = 'per-kind'
+    await harness.render(chatTabs({ chatId, tabbed: true }))
+    const pane = () => chatLayoutOf(chatId).groups[0]!.pane
+    act(() => { openPanelItem(chatId, folderItem()) })
+    const panel = shownPanelTab(chatId)!.tabId
+    expect(pane().livePair?.side).toBe(panel)
+    // The person separates the group files panel: only that kind is remembered.
+    act(() => pane().separatePair())
+    expect([...pane().splitDeclinedKinds]).toEqual([pane().entries.get(panel)!.kind])
+    // Members / settings (the info tab) is another kind: it still opens beside the chat.
+    act(() => openInfoTab(chatId, 'members'))
+    const info = infoTabOf(chatId)!.tabId
+    expect(pane().livePair?.side).toBe(info)
+    // A session peeked beside the page makes the info tab fill the block and then gives it back: not the person's choice.
+    act(() => setPanelFull(chatId, info, true))
+    act(() => setPanelFull(chatId, info, false))
+    expect(pane().splitDeclinedFor(info)).toBe(false)
+    expect(pane().livePair?.side).toBe(info)
+  })
+})
+

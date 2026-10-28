@@ -479,18 +479,53 @@ describe('并排:手动分屏、拆开', () => {
     expect(pane.tabSplitBlocked(idOf('term', 't1')!, 'bottom')).toBeNull();
   });
 
-  it('拆开 = 不分屏:之后 agent 打开的只多一枚页签、不切走;人点开的切过去,也不并排', () => {
+  it('拆开 = 这一类不分屏:之后 agent 打开的同一类只多一枚页签、不切走;人点开的切过去,也不并排', () => {
     const { layout, pane, chatTabId, idOf, shown } = single();
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.separatePair();
+    expect([...pane.splitDeclinedKinds]).toEqual(['file']);
     expect(shown()).toEqual(['chat:conv']);
-    layout.open('page', { id: 'docs' }, { beside: true, activate: false });
+    layout.open('file', { id: 'b.ts' }, { beside: true, activate: false });
     expect(pane.livePair).toBeNull();
     expect(pane.activeTabId).toBe(chatTabId);
-    expect(idOf('page', 'docs')).toBeDefined();
-    layout.open('term', { id: 't1' }, { beside: true });
+    expect(idOf('file', 'b.ts')).toBeDefined();
+    layout.open('file', { id: 'c.ts' }, { beside: true });
     expect(pane.livePair).toBeNull();
-    expect(shown()).toEqual(['term:t1']);
+    expect(shown()).toEqual(['file:c.ts']);
+  });
+
+  it('按类各记各的(owner 10-28):拆开过文件页,别的类照旧开在对话旁边并排', () => {
+    const { layout, pane, shown } = single();
+    layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
+    pane.separatePair();
+    pane.setActiveTab(pane.tabOrder[0]);
+    layout.open('page', { id: 'docs' }, { beside: true, activate: false });
+    expect(shown()).toEqual(['chat:conv', 'page:docs']);
+    expect([...pane.splitDeclinedKinds]).toEqual(['file']);
+  });
+
+  it('程序为让位拆开的(remember: false)不算用户选的:下次照旧并排', () => {
+    const { layout, pane, shown } = single();
+    layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
+    pane.separatePair({ remember: false });
+    expect(pane.splitDeclinedKinds.size).toBe(0);
+    pane.setActiveTab(pane.tabOrder[0]);
+    layout.open('file', { id: 'b.ts' }, { beside: true, activate: false });
+    expect(shown()).toEqual(['chat:conv', 'file:b.ts']);
+  });
+
+  it('10-28 之前那个不分类型的 splitDeclined 存档不再读:读回来哪一类都没记成「拆开过」', () => {
+    const { layout } = single();
+    layout.open('file', { id: 'a.ts' }, { activate: false });
+    const saved = layout.snapshot;
+    const old = { ...saved, groups: [{ ...saved.groups[0], tabManager: { ...saved.groups[0].tabManager, splitDeclined: true } as never }] };
+    const again = single();
+    again.layout.restoreSnapshot(old);
+    const restored = again.layout.groups[0].pane;
+    expect(restored.splitDeclinedKinds.size).toBe(0);
+    expect(restored.tabOrder.length).toBeGreaterThan(1);
+    expect(restored.tabOrder.some((id) => restored.splitDeclinedFor(id))).toBe(false);
+    expect(again.layout.snapshot.groups[0].tabManager).not.toHaveProperty('splitDeclined');
   });
 
   it('拆开之后自己再分屏:agent 打开的又开在对话旁边', () => {
@@ -498,7 +533,7 @@ describe('并排:手动分屏、拆开', () => {
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.separatePair();
     pane.splitTab(idOf('file', 'a.ts')!, 'right');
-    expect(pane.splitDeclined).toBe(false);
+    expect(pane.splitDeclinedKinds.has('file')).toBe(false);
     pane.setActiveTab(pane.tabOrder[0]);
     layout.open('page', { id: 'docs' }, { beside: true, activate: false });
     expect(shown()).toEqual(['chat:conv', 'page:docs']);
@@ -508,7 +543,7 @@ describe('并排:手动分屏、拆开', () => {
     const { layout, pane, idOf, shown } = single();
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     pane.closeTab(idOf('file', 'a.ts')!);
-    expect(pane.splitDeclined).toBe(false);
+    expect(pane.splitDeclinedKinds.size).toBe(0);
     layout.open('page', { id: 'docs' }, { beside: true, activate: false });
     expect(shown()).toEqual(['chat:conv', 'page:docs']);
   });
@@ -522,7 +557,7 @@ describe('并排:手动分屏、拆开', () => {
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
     pane.toggleSplit();
     expect(pane.livePair).toBeNull();
-    expect(pane.splitDeclined).toBe(true);
+    expect([...pane.splitDeclinedKinds]).toEqual(['term']);
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
   });
 
@@ -536,10 +571,10 @@ describe('并排:手动分屏、拆开', () => {
     again.layout.restoreSnapshot(saved);
     expect(again.layout.groups[0].pane.pairSlots?.vertical).toBe(true);
     pane.separatePair();
-    expect(layout.snapshot.groups[0].tabManager.splitDeclined).toBe(true);
+    expect(layout.snapshot.groups[0].tabManager.splitDeclinedKinds).toEqual(['term']);
     const third = single();
     third.layout.restoreSnapshot(layout.snapshot);
-    expect(third.layout.groups[0].pane.splitDeclined).toBe(true);
+    expect([...third.layout.groups[0].pane.splitDeclinedKinds]).toEqual(['term']);
   });
 
   it('以前分成上下两格的存档:合成一条页签条,两格屏上那页上下并排回来,份额照旧', () => {
@@ -645,7 +680,7 @@ describe('并排:手动分屏、拆开', () => {
     layout.open('file', { id: 'a.ts' }, { beside: true, activate: false });
     expect(pane.activeTabId).toBe(idOf('term', 't1'));
     pane.toggleSplit();
-    expect(pane.splitDeclined).toBe(false);
+    expect(pane.splitDeclinedKinds.size).toBe(0);
     expect(shown()).toEqual(['chat:conv', 'term:t1']);
   });
 
