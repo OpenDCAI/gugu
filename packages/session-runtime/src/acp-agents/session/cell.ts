@@ -2017,7 +2017,13 @@ export class SessionCell {
         ) {
           this.steerSettlesTurn = true;
         } else {
-          this.settleTurn(this.settledOutcome(response.stopReason));
+          const outcome = this.settledOutcome(response.stopReason);
+          this.settleTurn(outcome);
+          // A failure the provider reported as end_turn (MiMo's stderr line, Antigravity's message) fails the
+          // caller too: a detached delivery otherwise completes as done and the host never learns the cause.
+          if (response.stopReason === 'end_turn' && outcome.kind === 'error' && outcome.reason === 'prompt_failed' && outcome.detail) {
+            return acpErr.promptFailed({ name: 'ProviderTurnFailure', message: outcome.detail });
+          }
         }
       } else {
         this.steerInFlight -= 1;

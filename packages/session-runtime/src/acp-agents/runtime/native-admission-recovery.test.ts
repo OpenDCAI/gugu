@@ -76,6 +76,24 @@ describe('native prompt admission and recovery', () => {
     await runtime.dispose();
   });
 
+  it("a delivery failure carries the provider's sentence from data.details, not the bare JSON-RPC message (qwen quota)", async () => {
+    const harness = makeAcpHarness();
+    const runtime = new AcpRuntime(harness.deps);
+    const input = makeStartInput({ sessionId: 'qwen-quota' });
+    expect((await runtime.startSession(input)).success).toBe(true);
+    const api = createAcpProcedures(runtime);
+    // qwen-code 0.22.3 against an endpoint answering 400 "usage limit" (mac1, 10-28, raw ACP).
+    harness.agent.prompt.mockRejectedValueOnce(Object.assign(new Error('Internal error'), {
+      name: 'RequestError', code: -32603, data: { details: "400 You've hit your usage limit. Upgrade or try again later." },
+    }));
+    const delivered = (async () => {
+      const receipt = await api.promptDetached({ sessionId: input.sessionId, prompt: { text: 'hi', origin: 'communication' } });
+      await api.waitPromptDetached({ requestId: receipt.requestId });
+    })();
+    await expect(delivered).rejects.toThrow("400 You've hit your usage limit. Upgrade or try again later.");
+    await runtime.dispose();
+  });
+
   it('reports invalid input without retiring a usable executor', async () => {
     const { harness, runtime, input, api } = await nativeSession();
     harness.agent.prompt.mockRejectedValueOnce(Object.assign(new Error('invalid prompt'), { code: -32602 }));
