@@ -56,3 +56,26 @@ it('the direct quote summary is cut to 24 characters on one line',()=>{
  expect(quoteSummary('  第一行\n\n 第二行 ')).toBe('第一行 第二行')
  expect(quoteSummary(`${'一'.repeat(23)}👨‍👩‍👧尾巴`)).toBe(`${'一'.repeat(23)}👨‍👩‍👧…`)
 })
+it.each([false,true])('shows an incoming selected excerpt exactly once and retains its source jump (mobile=%s)',async mobile=>{
+ const source={...msg('old','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
+ const reply={...msg('answer','agent',3,'old'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
+ const {onShowMessage}=await render([source,msg('new','user-1',2),reply],mobile)
+ expect(quoted('answer')?.textContent).toContain('Beta chosen.')
+ expect(quoted('answer')?.textContent).not.toContain('Alpha original')
+ const row=h.container.querySelector('[data-msg-id="answer"]')!
+ expect(row.textContent?.match(/Beta chosen\./g)).toHaveLength(1)
+ await clickElement(quoted('answer')!)
+ expect(onShowMessage).toHaveBeenCalledWith('old')
+})
+it.each([false,true])('keeps a partial quote visible even when it replies to the latest direct message (mobile=%s)',async mobile=>{
+ const source={...msg('latest','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
+ const reply={...msg('answer','agent',2,'latest'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
+ await render([source,reply],mobile)
+ expect(quoted('answer')?.textContent).toContain('Beta chosen.')
+})
+it('retains old inline quotes without a structural reply ID',async()=>{
+ await render([{...msg('legacy','user-1',1),content:'> [Ada]: Legacy quoted text\nLegacy answer.'}])
+ expect(h.container.textContent).toContain('Legacy quoted text')
+ expect(h.container.textContent).toContain('Legacy answer.')
+ expect(quoted('legacy')).toBeNull()
+})

@@ -1,3 +1,4 @@
+import { partialQuotedContent } from './messageQuoteContent'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 
 /** Presentation only. Partial search results and multi-party timelines cannot
@@ -15,7 +16,7 @@ export function visibleReplyQuoteIds(messages: readonly MessageItem[], preserveA
       && latestBySender.get(target.sender_user_id) === target.id
     const repeated = !!message.sender_user_id && previous?.sender_user_id === message.sender_user_id
       && previous?.reply_to_message_id === message.reply_to_message_id
-    if (message.reply_to_message_id && !latestFromOther && !repeated) visible.add(message.id)
+    if (message.reply_to_message_id && (partialQuotedContent(message) || (!latestFromOther && !repeated))) visible.add(message.id)
     seen.set(message.id, message)
     if (message.sender_user_id) latestBySender.set(message.sender_user_id, message.id)
     previous = message

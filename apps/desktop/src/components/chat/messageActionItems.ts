@@ -49,3 +49,9 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
   ]
   return items.filter((item): item is MessageActionItem => item !== false)
 }
+
+/** Selection already owns a range: Reply uses that excerpt instead of adding a second quote command.
+ * Permissions and every other action, including future extensions, still come from the same list. */
+export function messageSelectionActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
+  return messageActionItems({ ...target, onReply: target.onQuoteSelection ?? target.onReply, onQuoteSelection: undefined }, t)
+}

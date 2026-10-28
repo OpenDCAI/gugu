@@ -27,6 +27,19 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
+  it('leaves phone message text long-press to native selection', async () => {
+    await renderMessage()
+    await longPress(messageBubble().querySelector('.gg-md')!)
+    expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+  })
+  it('does not cancel the native context menu on selectable phone text', async () => {
+    await renderMessage()
+    const text = messageBubble().querySelector('.gg-md')!
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })
+    await act(async () => { text.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(false)
+    expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+  })
   it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
     await renderMessage(undefined, true)
     await longPress()
@@ -72,11 +85,11 @@ describe('MessageBubble touch menu', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
-    await longPress(messageBubble().querySelector('a')!)
-    expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
+    await selectPhoneLink(messageBubble().querySelector('a')!)
+    expect(document.querySelector('[data-testid="message-selection-openLink"]')).not.toBeNull()
     expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
     expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
-    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    await clickElement(document.querySelector('[data-testid="message-selection-copyLink"]')!)
     expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
   })
   it('keeps a file message\'s menu to message actions: its gugu URL lives on the file (preview, group files), not here', async () => {
@@ -91,8 +104,8 @@ describe('MessageBubble touch menu', () => {
     await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
     const link = messageBubble().querySelector('a')!
     const open = vi.spyOn(link, 'click').mockImplementation(() => {})
-    await longPress(link)
-    await clickElement(document.querySelector('[data-testid="message-action-openLink"]')!)
+    await selectPhoneLink(link)
+    await clickElement(document.querySelector('[data-testid="message-selection-openLink"]')!)
     expect(open).toHaveBeenCalledOnce()
   })
   it('does not offer link actions for an ordinary message press', async () => {
@@ -139,7 +152,7 @@ describe('MessageBubble touch menu', () => {
     await contextMenu()
     window.getSelection()!.removeAllRanges()
     await clickElement(menuItem('引用选中文字'))
-    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }), { originalContent: 'hello from mobile' })
   })
   it('ignores a selection outside the message and retains whole-message copying', async () => {
     const writeText = vi.fn(async (_text: string) => {})
@@ -534,4 +547,14 @@ function touchPointerEvent(type: string, init: { clientX: number; clientY: numbe
   Object.defineProperty(event, 'pointerId', { value: 1 })
   Object.defineProperty(event, 'isPrimary', { value: true })
   return event
+}
+
+async function selectPhoneLink(link: HTMLAnchorElement) {
+  await longPress(link)
+  await act(async () => {
+    const range = document.createRange(); range.selectNodeContents(link)
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    document.dispatchEvent(new Event('touchend'))
+  })
 }

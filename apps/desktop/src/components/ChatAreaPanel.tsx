@@ -1,3 +1,4 @@
+import type { QuoteSelection } from './chat/messageQuoteContent'
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -441,12 +442,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     if (surfaceVisible && message.chat_id === activeChatId) markMessageVisible(message)
   }, [activeChatId, surfaceVisible, markMessageVisible])
 
-  // @@@5856 话题分栏的已读由分栏自己那条线承担(它是一条真的 chat,走 store 常规已读路径),
-  // 原「群 thread panel 无 IntersectionObserver ⇒ 手工补标已读」那段随面板一并退役。
-
-  const handleQuote = useCallback((msg: MessageItem) => {
+  const handleQuote = useCallback((msg: MessageItem, selection?: QuoteSelection) => {
+    if (selection?.clear) { setQuoteText(current => current?.selectionId === selection.selectionId ? null : current); return }
     setQuoteText({
-      messageId: msg.id, source: msg,
+      messageId: msg.id, source: msg, originalContent: selection?.originalContent ?? msg.content, selectionId: selection?.selectionId,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
       content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
