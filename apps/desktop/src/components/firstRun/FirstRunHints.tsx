@@ -17,7 +17,8 @@ export function FirstRunHints({ userId }: { userId: string }) {
   const client = useQueryClient()
   const queryKey = ['first-run-hints', userId]
   const progress = useQuery({ queryKey, queryFn: () => readFirstRunHints(userId), retry: false })
-  const targets = useFirstRunHintTargets(device, progress.isError || (progress.data != null && !allFirstRunHintsDismissed(progress.data)))
+  const shown = HINT_ENTRIES[device].map((entry) => entry.id)
+  const targets = useFirstRunHintTargets(device, progress.isError || (progress.data != null && !allFirstRunHintsDismissed(progress.data, shown)))
   const [pending, setPending] = useState<FirstRunHintId[]>([])
   // Retire the current encounter, not every hint currently on screen in a chain.
   // Another hint can appear when its entry is encountered on a later page/visit.
@@ -41,7 +42,7 @@ export function FirstRunHints({ userId }: { userId: string }) {
   }
   // Capture use even while the account read is pending, and before a pushed page removes its entry.
   useEffect(() => {
-    if (progress.isSuccess && (!progress.data || allFirstRunHintsDismissed(progress.data))) return
+    if (progress.isSuccess && (!progress.data || allFirstRunHintsDismissed(progress.data, shown))) return
     const used = (event: Event) => {
       const element = event.target instanceof Element ? event.target : null
       if (!element || element.closest('[disabled], [aria-disabled="true"]')) return
@@ -76,7 +77,7 @@ export function FirstRunHints({ userId }: { userId: string }) {
   if (target.space) return createPortal(
     <aside className="first-run-hint first-run-hint-inline" aria-label={label} data-testid={testId}>{note}</aside>, target.space,
   )
-  if (device !== 'desktop' || target.id !== 'assistant') return null
+  if (device !== 'desktop' || (target.id !== 'assistant' && target.id !== 'tour')) return null
   return (
     <Popover.Root open modal={false} onOpenChange={(open) => { if (!open && !failed) retire(target.id) }}>
       <Popover.Portal>

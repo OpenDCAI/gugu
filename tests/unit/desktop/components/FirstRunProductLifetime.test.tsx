@@ -97,4 +97,23 @@ describe('desktop product lifetime across the first-run tour', () => {
     expect(mount.firstElementChild).toBe(content)
     expect(entry.importSessionEntry).toHaveBeenCalledOnce()
   })
+
+  it('finishes the intro into the feature tour from its tour link, without opening the assistant setup', async () => {
+    const opened = vi.fn()
+    window.addEventListener(UI_EVENTS.reopenProductTour, opened)
+    try {
+      await harness.render(createNode(FirstRunGate, {
+        user: { id: 'owner-1', email: 'owner@example.test', nickname: 'Owner' },
+      }, createNode(EmdashSessionFrame)))
+      await waitForCondition(() => document.querySelector('[data-testid="assistant-intro-tour"]') !== null, 'intro tour link rendered')
+      expect(document.querySelector('[data-testid="assistant-intro-tour"]')?.textContent).toBe('Take the 2-minute feature tour')
+      await clickElement(document.querySelector('[data-testid="assistant-intro-tour"]')!)
+      await waitForCondition(() => opened.mock.calls.length === 1, 'tour opened')
+      expect(document.querySelector('[data-testid="first-run-intro"]')).toBeNull()
+      expect(io.finishFirstRun).toHaveBeenCalledOnce()
+      expect(io.requestAssistantSetupHandoff).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener(UI_EVENTS.reopenProductTour, opened)
+    }
+  })
 })

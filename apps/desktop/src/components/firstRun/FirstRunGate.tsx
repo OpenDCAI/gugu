@@ -261,7 +261,7 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const leave = async (openAssistant: boolean) => {
+  const leave = async (openAssistant: boolean, openTour = false) => {
     setBusy(true)
     setError(null)
     try {
@@ -269,6 +269,8 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
       await finishFirstRun()
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone()
+      // FirstRunFlow is still mounted and listens for this; the tour closes into the main screen.
+      if (openTour) window.dispatchEvent(new CustomEvent(UI_EVENTS.reopenProductTour))
     } catch (e) {
       log.error({ error: String(e) }, 'finish first run failed')
       setError(messageForUser(e))
@@ -282,6 +284,8 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
       onPrimary={() => void leave(true)}
       laterLabel={t('firstRun.introLater')}
       onLater={() => void leave(false)}
+      tourLabel={platform.kind === 'electron' ? t('firstRun.introTour') : undefined}
+      onTour={() => void leave(false, true)}
       busy={busy}
       error={error}
     />

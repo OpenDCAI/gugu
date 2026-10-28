@@ -55,6 +55,7 @@ export default {
       "collaboration": "Find projects and friends here. Open one to start collaborating."
     },
     "desktop": {
+      "tour": "Replay the feature tour here any time.",
       "assistant": "Your personal assistant is here. Tell it your plans and tasks.",
       "collaboration": "Each project is a group. Work with Agents to move it forward."
     },

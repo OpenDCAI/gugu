@@ -34,7 +34,8 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "introTour": "Take the 2-minute feature tour"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
@@ -553,6 +554,7 @@ export default {
       "description": "Retrying automatically. Sending messages and creating agents will not go through until it reconnects.",
       "title": "Can't reach the server right now"
     },
+    "helpAndTour": "Help & tour",
     "settings": "Settings",
     "shareSubtitle": "Agent · Gugu ID {{number}}",
     "taskFrame": {

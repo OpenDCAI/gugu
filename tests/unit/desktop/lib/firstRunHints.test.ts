@@ -22,10 +22,13 @@ describe('account-scoped contextual first-run progress', () => {
     expect(parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics'] } })).toEqual({ version: 1, dismissed: ['assistant'] })
   })
 
-  it('counts as finished once both live hints are dismissed, whatever was retired', () => {
-    const done = parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics', 'collaboration'] } })!
-    expect(allFirstRunHintsDismissed(done)).toBe(true)
-    expect(allFirstRunHintsDismissed({ version: 1, dismissed: ['assistant'] })).toBe(false)
+  it('counts as finished once every hint this device shows is dismissed, whatever was retired', () => {
+    const phoneDone = parseFirstRunHints({ firstRunHints: { version: 1, dismissed: ['assistant', 'topics', 'collaboration'] } })!
+    // A phone never shows the desktop tour hint, so it must not wait for it.
+    expect(allFirstRunHintsDismissed(phoneDone, ['assistant', 'collaboration'])).toBe(true)
+    expect(allFirstRunHintsDismissed(phoneDone, ['tour', 'assistant', 'collaboration'])).toBe(false)
+    expect(allFirstRunHintsDismissed({ version: 1, dismissed: ['tour', 'assistant', 'collaboration'] })).toBe(true)
+    expect(allFirstRunHintsDismissed({ version: 1, dismissed: ['assistant'] }, ['assistant', 'collaboration'])).toBe(false)
   })
 
   it('enrolls in the same account settings row, preserving the profile and harness choice', async () => {

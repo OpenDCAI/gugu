@@ -37,11 +37,11 @@ function setDevice(device: Device) {
 function addEntry(device: Device, id: FirstRunHintId) {
   const region = document.createElement('section')
   if (device === 'phone' && id === 'collaboration') region.className = 'gg-partners'
-  if (device === 'desktop' && id === 'assistant') region.className = 'gg-sidebar-rail'
-  const entry = document.createElement(id === 'assistant' ? 'button' : 'div')
+  if (device === 'desktop' && id !== 'collaboration') region.className = 'gg-sidebar-rail'
+  const entry = document.createElement(id === 'collaboration' ? 'div' : 'button')
   entry.dataset.firstRunHint = id
   entry.dataset.firstRunDevice = device
-  if (device === 'desktop' && id === 'assistant') entry.dataset.rail = 'assistant'
+  if (device === 'desktop' && id !== 'collaboration') entry.dataset.rail = id === 'tour' ? 'help' : 'assistant'
   if (id === 'collaboration') entry.innerHTML = device === 'phone' ? '<button data-testid="phone-partners-project">Project</button>' : '<button>Projects</button>'
   region.append(entry)
   document.body.append(region)
@@ -76,6 +76,21 @@ describe('device-specific one-page introduction', () => {
 })
 
 describe('contextual hints at all four entries', () => {
+  it('points at the desktop help entry first on the first visit, then never again once dismissed', async () => {
+    addEntry('desktop', 'tour')
+    addEntry('desktop', 'assistant')
+    const first = await mount('desktop')
+    await waitForCondition(() => bubble('tour') !== null, 'tour hint visible')
+    expect(bubble('assistant')).toBeNull()
+    expect(bubble('tour')?.textContent).toContain('功能导览随时在这里重看。')
+    await clickElement(bubble('tour')!.querySelector('button')!)
+    await waitForCondition(() => io.dismiss.mock.calls.some(([, ids]) => ids.includes('tour')), 'tour hint saved')
+    first.close()
+    await mount('desktop')
+    await waitForCondition(() => bubble('assistant') !== null, 'assistant hint on the next visit')
+    expect(bubble('tour')).toBeNull()
+  })
+
   for (const device of ['phone', 'desktop'] as const) for (const id of ['assistant', 'collaboration'] as const) {
     it(`${device} ${id}: dismisses once and does not reappear after remount`, async () => {
       setDevice(device)

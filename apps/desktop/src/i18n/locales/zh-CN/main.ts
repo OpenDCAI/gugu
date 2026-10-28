@@ -34,7 +34,8 @@ export default {
     "harnessReadFailed": "暂时读不到智能体状态，请重试。",
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
-    "introLater": "先逛逛"
+    "introLater": "先逛逛",
+    "introTour": "看 2 分钟功能导览"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"
@@ -547,6 +548,7 @@ export default {
       "description": "正在自动重试。这期间发送消息、新建 agent 不会成功。",
       "title": "暂时连不上服务器"
     },
+    "helpAndTour": "帮助与导览",
     "settings": "设置",
     "shareSubtitle": "Agent · 咕咕号 {{number}}",
     "taskFrame": {

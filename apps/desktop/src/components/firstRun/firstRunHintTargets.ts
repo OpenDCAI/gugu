@@ -14,6 +14,8 @@ export const HINT_ENTRIES: Record<HintDevice, readonly HintEntry[]> = {
     { id: 'collaboration', anchor: marker('phone', 'collaboration'), use: '[data-testid="phone-partners-project"], [data-testid="phone-partners-friend"], .gg-partners-navrow' },
   ],
   desktop: [
+    // First: the help entry is pointed out on the first visit to the main screen (owner 10-27).
+    { id: 'tour', anchor: '.gg-sidebar-rail [data-rail="help"]', use: '.gg-sidebar-rail [data-rail="help"]' },
     { id: 'assistant', anchor: '.gg-sidebar-rail [data-rail="assistant"]', use: '.gg-sidebar-rail [data-rail="assistant"]' },
     { id: 'collaboration', anchor: marker('desktop', 'collaboration'), use: `${marker('desktop', 'collaboration')} button, [data-project-row]` },
   ],

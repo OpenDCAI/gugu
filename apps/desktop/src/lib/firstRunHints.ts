@@ -2,8 +2,9 @@ import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClie
 import { identityDb } from './supabase'
 
 // Same account row as the profile and first-run engine choice. Device-specific copy shares
-// these three meanings, so using an entry on one device also retires its hint elsewhere.
-export const FIRST_RUN_HINTS = ['assistant', 'collaboration'] as const
+// these meanings, so using an entry on one device also retires its hint elsewhere.
+// 'tour' points at the desktop rail's help entry; phones have no feature tour.
+export const FIRST_RUN_HINTS = ['assistant', 'collaboration', 'tour'] as const
 // Hints taken out of the product; a saved dismissal of one still reads, and is dropped.
 const RETIRED_HINTS: readonly unknown[] = ['topics']
 export type FirstRunHintId = (typeof FIRST_RUN_HINTS)[number]
@@ -11,9 +12,12 @@ export type FirstRunHintsProgress = { version: 1; dismissed: FirstRunHintId[] }
 const KEY = 'firstRunHints'
 const client = identityDb as unknown as SettingsTableClient
 
-/** Every live hint is dismissed. ❌ A hard-coded count: it stayed at 3 after 'topics' retired, so the watchers never stood down. */
-export function allFirstRunHintsDismissed(progress: FirstRunHintsProgress): boolean {
-  return FIRST_RUN_HINTS.every((id) => progress.dismissed.includes(id))
+/**
+ * Every hint this device shows is dismissed. ❌ A hard-coded count: it stayed at 3 after 'topics' retired, so the watchers never stood down.
+ * ❌ Every id in FIRST_RUN_HINTS: a phone never shows 'tour', so its watchers would never stand down either.
+ */
+export function allFirstRunHintsDismissed(progress: FirstRunHintsProgress, shown: readonly FirstRunHintId[] = FIRST_RUN_HINTS): boolean {
+  return shown.every((id) => progress.dismissed.includes(id))
 }
 
 export function parseFirstRunHints(config: Record<string, unknown>): FirstRunHintsProgress | null {

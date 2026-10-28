@@ -14,6 +14,8 @@ export function AssistantIntro({
   onPrimary,
   laterLabel,
   onLater,
+  tourLabel,
+  onTour,
   busy = false,
   error = null,
   look = DEFAULT_ASSISTANT_LOOK,
@@ -23,6 +25,9 @@ export function AssistantIntro({
   /** 没有 = 不出文字链(开通咕咕时:人已经点进咕咕那一格,不再问「先逛逛」)。 */
   laterLabel?: string
   onLater?: () => void
+  /** 新账号首次引导的最后一屏才有(桌面端):走完引导直接看功能导览。 */
+  tourLabel?: string
+  onTour?: () => void
   busy?: boolean
   error?: string | null
   /** 开通流程退回介绍页时沿用已经确认的形象。 */
@@ -66,6 +71,11 @@ export function AssistantIntro({
         {laterLabel && onLater ? (
           <Button variant="ghost" size="sm" className="self-center rounded-full" onClick={onLater} disabled={busy} data-testid="assistant-intro-later">
             {laterLabel}
+          </Button>
+        ) : null}
+        {tourLabel && onTour ? (
+          <Button variant="ghost" size="sm" className="self-center rounded-full" onClick={onTour} disabled={busy} data-testid="assistant-intro-tour">
+            {tourLabel}
           </Button>
         ) : null}
       </div>

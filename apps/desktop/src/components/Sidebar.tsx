@@ -24,7 +24,8 @@ import { RailAppIcon } from './RailAppIcon'
 import { UpdateBanner } from './UpdateBanner'
 import { LoadingIndicator } from '../lib/loading/LoadingIndicator'
 import { AUTOMATION_TEST_IDS, type AutomationTestId } from '../lib/automationDom'
-import { Library, Plus, Settings } from '@/lib/icons'
+import { HelpCircle, Library, Plus, Settings } from '@/lib/icons'
+import { UI_EVENTS } from '../lib/uiEvents'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { cn } from '@/lib/cn'
 import { Menu, MenuItem as DropdownMenuItem, MenuSeparator } from './ui/Menu'
@@ -444,6 +445,17 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
 
       <div className="gg-sidebar-bottom">
         <UpdateBanner placement="rail" />
+        {/* 帮助与导览(owner 10-27):功能导览常驻入口。原型里放进头像菜单,但栏底的本人按钮 10-16 已移除,就放在设置上面。
+            导览只在桌面端有(FirstRunGate 只在 electron 下接这个事件)。 */}
+        {platform.kind === 'electron' && (
+          <RailItem
+            icon={<HelpCircle size={22} />}
+            active={false}
+            onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.reopenProductTour))}
+            title={t('shell.helpAndTour')}
+            rail="help"
+          />
+        )}
         {/* 设置在栏底,一点就开(product spec「入口」;owner 10-15 推翻 #7046 里「设置收进头像菜单」那一半)。
             摆法照 VS Code 活动栏栏底的「管理」齿轮;owner 10-16 移除了本人账户按钮。⌘,、应用菜单「设置…」、
             命令面板开的是同一个弹窗,弹窗开着(不管从哪开的)这枚就亮着。 */}

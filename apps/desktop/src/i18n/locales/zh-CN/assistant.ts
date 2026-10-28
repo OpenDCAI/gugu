@@ -55,6 +55,7 @@ export default {
       "collaboration": "在这里找项目和朋友，点进去就能开始协作。"
     },
     "desktop": {
+      "tour": "功能导览随时在这里重看。",
       "assistant": "你的个人助理在这里，记安排、办事情直接告诉它。",
       "collaboration": "一个项目一个群，和 Agent 一起推进工作。"
     },
