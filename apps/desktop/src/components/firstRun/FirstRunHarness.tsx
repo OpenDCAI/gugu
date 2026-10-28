@@ -14,12 +14,18 @@ import { useFirstRunInstaller } from './first-run-install-context'
 import './first-run-harness.css'
 
 /** 多选推荐；统一交给咕咕自己的托管安装，外部副本不参与首次安装判断。 */
-export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: () => void }) {
+export function FirstRunHarness({ userId, initial, onBack, onDone }: {
+  userId: string
+  /** 从下一页退回来时:上次选的(账号上记着的那份),❌ 又回到默认只勾 Codex。 */
+  initial?: readonly string[] | null
+  onBack?: () => void
+  onDone: (selected: string[]) => void
+}) {
   const { t } = useTranslation('main')
   const queryClient = useQueryClient()
   const memory = useAppSettingsKey('newSessionMemory')
   const installInBackground = useFirstRunInstaller()
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(['codex']))
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(initial?.length ? initial : ['codex']))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const selected = PREFERRED_SESSION_PROVIDERS.filter((id) => picked.has(id))
@@ -39,7 +45,7 @@ export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: ()
       await memory.updateAsync({ lastPicked: selected[0] })
       await writeFirstRunHarness(userId, selected)
       installInBackground(selected)
-      onDone()
+      onDone(selected)
     } catch (error) {
       rendererLogger('actions/FirstRunHarness').error({ error: error }, 'action failed')
       setError(messageForUser(error))
@@ -65,7 +71,8 @@ export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: ()
         </div>
       ) : null}
       {error ? <p className="ta-onb-error" role="alert">{error}</p> : null}
-      <div className="ta-onb-actions first-run-harness-actions">
+      <div className="ta-onb-actions first-run-harness-actions first-run-step-actions">
+        {onBack ? <Button variant="ghost" size="lg" className="rounded-full" onClick={onBack} disabled={saving} data-testid="first-run-harness-back">{t('firstRun.back')}</Button> : null}
         <Button variant="primary" size="lg" className="rounded-full" disabled={!canContinue} onClick={() => void proceed()} data-testid="first-run-harness-continue">
           {saving ? t('firstRun.saving') : t('firstRun.continue')}
         </Button>

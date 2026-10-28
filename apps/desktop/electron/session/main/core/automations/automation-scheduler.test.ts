@@ -18,6 +18,7 @@ import {
   getAutomation,
   listQueuedRuns,
   markDueCronRunsQueued,
+  nextScheduledRunAt,
   startCreatingSession,
   updateRun,
 } from './repo';
@@ -34,6 +35,7 @@ vi.mock('./repo', () => ({
   getAutomation: vi.fn(),
   listQueuedRuns: vi.fn(),
   markDueCronRunsQueued: vi.fn(),
+  nextScheduledRunAt: vi.fn(),
   startCreatingSession: vi.fn(),
   updateRun: vi.fn(),
 }));
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.mocked(enabledAutomationsWithoutQueuedRun).mockResolvedValue([]);
   vi.mocked(getAutomation).mockResolvedValue(null);
   vi.mocked(markDueCronRunsQueued).mockResolvedValue([]);
+  vi.mocked(nextScheduledRunAt).mockResolvedValue(null);
   vi.mocked(listQueuedRuns).mockResolvedValue([]);
   vi.mocked(startCreatingSession).mockResolvedValue(null);
   vi.mocked(ensureNextCronRun).mockResolvedValue(null);
@@ -279,5 +282,59 @@ describe('AutomationScheduler tick alignment (#7221)', () => {
     scheduler.stop();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(scans).toHaveLength(3);
+  });
+
+  describe('a schedule set to the second (MBP 10-28: due 15:58:25, delivered 15:59:01)', () => {
+    /** 排程表里只有 `dueAt` 那一条:到点之前它就是「最早的那一条」,扫过之后没有了。 */
+    function oneScheduleAt(dueAt: number) {
+      const scans: number[] = [];
+      vi.mocked(markDueCronRunsQueued).mockImplementation(async (now = Date.now()) => {
+        scans.push(now);
+        return [];
+      });
+      vi.mocked(nextScheduledRunAt).mockImplementation(async (now = Date.now()) => (now < dueAt ? dueAt : null));
+      return scans;
+    }
+
+    it('a run due at :25 is scanned at :25, not at :01 of the next minute', async () => {
+      vi.setSystemTime(at(7, 58, 10));
+      const scans = oneScheduleAt(at(7, 58, 25));
+      const scheduler = new AutomationScheduler(noopCallbacks);
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(scans).toEqual([at(7, 58, 10)]);
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(scans).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(scans, 'woken at the second it is due').toEqual([at(7, 58, 10), at(7, 58, 25)]);
+
+      await vi.advanceTimersByTimeAsync(36_000);
+      expect(scans, 'the whole-minute scan still runs').toEqual([at(7, 58, 10), at(7, 58, 25), at(7, 59, 1)]);
+      scheduler.stop();
+    });
+
+    it('❌ negative: a run due on the whole minute is left to the minute scan as before (no extra wake)', async () => {
+      vi.setSystemTime(at(23, 6, 48));
+      const scans = oneScheduleAt(at(23, 7, 0));
+      const scheduler = new AutomationScheduler(noopCallbacks);
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(0);
+
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(scans).toEqual([at(23, 6, 48), at(23, 7, 1)]);
+      scheduler.stop();
+    });
+
+    it('stop() also cancels a pending due wake', async () => {
+      vi.setSystemTime(at(7, 58, 10));
+      const scans = oneScheduleAt(at(7, 58, 25));
+      const scheduler = new AutomationScheduler(noopCallbacks);
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(0);
+      scheduler.stop();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(scans).toEqual([at(7, 58, 10)]);
+    });
   });
 });
