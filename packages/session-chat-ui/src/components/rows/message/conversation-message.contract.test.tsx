@@ -11,6 +11,7 @@ import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
+import { cardFadeOverlay } from './user-message.css';
 
 async function mount(raw: ChatMessage, width = 600) {
   const item = normalizeMessage(raw);
@@ -47,7 +48,11 @@ describe('agent-centered conversation bubbles', () => {
         const name = row.querySelector<HTMLElement>('span[title]')!;
         const quote = row.querySelector<HTMLButtonElement>('button[title="你好"]')!;
         expect(bubble.contains(name)).toBe(false);
-        expect(row.querySelectorAll('time')).toHaveLength(0);
+        // owner 定稿(0 号图):时间、复制(、编辑)那一行照原气泡常驻在气泡下面,❌ 悬停才出。
+        const actions = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
+        expect(actions.querySelectorAll('time')).toHaveLength(1);
+        expect(getComputedStyle(actions).opacity).toBe('1');
+        expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
         if (role === 'assistant') {
           expect(Math.abs(bubble.getBoundingClientRect().left - row.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
           expect(name.getBoundingClientRect().right).toBeLessThan(quote.getBoundingClientRect().left);
@@ -59,6 +64,37 @@ describe('agent-centered conversation bubbles', () => {
         }
       } finally { view.dispose(); }
     }
+  });
+  it('folds a long subject bubble with a light fade and a show-all button in its actions row', async () => {
+    // 回复本身不折叠(conversationVars),折叠只在主体那一侧。
+    for (const role of ['user'] as const) {
+      const view = await mount({ kind: 'message', id: `long-${role}`, role, text: '这是一条很长的消息，用来验证折叠。\n\n'.repeat(60), at: Date.now() });
+      try {
+        const bubble = view.host.querySelector<HTMLElement>('[data-user-card]')!;
+        const fade = bubble.querySelector<HTMLElement>(`.${cardFadeOverlay}`)!;
+        const gradient = getComputedStyle(fade).backgroundImage;
+        expect(gradient).toContain('linear-gradient');
+        // 淡出色就是气泡自己的底色,❌ 原卡片那层深色。
+        expect(gradient).toContain(getComputedStyle(bubble).backgroundColor);
+        const expand = view.host.querySelector<HTMLButtonElement>('[data-expand-user-card]')!;
+        expect(expand.dataset.expandUserCard).toBe(`long-${role}`);
+        expect(expand.textContent).toBe('Show all');
+        // 「展开全文」单起一行,在时间那一行上面(0 号图)。
+        const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
+        expect(actions.contains(expand)).toBe(false);
+        expect(expand.getBoundingClientRect().bottom).toBeLessThanOrEqual(actions.getBoundingClientRect().top + 1);
+        expect(expand.getBoundingClientRect().top).toBeGreaterThanOrEqual(bubble.getBoundingClientRect().bottom - 1);
+        expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      } finally { view.dispose(); }
+    }
+  });
+  it('has no actions row for a process-only reply without a body', async () => {
+    const view = await mount({ kind: 'message', id: 'empty', role: 'assistant', text: '', at: 1000,
+      conversationProcess: { id: 'empty:process', startedAt: 1000, endedAt: 5000 } });
+    try {
+      expect(view.host.querySelector('[data-user-message-actions]')).toBeNull();
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
   });
   it('shows the incoming sender and quote, without delivery chrome or avatars', async () => {
     const view = await mount({ kind: 'message', id: 'delivery', role: 'user', text: '<gugu_delivery route="chat" from="天天" from_id="user:other" chat="group" msg="msg:incoming"><reply_to msg="msg:sent" from_id="user:subject"><![CDATA[天天，你好。]]></reply_to><![CDATA[你好，我在。]]></gugu_delivery>' });
@@ -88,7 +124,7 @@ describe('agent-centered conversation bubbles', () => {
       conversationProcess: { id: 'turn:process', startedAt: 1000, endedAt: 25000 } });
     try {
       const button = view.host.querySelector<HTMLButtonElement>('[data-conversation-process]')!;
-      expect(view.host.querySelector('time')).toBeNull();
+      expect(button.parentElement!.querySelector('time')).toBeNull();
       const bubble = view.host.querySelector('[data-user-card]')!;
       expect(button.textContent).toBe('24s›');
       expect(button.querySelector('svg')).not.toBeNull();
