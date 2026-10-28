@@ -14,6 +14,8 @@ export function AssistantIntro({
   onPrimary,
   laterLabel,
   onLater,
+  backLabel,
+  onBack,
   busy = false,
   error = null,
   look = DEFAULT_ASSISTANT_LOOK,
@@ -23,6 +25,9 @@ export function AssistantIntro({
   /** 没有 = 不出文字链(开通咕咕时:人已经点进咕咕那一格,不再问「先逛逛」)。 */
   laterLabel?: string
   onLater?: () => void
+  /** 首次引导里有(规范 3:除第一页都有「上一步」);开通咕咕时没有。 */
+  backLabel?: string
+  onBack?: () => void
   busy?: boolean
   error?: string | null
   /** 开通流程退回介绍页时沿用已经确认的形象。 */
@@ -63,10 +68,17 @@ export function AssistantIntro({
         >
           {primaryLabel}
         </Button>
-        {laterLabel && onLater ? (
-          <Button variant="ghost" size="sm" className="self-center rounded-full" onClick={onLater} disabled={busy} data-testid="assistant-intro-later">
-            {laterLabel}
-          </Button>
+        {(laterLabel && onLater) || (backLabel && onBack) ? (
+          <div className="flex items-center justify-center self-center">
+            {backLabel && onBack ? (
+              <Button variant="ghost" size="sm" className="rounded-full" onClick={onBack} disabled={busy} data-testid="assistant-intro-back">{backLabel}</Button>
+            ) : null}
+            {laterLabel && onLater ? (
+              <Button variant="ghost" size="sm" className="rounded-full" onClick={onLater} disabled={busy} data-testid="assistant-intro-later">
+                {laterLabel}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </>

@@ -10,7 +10,7 @@ import { FullScreenLoader } from '../FullScreenLoader'
 import { AssistantIntro } from '../assistant/AssistantIntro'
 import { Pencil } from '@/lib/icons'
 import { authService } from '../../lib/auth'
-import { finishFirstRun, firstRunDoneHere, readFirstRunProgress, rememberFirstRunDone, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
+import { finishFirstRun, firstRunDoneHere, readFirstRunProgress, readOccupation, rememberFirstRunDone, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
 import { useAuth, type AuthUser } from '../../store/auth'
 import { rendererLogger } from '../../lib/log'
 import '../../i18n/registerMainCatalog'
@@ -20,6 +20,7 @@ import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
 import { ProductTour } from '../productTour/ProductTour'
 import { FirstRunHarness } from './FirstRunHarness'
+import { FirstRunTerminal } from './FirstRunTerminal'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { startFirstRunHints } from '../../lib/firstRunHints'
@@ -27,12 +28,21 @@ import { FirstRunHints } from './FirstRunHints'
 
 const log = rendererLogger('first-run')
 
+// 全屏步骤的顺序(规范 4.1):每页顶上写「n / N」,N 只数这台设备真会走的页。
+type StepKind = 'profile' | 'harness' | 'terminal' | 'intro'
+const STEPS: readonly StepKind[] = platform.kind === 'electron' ? ['profile', 'harness', 'terminal', 'intro'] : ['profile', 'intro']
+function StepCount({ step }: { step: StepKind }) {
+  const { t } = useTranslation('main')
+  return <p className="first-run-step-count" data-testid="first-run-step-count">{t('firstRun.stepCount', { current: STEPS.indexOf(step) + 1, total: STEPS.length })}</p>
+}
+
 type GateState =
   | { kind: 'loading' }
   | { kind: 'unreadable'; message: string }
   | { kind: 'profile'; occupation: Occupation | null }
   | { kind: 'intro' }
   | { kind: 'harness' }
+  | { kind: 'terminal' }
   | { kind: 'tour' }
   | { kind: 'done' }
 
@@ -43,9 +53,7 @@ type GateState =
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      {platform.kind === 'electron'
-        ? <FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider>
-        : <FirstRunFlow {...props} />}
+      <FirstRunFlow {...props} />
     </QueryClientProvider>
   )
 }
@@ -54,6 +62,14 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
   const { t } = useTranslation('main')
   const [state, setState] = useState<GateState>(() => firstRunDoneHere(user.id) ? { kind: 'done' } : { kind: 'loading' })
   const done = useCallback(() => { rememberFirstRunDone(user.id); setState({ kind: 'done' }) }, [user.id])
+  // 退回上一页时「已填的内容还在」(规范 7-2):选过的 Agent 记在这里,称呼和身份由 FirstRunProfile 从账号读回。
+  const harnessPicked = useRef<readonly string[] | null>(null)
+  const backToProfile = useCallback(() => {
+    setState({ kind: 'loading' })
+    readOccupation(user.id)
+      .then((occupation) => setState({ kind: 'profile', occupation }))
+      .catch((e: unknown) => setState({ kind: 'unreadable', message: messageForUser(e) }))
+  }, [user.id])
 
   // ❌ 等 identityPending 落定再读:身份行在注册那一刻就在(auth.users 的插入触发器),pending 只是「客户端还没补全」;
   // 补全一直落不了地时,等它 = 门口永远转圈,而主界面本来照样能用。补全晚到的称呼 / 头像由 FirstRunProfile 跟上。
@@ -63,7 +79,11 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     readFirstRunProgress(user.id)
       .then((progress) => {
         if (progress.stage === 'done') done()
-        else if (progress.stage === 'intro') setState(platform.kind === 'electron' && !progress.harness ? { kind: 'harness' } : { kind: 'intro' })
+        else if (progress.stage === 'intro') {
+          harnessPicked.current = progress.harness
+          if (platform.kind !== 'electron') setState({ kind: 'intro' })
+          else setState(!progress.harness ? { kind: 'harness' } : !progress.terminalSeen ? { kind: 'terminal' } : { kind: 'intro' })
+        }
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
       .catch((e: unknown) => {
@@ -81,21 +101,14 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
   }, [])
 
-  // The embedded task entry bootstraps once per document; finishing or reopening the tour must
-  // keep its product tree and mount element connected at the same position.
-  if (state.kind === 'done' || state.kind === 'tour' || (state.kind === 'intro' && platform.kind === 'electron')) return (
-    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
-      <div className="contents" inert={state.kind === 'intro'}>{children}</div>
-      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
-      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><FirstRunIntro userId={user.id} onDone={done} /></div></div>}
-      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} onDone={done} />}
-    </PhoneAgentSetupGate>
-  )
+  // 一旦进入过主界面,回到前置页也保留它:嵌入入口每个文档只求值一次。
+  const productVisible = state.kind === 'done' || state.kind === 'tour' || (state.kind === 'intro' && platform.kind === 'electron')
+  const [productMounted, setProductMounted] = useState(productVisible)
+  if (productVisible && !productMounted) setProductMounted(true)
 
-  if (state.kind === 'loading') return <FullScreenLoader />
-  return (
+  const wizard = state.kind === 'loading' ? <FullScreenLoader /> : (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>
-      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : ''}`}>
+      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : state.kind === 'terminal' ? ' first-run-terminal-panel' : ''}`}>
         {state.kind === 'unreadable' ? (
           <>
             <h1 className="ta-onb-title">{t('firstRun.unreadableTitle')}</h1>
@@ -107,18 +120,47 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
             </div>
           </>
         ) : state.kind === 'profile' ? (
-          <FirstRunProfile user={user} initial={state.occupation} onDone={() => setState({ kind: platform.kind === 'electron' ? 'harness' : 'intro' })} />
+          <FirstRunProfile step={<StepCount step="profile" />} user={user} initial={state.occupation} onDone={() => setState({ kind: platform.kind === 'electron' ? 'harness' : 'intro' })} />
         ) : state.kind === 'harness' ? (
-          <FirstRunHarness userId={user.id} onDone={() => setState({ kind: 'intro' })} />
+          <>
+            <StepCount step="harness" />
+            <FirstRunHarness userId={user.id} initial={harnessPicked.current} onBack={backToProfile}
+              onDone={(selected) => { harnessPicked.current = selected; setState({ kind: 'terminal' }) }} />
+          </>
+        ) : state.kind === 'terminal' ? (
+          // 选完 Agent、认识咕咕之前(owner 10-27)。开关即时写本机设置;「继续」记下看过这一页,中途退出再进回到这里。
+          <>
+            <StepCount step="terminal" />
+            <FirstRunTerminal userId={user.id} onBack={() => setState({ kind: 'harness' })} onDone={() => setState({ kind: 'intro' })} />
+          </>
         ) : (
-          <FirstRunIntro userId={user.id} onDone={done} />
+          <>
+            <StepCount step="intro" />
+            <FirstRunIntro userId={user.id} onDone={done} onBack={backToProfile} />
+          </>
         )}
       </div>
     </div>
   )
+
+  // The embedded task entry bootstraps once per document; finishing or reopening the tour must
+  // keep its product tree and mount element connected at the same position.
+  const content = productMounted || productVisible ? (
+    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
+      <div className="contents" inert={!productVisible || state.kind === 'intro'} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
+      {!productVisible && wizard}
+      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
+      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} /></div></div>}
+      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} onDone={done} />}
+    </PhoneAgentSetupGate>
+  ) : wizard
+
+  return platform.kind === 'electron'
+    ? <FirstRunInstallProvider showNotification={state.kind === 'done' || state.kind === 'tour'}>{content}</FirstRunInstallProvider>
+    : content
 }
 
-function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: Occupation | null; onDone: () => void }) {
+function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; initial: Occupation | null; step: ReactNode; onDone: () => void }) {
   const { t } = useTranslation('main')
   const { updateUser } = useAuth()
   const [name, setName] = useState(user.nickname)
@@ -180,6 +222,7 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
 
   return (
     <>
+      {step}
       <Avatar name={name || user.nickname} avatarUrl={avatarUrl} seed={user.id} size={88} />
       <Button
         variant="secondary"
@@ -256,7 +299,7 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
   )
 }
 
-function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void }) {
+function FirstRunIntro({ userId, onDone, onBack }: { userId: string; onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation('main')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -282,6 +325,8 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
       onPrimary={() => void leave(true)}
       laterLabel={t('firstRun.introLater')}
       onLater={() => void leave(false)}
+      backLabel={t('firstRun.back')}
+      onBack={onBack}
       busy={busy}
       error={error}
     />
