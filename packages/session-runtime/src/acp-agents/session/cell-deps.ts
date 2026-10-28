@@ -19,6 +19,8 @@ export type ResolvePromptAttachment = (
 ) => Promise<ResolvedPromptAttachment>;
 
 export interface SessionCellCallbacks {
+  /** A real mid-turn input was admitted; the host may release only registered human-tool waits. */
+  onPromptSteered?: () => void;
   onSessionStateChanged?: () => void;
   onTranscriptChanged?: () => void;
   onDraftChanged?: () => void;

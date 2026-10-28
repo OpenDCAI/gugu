@@ -1,5 +1,6 @@
 import { ask, respond, withdrawAll } from '../../asks';
 import { hostAsks } from '../../asks/ask';
+import { humanToolPending, runHumanTool } from '../../asks/human-tool-wait';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -413,7 +414,13 @@ export class CloudBrowser {
   }
 
   /** 请人登录(密码保险箱)。返回给 agent 的那段话 —— 永远不含账号密码。 */
-  async requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_login', signal,
+      lifetime => this.waitForLogin(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForLogin(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     const owned = this.sessionTab.get(sessionId);
@@ -441,7 +448,13 @@ export class CloudBrowser {
   }
 
   /** 请人接手一步(验证码、短信码、确认付款……):等人接管再交还。 */
-  async requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_takeover', signal,
+      lifetime => this.waitForTakeover(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForTakeover(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     if (!this.sessionTab.has(sessionId)) return { ok: false, message: 'Open the page in the browser first (browser_navigate), then ask the person.' };
