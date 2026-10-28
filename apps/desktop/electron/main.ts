@@ -368,10 +368,12 @@ import {
   type IntegrationMcpHost,
 } from './integration-mcp-bridge'
 import {
+  browserUseAppInstalled,
   buildBrowserAgentBridge,
   closeSessionBrowserTools,
   createBrowserAgentMcpHost,
   createBrowserAppProgram,
+  serverBrowserMcpServers,
   type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
@@ -835,18 +837,25 @@ function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
 }
 
 /**
- * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
- * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
+ * #7199 server 上:装了 Browser Use App 就和桌面一样走 App(这里不带);没装照旧带云浏览器的 gugu-browser(serverBrowserMcpServers)。
+ * 会话开场时判断一次。取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
  */
 async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
-  if (!authProvider || !loadEmdashBridge()) return []
-  try {
-    const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
-  } catch (error) {
-    createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
-    return []
-  }
+  const emdash = loadEmdashBridge()
+  if (!authProvider || !emdash) return []
+  const auth = authProvider
+  return serverBrowserMcpServers(session.sessionId, {
+    browserUseApp: () => browserUseAppInstalled(emdash.emdashExtensionPrograms()),
+    guguBrowser: async () => {
+      try {
+        const { userId } = await requireRuntimeAuth(auth, 'gugu browser MCP bridge')
+        return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
+      } catch (error) {
+        createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
+        return []
+      }
+    },
+  })
 }
 let extensionGatewayHost: ExtensionGatewayHost | null = null
 

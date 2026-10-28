@@ -17,7 +17,7 @@ import {
 import type { AcpMcpServer } from './acp-engine-utils'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
-import type { NativeAppProgram } from './session/main/core/extensions/extension-programs'
+import type { ExtensionPrograms, NativeAppProgram } from './session/main/core/extensions/extension-programs'
 import type { ExtensionAgentStatus } from '../src/session/shared/extensions/agent-status'
 
 const log = createLogger('browser-agent-mcp')
@@ -514,4 +514,32 @@ export async function buildBrowserAgentBridge(
     log.warn({ grantKey, error: (error as Error).message }, 'browser tools unavailable for this session')
     return []
   }
+}
+
+/** 这台机器上装着、开着、还许给 agent 工具的 Browser Use App(与 installedComputerUseApps 同一个判断)。 */
+export function browserUseAppInstalled(programs: Pick<ExtensionPrograms, 'installed' | 'agentToolsRefusal'>): boolean {
+  return programs.installed().some((program) => program.native === 'browser-use' && !programs.agentToolsRefusal(program.extensionId))
+}
+
+/**
+ * 咕咕 server 上一条会话的浏览器只走一条路,❌ 两套同名工具同时给:装了 Browser Use App 就走 App(和桌面一样经扩展网关,
+ * 同名的 browser_* 工具),不带 gugu-browser;没装 / 停用 / 收回了工具权限,照旧带 gugu-browser。
+ * 只在会话开场时看一次:会话中途装上 / 停用 App,这条会话要到下次开场才换过来。
+ * 读不出装了什么就当没装 —— 照旧带 gugu-browser,❌ 让会话一套浏览器工具都没有。
+ */
+export async function serverBrowserMcpServers(sessionId: string, deps: {
+  browserUseApp: () => boolean
+  guguBrowser: () => Promise<AcpMcpServer[]>
+}): Promise<AcpMcpServer[]> {
+  let viaApp = false
+  try {
+    viaApp = deps.browserUseApp()
+  } catch (error) {
+    log.warn({ sessionId, error: (error as Error).message }, 'could not read the installed Browser Use App; using gugu-browser')
+  }
+  if (viaApp) {
+    log.info({ sessionId }, 'the Browser Use App provides the browser for this session; no gugu-browser')
+    return []
+  }
+  return deps.guguBrowser()
 }

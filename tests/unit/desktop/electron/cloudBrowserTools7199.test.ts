@@ -4,10 +4,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   PERSON_TOOLS,
+  browserUseAppInstalled,
   createBrowserAppProgram,
   personToolsOf,
   redactOutputFiles,
   redactToolResult,
+  serverBrowserMcpServers,
   withoutOwnFilename,
   type AgentBrowserBridge,
 } from '../../../../apps/desktop/electron/browser-agent-mcp'
@@ -137,5 +139,37 @@ describe('#7199 server 上的 Browser Use App', () => {
     } finally {
       await provider.retire('browser-use')
     }
+  })
+})
+
+describe('#7199 server 上的会话带哪一套浏览器工具', () => {
+  const app = (extensionId: string, native?: 'browser-use' | 'computer-use') => ({ extensionId, server: extensionId, digest: 'd',
+    command: 'x', args: [], env: {}, cwd: '/tmp', dataDir: '/tmp', ...(native ? { native } : {}) })
+  const guguBrowser = [{ name: 'gugu-browser', transport: 'http' as const, url: 'http://127.0.0.1:1/mcp', headers: [] }]
+
+  it('装着、开着、许给工具的 Browser Use 才算;别的 App、停用的、收回权限的不算', () => {
+    const refusals: Record<string, string> = { off: 'Extension off is turned off' }
+    const programs = (installed: ReturnType<typeof app>[]) => ({ installed: () => installed, agentToolsRefusal: (id: string) => refusals[id] ?? null })
+    expect(browserUseAppInstalled(programs([]))).toBe(false)
+    expect(browserUseAppInstalled(programs([app('computer', 'computer-use'), app('plain')]))).toBe(false)
+    expect(browserUseAppInstalled(programs([app('off', 'browser-use')]))).toBe(false)
+    expect(browserUseAppInstalled(programs([app('off', 'browser-use'), app('browser', 'browser-use')]))).toBe(true)
+  })
+
+  it('没装 App:照旧带 gugu-browser', async () => {
+    const build = vi.fn(async () => guguBrowser)
+    expect(await serverBrowserMcpServers('s1', { browserUseApp: () => false, guguBrowser: build })).toBe(guguBrowser)
+    expect(build).toHaveBeenCalledOnce()
+  })
+
+  it('装了 App:一个也不带(浏览器走 App),❌ 两套同名工具', async () => {
+    const build = vi.fn(async () => guguBrowser)
+    expect(await serverBrowserMcpServers('s1', { browserUseApp: () => true, guguBrowser: build })).toEqual([])
+    expect(build).not.toHaveBeenCalled()
+  })
+
+  it('读不出装了什么:当没装,照旧带 gugu-browser', async () => {
+    const build = vi.fn(async () => guguBrowser)
+    expect(await serverBrowserMcpServers('s1', { browserUseApp: () => { throw new Error('extensions not ready') }, guguBrowser: build })).toBe(guguBrowser)
   })
 })
