@@ -1315,7 +1315,7 @@ export class SessionManager implements InboundRouter {
           this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
         } finally { if (timer) clearTimeout(timer); }
       }
-      this.deps.promptQueueStore?.clear(sessionId);
+      this.keepOwnerQueueAcrossStop(sessionId, record);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
       await record.connectionLease.release();
@@ -2831,6 +2831,26 @@ export class SessionManager implements InboundRouter {
       mcpServers: (input.mcpServers ?? []) as LoadSessionRequest['mcpServers'],
       ...sessionOpenMeta(input),
     };
+  }
+
+  /**
+   * 停下时队列快照只留主人在输入框里排的话(origin `manual`),下次起来时它照常从快照恢复、先发出去。
+   * 投递信封照旧清掉(规则不变):这里只救人打的字,❌ 顺手改投递的去留 —— 那会多出一条重投的路。
+   */
+  private keepOwnerQueueAcrossStop(sessionId: string, record: SessionRecord): void {
+    const store = this.deps.promptQueueStore;
+    if (!store) return;
+    const owner = record.cell.sessionState.queuedPrompts.filter((prompt) => prompt.origin === 'manual');
+    try {
+      if (owner.length > 0) store.save(sessionId, owner);
+      else store.clear(sessionId);
+    } catch (error) {
+      this.deps.logger.error('SessionManager: failed to keep the owner queue across stop', {
+        sessionId,
+        queuedPromptCount: owner.length,
+        error,
+      });
+    }
   }
 
   private persistQueueSnapshot(record: SessionRecord, queuedPrompts: readonly QueuedPrompt[]): void {
