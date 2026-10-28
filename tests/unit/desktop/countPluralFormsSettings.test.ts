@@ -24,7 +24,7 @@ const ROWS: Row[] = [
     ns: 'settings', key: 'credits.reservedCopy', p: credits,
     en: [
       '0 credits are reserved for running tasks. They settle against actual usage, and unused credits are returned.',
-      '1 credit is reserved for running tasks. It settles against actual usage, and unused credits are returned.',
+      '1 credit is reserved for running tasks. It settles against actual usage, and any unused part is returned.',
       '2 credits are reserved for running tasks. They settle against actual usage, and unused credits are returned.',
     ],
     zh: (n) => `其中 ${n} 积分已为进行中的会话预留，按实际用量结算，未用完的部分会退回。`,

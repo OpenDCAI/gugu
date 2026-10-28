@@ -131,7 +131,7 @@ export default {
     "quotaError": "Usage limits are unavailable: {{error}}",
     "quotaInvalidNumber": "The usage limit data is invalid. Refresh and try again.",
     "quotaUnavailable": "Usage limits are unavailable",
-    "reservedCopy_one": "{{credits}} credit is reserved for running tasks. It settles against actual usage, and unused credits are returned.",
+    "reservedCopy_one": "{{credits}} credit is reserved for running tasks. It settles against actual usage, and any unused part is returned.",
     "reservedCopy_other": "{{credits}} credits are reserved for running tasks. They settle against actual usage, and unused credits are returned.",
     "spendable": "Available credits",
     "spending": {
