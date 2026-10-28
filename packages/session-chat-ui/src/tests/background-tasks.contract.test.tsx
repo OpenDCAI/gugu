@@ -261,15 +261,21 @@ describe('background tasks at the end of the transcript', () => {
     expect(panel()!.querySelector('[data-slot="subagent-timeline"]')).toBeNull()
   })
 
-  it('places the panel below the row, flips above near the bottom edge, and stays inside the window', () => {
-    const viewport = { width: 800, height: 600 }
+  it('places the panel beside the row when there is room, else under it right-aligned, flipping above near the bottom edge', () => {
     const panel = { width: 320, height: 200 }
-    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 40 }, panel, viewport)).toEqual({ top: 134, left: 40 })
+    const wide = { width: 1600, height: 600 }
+    // 宽窗口:贴在行右边、与行顶对齐。
+    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 360, right: 960 }, panel, wide)).toEqual({ top: 100, left: 966 })
+    // 贴着窗口底:往上收进窗口。
+    expect(placeSubagentPanel({ top: 560, bottom: 588, left: 360, right: 960 }, panel, wide).top).toBe(392)
+    const narrow = { width: 1200, height: 600 }
+    // 右边放不下:放到行下方,与行右对齐(左边那列名字留给鼠标往下挪)。
+    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 360, right: 960 }, panel, narrow)).toEqual({ top: 134, left: 640 })
     // 贴着窗口底:翻到行上方。
-    expect(placeSubagentPanel({ top: 540, bottom: 568, left: 40 }, panel, viewport)).toEqual({ top: 334, left: 40 })
-    // 右边放不下:往左挪进窗口。
-    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 700 }, panel, viewport).left).toBe(472)
+    expect(placeSubagentPanel({ top: 540, bottom: 568, left: 360, right: 960 }, panel, narrow)).toEqual({ top: 334, left: 640 })
+    // 行很窄靠左:左边夹在窗口里。
+    expect(placeSubagentPanel({ top: 100, bottom: 128, left: 0, right: 200 }, panel, { width: 400, height: 600 }).left).toBe(8)
     // 上下都放不下:贴着窗口底,❌ 出窗。
-    expect(placeSubagentPanel({ top: 150, bottom: 178, left: 40 }, { width: 320, height: 500 }, viewport).top).toBe(92)
+    expect(placeSubagentPanel({ top: 150, bottom: 178, left: 360, right: 960 }, { width: 320, height: 500 }, narrow).top).toBe(92)
   })
 })

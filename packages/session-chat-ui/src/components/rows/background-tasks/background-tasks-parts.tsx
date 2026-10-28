@@ -70,22 +70,24 @@ const VIEWPORT_PAD = 8;
 const PANEL_W = 320;
 
 /**
- * 浮层贴在行下方、左对齐;下面放不下就翻到行上方,两边都放不下贴着窗口底;左右夹在窗口里。
+ * 浮层放哪:窗口够宽就贴在行右边、与行顶对齐;不够就放到行下方(下面放不下翻到上方)、与行**右**对齐 ——
+ * 留出左边那一列名字,鼠标往下挪到下一行不会先撞上这张浮层。上下都放不下时贴着窗口底;始终夹在窗口里。
  * 纯函数,便于单测 —— 量好的矩形进、`top/left` 出。
  */
 export function placeSubagentPanel(
-  anchor: { top: number; bottom: number; left: number },
+  anchor: { top: number; bottom: number; left: number; right: number },
   panel: { width: number; height: number },
   viewport: { width: number; height: number }
 ): { top: number; left: number } {
+  const clampTop = (top: number): number => Math.max(VIEWPORT_PAD, Math.min(top, viewport.height - VIEWPORT_PAD - panel.height));
+  const clampLeft = (left: number): number => Math.max(VIEWPORT_PAD, Math.min(left, viewport.width - VIEWPORT_PAD - panel.width));
+  const beside = anchor.right + PANEL_GAP;
+  if (beside + panel.width <= viewport.width - VIEWPORT_PAD) return { top: clampTop(anchor.top), left: beside };
   const below = anchor.bottom + PANEL_GAP;
   const above = anchor.top - PANEL_GAP - panel.height;
-  let top: number;
-  if (below + panel.height <= viewport.height - VIEWPORT_PAD) top = below;
-  else if (above >= VIEWPORT_PAD) top = above;
-  else top = Math.max(VIEWPORT_PAD, viewport.height - VIEWPORT_PAD - panel.height);
-  const left = Math.max(VIEWPORT_PAD, Math.min(anchor.left, viewport.width - VIEWPORT_PAD - panel.width));
-  return { top, left };
+  const top =
+    below + panel.height <= viewport.height - VIEWPORT_PAD ? below : above >= VIEWPORT_PAD ? above : clampTop(below);
+  return { top, left: clampLeft(anchor.right - panel.width) };
 }
 
 /** 展开的单子:一行一个任务 —— 图标、名字、(子智能体)步数与时长、停止、×(只收起,❌ 不停)。 */
