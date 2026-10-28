@@ -19,6 +19,9 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
 import { ProductTour } from '../productTour/ProductTour'
+import { availableTourSteps } from '../productTour/tourTargets'
+import { FeatureFilms } from '../productTour/FeatureFilms'
+import type { ProductTourRequest, TourStepId } from '../../lib/productTour'
 import { FirstRunHarness } from './FirstRunHarness'
 import { FirstRunTerminal } from './FirstRunTerminal'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
@@ -29,8 +32,9 @@ import { FirstRunHints } from './FirstRunHints'
 const log = rendererLogger('first-run')
 
 // 全屏步骤的顺序(规范 4.1):每页顶上写「n / N」,N 只数这台设备真会走的页。
-type StepKind = 'profile' | 'harness' | 'terminal' | 'intro'
-const STEPS: readonly StepKind[] = platform.kind === 'electron' ? ['profile', 'harness', 'terminal', 'intro'] : ['profile', 'intro']
+type StepKind = 'profile' | 'harness' | 'terminal' | 'intro' | 'tourChoice'
+// 桌面端最后一页问一次要不要看功能栏导览(规范 4.1 第 5 步:由人自己选择开始);导览只有桌面端有。
+const STEPS: readonly StepKind[] = platform.kind === 'electron' ? ['profile', 'harness', 'terminal', 'intro', 'tourChoice'] : ['profile', 'intro']
 function StepCount({ step }: { step: StepKind }) {
   const { t } = useTranslation('main')
   return <p className="first-run-step-count" data-testid="first-run-step-count">{t('firstRun.stepCount', { current: STEPS.indexOf(step) + 1, total: STEPS.length })}</p>
@@ -43,7 +47,9 @@ type GateState =
   | { kind: 'intro' }
   | { kind: 'harness' }
   | { kind: 'terminal' }
-  | { kind: 'tour' }
+  | { kind: 'tourChoice'; openAssistant: boolean }
+  | { kind: 'tour'; steps: readonly TourStepId[]; start: TourStepId }
+  | { kind: 'films' }
   | { kind: 'done' }
 
 /**
@@ -94,15 +100,27 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
 
   useEffect(load, [load])
 
+  const startTour = useCallback((from: TourStepId | null) => {
+    const steps = availableTourSteps()
+    // 一格都找不到(功能栏没画出来):不弹指向空白的卡片(规范 2.3),直接进主界面。
+    if (!steps.length) { setState({ kind: 'done' }); return }
+    setState({ kind: 'tour', steps, start: from && steps.includes(from) ? from : steps[0] })
+  }, [])
+  // 「帮助与导览」(规范 4.3):从第 n 步继续、从头开始、看功能短片。老账号也只从这里看,❌ 自动重放。
   useEffect(() => {
     if (platform.kind !== 'electron') return
-    const reopen = () => setState({ kind: 'tour' })
+    const reopen = (event: Event) => {
+      const detail = (event as CustomEvent<ProductTourRequest | undefined>).detail
+      if (detail?.mode === 'films') setState({ kind: 'films' })
+      else startTour(detail?.mode === 'resume' ? detail.step : null)
+    }
     window.addEventListener(UI_EVENTS.reopenProductTour, reopen)
     return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
-  }, [])
+  }, [startTour])
 
+  const overlay = state.kind === 'intro' || state.kind === 'tourChoice'
   // 一旦进入过主界面,回到前置页也保留它:嵌入入口每个文档只求值一次。
-  const productVisible = state.kind === 'done' || state.kind === 'tour' || (state.kind === 'intro' && platform.kind === 'electron')
+  const productVisible = state.kind === 'done' || state.kind === 'tour' || state.kind === 'films' || (overlay && platform.kind === 'electron')
   const [productMounted, setProductMounted] = useState(productVisible)
   if (productVisible && !productMounted) setProductMounted(true)
 
@@ -143,20 +161,23 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     </div>
   )
 
-  // The embedded task entry bootstraps once per document; finishing or reopening the tour must
-  // keep its product tree and mount element connected at the same position.
+  // Keep the embedded product connected across setup, tour choice, tour and films.
   const content = productMounted || productVisible ? (
     <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
-      <div className="contents" inert={!productVisible || state.kind === 'intro'} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
+      <div className="contents" inert={!productVisible || overlay} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
       {!productVisible && wizard}
       {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
-      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} /></div></div>}
-      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} onDone={done} />}
+      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} onNext={(openAssistant) => setState({ kind: 'tourChoice', openAssistant })} /></div></div>}
+      {state.kind === 'tourChoice' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-tour-choice"><div className="ta-onb"><StepCount step="tourChoice" />
+        <FirstRunTourChoice userId={user.id} openAssistant={state.openAssistant} onBack={() => setState({ kind: 'intro' })}
+          onDone={(tour) => { rememberFirstRunDone(user.id); if (tour) startTour(null); else setState({ kind: 'done' }) }} /></div></div>}
+      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} steps={state.steps} start={state.start} onDone={done} />}
+      {state.kind === 'films' && <FeatureFilms onClose={done} />}
     </PhoneAgentSetupGate>
   ) : wizard
 
   return platform.kind === 'electron'
-    ? <FirstRunInstallProvider showNotification={state.kind === 'done' || state.kind === 'tour'}>{content}</FirstRunInstallProvider>
+    ? <FirstRunInstallProvider showNotification={state.kind === 'done'}>{content}</FirstRunInstallProvider>
     : content
 }
 
@@ -237,7 +258,7 @@ function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; init
       </Button>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void pickAvatar(e)} />
       <h1 className="ta-onb-title">{t('firstRun.profileTitle')}</h1>
-      <p className="ta-onb-sub">{t('firstRun.profileSub')}</p>
+      <p className="ta-onb-sub">{t(platform.kind === 'electron' ? 'firstRun.profileSubDesktop' : 'firstRun.profileSub')}</p>
       <label className="ta-onb-field">
         <span className="ta-field-label">{t('firstRun.nameLabel')}</span>
         <input
@@ -299,12 +320,52 @@ function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; init
   )
 }
 
-function FirstRunIntro({ userId, onDone, onBack }: { userId: string; onDone: () => void; onBack: () => void }) {
+/**
+ * 认识咕咕之后,桌面端最后一页(规范 4.1 第 5 步):问一次要不要看功能栏导览。一句话,两个选择。
+ * 两个都算走完首次引导(记在账号上);「开通我的咕咕」的交接照旧,导览盖在咕咕那一格上面从第 1 步走。
+ */
+function FirstRunTourChoice({ userId, openAssistant, onBack, onDone }: { userId: string; openAssistant: boolean; onBack: () => void; onDone: (tour: boolean) => void }) {
+  const { t } = useTranslation('main')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const leave = async (tour: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await startFirstRunHints(userId)
+      await finishFirstRun()
+      if (openAssistant) requestAssistantSetupHandoff(userId)
+      onDone(tour)
+    } catch (e) {
+      log.error({ error: String(e) }, 'finish first run failed')
+      setError(messageForUser(e))
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <h1 className="ta-onb-title">{t('firstRun.tourChoiceTitle')}</h1>
+      <p className="ta-onb-sub">{t('firstRun.tourChoiceSub')}</p>
+      {error ? <p className="ta-onb-error" role="alert">{error}</p> : null}
+      <div className="ta-onb-actions ta-onb-actions-stack">
+        <Button variant="primary" size="lg" className="rounded-full ta-onb-primary" onClick={() => void leave(true)} disabled={busy} data-testid="first-run-tour-start">{t('firstRun.tourChoiceStart')}</Button>
+        <div className="flex items-center justify-center self-center">
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={onBack} disabled={busy} data-testid="first-run-tour-back">{t('firstRun.back')}</Button>
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => void leave(false)} disabled={busy} data-testid="first-run-tour-skip">{t('firstRun.tourChoiceSkip')}</Button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function FirstRunIntro({ userId, onDone, onBack, onNext }: { userId: string; onDone: () => void; onBack: () => void; onNext?: (openAssistant: boolean) => void }) {
   const { t } = useTranslation('main')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const leave = async (openAssistant: boolean) => {
+    // 桌面端后面还有一页(问要不要看导览):走完记在那一页。
+    if (onNext) { onNext(openAssistant); return }
     setBusy(true)
     setError(null)
     try {
@@ -321,6 +382,7 @@ function FirstRunIntro({ userId, onDone, onBack }: { userId: string; onDone: () 
 
   return (
     <AssistantIntro
+      summary={platform.kind === 'electron' ? t('firstRun.introSubDesktop') : undefined}
       primaryLabel={t('firstRun.introStart')}
       onPrimary={() => void leave(true)}
       laterLabel={t('firstRun.introLater')}

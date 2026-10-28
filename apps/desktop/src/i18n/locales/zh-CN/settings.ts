@@ -7,7 +7,6 @@ export default {
     "iconAlt": "咕咕 App 图标",
     "iconAttribution": "图标 · <iconSet>Solar Icon Set</iconSet> by 480 Design · CC BY 4.0",
     "releaseNotes": "更新说明",
-    "reopenProductTour": "重新查看功能引导",
     "restartToInstall": "有新版本，重启安装",
     "updateUpToDate": "已是最新版本",
     "updateAvailable": "发现新版本",
