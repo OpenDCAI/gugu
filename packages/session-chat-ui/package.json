@@ -23,7 +23,8 @@
     "./markdown-html": "./src/core/markdown/to-html.ts",
     "./highlight": "./src/core/highlight/highlighter.ts",
     "./mermaid": "./src/core/mermaid/render.ts",
-    "./composer-layout": "./src/chat-root.css.ts"
+    "./composer-layout": "./src/chat-root.css.ts",
+    "./styles/effects": "./src/styles/effects.css.ts"
   },
   "scripts": {
     "storybook": "storybook dev -p 6007",

@@ -21,7 +21,6 @@
  * | `mono` | 上游 11 像素的任意值 | `text-tiny` | §2：走 `--text-tiny` 这一档 token（#7333 起并入 12 的标注档） |
  * | `live` | `text-blue-500 dark:text-blue-400` | `text-live` | 2026-09-22 按 design.md 统一：「`blue-500` means live: streaming, running, connected, or currently selected」。原裁决（2026-08-12）是 `text-primary`，理由是「当时会话页主题里 `--color-(info\|blue)` 读到 0 ⇒ jade 是唯一可用强调色」——那个前提已不成立：`index.css` 现在有 `--color-live`（#6104 的唯一 accent 档）。⚠️ 代用期间 live 是绿的、而蓝被拿去标已完成态，两个强调色在同屏争；现在回到「一次只有一个强调色，那个色是蓝」 |
  * | 各处 `duration-150/200/300` | 裸数字 | `duration-[var(--dur-fast,120ms)]` / `-med,180ms` | 时长走 token 档位（沿用 `thread-welcome.tsx` 已有先例） |
- * | `ShimmerLabel` | `shimmer`（npm `tw-shimmer`） | `text-shimmer` | 本仓 `index.css:1122` 已有等价实现（渐变文字 + 自带 `prefers-reduced-motion` 退化）⇒ **不引入 `tw-shimmer` 依赖** |
  * | `cn` | `@/lib/utils` | `@renderer/utils/utils` | 本仓路径 |
  *
  * ## `collapsePanel` 一个字没改，因为上游本来就是双栈写的
@@ -44,7 +43,6 @@
  * 而 `collapsible-panel-height` 从第 10 行才开始 ⇒ 我看到的 8 行全是 `ending-style`，
  * 于是把「没搜到」当成了「不存在」。**截断过的搜索不能用来支持否定性结论。**
  */
-import type { ComponentProps } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@renderer/utils/utils';
 
@@ -100,14 +98,6 @@ export const collapsePanel =
 export const live = 'text-live';
 
 export const mono = 'font-mono text-tiny tracking-tight';
-
-export function ShimmerLabel({
-  active = true,
-  className,
-  ...props
-}: ComponentProps<'span'> & { active?: boolean }) {
-  return <span className={cn(active && 'text-shimmer', className)} {...props} />;
-}
 
 /**
  * 保留自身空白的内容的滚动区。`whitespace-pre` 放进定长盒子会把长行裁掉且无法触达，

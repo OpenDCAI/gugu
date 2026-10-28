@@ -94,7 +94,7 @@ export function CreateOptionsPill({
           onClose={() => setView(null)}
           mobileFitContent
           testId="agent-watch-create-options"
-          ariaLabel={t(`agentWatch.create.${view ?? 'project'}`)}
+          ariaLabel={t(`agentWatch.create.${view === 'permission' ? 'permissionLabel' : view ?? 'project'}`)}
         >
           {view ? <div className="gg-aw gg-aw-sheet">
             <div className="gg-aw-sheet-head">
@@ -108,7 +108,7 @@ export function CreateOptionsPill({
                 {atRoot ? <X /> : <ChevronLeft />}
               </IconButton>
               <div className="gg-aw-sheet-title">
-                {t('agentWatch.options.pick', { name: t(`agentWatch.create.${view ?? 'project'}`) })}
+                {t('agentWatch.options.pick', { name: t(`agentWatch.create.${view === 'permission' ? 'permissionLabel' : view ?? 'project'}`) })}
               </div>
               <div className="gg-aw-sheet-side" />
             </div>

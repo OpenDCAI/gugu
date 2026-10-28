@@ -32,6 +32,16 @@ describe('phone Agent model options',()=>{
     expect(onChange).toHaveBeenCalledExactlyOnceWith({...selection,harness:'pi',model:'platform:model-a'})
     expect(h.container.querySelector('[role="dialog"]')).not.toBeNull()
   })
+  it('titles the permission sheet with its label, not the raw permission table',async()=>{
+    const h=createReactHarness();active.push(h)
+    const desktop: SessionpageSessionCreateOptions={...options,harnesses:[{...options.harnesses[0]!,permissionModes:['edit','full-access']}]}
+    await h.render(createElement(CreateOptionsPill,{options:desktop,selection:defaultSelection(desktop),onChange:vi.fn(),busy:false,models,modelsState:'ready'}))
+    await clickElement(h.container.querySelector<HTMLElement>('[data-testid="agent-watch-create-options-open"]')!)
+    await clickElement(h.container.querySelector<HTMLElement>('[data-testid="agent-watch-create-options-drill"][data-dimension="permission"]')!)
+    const title=h.container.querySelector('.gg-aw-sheet-title')?.textContent??''
+    expect(title).toContain('权限档');expect(title).not.toMatch(/object|agentWatch\./)
+    expect(h.container.querySelector('[role="dialog"]')?.getAttribute('aria-label')??'').not.toMatch(/object|agentWatch\./)
+  })
   it('keeps real computer engine selection available',async()=>{
     const h=createReactHarness();active.push(h);const onChange=vi.fn()
     const desktop={...options,harnesses:[...options.harnesses,{id:'codex',name:'Codex',status:'available' as const,watchable:true,sessionViews:['general' as const],permissionModes:[]}]}
