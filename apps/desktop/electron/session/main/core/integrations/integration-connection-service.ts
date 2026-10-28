@@ -51,11 +51,13 @@ type PendingCliLogin = {
   recipe: CliToolRecipe;
   installed: InstalledCliTool;
   run: CliLoginRun;
+  activityToken: symbol;
   result?: Promise<Exclude<CliLoginWaitResult, { status: 'pending' }>>;
 };
 
 /** 一次 `cliLoginWait` 最多挂这么久就回「还在等」:界面再问一次。远程机器上的调用不会被长连接拖断。 */
 const CLI_LOGIN_WAIT_SLICE_MS = 20_000;
+const AUTHORIZATION_ACTIVITY_LIMIT_MS = 30 * 60_000;
 
 export type IntegrationAccountSummary = {
   accountId: string;
@@ -95,6 +97,45 @@ export class IntegrationConnectionService {
   private readonly cliInstallFailures = new Map<IntegrationCliTool, string>();
   /** 已经挂上结果处理的那份安装(同一份 Promise 只挂一次)。 */
   private readonly watchedCliInstalls = new WeakSet<Promise<unknown>>();
+  private readonly authorizationActivityListeners = new Set<() => void>();
+  private readonly authorizationActivity = new Map<AbortController | symbol, NodeJS.Timeout>();
+  private authorizationActive = false;
+
+  /** A person confirming authorization is account work even without a running
+   * agent. Result entries outlive their process until a later poll, so map
+   * membership alone cannot prove that authorization is still active. */
+  hasPendingAuthorizations(): boolean {
+    return this.authorizationActivity.size > 0;
+  }
+
+  private startAuthorizationActivity(token: AbortController | symbol): void {
+    // This bounds the busy signal only. Provider login deadlines, process
+    // cancellation and the eventual login result remain owned by that flow.
+    const timer = setTimeout(() => this.stopAuthorizationActivity(token), AUTHORIZATION_ACTIVITY_LIMIT_MS);
+    timer.unref();
+    this.authorizationActivity.set(token, timer);
+    this.reportAuthorizationActivity();
+  }
+
+  private stopAuthorizationActivity(token: AbortController | symbol): void {
+    const timer = this.authorizationActivity.get(token);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.authorizationActivity.delete(token);
+    this.reportAuthorizationActivity();
+  }
+
+  onAuthorizationActivityChange(listener: () => void): () => void {
+    this.authorizationActivityListeners.add(listener);
+    return () => { this.authorizationActivityListeners.delete(listener); };
+  }
+
+  private reportAuthorizationActivity(): void {
+    const active = this.hasPendingAuthorizations();
+    if (active === this.authorizationActive) return;
+    this.authorizationActive = active;
+    for (const listener of this.authorizationActivityListeners) listener();
+  }
 
   /** Browser authorization for `mcp-oauth` integrations; resolves once the account is stored. */
   async authorize(integrationId: string): Promise<ConnectResult> {
@@ -126,6 +167,8 @@ export class IntegrationConnectionService {
     this.pendingAuthorizations.get(integrationId)?.abort();
     const controller = new AbortController();
     this.pendingAuthorizations.set(integrationId, controller);
+    this.startAuthorizationActivity(controller);
+    controller.signal.addEventListener('abort', () => this.stopAuthorizationActivity(controller), { once: true });
     try {
       const credentials = await authorizeMcpServer({
         serverUrl,
@@ -144,16 +187,20 @@ export class IntegrationConnectionService {
       if (this.pendingAuthorizations.get(integrationId) === controller) {
         this.pendingAuthorizations.delete(integrationId);
       }
+      this.stopAuthorizationActivity(controller);
     }
   }
 
   cancelAuthorization(integrationId: string): void {
     this.pendingAuthorizations.get(integrationId)?.abort();
     // 还在装 / 还在起的那一次:撤掉它的号,它醒来见号不对就自己收手(见 cliLoginStart)。
+    const attempt = this.cliStarts.get(integrationId);
     this.cliStarts.delete(integrationId);
+    if (attempt) this.stopAuthorizationActivity(attempt);
     const login = this.cliLogins.get(integrationId);
     if (login) {
       this.cliLogins.delete(integrationId);
+      this.stopAuthorizationActivity(login.activityToken);
       login.run.cancel();
     }
   }
@@ -223,6 +270,7 @@ export class IntegrationConnectionService {
     this.cancelAuthorization(integrationId);
     const attempt = Symbol(integrationId);
     this.cliStarts.set(integrationId, attempt);
+    this.startAuthorizationActivity(attempt);
     const current = () => this.cliStarts.get(integrationId) === attempt;
     const superseded = { success: false as const, error: 'This connection attempt was cancelled.' };
     const recipe = cliToolRecipe(method.tool);
@@ -259,7 +307,8 @@ export class IntegrationConnectionService {
       }
       const run = method.tool === 'lark-cli' ? startFeishuLogin(installed, work) : startCliLogin(recipe, installed, work);
       void run.done.then(() => fs.rm(work, { recursive: true, force: true }));
-      entry = { recipe, installed, run };
+      void run.done.then(() => this.stopAuthorizationActivity(attempt));
+      entry = { recipe, installed, run, activityToken: attempt };
       this.cliLogins.set(integrationId, entry);
       const prompt = await run.prompt;
       if (!current() || this.cliLogins.get(integrationId) !== entry) {
@@ -270,12 +319,14 @@ export class IntegrationConnectionService {
     } catch (error) {
       log.warn('Integration command-line login could not start', { integrationId, error });
       if (entry) {
+        this.stopAuthorizationActivity(attempt);
         entry.run.cancel();
         if (this.cliLogins.get(integrationId) === entry) this.cliLogins.delete(integrationId);
       }
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     } finally {
       if (this.cliStarts.get(integrationId) === attempt) this.cliStarts.delete(integrationId);
+      if (!entry) this.stopAuthorizationActivity(attempt);
     }
   }
 

@@ -53,6 +53,8 @@ export interface GuguHost {
     move(args: { ref: AppFileRef; folder?: string; name?: string }): Promise<AppFileEntry>;
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
+    /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
+    keep(args: { ref: AppFileRef; how: 'temporary' | 'permanent' }): Promise<void>;
     watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
