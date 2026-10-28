@@ -189,7 +189,8 @@ describe('background tasks at the end of the transcript', () => {
     const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer:head"]')!
     expect(head.contains(items(host)[0])).toBe(true)
     const bubble = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"] [data-user-card]')!
-    expect(items(host)[1].getBoundingClientRect().bottom).toBeLessThanOrEqual(bubble.getBoundingClientRect().top)
+    // 气泡是下一行:头那一行长高有个过渡,等它落定。
+    await until('the bubble row settles below the open list', () => items(host)[1].getBoundingClientRect().bottom <= bubble.getBoundingClientRect().top)
 
     // 人接着说话:末尾不再是那条回复 ⇒ 后台单独一行贴在最后。
     state.transcript.activeTurn.set({
