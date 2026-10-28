@@ -47,5 +47,11 @@ export async function enrollSampleProject(userId: string): Promise<void> {
     log.error({ error: String(error) }, 'enroll sample project failed')
     return
   }
-  for (const listener of listeners) listener(userId)
+  for (const listener of listeners) {
+    try {
+      listener(userId)
+    } catch (error) {
+      log.error({ error: String(error) }, 'sample project listener failed')
+    }
+  }
 }

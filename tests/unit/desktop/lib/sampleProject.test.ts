@@ -42,11 +42,26 @@ describe('account-scoped sample project key', () => {
   })
 
   it('keeps an existing key, including a dismissal, when the intro is left again', async () => {
+    const listener = vi.fn()
+    const stop = subscribeSampleProject(listener)
     for (const sampleProject of [{ version: 1, dismissed: false }, { version: 1, dismissed: true }]) {
       io.read.mockResolvedValueOnce({ sampleProject })
       await enrollSampleProject('owner-1')
     }
+    stop()
     expect(io.write).not.toHaveBeenCalled()
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('still tells every listener, and still resolves, when one listener throws', async () => {
+    io.read.mockResolvedValue({})
+    const broken = vi.fn(() => { throw new Error('render failed') })
+    const listener = vi.fn()
+    const stops = [subscribeSampleProject(broken), subscribeSampleProject(listener)]
+    await expect(enrollSampleProject('owner-1')).resolves.toBeUndefined()
+    for (const stop of stops) stop()
+    expect(listener).toHaveBeenCalledWith('owner-1')
+    expect(io.error).toHaveBeenCalledTimes(1)
   })
 
   it('logs instead of throwing when enrolling fails, and never overwrites a malformed key', async () => {
