@@ -95,3 +95,11 @@ describe('mention popup open/close (3a)', () => {
     expect(findMentionStart('你好@张', 4)).toBe(2)
   })
 })
+
+describe('pinyin only counts when it lands on Han characters', () => {
+  it('does not read the Latin letters of a mixed name as pinyin initials', () => {
+    expect(matchText('咕咕内测', 'gg')?.score).toBe(1)
+    expect(matchText('设计评审 gugu', 'gg')).toBeNull()
+    expect(matchText('gugu dev', 'gg')).toBeNull()
+  })
+})

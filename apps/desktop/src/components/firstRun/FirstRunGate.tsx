@@ -59,9 +59,7 @@ type GateState =
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      {platform.kind === 'electron'
-        ? <FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider>
-        : <FirstRunFlow {...props} />}
+      <FirstRunFlow {...props} />
     </QueryClientProvider>
   )
 }
@@ -164,7 +162,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
   )
 
   // Keep the embedded product connected across setup, tour choice, tour and films.
-  if (productMounted || productVisible) return (
+  const content = productMounted || productVisible ? (
     <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
       <div className="contents" inert={!productVisible || overlay} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
       {!productVisible && wizard}
@@ -176,9 +174,11 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
       {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} steps={state.steps} start={state.start} onDone={done} />}
       {state.kind === 'films' && <FeatureFilms onClose={done} />}
     </PhoneAgentSetupGate>
-  )
+  ) : wizard
 
-  return wizard
+  return platform.kind === 'electron'
+    ? <FirstRunInstallProvider showNotification={productVisible && !overlay}>{content}</FirstRunInstallProvider>
+    : content
 }
 
 function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; initial: Occupation | null; step: ReactNode; onDone: () => void }) {
