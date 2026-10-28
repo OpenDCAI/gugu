@@ -33,6 +33,7 @@ import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle'
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
 import { InstalledAppRow } from '@renderer/features/extensions/panel/app-rows';
+import { AccountAppsNotice } from '@renderer/features/extensions/panel/account-apps-notice';
 import {
   InstalledRowNoticeLine,
   programFailureText,
@@ -1008,6 +1009,16 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
     store.isPreinstalled(manifest.id) ? undefined : (enabled: boolean) => void switchExtension(manifest, enabled);
 
   const listedManifests = store.manifests.filter((manifest) => manifest.id !== WORKSPACE_APP_ID);
+  const retryAccountApps = async () => {
+    try {
+      if (!api.reconcileAccountApps) throw new Error('Account App restoration requires an updated host');
+      const result = await api.reconcileAccountApps();
+      if (!result.success) throw new Error(result.error);
+      await refresh();
+    } catch (error) {
+      toast({ title: translate('extensions.accountAppFailed', { name: 'Browser Use' }), description: messageForUser(error), tier: 'error' });
+    }
+  };
   const installedRows = listedManifests
     .filter((manifest) => matchesExtensionQuery(manifest, query))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1305,6 +1316,10 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
 
         {tab === 'installed' && (
           <div className="pb-14" data-testid="extensions-installed-panel">
+            <AccountAppsNotice apps={store.accountApps ?? []} onReview={id => void shelfItemFor(id).then(item => {
+              if (item) return installFromShelf(item.ref, id);
+              toast({ title: translate('extensions.marketOfflineUnreachable'), tier: 'error' });
+            })} onRetry={() => void retryAccountApps()} />
             {inventory === 'error' && !notice && (
               <div className="mk-status" role="alert">
                 <CircleAlert className="size-4 shrink-0" />

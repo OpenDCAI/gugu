@@ -43,13 +43,13 @@ export async function autoUpdateAppsOnce(dependencies: AutoUpdateDependencies = 
         log.info('auto-update: waits for the person (it asks for more)', update);
         continue;
       }
-      const handed = await installExtensionFromMarket({ ref, consent: { kind: 'return' } }, { ...dependencies, market });
+      const handed = await installExtensionFromMarket({ ref, consent: { kind: 'return' } }, { ...dependencies, market, rememberAccountChoice: false });
       if (handed.outcome !== 'ask') throw new Error(`the market install answered ${handed.outcome}`);
       if (handed.asks) {
         log.info('auto-update: waits for the person (it asks for more)', update);
         continue;
       }
-      const done = await installExtensionFromMarket({ ref, consent: { kind: 'given', digest: handed.ask.manifestDigest } }, { ...dependencies, market });
+      const done = await installExtensionFromMarket({ ref, consent: { kind: 'given', digest: handed.ask.manifestDigest } }, { ...dependencies, market, rememberAccountChoice: false });
       if (!done.installed) throw new Error(`the market install answered ${done.outcome}`);
       log.info('auto-update: updated', update);
       updated.push(update);

@@ -38,6 +38,8 @@ export interface InstallDependencies {
   requestInstallConsent?: (request: ExtensionInstallConsentRequest) => Promise<ExtensionInstallConsentResult>;
   notifyInstalledChanged?: () => Promise<void>;
   afterInstall?: (installed: InstalledExtension) => void;
+  /** Recheck an account/restore boundary immediately before any bundle is committed. */
+  beforeInstall?: () => void;
 }
 
 export type PreparedOutcome =
@@ -67,6 +69,7 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(grant ? { given: grant } : {}) };
   const asks = prepared.asks || grant !== null;
   const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async () => {
+    dependencies.beforeInstall?.();
     const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher, prepared.variant);
     await given.recordInstallGrant(installed.manifest.id, grant);
     (dependencies.afterInstall ?? applyInstalledExtension)(installed);

@@ -4,6 +4,19 @@ import type { ChatFileRef, FilesPlatform } from '@shared/extensions/app-files-co
 type AccessTokenReader = () => Promise<string | null>;
 
 let readAccessToken: AccessTokenReader | null = null;
+let accountEpoch = 0;
+const accountListeners = new Set<() => void>();
+
+/** A synchronous cancellation boundary before the host starts handling the next account. */
+export function notifyAccountAccessTokenChanged(): void {
+  accountEpoch++;
+  for (const listener of accountListeners) listener();
+}
+export const currentAccountEpoch = (): number => accountEpoch;
+export function onAccountAccessTokenChanged(listener: () => void): () => void {
+  accountListeners.add(listener);
+  return () => accountListeners.delete(listener);
+}
 type AccountFileResolver = (ref: FileRef | ChatFileRef, actor?: string | null, options?: Parameters<NonNullable<FilesPlatform['resolveFile']>>[2]) => Promise<ResolvedFile | null>;
 let fileResolver: AccountFileResolver | undefined;
 let publishFile: NonNullable<FilesPlatform['publishFile']> | undefined;
@@ -22,6 +35,7 @@ export const resolveAccountFile: AccountFileResolver = (ref, actor, options) => 
  */
 export function setAccountAccessTokenReader(reader: AccessTokenReader): void {
   readAccessToken = reader;
+  notifyAccountAccessTokenChanged();
 }
 
 /**

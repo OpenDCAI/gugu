@@ -27,7 +27,7 @@ export type ExtensionsApi = Pick<
   | 'uninstall'
   | 'agentStatus'
   | 'agentTools'
->;
+> & Partial<Pick<typeof rpc.extensions, 'reconcileAccountApps'>>;
 
 export type ExtensionsHost = {
   key: string;

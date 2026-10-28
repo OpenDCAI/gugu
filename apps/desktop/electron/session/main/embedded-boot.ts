@@ -26,6 +26,7 @@ import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/ext
 import { appKey } from '@shared/extensions/app-identity'
 import { ensurePreinstalledApps } from './core/extensions/preinstalled-apps'
 import { firstRunAtBoot } from './core/extensions/first-run-apps'
+import { accountAppsAtBoot } from './core/extensions/account-apps-sync'
 import { autoUpdateAtBoot } from './core/extensions/auto-update-apps'
 import { EXTENSION_DATA_DIR_NAME } from './core/extensions/extension-data'
 import { extensionPrograms, stopAllExtensionPrograms, type ExtensionPrograms } from './core/extensions/extension-programs'
@@ -628,6 +629,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 首启默认组(owner 10-16「为什么会有安装这一步,而不是一启动就装好了」):新 profile 的那几个 gugu 自己的 App,main 一起来
   // 就在后台从下载站装,和登录并行 —— ❌ 等(boot 不等它),❌ 弹任何东西;没装完的下次启动接着装(first-run-apps.ts)。
   firstRun.start()
+  accountAppsAtBoot(browserFeatures)
   // 市场 App 自动更新(owner 10-19,照 VS Code):起来就去下载站取一次目录,之后每次取回来变了都更新一遍(auto-update-apps.ts)。
   autoUpdateAtBoot(browserFeatures)
 

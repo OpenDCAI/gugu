@@ -105,6 +105,12 @@ export interface NativeAppProgram {
 }
 
 const nativePrograms = new Map<NativeProgramHost, NativeAppProgram>();
+const nativeProgramListeners = new Set<() => void>();
+export const nativeProgramAvailable = (host: NativeProgramHost): boolean => nativePrograms.has(host);
+export function onNativeProgramsChanged(listener: () => void): () => void {
+  nativeProgramListeners.add(listener);
+  return () => nativeProgramListeners.delete(listener);
+}
 function nativeProgram(program: ExtensionProgram): NativeAppProgram {
   const provider = program.native && nativePrograms.get(program.native);
   if (!provider) throw new Error(`Host capability is unavailable: ${program.native}`);
@@ -511,6 +517,7 @@ async function use<T>(program: ExtensionProgram, work: (client: Client) => Promi
 export const extensionPrograms: ExtensionPrograms = {
   registerNative(name, provider) {
     nativePrograms.set(name, provider);
+    for (const listener of nativeProgramListeners) listener();
   },
   agentToolsRefusal(extensionId) {
     const service = extensionsService();

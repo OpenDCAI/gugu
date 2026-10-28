@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const io = vi.hoisted(() => ({ config: {} as Record<string, unknown>, writes: [] as Record<string, unknown>[] }))
 vi.mock('@gugu/core/cloud/userSettings', () => ({
   readUserSettingsConfig: async () => io.config,
-  writeUserSettingsConfig: async (_client: unknown, _user: string, _scope: string, config: Record<string, unknown>) => { io.writes.push(config); io.config = config },
+  mutateUserSettingsConfig: async (_client: unknown, _user: string, _scope: string, change: (value: Record<string, unknown>) => Record<string, unknown>) => {
+    const config = change(io.config)
+    io.writes.push(config)
+    io.config = config
+    return config
+  },
 }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
 const { readFileStorage, writeFileStorage } = await import('../../../../apps/desktop/src/lib/fileStorage')

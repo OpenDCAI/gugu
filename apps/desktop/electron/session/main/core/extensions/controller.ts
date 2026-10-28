@@ -1,4 +1,6 @@
 import type { ChatFileRef } from '@shared/extensions/app-files-core';
+import { ACCOUNT_APP_ALLOWLIST } from '@shared/extensions/account-apps';
+import { accountAppsState, runAccountApps, uninstallWithAccountChoice } from './account-apps-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { app } from 'electron';
@@ -123,6 +125,15 @@ function readBundleReadme(rootDir: string): string | null {
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
 export const extensionsController = createRPCController({
+  reconcileAccountApps: async () => {
+    try {
+      await runAccountApps();
+      const apps = accountAppsState().apps;
+      if (apps.some(app => app.state === 'failed')) return { success: false as const, error: 'An account App could not be restored' };
+      return { success: true as const, data: apps };
+    }
+    catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
+  },
   variants: async (id: string) => {
     try { return { success: true as const, data: await extensionVariants(id) }; }
     catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
@@ -180,6 +191,7 @@ export const extensionsController = createRPCController({
           disabled: extensionsService().disabledIds(),
           // The market Apps not updated by themselves (owner 10-19): their 「自动更新」 is off.
           autoUpdateOff: extensionsService().autoUpdateOffIds(),
+          ...(accountAppsState().apps.length ? { accountApps: accountAppsState().apps } : {}),
           // 「退出了、还没再打开」的(#7050):启用着,后台却没在跑。
           quit: quitExtensions(),
           dock: extensionsService().dock(),
@@ -1003,8 +1015,8 @@ export const extensionsController = createRPCController({
   /** `lastAnywhere`: none of the person's other computers has it (the renderer looked) — its grants in chats go too (I10). */
   uninstall: async (args: { extensionId: string; lastAnywhere?: boolean }) => {
     try {
-      const identity = args.lastAnywhere ? extensionsService().identityOf(args.extensionId) : null;
-      extensionsService().uninstall(args.extensionId);
+      const identity = args.lastAnywhere && !ACCOUNT_APP_ALLOWLIST.includes(args.extensionId) ? extensionsService().identityOf(args.extensionId) : null;
+      await uninstallWithAccountChoice(args.extensionId, () => extensionsService().uninstall(args.extensionId));
       if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
       // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
       // before asynchronous storage cleanup can yield to a heartbeat.

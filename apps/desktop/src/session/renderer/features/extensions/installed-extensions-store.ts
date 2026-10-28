@@ -11,6 +11,7 @@ import {
 import { localizedManifestText } from '@shared/extensions/catalog';
 import type { MarketUpdatesSummary } from '@shared/extensions/market';
 import type { ExtensionOrigin } from '@shared/extensions/upgrade';
+import type { AccountAppState } from '@shared/extensions/account-apps';
 
 /**
  * What is installed, as the renderer sees it. The main process owns the truth
@@ -88,6 +89,8 @@ export class InstalledExtensionsStore {
   disabled: string[] = [];
   /** Market Apps not updated by themselves (owner 10-19): switched off, or an older version picked. Main's, mirrored. */
   autoUpdateOff: string[] = [];
+  /** Verified account Apps still arriving or needing this person's attention on this computer. */
+  accountApps: AccountAppState[] = [];
   /** Ids quit from the rail and not opened since (#7050): on, but their background is not running. Main's, mirrored. */
   quit: string[] = [];
   /**
@@ -341,6 +344,7 @@ export class InstalledExtensionsStore {
       this.dock = dock ?? [];
       this.disabled = disabled ?? [];
       this.autoUpdateOff = autoUpdateOff ?? [];
+      this.accountApps = list.accountApps ?? [];
       this.quit = quit ?? [];
       this.origins = origins ?? {};
       this.disclosure = disclosure ?? {};

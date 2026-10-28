@@ -1,4 +1,4 @@
-import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
+import { readUserSettingsConfig, mutateUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
 import { parseFileStorage, type FileStorage } from '@gugu/core/shared/fileStorage'
 import { identityDb } from './supabase'
 
@@ -13,8 +13,9 @@ export async function readFileStorage(userId: string): Promise<FileStorage> {
 
 /** 读-改-写同一行:配置里别的键原样留着,file_storage 里这一版不认识的键(更新的客户端写的)也原样留着。 */
 export async function writeFileStorage(userId: string, change: Partial<FileStorage>): Promise<FileStorage> {
-  const config = await readUserSettingsConfig(settingsClient, userId, USER_SCOPE)
-  const next = { ...parseFileStorage(config), ...change }
-  await writeUserSettingsConfig(settingsClient, userId, USER_SCOPE, { ...config, file_storage: { ...(config.file_storage as Record<string, unknown> | undefined), ...next } })
-  return next
+  const config = await mutateUserSettingsConfig(settingsClient, userId, USER_SCOPE, current => ({
+    ...current,
+    file_storage: { ...(current.file_storage as Record<string, unknown> | undefined), ...parseFileStorage(current), ...change }
+  }))
+  return parseFileStorage(config)
 }

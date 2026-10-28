@@ -4,6 +4,7 @@ import { isGuguOwnApp } from '@shared/extensions/first-run';
 import { pinsAutoUpdate } from '@shared/extensions/market-entries';
 import { marketDownloadProgressChannel } from '@shared/extensions/marketEvents';
 import { events } from '@main/lib/events';
+import { log } from '@main/lib/logger';
 import { applyInstalledExtension } from './extension-after-install';
 import { announceInstalledChanged } from './extension-bridge-relay';
 import { extensionsService } from './extensions-root';
@@ -11,6 +12,7 @@ import { installPlan } from './install-plan';
 import { installPrepared, type InstallDependencies } from './install-prepared';
 import type { CloudExtensionMarket, MarketPrepared } from './market-catalog';
 import type { HandedConsent } from '@shared/extensions/install-consent-flow';
+import { ACCOUNT_APP_ALLOWLIST } from '@shared/extensions/account-apps';
 
 export interface MarketInstall {
   /** Which App, and which of its versions — none: the one the market gives this machine now. */
@@ -28,11 +30,13 @@ export interface MarketInstall {
    *   to as gugu reviewed it, as a preinstalled App was; its capabilities recorded as its manifest says, every agent here (as
    *   an App nobody chose for). Only for an App whose code is in gugu's own repository, and only as a first install.
    */
-  consent?: HandedConsent | { kind: 'gugu' };
+  consent?: HandedConsent | { kind: 'gugu' } | { kind: 'account' };
 }
 
 export interface MarketInstallDependencies extends InstallDependencies {
   market?: Pick<CloudExtensionMarket, 'entry' | 'materialize' | 'hold' | 'held' | 'discard'>;
+  /** Background updates are not a new account-wide installation choice. */
+  rememberAccountChoice?: boolean;
 }
 
 /** The App this was, in every outcome. */
@@ -110,7 +114,21 @@ export async function installExtensionFromMarket(
       const announced = await announceInstalledChanged(dependencies.notifyInstalledChanged);
       return { installed: true, outcome: 'confirmed', ...summary, manifest: installed.manifest, rootDir: installed.rootDir, asked: false, announced };
     }
-    const consent = install.consent ?? { kind: 'here' as const };
+    const accountHost = install.consent?.kind === 'account' ? await import('./account-apps-sync') : null;
+    const accountConsent = accountHost
+      ? await accountHost.verifyAccountAppConsent({ manifest, digest: manifestDigest, repo: prepared.source.repo }) : null;
+    const keepExistingInstall = () => {
+      if (accountHost && service.origins()[manifest.id] !== undefined
+        && service.list().extensions.some(item => item.manifest.id === manifest.id)) {
+        throw new accountHost.AccountAppRestoreError('installed', 'This App is already installed here; account restoration does not replace it');
+      }
+    };
+    keepExistingInstall();
+    const recordOwner = !accountConsent && ACCOUNT_APP_ALLOWLIST.includes(manifest.id) && isGuguOwnApp(prepared.source)
+      && dependencies.rememberAccountChoice !== false
+      ? await (await import('./account-apps-sync')).captureAccountAppOwner() : null;
+    const consent = install.consent?.kind === 'account'
+      ? { kind: 'given' as const, digest: manifestDigest } : install.consent ?? { kind: 'here' as const };
     const done = await installPrepared({
       dir: prepared.sourceDir,
       manifest,
@@ -123,7 +141,15 @@ export async function installExtensionFromMarket(
       // D-30: a first install of an App giving tools asks which agents get them, every agent here ticked at first; so does
       // installing it for a chat it is not given at yet (125 10-07), that chat ticked.
       places: { chatId: install.chatId, identity: await (await import('./app-given')).ownInstallIdentity(manifest.id, 'market') },
-    }, consent, dependencies);
+    }, consent, {
+      ...dependencies,
+      beforeInstall: () => {
+        dependencies.beforeInstall?.();
+        accountConsent?.beforeInstall();
+        keepExistingInstall();
+        if (recordOwner && !recordOwner.current()) throw new Error('The account changed before the App could be installed');
+      },
+    });
     if (done.outcome === 'ask') {
       // Kept for the `given` that follows, under its fingerprint: not unpacked here a second time.
       market.hold(prepared);
@@ -133,8 +159,16 @@ export async function installExtensionFromMarket(
     if (done.outcome !== 'confirmed') return { installed: false, outcome: done.outcome, ...summary };
     // An older version than the market gives this machine, picked by the person (the version history, an agent's `id@version`):
     // it stays as picked — no longer updated by itself — until they switch 「自动更新」 back on.
-    const pinned = pinsAutoUpdate(done.installed.manifest.version, (await market.entry(extensionId))?.version ?? null);
+    const pinned = !accountConsent && pinsAutoUpdate(done.installed.manifest.version, (await market.entry(extensionId))?.version ?? null);
     if (pinned) service.setAutoUpdate(extensionId, false);
+    if (accountConsent) service.setAutoUpdate(extensionId, accountConsent.entry.autoUpdate);
+    if (recordOwner) {
+      try {
+        (await import('./account-apps-sync')).rememberAccountAppInstall(recordOwner, done.installed, !service.autoUpdateOffIds().includes(extensionId));
+      } catch (error) {
+        log.warn('The App is installed, but its account choice could not be recorded', { extensionId, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
     return {
       installed: true,
       outcome: 'confirmed',

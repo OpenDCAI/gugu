@@ -18,6 +18,14 @@ export function fakeSettingsClient(
 ): FakeSettingsClient {
   const rows: Record<string, Record<string, unknown>> = { ...initial }
   const upserts: Array<Record<string, unknown>> = []
+  const revisions: Record<string, string> = Object.fromEntries(Object.keys(initial).map(key => [key, '2026-06-06T00:00:00.000Z']))
+  const save = (values: Record<string, unknown>) => {
+    upserts.push(values)
+    const key = `${String(values.user_id)}::${String(values.scope)}`
+    rows[key] = values.config as Record<string, unknown>
+    revisions[key] = String(values.updated_at)
+    return { scope: values.scope, config: values.config, updated_at: values.updated_at }
+  }
   const client: SettingsTableClient = {
     from(table) {
       expect(table).toBe('user_settings')
@@ -36,7 +44,7 @@ export function fakeSettingsClient(
                       const config = rows[key]
                       return {
                         data: config
-                          ? { scope, config, updated_at: '2026-06-06T00:00:00.000Z' }
+                          ? { scope, config, updated_at: revisions[key] }
                           : null,
                         error: null
                       }
@@ -49,22 +57,59 @@ export function fakeSettingsClient(
         },
         upsert(values: Record<string, unknown>, options: { onConflict: string }) {
           expect(options).toEqual({ onConflict: 'user_id,scope' })
-          upserts.push(values)
-          const key = `${String(values.user_id)}::${String(values.scope)}`
-          rows[key] = values.config as Record<string, unknown>
+          const data = save(values)
           return {
             select(columns: string) {
               expect(columns).toBe('scope, config, updated_at')
               return {
                 async single() {
                   return {
-                    data: {
-                      scope: values.scope,
-                      config: values.config,
-                      updated_at: values.updated_at
-                    },
+                    data,
                     error: null
                   }
+                }
+              }
+            }
+          }
+        },
+        update(values) {
+          return {
+            eq(userColumn, userId) {
+              expect(userColumn).toBe('user_id')
+              return {
+                eq(scopeColumn, scope) {
+                  expect(scopeColumn).toBe('scope')
+                  return {
+                    eq(revisionColumn, expected) {
+                      expect(revisionColumn).toBe('updated_at')
+                      return {
+                        select(columns) {
+                          expect(columns).toBe('scope, config, updated_at')
+                          return {
+                            async maybeSingle() {
+                              const key = `${userId}::${scope}`
+                              return { data: revisions[key] === expected ? save(values) : null, error: null }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        insert(values) {
+          return {
+            select(columns) {
+              expect(columns).toBe('scope, config, updated_at')
+              return {
+                async maybeSingle() {
+                  const key = `${String(values.user_id)}::${String(values.scope)}`
+                  return Object.hasOwn(rows, key)
+                    ? { data: null, error: { code: '23505', message: 'duplicate settings row' } }
+                    : { data: save(values), error: null }
                 }
               }
             }

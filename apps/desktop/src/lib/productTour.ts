@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
+import { readUserSettingsConfig, mutateUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings'
 import { identityDb } from './supabase'
 
 /**
@@ -48,8 +48,7 @@ export async function readProductTourState(userId: string): Promise<ProductTourS
 }
 
 export async function saveProductTourState(userId: string, state: ProductTourState): Promise<void> {
-  const config = await readUserSettingsConfig(client, userId, 'user')
-  await writeUserSettingsConfig(client, userId, 'user', { ...config, [KEY]: { version: 2, ...state } })
+  await mutateUserSettingsConfig(client, userId, 'user', config => ({ ...config, [KEY]: { version: 2, ...state } }))
 }
 
 /** 「帮助与导览」发来的请求(UI_EVENTS.reopenProductTour 的 detail)。 */

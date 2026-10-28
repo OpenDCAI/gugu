@@ -124,6 +124,7 @@ vi.mock('./app-given', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./app-given')>()),
   installGrant: async () => null,
   recordInstallGrant: async () => undefined,
+  forgetAccountGrants: vi.fn(async () => undefined),
 }));
 vi.mock('./extension-bridge-relay', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -140,6 +141,7 @@ vi.mock('./extension-icon', () => ({
 }));
 
 import { extensionsController } from './controller';
+import { forgetAccountGrants } from './app-given';
 import { extensionSurfaceBindingForTests, onInstalledAppsChanged, registerExtensionBridge } from './extension-bridge';
 import { EXTENSION_BRIDGE_CHANNEL } from '@shared/extensions/bridge-protocol';
 import { packExtensionArchive } from './extension-archive';
@@ -195,9 +197,26 @@ beforeEach(async () => {
   reloaded.length = 0;
   const { extensions } = extensionsService().list();
   for (const entry of extensions) await extensionsController.uninstall({ extensionId: entry.manifest.id });
+  vi.mocked(forgetAccountGrants).mockClear();
 });
 
 describe('extensions controller', () => {
+  it('keeps account App grants on a local uninstall even when other machines are offline', async () => {
+    const source = writeBundle([]);
+    const file = join(source, 'manifest.json');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), id: 'browser-use' }));
+    const service = extensionsService();
+    service.installFromDirectory(source, service.inspectDirectory(source).manifestDigest, 'market');
+    expect((await extensionsController.uninstall({ extensionId: 'browser-use', lastAnywhere: true })).success).toBe(true);
+    expect(forgetAccountGrants).not.toHaveBeenCalled();
+
+    const ordinary = writeBundle([]);
+    service.installFromDirectory(ordinary, service.inspectDirectory(ordinary).manifestDigest, 'market');
+    const identity = service.identityOf(EXTENSION_ID);
+    expect(identity).not.toBeNull();
+    expect((await extensionsController.uninstall({ extensionId: EXTENSION_ID, lastAnywhere: true })).success).toBe(true);
+    expect(forgetAccountGrants).toHaveBeenCalledExactlyOnceWith(identity);
+  });
   it('lists variant metadata with the inventory and isolates an unreadable App', async () => {
     await installViaController([]);
     const other = writeBundle([]);
