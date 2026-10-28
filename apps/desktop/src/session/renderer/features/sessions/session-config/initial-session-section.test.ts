@@ -1022,10 +1022,11 @@ describe('useInitialSessionState', () => {
     })).toBe('acp');
   });
 
-  it('follows the terminal setting: on opens in the code view, off in the general view', async () => {
+  // owner 10-28:「终端开关不是默认是否是终端，而是终端功能是否可用」—— 开着关着,新任务都进通用。
+  it('opens in the general view whether the terminal is on or off', async () => {
     settingsStore.set('terminal', { enabled: true });
     await renderProbe('project-1');
-    expect(latestState?.sessionView).toBe('code');
+    expect(latestState?.sessionView).toBe('general');
 
     await act(async () => settingsStore.set('terminal', { enabled: false }));
     expect(latestState?.sessionView).toBe('general');

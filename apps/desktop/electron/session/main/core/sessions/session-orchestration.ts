@@ -3,6 +3,7 @@ import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-wo
 import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { readCurrentActivitySource } from './session-activity-source';
