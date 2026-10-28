@@ -50,6 +50,12 @@ async function load(ownerUserId: string) {
   }
 }
 
+/** Called whenever the read assistant changes (opened, moved, removed): whoever waits for an assistant re-checks then. */
+export function onMyAssistantChange(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
 /**
  * 这个 agent 是不是他的个人助理(读这里已经读到的那一份,不发请求)。通讯录 / agent 设置里删它时分流用(#7350):
  * 一直挂着的 AssistantCloseHost 在开 App 时就读过;还没读到 = 当它不是,走通用的删除。
