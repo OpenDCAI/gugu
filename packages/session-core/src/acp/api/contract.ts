@@ -5,6 +5,7 @@ import {
   liveLog,
   liveModel,
   liveState,
+  procedure,
   uploadFile,
 } from '@gugu/session-wire';
 import { z } from 'zod';
@@ -17,7 +18,7 @@ import {
   sessionUsageSchema,
 } from '../models/config';
 import { planStateSchema } from '../models/plan';
-import { promptDraftSchema } from '../models/prompt';
+import { promptDraftSchema, promptInputSchema } from '../models/prompt';
 import { sessionStateSchema, sessionSummarySchema } from '../models/session';
 import { transcriptTurnSchema } from '../models/turns';
 import { toolImageLookupSchema } from '../models/turns/tool-calls';
@@ -183,6 +184,10 @@ export const acpApiContract = defineContract({
     input: toolImageInputSchema,
     data: toolImageLookupSchema,
     error: acpGetHistoryErrorSchema,
+  }),
+  getStoredQueue: procedure({
+    input: sessionKeySchema,
+    output: z.array(promptInputSchema.pick({ text: true, origin: true })),
   }),
   getHistory: fallible({
     input: historyPageInputSchema,

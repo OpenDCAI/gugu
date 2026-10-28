@@ -15,7 +15,7 @@ import { autorun, runInAction } from 'mobx';
 import { collectBackgroundCommandRoster } from '@gugu/session-chat-ui';
 
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: vi.fn() }),
+  getAcpRuntimeClient: async () => ({ getStoredQueue: vi.fn().mockResolvedValue([]), queuePrompt: vi.fn() }),
 }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 // 这个 project 里 `solid-js` 解析成服务端版(没有响应式),看不到画面上那一刻;改为记下每次写转录时是否在 batch 里。

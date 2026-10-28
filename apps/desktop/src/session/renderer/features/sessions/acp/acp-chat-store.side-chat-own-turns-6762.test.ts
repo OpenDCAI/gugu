@@ -30,7 +30,7 @@ vi.mock('@renderer/lib/acp/acp-live-session', async (importOriginal) => ({
   },
 }));
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: vi.fn() }),
+  getAcpRuntimeClient: async () => ({ getStoredQueue: vi.fn().mockResolvedValue([]), queuePrompt: vi.fn() }),
 }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
 
