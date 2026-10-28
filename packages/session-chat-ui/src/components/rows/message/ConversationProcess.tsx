@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { useChatTranslator } from '@session-chat/localization';
+import { useChatName } from '@session-chat/lib/chat-name';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import type { ChatMessage } from '@session-chat/model';
 import { GridLoader } from '@session-chat/components/primitives/GridLoader';
@@ -15,6 +16,7 @@ export function ConversationProcess(props: {
   collapsible?: boolean;
 }) {
   const translate = useChatTranslator();
+  const chatName = useChatName();
   const [now, setNow] = createSignal(Date.now());
   const ticking = createMemo(() => !!props.process.live && props.process.startedAt !== undefined);
   createEffect(() => {
@@ -37,7 +39,16 @@ export function ConversationProcess(props: {
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
   const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
-  const liveLabel = () => `${translate('transcript.thinkingLive')}${summary() ? ` · ${summary()}` : ''}`;
+  // 不是主人手打起的这一轮:写清在干什么(管家 10-28)。群名只在恰好一个、宿主认得时写;几条合成一轮或认不出就不写名字。
+  const doing = () => {
+    const trigger = props.process.trigger;
+    if (!trigger) return null;
+    if (trigger.kind === 'schedule') return translate('transcript.processForSchedule');
+    if (trigger.kind === 'agent') return translate('transcript.processForBackground');
+    const name = trigger.chatIds?.length === 1 ? chatName(trigger.chatIds[0]) : null;
+    return name ? translate('transcript.processForGroupNamed', { name }) : translate('transcript.processForDelivery');
+  };
+  const liveLabel = () => [translate('transcript.thinkingLive'), doing(), summary()].filter(Boolean).join(' · ');
   return <button type="button" class={conversationProcessButton} data-conversation-process={props.process.id}
     data-collapse-id={props.collapsible === false ? undefined : props.process.id} data-collapse-anchor={props.anchorId}
     aria-expanded={props.collapsible === false ? undefined : props.expanded} aria-label={label()} title={label()}>

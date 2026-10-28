@@ -21,6 +21,17 @@ export const transcriptTurnInitiatorSchema = z.enum(['user', 'agent']);
 export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSchema>;
 
 /**
+ * What started this turn, finer than `initiator`: the owner typing (`owner`), a 咕咕 delivery (`delivery`,
+ * `chatIds` = the envelopes' conversation ids, several when deliveries were merged into one turn), a schedule,
+ * or the agent itself after background work (`agent`). Optional: older records only have `initiator`.
+ */
+export const transcriptTurnTriggerSchema = z.object({
+  kind: z.enum(['owner', 'delivery', 'schedule', 'agent']),
+  chatIds: z.array(z.string()).optional(),
+});
+export type TranscriptTurnTrigger = z.infer<typeof transcriptTurnTriggerSchema>;
+
+/**
  * Successful turn reasons = ACP stop reasons(用户那一轮,prompt 结算时带来)+ `cycle_end`
  * (agent **自发**的一轮:没有 prompt 在飞,它的边界是适配器在那个 cycle 的 `result` 时
  * 报上来的那条带 cost 的 usage —— 见 session-runtime cell.ts `isAgentCycleEnd`)。
@@ -117,6 +128,8 @@ export const transcriptTurnSchema = z.object({
   seq: z.number().int(),
   /** Who opened the turn: a user prompt or agent-originated background activity. */
   initiator: transcriptTurnInitiatorSchema,
+  /** What started it (see `transcriptTurnTriggerSchema`); absent on older records. */
+  trigger: transcriptTurnTriggerSchema.optional(),
   /**
    * Epoch ms read off the wall clock at the moment this turn opened.
    *

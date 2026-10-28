@@ -1013,6 +1013,25 @@ describe('agent conversation process footer', () => {
       isTurnProcessExpanded: id => id === (head as { id?: string } | undefined)?.id }), SEGMENTERS);
     expect(closed.length).toBeLessThan(units.length);
   });
+  it('says who started a live turn the owner did not type: delivery, schedule, the agent itself', () => {
+    const live = (record: TranscriptTurn) => flattenTier([record], ctxWith({ active: true, foldTurnProcess: true, agentConversation: true }), SEGMENTERS)
+      .find(unit => unit.kind === 'turn-process')?.data as TurnProcessItem | undefined;
+    const running = (trigger?: TranscriptTurn['trigger']) => ({ ...turn('t', [user('u'), tool('a'), tool('b')], undefined, { startedAt: 1000 }), ...(trigger ? { trigger } : {}) });
+    // 管家 10-28:主人手打的消息不能被不是他发起的事挡住 —— 过程行写清在干什么。
+    expect(live(running({ kind: 'delivery', chatIds: ['g1'] }))?.trigger).toEqual({ kind: 'delivery', chatIds: ['g1'] });
+    expect(live(running({ kind: 'schedule' }))?.trigger).toEqual({ kind: 'schedule' });
+    // 主人手打的、以及没有 trigger 的老记录里人起的那一轮:照旧。
+    expect(live(running({ kind: 'owner' }))?.trigger).toBeUndefined();
+    expect(live(running())?.trigger).toBeUndefined();
+    // 老记录没有 trigger,agent 自己起的那一轮按 initiator 退化成后台任务。
+    expect(live(turn('bg', [reply('said', '后台那个跑完了，我看一下。'), tool('a'), tool('b')], undefined, { startedAt: 1000 }))?.trigger).toEqual({ kind: 'agent' });
+    // 经典布局、或者跑完了:不写。
+    expect((flattenTier([running({ kind: 'schedule' })], ctxWith({ active: true, foldTurnProcess: true }), SEGMENTERS)
+      .find(unit => unit.kind === 'turn-process')?.data as TurnProcessItem | undefined)?.trigger).toBeUndefined();
+    const done = { ...turn('t', [user('u'), tool('a'), reply('r')], { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 2000 }), trigger: { kind: 'schedule' as const } };
+    expect(flattenTier([done], ctxWith({ foldTurnProcess: true, agentConversation: true }), SEGMENTERS)
+      .some(unit => (unit.data as { trigger?: unknown }).trigger || (unit.data as ChatMessage).conversationProcess?.trigger)).toBe(false);
+  });
   it('folds a single command into its own step group, between the lines the agent said', () => {
     // MBP 验收 10-28 第十四轮:ping / 中途的话 / ping —— 一组只有一条命令时整组不见了。
     const record = turn('pings', [user('u'), bash('p1'), reply('mid', '中途汇报一'), bash('p2'), reply('final', '完成了')],

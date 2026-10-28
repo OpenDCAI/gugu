@@ -1,6 +1,6 @@
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
-import type { ChatItem, ChatMessage } from '@session-chat/model';
+import type { ChatItem, ChatMessage, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
 import type { TurnProcessHeader } from './turn-fold';
 
 /** Bind a process segment to its reply; notices retain their own status row. */
@@ -9,6 +9,17 @@ export function conversationProcessReply(header: TurnProcessHeader | null, tail:
   if (!header || reply?.kind !== 'message' || reply.role !== 'assistant'
     || !reply.text.trim() || isGuguSilence(reply.text) || parseHookNotice(reply.text)) return null;
   return { ...reply, conversationProcess: { id: header.id, ...(header.live ? { live: true } : {}), startedAt: header.startedAt, endedAt: header.endedAt } };
+}
+
+/**
+ * Who started a live turn, when it was not the owner typing — the process line says what the agent is busy with
+ * (butler 10-28: the owner's typed message must not look blocked by something he did not start). Older records have
+ * no `trigger`: an agent-initiated turn reads as background work, a user turn as before.
+ */
+export function processTrigger(turn: Pick<TranscriptTurn, 'initiator' | 'trigger'>): TurnProcessItem['trigger'] {
+  const trigger = turn.trigger ?? (turn.initiator === 'agent' ? { kind: 'agent' as const } : undefined);
+  if (!trigger || trigger.kind === 'owner') return undefined;
+  return trigger.chatIds?.length ? { kind: trigger.kind, chatIds: trigger.chatIds } : { kind: trigger.kind };
 }
 
 /** An assistant text the agent said itself (not a message_send projection, a delivery, silence or a hook notice). */

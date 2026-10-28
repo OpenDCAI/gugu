@@ -1,4 +1,4 @@
-import { conversationOutput, conversationProcessReply } from './conversation-process';
+import { conversationOutput, conversationProcessReply, processTrigger } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
 /**
@@ -371,6 +371,7 @@ export function flattenTier(
     const fold = foldPlans[turnIndex];
     if (fold) {
       const view = turnFoldView(turn, fold, foldRuns.get(turnIndex), ctx.active);
+      const trigger = ctx.agentConversation ? processTrigger(turn) : undefined;
       for (const item of view.leading) processItem(item);
       for (const segment of view.segments) {
         // 先按语义折一遍,再看**剩几行**(owner 2026-09-06 截图:「过程 · 2 步」底下只有一句
@@ -389,6 +390,7 @@ export function flattenTier(
             turnId: turn.id,
             live: true as const,
             ...(steps ? { steps } : {}),
+            ...(trigger ? { trigger } : {}),
             ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
           });
@@ -419,6 +421,7 @@ export function flattenTier(
               kind: 'turn-process',
               ...placeholderTurnHeader(header.id),
               ...(ctx.agentConversation && header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
+              ...(trigger ? { trigger } : {}),
               turnId: turn.id,
               withBody: true,
             });
@@ -433,6 +436,7 @@ export function flattenTier(
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
             ...(steps ? { steps } : {}),
+            ...(header.live && trigger ? { trigger } : {}),
             // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
             ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
