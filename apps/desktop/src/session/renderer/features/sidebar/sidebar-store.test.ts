@@ -103,13 +103,13 @@ describe('SidebarStore project ordering', () => {
       lastInteractedAt: '2026-01-01T00:00:01.000Z', agentStatus: 'needs_user', parentSessionId: parent,
     }]);
     const store = new SidebarStore(projectManagerWithSessions([
-      { id: row, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [parent] },
+      // 同群并成一行:行落在最早建的那个上(groupRowOrder)。
+      { id: row, createdAt: '2025-12-31T00:00:00.000Z', sessionIds: [parent] },
       { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [child] },
     ]));
     store.machines = {
       machineOf: () => null, label: () => null, homeDir: () => null,
       projectGroupOf: () => 'shared-project-chat',
-      projectGroupRepresentativeOf: (id) => id === row,
     };
     try {
       // Both page registries are unique. The aggregation reads the child through

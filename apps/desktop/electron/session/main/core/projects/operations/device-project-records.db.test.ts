@@ -63,7 +63,7 @@ describe('listDeviceProjectRecords', () => {
 
   it('lists the visible projects with their folders and groups, ❌ the hidden one', async () => {
     setProjectGroupHost(host(async () => ok([
-      { projectId: 'project-a', chatId: 'chat-a', representative: true },
+      { projectId: 'project-a', chatId: 'chat-a' },
       { projectId: 'project-hidden', chatId: 'chat-h' },
     ])));
     const records = await listDeviceProjectRecords();
@@ -74,7 +74,6 @@ describe('listDeviceProjectRecords', () => {
       rootPath: '/w/gugu',
       createdAt: '2026-10-01T08:00:00.000Z',
       chatId: 'chat-a',
-      groupRepresentative: true,
       folders: [
         { workspaceId: 'ws-root-a', kind: 'root', path: '/w/gugu', attachedAt: null },
         { workspaceId: 'ws-wt', kind: 'attached', path: '/w/gugu-wt', attachedAt: '2026-10-02T00:00:00.000Z' },
@@ -82,7 +81,6 @@ describe('listDeviceProjectRecords', () => {
     });
     expect(records.find((record) => record.localProjectId === 'project-b')).toMatchObject({
       chatId: null,
-      groupRepresentative: false,
       createdAt: '2026-10-03T09:30:00.000Z',
     });
   });

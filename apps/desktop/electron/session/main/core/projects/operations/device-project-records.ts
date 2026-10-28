@@ -41,7 +41,6 @@ export async function listDeviceProjectRecords(): Promise<DeviceProject[]> {
       rootPath: project.path,
       createdAt: isoFromProjectTimestamp(project.createdAt),
       chatId: binding?.chatId ?? null,
-      groupRepresentative: binding?.representative === true,
       folders,
     });
   }

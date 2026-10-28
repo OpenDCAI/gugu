@@ -181,7 +181,7 @@ export class RemoteHostsStore {
       sessionsOf: (deviceId) => this.sessionsOf(deviceId),
       isAssistantHome: (deviceId) => this.device(deviceId)?.assistantHome === true,
       projectGroupOf: (projectId) => projectGroupsStore.chatIdOf(projectId),
-      projectGroupRepresentativeOf: (projectId) => projectGroupsStore.isRepresentative(projectId),
+      connected: (deviceId) => this.connectionState(deviceId) === 'connected',
     };
     // #7341 第二步:各台机器上的本地项目绑的项目群(同群 = 同一个项目,侧栏合成一行)。
     projectGroupsStore.start(

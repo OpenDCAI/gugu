@@ -20,7 +20,6 @@ const record = (overrides: Partial<DeviceProject> = {}): DeviceProject => ({
   rootPath: '/srv/repo',
   createdAt: '2026-10-01T08:00:00.000Z',
   chatId: 'chat-repo',
-  groupRepresentative: false,
   folders: [
     { workspaceId: 'ws-root', kind: 'root', path: '/srv/repo', attachedAt: null },
     { workspaceId: 'ws-wt', kind: 'attached', path: '/srv/repo-wt', attachedAt: '2026-10-02T00:00:00.000Z' },
@@ -56,9 +55,9 @@ describe('账号上那份 → 会话页的形状', () => {
     );
   });
 
-  it('群绑定:没绑的不出,代表那一个带上标记', () => {
-    expect(accountBindingsOf('dev-1', [record({ groupRepresentative: true }), record({ localProjectId: 'proj-free-2', chatId: null })])).toEqual([
-      { projectId: 'proj-repo-1', chatId: 'chat-repo', representative: true },
+  it('群绑定:没绑的不出', () => {
+    expect(accountBindingsOf('dev-1', [record(), record({ localProjectId: 'proj-free-2', chatId: null })])).toEqual([
+      { projectId: 'proj-repo-1', chatId: 'chat-repo' },
     ]);
   });
 

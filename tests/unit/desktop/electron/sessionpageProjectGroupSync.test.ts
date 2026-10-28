@@ -1194,22 +1194,20 @@ describe('项目→群 映射:并发不丢条目、读失败必出声', () => {
     await forgetProjectGroupId('proj-alpha', 'owner-A', env)
     expect(await readProjectGroupId('proj-alpha', 'owner-A', env)).toBeNull()
   })
-  it('同机项目共群时,目标项目的代表身份随绑定持久化且撤销不误删', async () => {
+  it('同机项目共群:映射只记「项目 → 群」,撤销一个不误删另一个;旧文件里的 representatives 读时不认、写时去掉', async () => {
     const { rememberProjectGroupId, listProjectGroupIds, forgetProjectGroupId } = await import(MAPPING)
     const env = { GUGU_HOME: home } as NodeJS.ProcessEnv
+    await writeFile(join(home, 'taskpage-project-groups.json'), JSON.stringify({ owners: {}, unowned: {}, representatives: { [OWNER]: { 'chat-shared': 'z-target' } } }))
     await rememberProjectGroupId('z-target', 'chat-shared', OWNER, env)
     await rememberProjectGroupId('a-source', 'chat-old', OWNER, env)
     await rememberProjectGroupId('a-source', 'chat-shared', OWNER, env)
     expect(await listProjectGroupIds(OWNER, env)).toEqual([
-      { projectId: 'z-target', chatId: 'chat-shared', representative: true },
-      { projectId: 'a-source', chatId: 'chat-shared', representative: false },
+      { projectId: 'z-target', chatId: 'chat-shared' },
+      { projectId: 'a-source', chatId: 'chat-shared' },
     ])
     await forgetProjectGroupId('a-source', OWNER, env)
-    expect(await listProjectGroupIds(OWNER, env)).toEqual([
-      { projectId: 'z-target', chatId: 'chat-shared', representative: true },
-    ])
-    await rememberProjectGroupId('a-source', 'chat-old', OWNER, env)
-    expect((await listProjectGroupIds(OWNER, env)).find((row: { projectId: string; representative: boolean }) => row.projectId === 'a-source')?.representative).toBe(true)
+    expect(await listProjectGroupIds(OWNER, env)).toEqual([{ projectId: 'z-target', chatId: 'chat-shared' }])
+    expect(JSON.parse(await readFile(join(home, 'taskpage-project-groups.json'), 'utf8'))).not.toHaveProperty('representatives')
   })
 })
 const FOOTPRINT = '../../../../apps/desktop/electron/sessionpage/agent-local-footprint'
@@ -1376,7 +1374,7 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
       listGroupAgentsElsewhere: async () => { throw new Error('network down') },
     })).rejects.toThrow(/check other machines before archiving: network down/)
     expect(archived()).toEqual([])
-    expect(await listProjectGroupIds('owner-1', env()), '映射留着,下次触发再判').toEqual([{ projectId: 'proj-alpha', chatId: groupId, representative: true }])
+    expect(await listProjectGroupIds('owner-1', env()), '映射留着,下次触发再判').toEqual([{ projectId: 'proj-alpha', chatId: groupId }])
     expect(roster, '回收其余部分照常做完(完整但响亮)').toHaveLength(0)
   })
 
@@ -1415,7 +1413,7 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
     expect(res.archivedGroups).toBe(0)
     expect(archived()).toEqual([])
     expect(checker, '本机就判得出来,不必问云端').not.toHaveBeenCalled()
-    expect(await listProjectGroupIds('owner-1', env())).toEqual([{ projectId: 'proj-beta', chatId: groupId, representative: true }])
+    expect(await listProjectGroupIds('owner-1', env())).toEqual([{ projectId: 'proj-beta', chatId: groupId }])
   })
 
   describe('listGroupAgentsOnOtherDevices(默认的那一问)', () => {

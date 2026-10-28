@@ -145,8 +145,8 @@ export type SidebarMachines = {
   isAssistantHome?(deviceId: string): boolean;
   /** #7341 这个本地项目绑的项目群;绑在同一个群上的本地项目 = 同一个项目(合成一行)。 */
   projectGroupOf?(projectId: string): string | undefined;
-  /** Which project on this machine owns the group's visible row. */
-  projectGroupRepresentativeOf?(projectId: string): boolean;
+  /** 那台机器此刻连着(同群合成一行时,行落在连着的那台上,见 groupRowOrder)。 */
+  connected?(deviceId: string): boolean;
 };
 
 /** 一条别的机器上的会话(侧栏远程行画它)。 */
@@ -407,9 +407,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const machines = this.machines;
     if (!machines?.projectGroupOf) return EMPTY_PROJECT_GROUP_LAYOUT;
     return projectGroupLayout(
-      Array.from(this.projectManager.projects.values(), (p) => ({
-        id: p.id, machine: machines.machineOf(p.id), representative: machines.projectGroupRepresentativeOf?.(p.id),
-      })),
+      Array.from(this.projectManager.projects.values(), (p) => {
+        const machine = machines.machineOf(p.id);
+        return { id: p.id, machine, online: machine === null || machines.connected?.(machine) === true, createdAt: p.createdAt };
+      }),
       (id) => machines.projectGroupOf?.(id)
     );
   }
