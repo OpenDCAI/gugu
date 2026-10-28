@@ -9,6 +9,8 @@ import {
 import { rendererLogger } from '@/lib/log'
 import { cloudHostSuspended } from '@/lib/cloudHostSuspended'
 import { useSessionHostAsk } from '@/session/renderer/features/extensions/use-session-host-ask'
+import { rpcOn } from '@/session/renderer/lib/ipc'
+import { machineRegistry } from '@/session/renderer/lib/machine-routing'
 import type {
   CloudBrowserClientMessage,
   CloudBrowserAssistance,
@@ -50,6 +52,8 @@ export type BrowserUseView = {
   frame: CloudBrowserFrame | null
   send: (message: CloudBrowserClientMessage) => boolean
   ack: (seq: number) => void
+  /** 答这个任务等着的那一问(「完成」= 那一问的 allow 选项):人接管、自己在页面上做完时用。答成 = true。 */
+  finishAssistance: () => Promise<boolean>
   reconnect: () => void
   onServerMessage: (listener: (message: CloudBrowserServerMessage) => void) => () => void
 }
@@ -199,6 +203,23 @@ export function useBrowserUse(deviceId: string | null, sessionId: string | null,
     linkRef.current?.send({ type: 'ack', seq })
   }, [])
   const reconnect = useCallback(() => linkRef.current?.reconnect(), [])
+  const finishAssistance = useCallback(async () => {
+    const done = pending?.options?.find((option) => option.kind?.startsWith('allow'))
+    if (!sessionId || !pending || !done) return false
+    try {
+      const result = await rpcOn(machineRegistry.machineOf(sessionId)).sessionTimeline.sessionRespond({
+        conversationId: sessionId,
+        itemId: pending.itemId,
+        kind: 'permission',
+        optionId: done.optionId,
+        by: 'desktop',
+      })
+      return result.ok
+    } catch (error) {
+      log.warn({ sessionId, error: String(error) }, 'browser ask answer failed')
+      return false
+    }
+  }, [pending, sessionId])
   const onServerMessage = useCallback((listener: (message: CloudBrowserServerMessage) => void) => {
     listeners.current.add(listener)
     return () => {
@@ -206,5 +227,5 @@ export function useBrowserUse(deviceId: string | null, sessionId: string | null,
     }
   }, [])
 
-  return { live, unsupported, status, state, linkState, frame, send, ack, reconnect, onServerMessage, assistance }
+  return { live, unsupported, status, state, linkState, frame, send, ack, finishAssistance, reconnect, onServerMessage, assistance }
 }

@@ -59,6 +59,8 @@ export default {
     "inputInvalid": "The text contains unsupported characters and wasn't sent.",
     "retryInput": "Retry unsent text",
     "discardInput": "Discard unsent text",
+    "done": "Done",
+    "loginOrTakeOver": "Fill in the vault, or take control and log in on the page yourself; press Done when you have finished.",
     "releasingControl": "Handing back control…"
   },
   "vault": {

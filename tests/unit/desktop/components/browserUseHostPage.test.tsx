@@ -27,6 +27,7 @@ const fx = vi.hoisted(() => {
     baseState,
     machine: { kind: 'local' } as Record<string, unknown>,
     openTaskBrowser: vi.fn(() => true),
+    respond: vi.fn(async (_answer: unknown) => ({ ok: true })),
     asks: {} as Record<string, unknown>,
     status: baseStatus,
     state: baseState,
@@ -39,6 +40,10 @@ vi.mock('../../../../apps/desktop/src/components/browserUse/browserUsePlace', ()
 }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/use-session-host-ask', () => ({
   useSessionHostAsk: (sessionId: string | null) => (sessionId ? fx.asks[sessionId] ?? null : null),
+}))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({
+  rpc: {},
+  rpcOn: () => ({ sessionTimeline: { sessionRespond: fx.respond } }),
 }))
 vi.mock('../../../../apps/desktop/src/components/ui/Sheet', () => ({
   Sheet: ({ children, testId }: { children: ReactNode; testId?: string }) => <div role="dialog" data-testid={testId}>{children}</div>,
@@ -82,6 +87,7 @@ const loginAsk = {
   itemId: 'ask-1',
   state: 'pending',
   kind: 'permission',
+  options: [{ optionId: 'done', name: 'Done', kind: 'allow_once' }, { optionId: 'cancel', name: 'Cancel', kind: 'reject_once' }],
   origin: { source: 'browser-assistance', payload: { kind: 'login', site: 'https://www.jd.com', url: 'https://passport.jd.com/' } },
 }
 
@@ -93,6 +99,7 @@ beforeEach(() => {
   fx.status = { ...fx.baseStatus }
   fx.state = { ...fx.baseState }
   fx.openTaskBrowser.mockClear()
+  fx.respond.mockClear()
 })
 afterEach(() => {
   harness.cleanup()
@@ -161,6 +168,20 @@ describe('Browser Use host page', () => {
     await settle()
     expect(vault()).not.toBeNull()
     expect(harness.container.querySelector('[data-browser-use-line]')?.getAttribute('data-browser-use-line')).toBe('needs')
+  })
+
+  it('a login can also be done by hand: take control, then Done answers this task’s ask', async () => {
+    fx.machine = server
+    fx.asks = { s1: loginAsk }
+    await harness.render(createNode(BrowserUseHostPage, { sessionId: 's1', active: true }))
+    await settle()
+    const page = harness.container.querySelector('[data-testid="browser-use-page"]')!
+    expect(page.textContent).toContain('登录 jd.com')
+    expect(page.textContent).toContain('接管浏览器')
+    expect(page.textContent).toContain('自己在页面上登录')
+    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="browser-use-done"]')!.click())
+    await settle()
+    expect(fx.respond).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 's1', itemId: 'ask-1', kind: 'permission', optionId: 'done' }))
   })
 
   it('a page not on screen does not push the vault at the person', async () => {

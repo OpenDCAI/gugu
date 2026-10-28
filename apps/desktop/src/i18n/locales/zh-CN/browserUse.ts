@@ -59,6 +59,8 @@ export default {
     "inputInvalid": "文本包含不支持的字符，未发送。",
     "retryInput": "重试未发送内容",
     "discardInput": "关闭并丢弃未发送内容",
+    "done": "完成",
+    "loginOrTakeOver": "可以在保险箱里填账号密码，也可以接管浏览器、自己在页面上登录；做完点「完成」。",
     "releasingControl": "正在交还控制…"
   },
   "vault": {

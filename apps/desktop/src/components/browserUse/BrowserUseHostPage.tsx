@@ -153,7 +153,10 @@ function useControls(view: BrowserUseView, everOpened: boolean, active: boolean)
   return { controls, vaultOpen, setVaultOpen, stopAsked, setStopAsked, submitVault }
 }
 
-/** 主按钮:接管 / 取消接管申请 / 交还 / 正在交还…;agent 请人登录时是「登录 某站」。 */
+/**
+ * 主按钮:接管 / 取消接管申请 / 交还 / 正在交还…;agent 请人登录时「登录 某站」(保险箱)在前、「接管浏览器」也在 ——
+ * 人也可以自己接管、在页面上登录,做完点「完成」(DoneAction)。
+ */
 function PrimaryAction({ controls }: { controls: Controls }) {
   const { t } = useTranslation('browserUse')
   const { view, line } = controls
@@ -185,14 +188,43 @@ function PrimaryAction({ controls }: { controls: Controls }) {
   }
   if (assistance?.kind === 'login' && automation !== 'stopped') {
     return (
-      <Button variant="primary" size="sm" onClick={controls.openVault}>
-        <KeyRound size={14} /> {t('vault.login', { site: siteLabel(assistance.site) })}
-      </Button>
+      <>
+        <Button variant="primary" size="sm" onClick={controls.openVault}>
+          <KeyRound size={14} /> {t('vault.login', { site: siteLabel(assistance.site) })}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={controls.takeControl} disabled={disabled}>
+          {t('viewer.takeControl')}
+        </Button>
+      </>
     )
   }
   return (
     <Button variant="primary" size="sm" onClick={controls.takeControl} disabled={disabled || automation === 'stopped'}>
       {t('viewer.takeControl')}
+    </Button>
+  )
+}
+
+/**
+ * 「完成」:答这个任务等着的那一问(agent 请人登录 / 接手一步)。人接管、自己在页面上做完时按它 —— 还拿着控制权的,
+ * server 答完会替人交还。接手一步(takeover)交还控制时 server 也会自己答,这一个按钮两种都管。
+ */
+function DoneAction({ view }: { view: BrowserUseView }) {
+  const { t } = useTranslation('browserUse')
+  const [busy, setBusy] = useState(false)
+  if (!view.assistance) return null
+  return (
+    <Button
+      variant={view.state?.control === 'granted' ? 'primary' : 'secondary'}
+      size="sm"
+      data-testid="browser-use-done"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true)
+        void view.finishAssistance().finally(() => setBusy(false))
+      }}
+    >
+      <Check size={14} /> {t('viewer.done')}
     </Button>
   )
 }
@@ -456,10 +488,12 @@ function ServerBrowser({
         </div>
         <div className="bu-row-wrap">
           <PrimaryAction controls={controls} />
+          <DoneAction view={view} />
           <StopAction controls={controls} />
         </div>
       </div>
       {!view.live ? <div role="status" className="bu-caption">{t('place.viewOnly', { machine: machineLabel })}</div> : null}
+      {view.live && loginAsk ? <div role="status" className="bu-caption">{t('viewer.loginOrTakeOver')}</div> : null}
       {tabProblem ? <div role="alert" className="bu-alert">{t('viewer.tabCloseFailed')}</div> : null}
       {line.key === 'viewer.occupied' ? <div role="status" className="bu-caption">{t('viewer.controlOccupied')}</div> : null}
       {invalidText ? <div role="alert" className="bu-alert">{t('viewer.inputInvalid')}</div> : null}
