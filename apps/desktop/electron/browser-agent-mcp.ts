@@ -325,11 +325,19 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   }
 }
 
-/** The browser is an App program: ordinary App consent, scope, disclosure and live revocation all apply. */
+/** Playwright 那套 + 桥有的请人来(云浏览器才有):App 和 gugu-browser 给 agent 的是同一份清单。 */
+async function browserToolList(bridge: AgentBrowserBridge): Promise<Tool[]> {
+  return [...await browserAppToolSchemas(), ...personToolsOf(bridge)]
+}
+
+/**
+ * The browser is an App program: ordinary App consent, scope, disclosure and live revocation all apply.
+ * 桌面桥没有请人来,清单不变;server 的云浏览器桥有,App 就一并给 browser_request_login / takeover(都经 callBrowserTool)。
+ */
 export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): NativeAppProgram {
   const used = new Map<string, { sessions: Set<string>; calls: Set<Promise<CallToolResult>> }>()
   return {
-    tools: browserAppToolSchemas,
+    tools: () => browserToolList(bridge()),
     call(program, params, signal) {
       const sessionId = params._meta?.['gugu/sessionId']
       if (typeof sessionId !== 'string' || !sessionId) return Promise.resolve(refused('Browser Use needs a local Gugu session.'))
@@ -410,7 +418,8 @@ export const PERSON_TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what they need to do.' } },
-      required: ['reason'],
+      // 可变数组:要能当 MCP 的 Tool 列出(`as const` 下是只读的)。
+      required: ['reason'] as string[],
     },
   },
 ] as const
@@ -448,7 +457,7 @@ export function createBrowserAgentMcpHost(
       server.server.setRequestHandler(ListToolsRequestSchema, async () =>
         trackRequest(
           (async () => {
-            return { tools: getContext().personalAssistant ? [] : [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
+            return { tools: getContext().personalAssistant ? [] : await browserToolList(bridge()) }
           })(),
           'tools/list',
         ),

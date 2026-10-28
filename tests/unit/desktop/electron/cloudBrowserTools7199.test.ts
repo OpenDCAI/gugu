@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   PERSON_TOOLS,
+  createBrowserAppProgram,
   personToolsOf,
   redactOutputFiles,
   redactToolResult,
@@ -89,5 +90,52 @@ describe('#7199 cloud browser tools', () => {
     expect(fs.readFileSync(path.join(dir, 'shot.png'), 'utf8')).toBe('S3cret-pass!')
     expect(fs.readFileSync(old, 'utf8')).toContain('S3cret-pass!')
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('#7199 server 上的 Browser Use App', () => {
+  const program = { extensionId: 'browser-use', server: 'browser-use', native: 'browser-use' as const,
+    digest: 'd', command: 'Gugu Browser Use', args: [], env: {}, cwd: '/tmp', dataDir: '/tmp' }
+
+  it('桥有请人来(云浏览器)时 App 一并列出,调用交给桥;不开页签', async () => {
+    const cloud = {
+      ...desktopBridge,
+      openTransport: vi.fn(async () => ({ close() {} })),
+      toolStarting: vi.fn(() => ({ ok: true as const })),
+      requestLogin: vi.fn(async () => ({ ok: true, message: 'filled' })),
+      requestTakeover: vi.fn(async () => ({ ok: false, message: 'declined' })),
+    }
+    const provider = createBrowserAppProgram(() => cloud)
+    try {
+      const names = (await provider.tools()).map((tool) => tool.name)
+      expect(names).toEqual(expect.arrayContaining(['browser_navigate', 'browser_snapshot', 'browser_request_login', 'browser_request_takeover']))
+      // 与 gugu-browser 那台同名,各一份
+      expect(names.filter((name) => name === 'browser_request_login')).toHaveLength(1)
+      const signal = new AbortController().signal
+      expect(await provider.call(program, { name: 'browser_request_login', arguments: { reason: ' 登录邮箱 ' }, _meta: { 'gugu/sessionId': 's1' } }, signal))
+        .toEqual({ content: [{ type: 'text', text: 'filled' }] })
+      expect(cloud.requestLogin).toHaveBeenCalledWith('s1', { reason: '登录邮箱' }, signal)
+      expect(await provider.call(program, { name: 'browser_request_takeover', arguments: { reason: '验证码' }, _meta: { 'gugu/sessionId': 's1' } }, signal))
+        .toMatchObject({ isError: true, content: [{ type: 'text', text: 'declined' }] })
+      expect(cloud.requestTakeover).toHaveBeenCalledWith('s1', { reason: '验证码' }, signal)
+      expect(cloud.toolStarting).not.toHaveBeenCalled()
+      expect(cloud.openTransport).not.toHaveBeenCalled()
+    } finally {
+      await provider.retire('browser-use')
+    }
+  })
+
+  it('桌面桥没有请人来:App 的清单里也没有,点名调就拒', async () => {
+    const provider = createBrowserAppProgram(() => desktopBridge)
+    try {
+      const names = (await provider.tools()).map((tool) => tool.name)
+      expect(names).toContain('browser_navigate')
+      expect(names).not.toContain('browser_request_login')
+      expect(names).not.toContain('browser_request_takeover')
+      expect(await provider.call(program, { name: 'browser_request_login', _meta: { 'gugu/sessionId': 's1' } }, new AbortController().signal))
+        .toMatchObject({ isError: true })
+    } finally {
+      await provider.retire('browser-use')
+    }
   })
 })
