@@ -352,7 +352,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
         testId="settings-device-action-detail-back"
         trailing={group.connected
           ? (
-              <Button variant="secondary" size="sm" className="text-[var(--danger-fg,#d63838)]" onClick={() => void disconnect()} data-testid={`settings-device-action-disconnect-${group.id}`}>
+              <Button variant="secondary" size="sm" className="text-[var(--danger)]" onClick={() => void disconnect()} data-testid={`settings-device-action-disconnect-${group.id}`}>
                 {t('devices.deviceActions.disconnect')}
               </Button>
             )
@@ -375,7 +375,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
           </Button>
         )}
         {problem && (
-          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger-fg,#d63838)]" data-testid="settings-device-action-connect-failed" role="alert">
+          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger)]" data-testid="settings-device-action-connect-failed" role="alert">
             <div>{failure ? t('devices.deviceActions.connectFailed', { message: problem }) : problem}</div>
             <div className="flex items-center gap-1">
               {settingsUrl && (
