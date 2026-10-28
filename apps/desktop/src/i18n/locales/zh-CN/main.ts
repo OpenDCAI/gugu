@@ -34,7 +34,15 @@ export default {
     "harnessReadFailed": "暂时读不到智能体状态，请重试。",
     "harnessCancelFailed": "没能取消安装，请重试。",
     "introStart": "开通我的咕咕",
-    "introLater": "先逛逛"
+    "introLater": "先逛逛",
+    "terminalTitle": "终端",
+    "terminalSub": "习惯在终端里用 Claude Code、Codex 这类 CLI？开启后，可以用 TUI 的方式和 agent 交互。",
+    "terminalToggle": "启用终端",
+    "back": "上一步",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "之后可在设置 → 通用中更改",
+    "terminalPause": "暂停",
+    "terminalPlay": "播放"
   },
   "groupFile": {
     "notInGroup": "这个文件所在的对话，你不在里面"
@@ -163,7 +171,8 @@ export default {
       "tooLarge": "图太大 · 在桌面上看"
     },
     "timeline": {
-      "outputTrimmed": "… 此预览省略了 {{chars}} 字",
+      "outputTrimmed_one": "… 此预览省略了 {{count}} 字",
+      "outputTrimmed_other": "… 此预览省略了 {{count}} 字",
       "loading": "正在读取时间线…",
       "waitingRecord": "会话已开，正在等它写下第一行…",
       "empty": "这个会话还没有内容。",

@@ -22,6 +22,10 @@ export type DeviceRpcPipe = {
    * 有它的管道,请求方先叫它重新报到,再把这一问原样重发一次(同一个 request_id,宿主按它去重)。没有它的(SSH)照旧超时。
    */
   recover?(): void
+  /** 匹配到仍在等待的请求的回包(含业务错误):由管道维护自己的存活判断。 */
+  onReply?(): void
+  /** 这一问最终超时;尚未就绪的管道不通知,不把握手期限当应用链路故障。 */
+  onRequestTimeout?(timeoutMs: number): void
 }
 
 /**
@@ -177,6 +181,7 @@ export function createDeviceRpcRequester(options: {
           }
           settle(() => {
             reject(new DeviceRpcTimeoutError(`no reply to ${type} within ${timeoutMs} ms${retried ? ' (asked twice)' : ''}`))
+            entry.live?.onRequestTimeout?.(timeoutMs)
             if (entry.pending.size === 0 && !options.keepAliveOnTimeout?.(deviceId)) {
               drop(deviceId, entry, new DeviceRpcChannelError('dropped after a timeout', 'closed'))
             }
@@ -186,7 +191,10 @@ export function createDeviceRpcRequester(options: {
         signal?.addEventListener('abort', onAbort, { once: true })
         const pending: Pending = {
           expectedType: deviceRpcReplyType(type),
-          resolve: (value) => settle(() => resolve(value)),
+          resolve: (value) => settle(() => {
+            entry.live?.onReply?.()
+            resolve(value)
+          }),
           reject: (error) => settle(() => reject(error)),
           reissue: () => {
             if (retried) return false

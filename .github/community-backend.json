@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "34b4891d7b17a727a1809dfc756f247b5f7d843a",
-  "status": "Temporary or kept copies on the reference ledger (temporary_retention beside image_retention), the uploader's mark and storage overview RPCs, and keep on attachments commit/place, merged in OpenDCAI/gugu-supabase#68."
+  "ref": "e7918c4cd8b20816bae382aa1dddbe91d72dd54a",
+  "status": "list_unread_locators returns addressed_count (unread messages that name you, @all, or reply to you), merged in OpenDCAI/gugu-supabase#73."
 }

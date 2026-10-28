@@ -82,8 +82,20 @@ export type ChatMessage = {
   at?: number;
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
-  /** View-only reference to the input this agent output responds to. */
-  conversationReply?: { itemId: string; text: string };
+  /**
+   * View-only reference to the message this one explicitly replies to. Only a real anchor counts
+   * (the delivery's `reply_to`, or the `reply_to_message_id` the agent passed to message_send) —
+   * ❌ guessed from "the previous input" (owner 10-28: 参数里有什么就传什么). `from` is the quoted
+   * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
+   * `chatId` the group the quoted message was said in (absent for a DM).
+   */
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string };
+  /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
+  sentReplyTo?: string;
+  /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
+  conversationTail?: boolean;
+  /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
+  sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
   conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; steps?: number };
   /**
@@ -504,7 +516,7 @@ export type TurnProcessItem = {
    * 唯一的动静,才自己微光。
    */
   withBody?: boolean;
-  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「思考执行中 · 9m16s · 39 步」)。 */
+  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「执行中 · 9m16s · 39 步」)。 */
   steps?: number;
   /**
    * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——

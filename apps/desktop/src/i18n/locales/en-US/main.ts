@@ -34,7 +34,15 @@ export default {
     "harnessReadFailed": "Couldn't read agent status. Please try again.",
     "harnessCancelFailed": "Couldn't cancel the installation. Please try again.",
     "introStart": "Set up my Gugu",
-    "introLater": "Look around first"
+    "introLater": "Look around first",
+    "terminalTitle": "Terminal",
+    "terminalSub": "Used to CLIs like Claude Code or Codex in a terminal? Turn it on to work with agents through a TUI.",
+    "terminalToggle": "Enable terminal",
+    "back": "Back",
+    "stepCount": "{{current}} / {{total}}",
+    "terminalLater": "Change it later in Settings → General",
+    "terminalPause": "Pause",
+    "terminalPlay": "Play"
   },
   "groupFile": {
     "notInGroup": "You are not in the chat this file belongs to"
@@ -169,7 +177,8 @@ export default {
       "tooLarge": "Too large · view on desktop"
     },
     "timeline": {
-      "outputTrimmed": "… {{chars}} chars omitted from this preview",
+      "outputTrimmed_one": "… {{count}} char omitted from this preview",
+      "outputTrimmed_other": "… {{count}} chars omitted from this preview",
       "loading": "Loading the timeline…",
       "waitingRecord": "Task started — waiting for its first line…",
       "empty": "This task has no content yet.",

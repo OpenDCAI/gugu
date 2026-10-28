@@ -31,7 +31,7 @@ export function AssistantStreamingReply({ activity }: {
   }
   const owner = user ? { id: user.id, displayName: user.nickname, avatar: user.avatarUrl ?? null, email: null, type: 'human' as const, role: 'member' as const } : null
   return <div data-testid="assistant-streaming-reply" inert>
-    <MessageBubble msg={preview} isAgent hideAvatar hideTime streaming compactMobile={mobile}
+    <MessageBubble msg={preview} isAgent hideAvatar hideTime streaming compactMobile={mobile} isGroup={isRoomChat(activeChat.kind)}
       showReplyQuote={visibleReplyQuoteIds([...messages,preview],isRoomChat(activeChat.kind)).has(preview.id)}
       memberProfiles={owner ? { [owner.id]: owner } : undefined}
       onReaction={inactive} onQuote={inactive} onForward={inactive} onDelete={inactive} />
