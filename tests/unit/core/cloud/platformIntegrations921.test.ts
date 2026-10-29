@@ -9,6 +9,7 @@ import {
   PlatformCredentialRejectedError,
   PlatformForwarderBusyError,
   PlatformForwarderRefusedError,
+  PlatformProviderUnavailableError,
   PlatformIntegrationNotConnectedError,
 } from '@gugu/core/cloud/platformIntegrations'
 
@@ -221,5 +222,12 @@ describe('a forwarded call that the platform turns down (#921)', () => {
     expect(error).toBeInstanceOf(PlatformForwarderRefusedError)
     expect((error as Error).message).toMatch(wording)
     expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401|try again/i)
+  })
+
+  it('a call AMap cannot serve right now (502 upstream_unavailable) says so: not a reconnect, not sign-in, not “not connected”', async () => {
+    const error = await callAmapTool(() => json({ error: 'upstream_unavailable', message: 'AMap quota' }, 502)).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PlatformProviderUnavailableError)
+    expect((error as Error).message).toMatch(/amap isn't available right now; try again later/i)
+    expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401/i)
   })
 })

@@ -15,6 +15,8 @@ describe('connectorState', () => {
     expect(connectorState(true, status(false, 'authorization_expired'))).toBe('needsReauth');
     expect(connectorState(true, status(false, 'auth_failed'))).toBe('needsReauth');
     expect(connectorState(true, status(false, 'key_rejected'))).toBe('needsReauth');
+    // #921 the provider answered but is not usable right now: temporary, never a reauth.
+    expect(connectorState(true, status(false, 'provider_unavailable'))).toBe('checkFailed');
     expect(connectorState(true, status(false, 'rate_limited'))).toBe('checkFailed');
     expect(connectorState(true, status(false, 'host_unreachable'))).toBe('checkFailed');
     expect(connectorState(true, status(true), new Error('refresh failed'))).toBe('checkFailed');

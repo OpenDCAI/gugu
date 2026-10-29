@@ -378,6 +378,7 @@ describe('credentials the platform keeps (#921)', () => {
   it.each([
     ['timed out', 408, 'request_timeout', 'timed_out'],
     ['rate-limited', 429, 'rate_limited', 'rate_limited'],
+    ['found AMap not available (502)', 502, 'upstream_unavailable', 'provider_unavailable'],
   ] as const)('a connection the platform %s reads as temporary and keeps nothing', async (_case, status, code, errorType) => {
     const platform = fakePlatform();
     const d = await device(platform, 'D');
@@ -626,7 +627,11 @@ describe('credentials the platform keeps (#921)', () => {
       await b.service.refresh({ maxAgeMs: 0 });
       expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
       expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
-      expect(await b.service.check('amap')).toEqual({ connected: false });
+      // Never "needs a reconnect": the key is fine as far as anyone knows.
+      const status = await b.service.check('amap');
+      expect(status.connected).toBe(false);
+      expect(['key_rejected', 'authorization_expired', 'auth_failed']).not.toContain('errorType' in status ? status.errorType : undefined);
+      expect(b.service.needsReconnect('amap', (await b.fixture.registry.listAccounts('amap'))[0]!)).toBe(false);
       // Backing off: not again a minute later; again once the back-off is over.
       clock.now += 60_000;
       await b.service.refresh({ maxAgeMs: 0 });
@@ -634,6 +639,19 @@ describe('credentials the platform keeps (#921)', () => {
       clock.now += 5 * 60_000;
       await b.service.refresh({ maxAgeMs: 0 });
       expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(2);
+      expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+    });
+
+    it('a #649 key held while AMap is not available (502) reads as “not available right now”, not as a reconnect', async () => {
+      const platform = fakePlatform();
+      const b = await device(platform, 'B');
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+      platform.state.putFault = { status: 502, code: 'upstream_unavailable' };
+
+      await b.service.refresh({ maxAgeMs: 0 });
+      const unavailable = { connected: false, errorType: 'provider_unavailable', error: "高德地图 isn't available right now; try again later." };
+      expect(await b.service.check('amap')).toEqual(unavailable);
+      expect(await b.service.checkAccounts('amap')).toEqual([{ accountId: 'default', ...unavailable }]);
       expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
     });
 

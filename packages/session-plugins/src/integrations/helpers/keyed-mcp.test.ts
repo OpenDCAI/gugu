@@ -86,10 +86,10 @@ describe('keyed hosted MCP (AMap)', () => {
     ['10013 USER_KEY_RECYCLED', { status: '0', info: 'USER_KEY_RECYCLED', infocode: '10013' }, 'auth_failed'],
     ['a key-invalid info alone', { status: '0', info: 'USER_KEY_RECYCLED' }, 'auth_failed'],
     ['a key-invalid infocode alone', { status: '0', infocode: '10009' }, 'auth_failed'],
-    ['the daily quota (10003)', { status: '0', info: 'DAILY_QUERY_OVER_LIMIT', infocode: '10003' }, 'host_unreachable'],
-    ['a whitelist refusal (10005)', { status: '0', info: 'INVALID_USER_IP', infocode: '10005' }, 'host_unreachable'],
-    ['info and infocode that disagree', { status: '0', info: 'INVALID_USER_KEY', infocode: '10003' }, 'host_unreachable'],
-    ['an unknown code', { status: '0', info: 'SOMETHING_NEW', infocode: '19999' }, 'host_unreachable'],
+    ['the daily quota (10003)', { status: '0', info: 'DAILY_QUERY_OVER_LIMIT', infocode: '10003' }, 'provider_unavailable'],
+    ['a whitelist refusal (10005)', { status: '0', info: 'INVALID_USER_IP', infocode: '10005' }, 'provider_unavailable'],
+    ['info and infocode that disagree', { status: '0', info: 'INVALID_USER_KEY', infocode: '10003' }, 'provider_unavailable'],
+    ['an unknown code', { status: '0', info: 'SOMETHING_NEW', infocode: '19999' }, 'provider_unavailable'],
   ] as const)('AMap’s top-level refusal with %s: a wrong key only for the three key-invalid codes', async (_case, refusal, type) => {
     const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: GOOD }, fakeAmap(GOOD, { refusal }).fetchImpl);
     expect(result.connected).toBe(false);
@@ -102,15 +102,26 @@ describe('keyed hosted MCP (AMap)', () => {
     ['INVALID_USER_KEY', 'API 调用失败：INVALID_USER_KEY', 'auth_failed'],
     ['USERKEY_PLAT_NOMATCH', 'API 调用失败：USERKEY_PLAT_NOMATCH', 'auth_failed'],
     ['USER_KEY_RECYCLED', 'API 调用失败：USER_KEY_RECYCLED', 'auth_failed'],
-    ['the daily quota', `API 调用失败：DAILY_QUERY_OVER_LIMIT (key ${GOOD})`, 'host_unreachable'],
-    ['QPS', 'API 调用失败：CUQPS_HAS_EXCEEDED_THE_LIMIT', 'host_unreachable'],
-    ['two codes at once', 'API 调用失败：INVALID_USER_KEY, CUQPS_HAS_EXCEEDED_THE_LIMIT', 'host_unreachable'],
-    ['no code at all', 'API 调用失败：服务器繁忙', 'host_unreachable'],
+    ['the daily quota', `API 调用失败：DAILY_QUERY_OVER_LIMIT (key ${GOOD})`, 'provider_unavailable'],
+    ['QPS', 'API 调用失败：CUQPS_HAS_EXCEEDED_THE_LIMIT', 'provider_unavailable'],
+    ['two codes at once', 'API 调用失败：INVALID_USER_KEY, CUQPS_HAS_EXCEEDED_THE_LIMIT', 'provider_unavailable'],
+    ['no code at all', 'API 调用失败：服务器繁忙', 'provider_unavailable'],
   ] as const)('a tool call that fails with %s: a wrong key only for exactly one key-invalid code', async (_case, callError, type) => {
     const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: GOOD }, fakeAmap(GOOD, { callError }).fetchImpl);
     expect(result.connected).toBe(false);
     if (result.connected) return;
     expect(result.error?.type).toBe(type);
+    expect(result.error?.message).not.toContain(GOOD);
+  });
+
+  it('a network failure stays “can’t reach AMap”: only an answer from AMap is “not available right now”', async () => {
+    const down = (async () => {
+      throw new TypeError(`fetch failed for https://mcp.amap.com/mcp?key=${GOOD}`);
+    }) as unknown as typeof fetch;
+    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: GOOD }, down);
+    expect(result.connected).toBe(false);
+    if (result.connected) return;
+    expect(result.error?.type).toBe('host_unreachable');
     expect(result.error?.message).not.toContain(GOOD);
   });
 
