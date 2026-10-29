@@ -292,6 +292,10 @@ jobs:
       - name: Test native IPC, direct media and actual Chromium decoding
         shell: bash
         run: |
+          # checkout's safe.directory lives in the action's temporary HOME;
+          # Go's VCS stamping runs later as the browser container's root user.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" status --porcelain
           test -z "$(gofmt -l .)"
           go build -race -o "$RUNNER_TEMP/projection-media" ./cmd/projection-media
           export GUGU_TEST_MEDIA_HELPER="$RUNNER_TEMP/projection-media"
