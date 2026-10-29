@@ -18,9 +18,13 @@ export async function configuredIntegrationIndex() {
     const provider = plugin.metadata.id
     const taskSkills = skills.filter(skill => skill.extensionId === provider).map(skill => skill.name)
     // The assistant has no shell or Skill tool: a connected CLI application is used by the task it delegates.
+    // A connection that hands sessions its tools (hosted MCP such as AMap, MCP OAuth, mail) is used the same
+    // way: a task session opened now carries them. ❌ "via catalog_list": they are never in the catalog.
     const use = taskSkills.length
       ? { note: `${plugin.metadata.name}已连接，要用就派任务`, delegate: { tool: 'session_spawn' }, task_skills: taskSkills }
-      : undefined
+      : !cliMethodOf(provider) && integrationGivesSessionTools(provider)
+        ? { note: `${plugin.metadata.name}已连接，要用就派任务；任务会话里自带它的工具`, delegate: { tool: 'session_spawn' }, task_skills: [] }
+        : undefined
     // Neither tools nor a CLI: connected for issue links only, nothing the assistant can call.
     // A CLI whose skills cannot be read right now is still a CLI, not an issue link.
     const note = !use && !cliMethodOf(provider) && !integrationGivesSessionTools(provider) ? '只用来关联 issue，助理不能直接用' : undefined
