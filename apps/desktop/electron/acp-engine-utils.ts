@@ -272,8 +272,9 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
                 return runAppAction(
                   action,
                   getContext(),
-                  (ready) => run(ready, signal),
-                  runSession ? (session) => runSession(session, signal) : undefined,
+                  (ready, lifetime) => run(ready, lifetime ?? signal),
+                  runSession ? (session, lifetime) => runSession(session, lifetime ?? signal) : undefined,
+                  signal,
                 )
               }
             : undefined,

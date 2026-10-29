@@ -1,5 +1,6 @@
 import { ask, respond, withdrawAll } from '../../asks';
 import { hostAsks } from '../../asks/ask';
+import { humanToolPending, runHumanTool } from '../../asks/human-tool-wait';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -54,6 +55,7 @@ type ChangeListener = () => void;
 type AssistanceOutcome =
   | { kind: 'returned' }
   | { kind: 'dismissed' }
+  | { kind: 'withdrawn' }
   | { kind: 'stopped' }
   | { kind: 'timeout' }
   | { kind: 'ended'; reason: string };
@@ -393,7 +395,13 @@ export class CloudBrowser {
   }
 
   /** 请人接管浏览器,在页面上完成登录,然后交还。 */
-  async requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_login', signal,
+      lifetime => this.waitForLogin(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForLogin(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     const owned = this.sessionTab.get(sessionId);
@@ -408,7 +416,13 @@ export class CloudBrowser {
   }
 
   /** 请人接手一步(验证码、短信码、确认付款……):等人接管再交还。 */
-  async requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_takeover', signal,
+      lifetime => this.waitForTakeover(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForTakeover(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     if (!this.sessionTab.has(sessionId)) return { ok: false, message: 'Open the page in the browser first (browser_navigate), then ask the person.' };
@@ -441,6 +455,7 @@ export class CloudBrowser {
       if (this.holder) await this.releaseControl(this.holder);
       return { kind: 'returned' };
     }
+    if (result === 'withdrawn' && !this.endedReason && this.automation !== 'stopped') return { kind: 'withdrawn' };
     if (result === 'unavailable') return { kind: 'ended', reason: 'This task is unavailable; no request was opened.' };
     return result === 'timeout' ? { kind: 'timeout' } : this.endedReason ? { kind: 'ended', reason: this.endedReason } : { kind: this.automation === 'stopped' ? 'stopped' : 'dismissed' };
   }
@@ -626,6 +641,8 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 
 function outcomeMessage(outcome: AssistanceOutcome, kind: 'login' | 'takeover'): string {
   switch (outcome.kind) {
+    case 'withdrawn':
+      return 'The original browser request was withdrawn before the person answered. This is not approval or a refusal by the person.';
     case 'dismissed':
       return kind === 'login'
         ? 'The person declined to log in. Tell them what is needed and wait; do not ask for the password in chat.'

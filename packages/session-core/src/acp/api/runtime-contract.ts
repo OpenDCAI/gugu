@@ -136,6 +136,11 @@ export const acpRuntimeApiContract = defineContract({
       platformAccessSessionId: z.string().min(1).optional(),
     }),
   }),
+  /** Only actual admitted steering, never ordinary queued input. */
+  promptSteered: eventStream({
+    key: z.void(),
+    event: z.object({ sessionId: z.string().min(1) }),
+  }),
   /**
    * 一条回合提交了(#5381)。主进程订阅它把历史落盘 —— 会话页不再把「用户会不会丢历史」
    * 交给 provider 的重放去决定(实测:claude 的适配器在上下文压缩之后只重放最后一次压缩边界
