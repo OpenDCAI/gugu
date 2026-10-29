@@ -181,7 +181,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
         </Tooltip>
       </TooltipProvider>
       <Select
-        value={defaultApp ?? undefined}
+        value={defaultApp}
         onValueChange={(value) => {
           if (isValidOpenInAppId(value)) {
             selectAndOpenApp(value as OpenInAppId);
