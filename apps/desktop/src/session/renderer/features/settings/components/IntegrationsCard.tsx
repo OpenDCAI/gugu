@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { integrationErrorText } from '@renderer/features/integrations/integration-display';
+import { keptByPlatform } from '@renderer/features/integrations/integration-setup-model';
 import { useIntegrationsContext } from '@renderer/features/integrations/integrations-provider';
 import { PageLoading } from '@renderer/lib/components/page-layout';
 import type { IntegrationAccountSummary } from '@renderer/features/integrations/use-integration-accounts';
@@ -85,20 +86,27 @@ const IntegrationsCard: React.FC = () => {
 
   // #7240 断开确认的话:「要断开与 %s 的连接吗?」「agent 将无法再访问你的 %s 数据。」;
   // 存着凭据的(填表连的)再补一句「只删咕咕存的,要让授权码失效去对方那边撤」。
+  // #921 平台保管的那几家改说「所有设备都会断开;要作废凭据本身去对方控制台删」。
+  const credentialNotice = (name: string, credential: string | undefined, platform: boolean) =>
+    platform
+      ? translate('integrations.platformDisconnectNotice', { name, credential: credential ?? name })
+      : translate('integrations.credentialsDeleteNotice');
   const confirmDisconnect = ({
     name,
     credential,
+    platform,
     onDisconnect,
   }: {
     name: string;
     credential?: string;
+    platform: boolean;
     onDisconnect: () => void | Promise<void>;
   }) => {
     const loseAccess = translate('integrations.disconnectLoseAccess', { name });
     showConfirm({
       // @@@raw provider name — integration 名与凭据类型名是 provider 数据,只做插值。
       title: translate('integrations.disconnectConfirmTitle', { name }),
-      description: credential ? `${loseAccess}${translate('integrations.credentialsDeleteNotice')}` : loseAccess,
+      description: credential || platform ? `${loseAccess}${credentialNotice(name, credential, platform)}` : loseAccess,
       confirmLabel: translate('integrations.disconnect'),
       onSuccess: () => {
         void onDisconnect();
@@ -106,12 +114,20 @@ const IntegrationsCard: React.FC = () => {
     });
   };
 
-  const confirmDisconnectAccount = (provider: string, accountId: string, label: string, hasCredential: boolean) => {
+  const confirmDisconnectAccount = (
+    provider: string,
+    accountId: string,
+    label: string,
+    hasCredential: boolean,
+    credential?: { name: string; label?: string; platform: boolean }
+  ) => {
     const only = translate('integrations.disconnectAccountDescription', { account: label });
     showConfirm({
       title: translate('integrations.disconnectAccountTitle'),
       // @@@raw account label — 账号名是用户数据(邮箱地址),只做插值。
-      description: hasCredential ? `${only}${translate('integrations.credentialsDeleteNotice')}` : only,
+      description: hasCredential
+        ? `${only}${credential ? credentialNotice(credential.name, credential.label, credential.platform) : translate('integrations.credentialsDeleteNotice')}`
+        : only,
       confirmLabel: translate('integrations.disconnect'),
       onSuccess: () => {
         void disconnectIntegration(provider, accountId);
@@ -195,7 +211,11 @@ const IntegrationsCard: React.FC = () => {
         ? {}
         : {
             onDisconnectAccount: (accountId: string, label: string) =>
-              confirmDisconnectAccount(provider, accountId, label, hasForm),
+              confirmDisconnectAccount(provider, accountId, label, hasForm, {
+                name: integration.name,
+                label: integration.disconnectCredentialLabel,
+                platform: keptByPlatform(integration),
+              }),
           }),
       onConnect: () => showIntegrationSetup({ integration: provider, host: modalHost }),
       onDisconnect: notice?.readOnly
@@ -204,6 +224,7 @@ const IntegrationsCard: React.FC = () => {
             confirmDisconnect({
               name: integration.name,
               credential: integration.disconnectCredentialLabel,
+              platform: keptByPlatform(integration),
               onDisconnect: () => {
                 void disconnectIntegration(provider);
               },
