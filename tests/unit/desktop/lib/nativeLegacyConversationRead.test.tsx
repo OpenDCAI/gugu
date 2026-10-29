@@ -7,7 +7,7 @@ import type { ChatView } from '@gugu/session-chat-ui'
 const scope = vi.hoisted(() => ({ first: null as string | null, aliases: new Map<string, string[]>() }))
 vi.mock('../../../../apps/desktop/src/lib/chatSummariesBridge', () => ({ useChatSummaries: () => new Map([['dm', { peerUserId: 'agent', firstUnreadMessageId: scope.first }]]) }))
 vi.mock('../../../../apps/desktop/src/components/chat/agent-dm-record', () => ({ dmRecordIds: () => scope.aliases }))
-vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory', () => ({ useLiveDeviceSessions: () => ({ host: { sessions: [{ conversationId: 'session', agent: { userId: 'agent' }, nativeUnreadKeys: ['native'] }] } }) }))
+vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory', () => ({ useDirectoryDevices: () => [], directoryRows: () => [], useLiveDeviceSessions: () => ({ host: { sessions: [{ conversationId: 'session', agent: { userId: 'agent' }, nativeUnreadKeys: ['native'] }] } }) }))
 const harness = createReactHarness()
 afterEach(() => { harness.cleanup(); scope.first = null; scope.aliases = new Map() })
 it('places a newly arrived MCP first-unread after a native reply already consumed its own landing', async () => {

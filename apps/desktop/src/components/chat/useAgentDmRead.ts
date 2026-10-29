@@ -20,7 +20,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   if (!activation.current || (shown && !activation.current.shown)) {
     const locator = unreadEntry?.locator ?? chat.unread_locator
     const first = locator?.message_id ?? null
-    activation.current = { shown, cursor: new AgentDmReadCursor(first, Math.max(locator?.cursor_seq ?? 0, chat.last_read_seq)), first, placed: null, loading: false, seenEntry: false }
+    activation.current = { shown, cursor: new AgentDmReadCursor(first, Math.max(locator?.cursor_seq ?? 0, chat.last_read_seq), locator?.message_seq ?? undefined), first, placed: null, loading: false, seenEntry: false }
   }
   activation.current.shown = shown
   const current = activation.current

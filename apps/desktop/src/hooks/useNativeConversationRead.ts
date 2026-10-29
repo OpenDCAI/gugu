@@ -6,14 +6,12 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { ChatView } from '@gugu/session-chat-ui'
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
 import { platform } from '@/platform'
-import { useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { useConversationSessionSummary } from './useConversationSessionSummary'
 import { rendererLogger } from '@/lib/log'
 
 /** The same host journal supplies the desktop and phone; only readable bubbles enter it. */
 export function useNativeConversationRead(deviceId: string | null, sessionId: string | undefined, shown: boolean, turns: () => readonly TranscriptTurn[]) {
-  const directory = useLiveDeviceSessions()
-  const summary = Object.entries(directory).flatMap(([id, value]) => value.sessions.map(session => ({ id, session })))
-    .find(row => row.session.conversationId === sessionId && (!deviceId || row.id === deviceId))?.session
+  const summary = useConversationSessionSummary(sessionId, deviceId)
   const readTurns = useRef(turns)
   readTurns.current = turns
   const key = useRef(crypto.randomUUID())

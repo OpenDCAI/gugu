@@ -55,3 +55,19 @@ it('retries visible replies until the store confirms their read watermark', () =
   expect(cursor.visible([rows[0].id], rows)).toEqual([])
   expect(cursor.visible([rows[1].id], rows)).toEqual([rows[1]])
 })
+
+it('releases the original unseen first unread after another device confirms it read', () => {
+  const cursor = new AgentDmReadCursor(rows[0].id, 0)
+  expect(cursor.visible([rows[1].id], rows)).toEqual([])
+  cursor.acknowledge(1)
+  expect(cursor.visible([rows[1].id], rows)).toEqual([rows[1]])
+  expect(cursor.visible([rows[3].id], rows)).toEqual([rows[1]])
+})
+
+it('uses the captured server sequence when the old first unread is no longer in the loaded window', () => {
+  const cursor = new AgentDmReadCursor(rows[0].id, 0, 1)
+  expect(cursor.visible([rows[4].id], rows.slice(4))).toEqual([])
+  cursor.acknowledge(4)
+  expect(cursor.visible([rows[4].id], rows.slice(4))).toEqual([rows[4]])
+  expect(cursor.canFollow(rows.slice(4))).toBe(false)
+})

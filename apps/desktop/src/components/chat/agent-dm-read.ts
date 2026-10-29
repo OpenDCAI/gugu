@@ -6,19 +6,23 @@ export class AgentDmReadCursor {
   private skipped = new Set<string>()
   private pending = new Map<string, MessageItem>()
   private confirmedSeq: number
-  constructor(readonly firstUnreadId: string | null, private readSeq: number) { this.confirmedSeq = readSeq }
+  constructor(readonly firstUnreadId: string | null, private readSeq: number, private readonly firstUnreadSeq?: number) { this.confirmedSeq = readSeq }
   acknowledge(seq: number): void {
     this.confirmedSeq = Math.max(this.confirmedSeq, seq)
     this.readSeq = Math.max(this.readSeq, seq)
     for (const [id, row] of this.pending) if (row.seq <= this.confirmedSeq) this.pending.delete(id)
   }
   ignore(ids: readonly string[]): void { for (const id of ids) { this.skipped.add(id); this.pending.delete(id) } }
+  private firstWasRead(rows: readonly MessageItem[]): boolean {
+    const seq = this.firstUnreadSeq ?? rows.find(row => row.id === this.firstUnreadId)?.seq
+    return seq !== undefined && seq > 0 && seq <= this.confirmedSeq
+  }
 
   visible(ids: readonly string[], rows: readonly MessageItem[]): MessageItem[] {
     for (const id of ids) this.seen.add(id)
     const unread = rows.filter(row => row.seq > this.readSeq && !row.thread_root_id).sort((a, b) => a.seq - b.seq)
     // The first unread may still be outside the loaded IM window.
-    if (this.firstUnreadId && !this.seen.has(this.firstUnreadId) && !this.skipped.has(this.firstUnreadId)) return []
+    if (this.firstUnreadId && !this.firstWasRead(rows) && !this.seen.has(this.firstUnreadId) && !this.skipped.has(this.firstUnreadId)) return []
     for (const row of unread) {
       if (!row.is_mine && !row.retracted_at && !this.seen.has(row.id) && !this.skipped.has(row.id)) break
       this.readSeq = row.seq
@@ -30,7 +34,7 @@ export class AgentDmReadCursor {
   }
 
   canFollow(rows: readonly MessageItem[]): boolean {
-    return (!this.firstUnreadId || this.seen.has(this.firstUnreadId) || this.skipped.has(this.firstUnreadId))
+    return (!this.firstUnreadId || this.firstWasRead(rows) || this.seen.has(this.firstUnreadId) || this.skipped.has(this.firstUnreadId))
       && !rows.some(row => row.seq > this.readSeq && !row.is_mine && !row.retracted_at && !row.thread_root_id && !this.skipped.has(row.id))
   }
 }
