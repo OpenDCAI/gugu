@@ -8,7 +8,7 @@ import { applyInstalledExtension } from './extension-after-install';
 import { announceInstalledChanged } from './extension-bridge-relay';
 import { extensionsService } from './extensions-root';
 import { installPlan } from './install-plan';
-import { installPrepared, type InstallDependencies } from './install-prepared';
+import { installPrepared, notGivenNoteOf, type InstallDependencies } from './install-prepared';
 import type { CloudExtensionMarket, MarketPrepared } from './market-catalog';
 import type { HandedConsent } from '@shared/extensions/install-consent-flow';
 
@@ -145,6 +145,7 @@ export async function installExtensionFromMarket(
       ...(plan.displaced ? { updatedFrom: plan.displaced.manifest.version } : {}),
       ...(pinned ? { pinned: true as const } : {}),
       announced: done.announced,
+      ...notGivenNoteOf(done),
     };
   } finally {
     // Installed, refused or failed, the unpacked copy is done with; only one handed back for its consent stays.

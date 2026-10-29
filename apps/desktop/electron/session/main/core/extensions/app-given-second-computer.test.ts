@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   service: null as unknown as ExtensionsService,
   rows: [] as Array<{ chatId: string; userId: string; app: { publisher: string; id: string } }>,
   unread: null as Error | null,
+  told: [] as unknown[],
 }));
 
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => state.service, appSourcesRoot: () => path.join(work, 'app-sources') }));
@@ -58,6 +59,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 vi.mock('./extension-bridge-relay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./extension-bridge-relay')>()),
   announceInstalledChanged: async () => 'shown',
+  actInWindow: async (action: unknown) => { state.told.push(action); },
 }));
 
 const given = await import('./app-given');
@@ -161,16 +163,31 @@ describe('an install writes this computer\'s half only (architecture §4.2: prob
     expect(chats()).toEqual(['g']);
   });
 
-  it('the chat row failing to be written does not fail the install (this computer\'s half decides here)', async () => {
+  it('the chat row failing to be written does not fail the install (this computer\'s half decides here), and the person is told', async () => {
     const here = computer();
     await install(here);
     state.service = here;
     await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
     const enablements = await import('@shared/extensions/app-enablements-core');
     const write = vi.spyOn(enablements, 'setEnablement').mockRejectedValueOnce(new Error('network'));
+    state.told = [];
     const { result } = await install(here, { chatId: 'h' });
     expect(result.outcome).toBe('confirmed');
+    // 「没加上群 H，去 App 页加」: the window says so, and the outcome carries it for an agent's answer.
+    expect(result).toMatchObject({ notGivenAt: { id: 'h', name: 'H' } });
+    expect(state.told).toEqual([{ kind: 'notGivenAt', extensionId: 'searcher', chat: { id: 'h', name: 'H' } }]);
     write.mockRestore();
+  });
+
+  it('[positive control] the chat row written: nothing to tell', async () => {
+    const here = computer();
+    await install(here);
+    state.service = here;
+    await given.changeAppPlaces('searcher', [{ id: HERE_ALL, on: false }]);
+    state.told = [];
+    const { result } = await install(here, { chatId: 'h' });
+    expect(result).not.toHaveProperty('notGivenAt');
+    expect(state.told).toEqual([]);
   });
 });
 
