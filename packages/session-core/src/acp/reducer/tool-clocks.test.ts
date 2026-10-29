@@ -6,6 +6,11 @@ const start: FoldEvent = { kind: 'tool_call', toolCallId: 'send', title: 'messag
 const done: FoldEvent = { kind: 'tool_update', toolCallId: 'send', title: null, toolKind: null, status: 'completed', parentToolCallId: null };
 
 describe('authentic tool boundary clocks', () => {
+  it('does not stamp a replayed hook notice with the replay clock', () => {
+    const notice: FoldEvent = { kind: 'session_notice', code: 'provider-notice', title: 'Stop says: Check.', detail: 'Stop says: Check.' };
+    expect(foldItem([], notice, 't', 200)[0]).not.toHaveProperty('at');
+    expect(foldItem([], notice, 't', 200, 2000)[0]).toMatchObject({ at: 2000 });
+  });
   it('retains arrival and first completion across later updates', () => {
     const running = foldItem([], start, 't', 100, 1000);
     expect(running[0]).toMatchObject({ at: 1000 });
