@@ -39,11 +39,14 @@ export const ADAPTER_PACKAGES = ADAPTER_BRIDGE_ENTRIES.map((entry) => packageNam
 export const BROWSER_PACKAGES = ['@playwright/mcp']
 
 /**
- * 宿主同样从应用根现解析、但不是桥的文件:Claude 桥的配对表 `@gugu-acp/compat`(acp-bridge/claude-bridge-deps.ts
- * 读它的 package.json)。server 包以前不带 —— 读不到配对表就一律用随包的桥、也不联网查表,按 CLI 版本配桥(#6394)
- * 在 server 上从没生效过。
+ * 宿主同样从应用根取、但不是桥的两个包,按 CLI 版本配 Claude 桥(#6394)靠它们,server 包以前都不带:
+ *  - `@gugu-acp/compat`:随包的配对表(acp-bridge/claude-bridge-deps.ts 读它的 package.json)。读不到就一律用随包的桥、
+ *    也不联网查表 —— 配桥在 server 上从没生效过;
+ *  - `npm`:随 App 交付的 npm(engine-downloader.ts 的 resolveBundledNpmInvocation 按路径跑
+ *    `node_modules/npm/bin/npm-cli.js`),联网查最新的表、下载配上的桥都用它。缺了,表读得到也只能停在随包那一版。
+ *    它的 `exports` 不导出 bin/,闸里按 package.json 认包在。
  */
-export const APP_ROOT_PACKAGE_FILES = ['@gugu-acp/compat/package.json']
+export const APP_ROOT_PACKAGE_FILES = ['@gugu-acp/compat/package.json', 'npm/package.json']
 
 export const RUNTIME_PACKAGES = [
   ...NATIVE_EXTERNAL_PACKAGES,
