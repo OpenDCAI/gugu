@@ -147,4 +147,32 @@ describe('并排:同一种两页时内容不挪地方', () => {
     expect(dom.window.document.querySelector('[data-tab-fullscreen]')).toBeNull();
     expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
   });
+
+  it.each(['a', 'b'] as const)('shows only fullscreen page %s and restores its pair without remounting', (selected) => {
+    const { pane, a, b, placed } = mountTwo('page');
+    act(() => {
+      pane.splitTab(b, 'right');
+      pane.setPairRatio(0.4);
+      pane.setActiveTab(selected === 'a' ? a : b);
+    });
+    const before = pane.snapshot;
+    const positions = [placed('a'), placed('b')];
+    expect(pane.shownTabIds).toEqual([a, b]);
+    expect(positions).toEqual([['true:0px/0px'], ['true:40%/0px']]);
+
+    try {
+      act(() => tabFullscreen.toggle(pane, selected === 'a' ? a : b));
+      expect(pane.shownTabIds).toEqual([selected === 'a' ? a : b]);
+      expect(placed(selected)).toEqual(['true:-/-']);
+      expect(placed(selected === 'a' ? 'b' : 'a')).toEqual(['false:-/-']);
+      expect(pane.snapshot).toEqual(before);
+      expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+    } finally {
+      act(() => tabFullscreen.exit());
+    }
+
+    expect([placed('a'), placed('b')]).toEqual(positions);
+    expect(pane.snapshot).toEqual(before);
+    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+  });
 });
