@@ -12,7 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
-import { KINDS, SORTS, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
+import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -624,17 +624,6 @@ function under(folderId) {
   return found
 }
 
-// The order of one folder (子文件夹): its folders first — 「附件」 at the head, the rest by name — then its files, the newest
-// change first.
-function inOrder(a, b) {
-  if (isFolder(a) !== isFolder(b)) return isFolder(a) ? -1 : 1
-  if (isFolder(a)) {
-    if (!!a.systemRole !== !!b.systemRole) return a.systemRole ? -1 : 1
-    return shownName(a).localeCompare(shownName(b), state.ctx?.locale || undefined)
-  }
-  return (Date.parse(changedAt(b)) || 0) - (Date.parse(changedAt(a)) || 0)
-}
-
 // What the top of the folder shows (owner 10-28): its folders, and every file there or in 「附件」 — what was sent in the
 // chat is not one folder further down. 「附件」 itself is not a row; it is still a folder a file can be moved to.
 function topEntries() {
@@ -645,7 +634,7 @@ function topEntries() {
 // The folders of a list: 「附件」 first where a search lists it, the rest by name.
 function folderOrder(a, b) {
   if (!!a.systemRole !== !!b.systemRole) return a.systemRole ? -1 : 1
-  return shownName(a).localeCompare(shownName(b), state.ctx?.locale || undefined)
+  return compareNames(a, b, shownName, state.ctx?.locale)
 }
 
 // One list, one scroll: the folder on screen (子文件夹) — or, while filtering, every file whose name matches, wherever it
@@ -946,7 +935,7 @@ function showMoveDialog(entry) {
   const off = new Set(isFolder(entry) ? [entry.id, ...under(entry.id).map((e) => e.id)] : [])
   const rows = []
   const add = (folderId, depth) => {
-    for (const folder of inside(folderId).filter(isFolder).sort(inOrder)) {
+    for (const folder of inside(folderId).filter(isFolder).sort(folderOrder)) {
       if (off.has(folder.id)) continue
       rows.push({ id: folder.id, name: shownName(folder), depth })
       add(folder.id, depth + 1)

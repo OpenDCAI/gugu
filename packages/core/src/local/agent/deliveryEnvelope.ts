@@ -321,6 +321,35 @@ export function readDeliveryEnvelope(text: string): DeliveryReading | null {
   return { body: segments.map((segment) => segment.body).join('\n\n'), segments }
 }
 
+/** Reconcile recovery against provider-owned user history, never optimistic host rows. */
+export function recoverDeliveryEnvelopes(
+  text: string,
+  replayedUserInputs: readonly string[],
+  historyUnknown = false,
+): string | null {
+  let envelopes: XmlElement[] | null
+  try {
+    envelopes = envelopesOf(parseXml(text.trim()))
+  } catch (error) {
+    if (error !== NOT_ENVELOPE) throw error
+    envelopes = null
+  }
+  if (!envelopes?.length || envelopes.some((envelope) => envelope.name !== 'gugu_delivery' || !readSegment(envelope))) {
+    // Opaque or retired inputs must remain deliverable even when no safe per-envelope edit exists.
+    return text
+  }
+  const seen = new Set(replayedUserInputs.flatMap((input) =>
+    readDeliveryEnvelope(input)?.segments.flatMap((segment) => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? []))
+  const retained = envelopes.filter((envelope) => historyUnknown || !seen.has(envelope.attrs.get('msg') ?? ''))
+  if (retained.length === 0) return null
+  return mergeDeliveryEnvelopes(retained.map((envelope) => {
+    if (!historyUnknown || envelope.attrs.get('possibly_received') === 'true') return envelope.source
+    return envelope.source.slice(0, envelope.openingEnd - 1)
+      + ' possibly_received="true">\n  <redelivery>This message may already have been received.</redelivery>'
+      + envelope.source.slice(envelope.openingEnd)
+  }))
+}
+
 /**
  * 这段文字是不是一条投递(而不是人打的字、harness 注入的上下文):以信封根标签开头的都算,读不读得出看
  * `readDeliveryEnvelope`;退役写法读得出才算。读方漏认一种形状时,那条照样不冒充人说的话,也不被当注入丢掉。
@@ -332,7 +361,7 @@ export function isDeliveryEnvelope(text: string): boolean {
 
 const DELIVERY_ROOT = /^<gugu_deliver(?:y|ies)[\s>]/
 
-type XmlElement = { name: string; attrs: Map<string, string>; children: XmlNode[] }
+type XmlElement = { name: string; attrs: Map<string, string>; children: XmlNode[]; source: string; openingEnd: number }
 type XmlNode = XmlElement | { cdata: string } | { text: string }
 
 const NOT_ENVELOPE = new Error('not a delivery envelope')
@@ -437,6 +466,7 @@ function parseXml(source: string): XmlElement[] {
   }
   const element = (depth: number): XmlElement => {
     if (depth > MAX_DEPTH) reject()
+    const start = at
     expect('<')
     const name = eat(XML_NAME)?.[0] ?? reject()
     const attrs = new Map<string, string>()
@@ -444,9 +474,10 @@ function parseXml(source: string): XmlElement[] {
     eat(XML_SPACE)
     if (source.startsWith('/>', at)) {
       at += 2
-      return { name, attrs, children: [] }
+      return { name, attrs, children: [], source: source.slice(start, at), openingEnd: at - start }
     }
     expect('>')
+    const openingEnd = at - start
     const children: XmlNode[] = []
     while (!source.startsWith('</', at)) {
       if (source.startsWith('<![CDATA[', at)) {
@@ -463,7 +494,7 @@ function parseXml(source: string): XmlElement[] {
     expect(`</${name}`)
     eat(XML_SPACE)
     expect('>')
-    return { name, attrs, children }
+    return { name, attrs, children, source: source.slice(start, at), openingEnd }
   }
   const roots: XmlElement[] = []
   do {
