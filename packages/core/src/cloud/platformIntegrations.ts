@@ -13,7 +13,8 @@
  *  · DELETE /integrations/:provider/credential   → 204(平台记下断开的时刻)
  *  · POST|GET|DELETE /integrations/:provider/mcp  MCP Streamable HTTP 转发口,凭据由平台挂上;
  *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效);
- *           暂时的:408 request_timeout、429 too_many_streams(同一人同时开着的太多)/ rate_limited,带 retry-after
+ *           暂时的:408 request_timeout、429 too_many_streams(同一人同时开着的太多)/ rate_limited,带 retry-after;
+ *           不收:400 invalid_request(请求体读不出)、413 too_large(一批里 tools/call 超过 60 个)
  *
  * 只有一种情况凭据留在设备上:这个安装压根没有这项服务(社区自托管,没部署云电脑管家)—— 网关回 404、体里没有
  * 平台的出错码(`isPlatformServiceMissing`)。平台在、但说 503 not_open(没对这个人开放 / 没配好)❌ 是退路:
@@ -45,6 +46,21 @@ export type PlatformIntegrationProvider = {
 export type PlatformCredentialMigration = { savedAt: string | null }
 
 export type PlatformCredentialSaved = { connected: true; updatedAt: string | null; checkedAt: string | null }
+
+/**
+ * 转发口不收这一次请求:读不出(400 invalid_request)、一批里工具调用太多(413 too_large)。不是没连、不是要重连、
+ * 也不是过会儿就好 —— 照实说被拒的是什么。
+ */
+export class PlatformForwarderRefusedError extends Error {
+  constructor(readonly provider: string, readonly reason: 'invalid_request' | 'too_large') {
+    super(
+      reason === 'too_large'
+        ? `Too many ${provider} tool calls in one request for the Gugu platform; send fewer at a time.`
+        : `The Gugu platform could not read this ${provider} request.`,
+    )
+    this.name = 'PlatformForwarderRefusedError'
+  }
+}
 
 /** 会话里那台转发的 MCP 每次调用现取的地址、请求头,和认得转发口那两句「不成」的 fetch。 */
 export type PlatformMcpEndpoint = { url: string; headers: Record<string, string>; fetch: typeof fetch }
@@ -215,12 +231,15 @@ export function createPlatformIntegrationsClient(options: {
     mcpEndpoint: async (provider, hooks) => ({
       url: `${providerPath(provider)}/mcp`,
       headers: await headers(),
-      // 转发口的几句「不成」各说各的:没存 = 没连;存着的被对方拒了 = 要重连;太多 / 限流 / 超时 = 过会儿再试。
+      // 转发口的几句「不成」各说各的:没存 = 没连;存着的被对方拒了 = 要重连;太多 / 限流 / 超时 = 过会儿再试;
+      // 读不出 / 一批太多 = 照实说不收。
       // 别的应答原样交给 MCP 客户端。任何一次转发都可能遇上,不只是 initialize。
       fetch: async (input, init) => {
         const response = await doFetch(input, init)
-        if (response.status !== 404 && response.status !== 409 && response.status !== 408 && response.status !== 429) return response
+        if (![400, 404, 408, 409, 413, 429].includes(response.status)) return response
         const code = cloudComputerErrorFromResponse(response.status, await response.clone().text().catch(() => '')).code
+        if (response.status === 400 && code === 'invalid_request') throw new PlatformForwarderRefusedError(provider, 'invalid_request')
+        if (response.status === 413) throw new PlatformForwarderRefusedError(provider, 'too_large')
         if (response.status === 429 || response.status === 408) {
           const reason = response.status === 408 ? 'request_timeout' : code === 'too_many_streams' ? 'too_many_streams' : 'rate_limited'
           throw new PlatformForwarderBusyError(provider, reason, retryAfterSeconds(response.headers.get('retry-after')))
