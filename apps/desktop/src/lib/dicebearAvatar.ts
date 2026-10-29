@@ -65,7 +65,7 @@ export function displayAvatarUrl(
   // 形象地址(look.ts:颜色 + 休息表情)不是一张要去加载的图:<img> 场景画这个颜色的本地定格,离线、与画布里同色。
   const key = (identityKey ?? '').trim()
   if (kind === 'agent' && key && !isAssistantAvatar(key)
-    && (avatar == null || isBuiltinAgentAvatarUrl(avatar))) return boringAgentAvatarDataUri(key)
+    && (avatar == null || isBuiltinAgentAvatarUrl(avatar))) return boringAgentAvatarDataUri(key, avatar)
   const look = parseAgentLook(normalizeAvatarUrl(avatar))
   if (look) return agentLookPoster(look)
   const custom = customAvatarUrl(avatar, surface)

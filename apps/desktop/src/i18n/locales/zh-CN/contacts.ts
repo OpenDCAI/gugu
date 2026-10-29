@@ -23,6 +23,14 @@ export default {
     "failed": "未能处理邀请，请刷新后重试。",
     "full": "群人数已满，请联系群主增加人数上限。"
 },
+  "agentAvatar": {
+    "change": "换头像",
+    "palettes": "配色",
+    "palette": "配色 {{n}}",
+    "roll": "随机",
+    "reset": "恢复默认",
+    "failed": "头像没有换成"
+  },
   "agentName": {
     "edit": "重命名",
     "label": "Agent 名称",

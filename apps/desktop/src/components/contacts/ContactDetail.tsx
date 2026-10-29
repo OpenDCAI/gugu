@@ -15,6 +15,7 @@ import { Avatar } from '../Avatar'
 import { CopyValue } from '../CopyValue'
 import { ContactGroupAvatar } from './ContactSearch'
 import { OwnedAgentNameEditor } from './OwnedAgentNameEditor'
+import { OwnedAgentAvatarMenu } from './OwnedAgentAvatarMenu'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '../../hooks/useAgentDisplayStatus'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -234,7 +235,9 @@ function AgentDetail({
   return (
     <>
       <div className="flex items-start gap-4">
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
+        <OwnedAgentAvatarMenu agentId={contact.id} avatar={contact.avatar} ownerUserId={contact.owner_user_id} status={status}>
+          <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
+        </OwnedAgentAvatarMenu>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={detailTitleClass}>

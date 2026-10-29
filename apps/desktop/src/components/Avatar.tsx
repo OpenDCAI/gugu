@@ -153,7 +153,7 @@ function CompositeTile({
   }
   return (
     <span style={tileStyle}>
-      {assistantDefault ? <AssistantDefaultAvatar id={memberKey} avatar={memberUrl} name={member.name} size={Math.min(w, h)} still /> : boring && memberKey ? <BoringAgentAvatar id={memberKey} name={member.name} size={Math.min(w, h)} /> : useCustom ? (
+      {assistantDefault ? <AssistantDefaultAvatar id={memberKey} avatar={memberUrl} name={member.name} size={Math.min(w, h)} still /> : boring && memberKey ? <BoringAgentAvatar id={memberKey} name={member.name} size={Math.min(w, h)} avatar={memberUrl} /> : useCustom ? (
         <img
           src={customUrl!}
           alt={member.name}
@@ -388,7 +388,7 @@ export function Avatar({
         assistant ? (
           <AssistantDefaultAvatar id={identityKey} avatar={normalized} name={name} size={px} still={still} hoverPoke={hoverPoke} canvasPaddingX={canvasPaddingX}
             state={statusLabel ?? (agentStatus ? labelOfDisplayStatus(agentStatus) : null)} />
-        ) : <BoringAgentAvatar id={identityKey} name={name} size={px} />
+        ) : <BoringAgentAvatar id={identityKey} name={name} size={px} avatar={normalized} />
       ) : generatedUrl ? (
         // @@@2470 生成默认脸（#961 Notionists，CC0/本地生成/离线）：这个身份还没设置头像。
         // 它诚实表达「系统派生」而非冒充某人挑过的作品，且组合空间足够大 → 不同身份不撞脸。

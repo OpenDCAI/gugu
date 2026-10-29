@@ -27,8 +27,40 @@ export const AGENT_AVATAR_PALETTES: string[][] = [
 ]
 
 // FNV-1a, deliberately not beam's own hash: the palette must not correlate with beam's body/background choice.
-export function agentAvatarPalette(id: string): string[] {
+export function agentAvatarPaletteIndex(id: string): number {
   let hash = 0x811c9dc5
   for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193)
-  return AGENT_AVATAR_PALETTES[(hash >>> 0) % AGENT_AVATAR_PALETTES.length]
+  return (hash >>> 0) % AGENT_AVATAR_PALETTES.length
+}
+
+export function agentAvatarPalette(id: string): string[] {
+  return AGENT_AVATAR_PALETTES[agentAvatarPaletteIndex(id)]
+}
+
+/** The owner's pick: a palette index and a shape seed; no seed keeps the shape the agent id gives. */
+export type BoringLook = { palette: number; seed: string | null }
+
+/** Stored as the agent's avatar `<avatars bucket>/agent-look/v1/boring?p=<palette>&s=<seed>`, beside the assistant's looks.
+ *  Clients that predate it draw the default face by id for any agent-look/v1 address (isBuiltinAgentAvatarUrl). */
+export const BORING_LOOK_PATH = 'agent-look/v1/boring'
+
+export function boringLookUrl(publicUrl: string, look: BoringLook): string {
+  const query = new URLSearchParams({ p: String(look.palette), ...(look.seed ? { s: look.seed } : {}) })
+  return `${publicUrl.split('?')[0]}?${query}`
+}
+
+/** Avatar address → the pick; anything else (photo, null, other looks, an unknown palette) = null. */
+export function parseBoringLook(avatar: string | null | undefined): BoringLook | null {
+  if (!avatar) return null
+  let url: URL
+  try { url = new URL(avatar) } catch { return null }
+  const palette = url.searchParams.get('p') ?? ''
+  if (!url.pathname.endsWith(`/${BORING_LOOK_PATH}`) || !/^\d+$/.test(palette) || !AGENT_AVATAR_PALETTES[Number(palette)]) return null
+  return { palette: Number(palette), seed: url.searchParams.get('s') || null }
+}
+
+/** What a default agent face draws: the stored pick, else the agent id's own palette and shape. */
+export function boringFace(id: string, avatar?: string | null): { seed: string; colors: string[] } {
+  const look = parseBoringLook(avatar)
+  return { seed: look?.seed ?? id, colors: AGENT_AVATAR_PALETTES[look?.palette ?? agentAvatarPaletteIndex(id)] }
 }

@@ -1,4 +1,5 @@
 import { OwnedAgentNameEditor } from './OwnedAgentNameEditor'
+import { OwnedAgentAvatarMenu } from './OwnedAgentAvatarMenu'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { useAgentDisplayStatus } from '../../hooks/useAgentDisplayStatus'
 import {
@@ -125,7 +126,9 @@ export function AgentContactProfileCard({
   return (
     <div className={styles.card}>
       <div className={avatarClass()}>
-        <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={96} isAgent />
+        <OwnedAgentAvatarMenu agentId={contact.id} avatar={contact.avatar} ownerUserId={contact.owner_user_id} status={status}>
+          <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={96} isAgent />
+        </OwnedAgentAvatarMenu>
       </div>
       <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={styles.name}>
         {contact.display_name}

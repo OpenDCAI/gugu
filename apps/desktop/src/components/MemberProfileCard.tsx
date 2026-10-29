@@ -6,6 +6,7 @@ import { Avatar } from './Avatar'
 import { AgentOwnerLabel } from './AgentOwnerLabel'
 import { useAuth } from '../store/auth'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
+import { OwnedAgentAvatarMenu } from './contacts/OwnedAgentAvatarMenu'
 import { SharePosterDialog } from './SharePosterDialog'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { useTranslation } from 'react-i18next'
@@ -283,14 +284,16 @@ export function MemberProfileCard({
       {/* ── Header: avatar + name + tag (prototype .ph, line 445-446) ── */}
       <div className={profileHeaderClass}>
         <div style={{ width: avatarSize, height: avatarSize, flexShrink: 0, position: 'relative' }}>
-          <Avatar
-            name={member.displayName}
-            avatarUrl={member.avatar}
-            seed={member.id}
-            size={avatarSize}
-            isAgent={isAgent}
-            agentStatus={status}
-          />
+          <OwnedAgentAvatarMenu agentId={member.id} avatar={member.avatar} ownerUserId={isAgent ? member.ownerUserId : null} status={status} membership={member.membership}>
+            <Avatar
+              name={member.displayName}
+              avatarUrl={member.avatar}
+              seed={member.id}
+              size={avatarSize}
+              isAgent={isAgent}
+              agentStatus={status}
+            />
+          </OwnedAgentAvatarMenu>
         </div>
         <div className={profileHeaderTextClass} style={{ flex: 1, minWidth: 0 }}>
           {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{member.displayName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}

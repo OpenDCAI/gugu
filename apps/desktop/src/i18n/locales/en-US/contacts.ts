@@ -23,6 +23,14 @@ export default {
     "failed": "Could not process this invitation. Refresh and try again.",
     "full": "This group is full. Ask the group owner to increase the member limit."
 },
+  "agentAvatar": {
+    "change": "Change avatar",
+    "palettes": "Colours",
+    "palette": "Colour {{n}}",
+    "roll": "Roll",
+    "reset": "Restore default",
+    "failed": "Could not change the avatar"
+  },
   "agentName": {
     "edit": "Rename",
     "label": "Agent name",

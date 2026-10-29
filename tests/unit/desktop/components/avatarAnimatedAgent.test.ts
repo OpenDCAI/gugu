@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Avatar } from '../../../../apps/desktop/src/components/Avatar'
-import { AGENT_AVATAR_PALETTES, agentAvatarPalette } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
+import { AGENT_AVATAR_PALETTES, agentAvatarPalette, boringLookUrl, parseBoringLook } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
 import { boringAgentAvatarDataUri } from '../../../../apps/desktop/src/lib/boringAgentAvatar'
 import { SessionAvatar } from '../../../../apps/desktop/src/mobile/agent-watch/StatusGlyph'
 import { runtime } from '../../../../apps/desktop/src/components/agentAvatar/engine/runtime'
@@ -59,6 +59,22 @@ describe('default agent avatars', () => {
     expect(used.size).toBe(AGENT_AVATAR_PALETTES.length)
     const svgText = decodeURIComponent(boringAgentAvatarDataUri(ID))
     expect(agentAvatarPalette(ID).some((color) => svgText.includes(`fill="${color}"`))).toBe(true)
+  })
+
+  it('draws the owner\'s pick from its stored address, in the live SVG and the image-only projection alike', async () => {
+    const PICK = boringLookUrl('https://db.example/storage/v1/object/public/avatars/agent-look/v1/boring', { palette: 7, seed: 'a1b2c3d4' })
+    expect(parseBoringLook(PICK)).toEqual({ palette: 7, seed: 'a1b2c3d4' })
+    for (const other of [LOOK, UPLOAD, PICK.replace('p=7', 'p=99'), PICK.replace('boring', 'sakura.webp')]) expect(parseBoringLook(other)).toBeNull()
+    await render()
+    const face = geometry()
+    await render({ avatarUrl: PICK })
+    expect(geometry()).not.toBe(face)
+    expect(svg()?.getAttribute('data-agent-avatar-boring')).toBe(ID)
+    const fills = Array.from(svg()!.querySelectorAll('[fill]')).map((el) => el.getAttribute('fill'))
+    expect(fills.some((fill) => AGENT_AVATAR_PALETTES[7].includes(fill!))).toBe(true)
+    const svgText = decodeURIComponent(boringAgentAvatarDataUri(ID, PICK))
+    expect(svgText).toContain(`fill="${fills.find((fill) => AGENT_AVATAR_PALETTES[7].includes(fill!))}"`)
+    expect(decodeURIComponent(boringAgentAvatarDataUri(ID, PICK))).not.toBe(decodeURIComponent(boringAgentAvatarDataUri(ID)))
   })
 
   it('keeps every palette colour within the first palette\'s contrast bounds on the dark page and on white', () => {

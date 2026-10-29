@@ -12,6 +12,7 @@ import {
 import type { GroupAvatarMember, GroupMemberRole } from '@gugu/core/shared/types/chat'
 import { i18n } from '@/i18n'
 import { buildLookUrl, lookObjectPath, type AgentLook } from '@/components/agentAvatar/look'
+import { BORING_LOOK_PATH, boringLookUrl, type BoringLook } from './agentAvatarPalette'
 
 import { DISPLAY_IDENTITY_SELECT, readAgentProfileTypes, readDisplayIdentities, readOwnedDisplayIdentities, readRequiredDisplayIdentities } from './identityReadAdapter'
 import type {
@@ -597,6 +598,12 @@ export const contactsService = {
   agentLookAvatarUrl(look: AgentLook): string {
     const { data } = dataClient.storage.from('avatars').getPublicUrl(lookObjectPath(look.color))
     return buildLookUrl(data.publicUrl, look.rest, look.wear)
+  },
+
+  /** 主人挑的默认脸(配色 + 形状)→ 存进头像字段的地址;和形象地址同在 agent-look/v1 下,不对应任何存储对象。 */
+  boringLookAvatarUrl(look: BoringLook): string {
+    const { data } = dataClient.storage.from('avatars').getPublicUrl(BORING_LOOK_PATH)
+    return boringLookUrl(data.publicUrl, look)
   },
 
 

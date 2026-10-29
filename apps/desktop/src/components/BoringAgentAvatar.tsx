@@ -1,13 +1,15 @@
 import BoringAvatar from 'boring-avatars'
-import { agentAvatarPalette } from '../lib/agentAvatarPalette'
+import { boringFace } from '../lib/agentAvatarPalette'
 
-export function BoringAgentAvatar({ id, name, size }: { id: string; name: string; size: number }) {
+/** `avatar` is the agent's stored address: an owner's pick (parseBoringLook) changes the face, anything else keeps the default. */
+export function BoringAgentAvatar({ id, name, size, avatar }: { id: string; name: string; size: number; avatar?: string | null }) {
   if (!id.trim()) throw new Error('[Avatar] a Boring avatar requires a stable agent id')
+  const face = boringFace(id, avatar)
   return (
     <BoringAvatar
-      name={id}
+      name={face.seed}
       variant="beam"
-      colors={agentAvatarPalette(id)}
+      colors={face.colors}
       size={size}
       aria-label={name}
       data-agent-avatar-boring={id}
