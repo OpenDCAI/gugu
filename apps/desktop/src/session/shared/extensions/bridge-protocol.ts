@@ -614,7 +614,7 @@ export interface VerbFacts {
    * - `background`: the background page's word to the App's pages.
    * A host leaves out the members it has not (`typeof gugu.x`), so none of them stands there refusing.
    */
-  only?: 'page' | 'background';
+  only?: 'page' | 'background' | 'program';
   /**
    * Only inside the person's gesture (a click, a key), checked where a page script can neither fake nor extend it:
    * `true` always; a function, for the calls that need one — when the host is to show its picker (`filesUpload` with no
@@ -644,11 +644,11 @@ export interface VerbFacts {
  */
 export const BRIDGE_VERBS = {
   /** Generic picture/input resources. Scope comes from the host's task binding, not the argument object. */
-  projectionCreate: { needs: 'agents:tools' },
-  projectionPublish: { needs: 'agents:tools' },
-  projectionClose: { needs: 'agents:tools' },
-  projectionClosed: { needs: 'agents:tools' },
-  projectionInputResult: { needs: 'agents:tools' },
+  projectionCreate: { needs: 'agents:tools', only: 'program' },
+  projectionPublish: { needs: 'agents:tools', only: 'program' },
+  projectionClose: { needs: 'agents:tools', only: 'program' },
+  projectionClosed: { needs: 'agents:tools', only: 'program' },
+  projectionInputResult: { needs: 'agents:tools', only: 'program' },
   projectionWatch: { needs: 'agents:tools', only: 'page' },
   projectionUnwatch: { needs: 'agents:tools', only: 'page' },
   projectionSend: { needs: 'agents:tools', only: 'page' },

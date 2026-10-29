@@ -41,6 +41,8 @@ describe('gugu in a program', () => {
     expect(gugu.codemirror).toBeUndefined();
     expect(gugu.bind).toBeUndefined();
     expect(gugu.program).toBeUndefined(); // a host flag, not part of the API
+    expect(gugu.onProjection).toBeUndefined();
+    expect(gugu.onProjectionSource).toBeUndefined();
   });
 
   it('asks main over its channel, and main’s answer settles the call', async () => {

@@ -8,8 +8,8 @@ import type { BridgeCaller } from '../extension-bridge';
 import type { ProjectionInput, ProjectionSourceEvent, ProjectionHostPacket } from '@shared/extensions/projection-protocol';
 
 app.setPath('userData', process.env.GUGU_USER_DATA_DIR!);
-process.on('uncaughtException', error => { console.error(error); app.exit(1); });
-process.on('unhandledRejection', error => { console.error(error); app.exit(1); });
+process.on('uncaughtException', error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
+process.on('unhandledRejection', error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 async function check(name: string, work: () => Promise<void>) {
   try { await work(); cases[name] = { passed: true }; }
@@ -129,6 +129,6 @@ void app.whenReady().then(async () => {
   bridge.closePage(a.caller.pageId);
   bridge.closePage(b.caller.pageId);
   for (const window of windows) window.destroy();
-  console.log('PROJECTION_RESULT=' + JSON.stringify({ cases }));
+  process.stdout.write('PROJECTION_RESULT=' + JSON.stringify({ cases }) + '\n');
   app.exit(0);
 });
