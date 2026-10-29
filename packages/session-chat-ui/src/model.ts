@@ -71,6 +71,8 @@ export type ChatImageAttachment = ChatAttachment;
 export type ChatMessage = {
   kind: 'message';
   id: string;
+  /** View-only durable source; null means the runtime row has no safe persistent identity yet. */
+  sourceItemId?: string | null;
   seq?: number;
   role: ChatRole;
   /** Markdown source text. */

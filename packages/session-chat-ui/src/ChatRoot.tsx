@@ -48,7 +48,8 @@ import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
 import { AppNameProvider } from './lib/app-name';
 import { ChatNameProvider } from './lib/chat-name';
-import { CHAT_COMPOSER_EDGE_FADE_PX } from './layout-geometry';
+import { CHAT_COMPOSER_EDGE_FADE_PX, CHAT_PIN_FADE_HEIGHT_PX } from './layout-geometry';
+import { itemScrollTarget } from './core/scroll-to-item';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { CachesContext } from './components/contexts/CachesContext';
@@ -1645,17 +1646,12 @@ export function ChatRoot(props: ChatRootProps) {
     const behavior = opts?.behavior ?? 'auto';
 
     const computeTarget = () => {
-      const rowTop = virt.top(idx) + padTop();
-      const vh = Math.max(0, el.clientHeight - padBottom());
-      let target: number;
-      if (align === 'center') {
-        target = rowTop - (vh - rowH) / 2;
-      } else if (align === 'end') {
-        target = rowTop - vh + rowH;
-      } else {
-        target = rowTop;
-      }
-      return Math.max(0, target + extraOffset);
+      const pin = pinAnchors().findLast(anchor => anchor < idx);
+      const end = pin === undefined ? undefined : pinEnds().find(boundary => boundary > pin);
+      const topInset = pin !== undefined && (end === undefined || idx < end)
+        ? Math.max(0, virt.size(pin) + userTopGap - (us.at(pin)?.gapBefore ?? 0)) + CHAT_PIN_FADE_HEIGHT_PX : 0;
+      return itemScrollTarget({ rowTop: virt.top(idx) + padTop(), rowHeight: rowH,
+        viewportHeight: Math.max(0, el.clientHeight - padBottom()), topInset, align, offset: extraOffset });
     };
 
     const t0 = computeTarget();

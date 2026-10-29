@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { conversationMessages, resolveConversationMessageReference } from './conversation-messages';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import { messageQuoteLink, messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
 
 describe('conversation reply references', () => {
   it('quotes an attached file by label while preserving the original input and exact anchor', () => {
@@ -13,6 +14,51 @@ describe('conversation reply references', () => {
     expect(result[1]!.conversationReply).toMatchObject({ itemId: 'input', text: '看下文件\ntri19-file.txt' });
     expect(result[0]!.text).toBe(text);
     expect(turns[0]!.items[0]).toMatchObject({ id: 'input', text });
+  });
+
+  it('keeps a native file quote source while hiding its machine path in the preview', () => {
+    const source = { kind: 'session' as const, sessionId: 'session-a', itemId: 'source:file:message:input' };
+    const excerpt = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const text = messageQuoteText(source, excerpt, 'Agent') + '继续';
+    const turns: TranscriptTurn[] = [{ id: 'turn', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'reply', seq: 0, role: 'user', text },
+    ] }];
+    const projected = conversationMessages(turns);
+    expect(projected[0]!.items[0]).toMatchObject({ text: '继续', conversationReply: {
+      itemId: messageQuoteLink(source), text: '看下文件\ntri19-file.txt', from: 'Agent',
+    } });
+    expect(turns[0]!.items[0]).toHaveProperty('text', text);
+  });
+
+  it('keeps a live quote bound to its original turn after storage renumbers display IDs', () => {
+    const live: TranscriptTurn = { id: 's:turn:0', referenceId: 'source:first-run', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 's:turn:0:message:auto:0', seq: 0, role: 'assistant', text: 'same words' },
+    ] } as TranscriptTurn;
+    const [projected] = conversationMessages([live]);
+    expect(projected!.items[0]).toHaveProperty('sourceItemId', 'source:first-run:message:auto:0');
+    const source = messageQuoteLink({ kind: 'session', sessionId: 's', itemId: 'source:first-run:message:auto:0' });
+    expect(resolveConversationMessageReference([live], source, 's')).toBe('s:turn:0:message:auto:0');
+    const stored = { ...live, id: 's:turn:s8', seq: 8, items: [{ ...live.items[0]!, id: 's:turn:s8:message:auto:0' }] };
+    const restarted = { ...live, referenceId: 'source:second-run' };
+    const reloaded = JSON.parse(JSON.stringify([stored, restarted]));
+    expect(resolveConversationMessageReference(reloaded, source, 's')).toBe('s:turn:s8:message:auto:0');
+    expect(resolveConversationMessageReference([restarted], source, 's')).toBeNull();
+    expect(resolveConversationMessageReference([stored, { ...stored, id: 's:turn:s9', items: [{ ...stored.items[0]!, id: 's:turn:s9:message:auto:0' }] }], source, 's')).toBeNull();
+  });
+
+  it('projects a persisted native quote and resolves only inside its original session', () => {
+    const source = { kind: 'session' as const, sessionId: 'session-a', itemId: 'original' };
+    const text = messageQuoteText(source, 'selected words', 'Agent') + 'my question';
+    const turns: TranscriptTurn[] = [{ id: 'turn', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'original', seq: 0, role: 'assistant', text: 'selected words and more' },
+      { kind: 'message', id: 'same-text', seq: 1, role: 'assistant', text: 'selected words and more' },
+      { kind: 'message', id: 'reply', seq: 2, role: 'user', text },
+    ] }];
+    const projected = conversationMessages(JSON.parse(JSON.stringify(turns)));
+    expect(projected[0]!.items[2]).toMatchObject({ text: 'my question', conversationReply: { itemId: messageQuoteLink(source), text: 'selected words', from: 'Agent' } });
+    expect(turns[0]!.items[2]).toHaveProperty('text', text);
+    expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-a')).toBe('original');
+    expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-b')).toBeNull();
   });
   it('resolves a reply to the actual earlier sender across turns without mutating stored messages', () => {
     const turns: TranscriptTurn[] = [

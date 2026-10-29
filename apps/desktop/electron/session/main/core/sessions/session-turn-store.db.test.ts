@@ -62,6 +62,17 @@ describe('conversation-turn-store', () => {
   });
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+  it('retains exact live reference identities when repeated runtime IDs are stored and reread', async () => {
+    const runtimeId = 'c1:turn:0';
+    for (const referenceId of ['source:first-run', 'source:restarted-run']) {
+      await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: { ...turn(runtimeId, 'same words'), referenceId } });
+    }
+    const reopened = await readStoredTurns('c1');
+    expect(reopened.originTurnIds).toEqual([runtimeId, runtimeId]);
+    expect(reopened.turns.map(t => t.id)).toEqual(['c1:turn:s0', 'c1:turn:s1']);
+    expect(reopened.turns.map(t => t.referenceId)).toEqual(['source:first-run', 'source:restarted-run']);
+    expect(reopened.turns.map(t => t.items[0]!.id)).toEqual(['c1:turn:s0:m', 'c1:turn:s1:m']);
+  });
 
   it('resolves a stopped runtime picture through its persisted origin without confusing reused runtime IDs', async () => {
     const originalId = 'c1:turn:0';

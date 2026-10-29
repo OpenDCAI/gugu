@@ -6,7 +6,7 @@
  * dependency through the package entry point.
  */
 
-import type { ChatAttachment, OpenedOutput } from './model';
+import type { ChatAttachment, ChatMessage, OpenedOutput } from './model';
 
 export type ChatViewCommandId = 'chat.scrollToTop' | 'chat.scrollToBottom';
 
@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
+  onMessageTextMount?: (target: { root: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
   conversationAgentSession?: () => string | null;
   /** External agents may expose only their public identity, with no readable session. */
