@@ -783,33 +783,37 @@ async function modelNames(provider: string | null): Promise<Map<string, string>>
   }
 }
 
+/** 会话记录里那一档模型(建会话 / 上次换模型时记下的),没有运行时也报得出来。 */
+async function recordedSessionOptions(row: SessionRow) {
+  const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
+  const platform = await sessionPlatformModel(row.id).catch(() => undefined);
+  return notStartedSessionOptions({
+    model: row.config?.model,
+    platformModelId: platform?.modelId,
+    names: await modelNames(row.provider),
+  });
+}
+
+/** 聊天腿的 agent 此刻在不在跑;问不到(运行时连不上)按不在跑算 —— 只读,❌ 为了问一句把它拉起来。 */
+async function acpRunning(row: SessionRow): Promise<boolean> {
+  try {
+    return await acpSessionLive(row.id);
+  } catch {
+    return false;
+  }
+}
+
 export async function sessionOptions(input: {
   conversationId: string;
 }): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
-  if (await neverStarted(row)) {
-    const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
-    const platform = await sessionPlatformModel(row.id).catch(() => undefined);
-    return {
-      ok: true,
-      value: notStartedSessionOptions({
-        model: row.config?.model,
-        platformModelId: platform?.modelId,
-        names: await modelNames(row.provider),
-      }),
-    };
-  }
-  // 参数(权限档 / 模型 / 推理档)住在活运行时里。聊天腿的老会话在 app 重启后引擎早没了 ——
-  // 桌面点进会话时会先把它拉起来再读,手机端不能少这一步,否则老会话的胶囊整条不画
-  // (owner 2026-09-15 真机:「找了个老对话,没法改会话参数」)。活着的会话这一步是空操作。
-  if (row.runtime === 'acp') {
-    try {
-      await ensureAcpSessionLive(row.id);
-    } catch (error) {
-      if (error instanceof SessionWriteError) return fail(error.code, error.message);
-      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
-    }
+  if (await neverStarted(row)) return { ok: true, value: await recordedSessionOptions(row) };
+  // #980 打开会话不叫醒 agent,手机上也一样(behavior session-page;owner 2026-10-30 取代 09-15「读选项先唤醒」):
+  // 手机打开会话就来读这一份,而参数(权限档 / 推理档)住在活运行时里。没在跑就报记录里那一档模型(带模型菜单,换得了),
+  // 权限档 / 推理档等它跑起来再报 —— 它们的 id 是各家运行时自己的。改一档是人点的,那一刻再起(`setSessionOptionValue`)。
+  if (row.runtime === 'acp' && !(await acpRunning(row))) {
+    return { ok: true, value: await withModelMenu(row, await recordedSessionOptions(row)) };
   }
   try {
     return { ok: true, value: await withModelMenu(row, await readSessionOptions(input.conversationId)) };
@@ -824,6 +828,16 @@ export async function setSessionOptionValue(
 ): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
+  // #980 打开时没叫醒它;改一档是人点的,参数又只有活运行时收得下 ⇒ 这一刻按桌面同一条「唤醒」拉起来。
+  // 从没开起来的 ❌:唤醒不带第一句话(见 not-started-options),它只报记下的那一档,本来就没有可改的。
+  if (row.runtime === 'acp' && !(await neverStarted(row))) {
+    try {
+      await ensureAcpSessionLive(row.id);
+    } catch (error) {
+      if (error instanceof SessionWriteError) return fail(error.code, error.message);
+      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
+    }
+  }
   try {
     return { ok: true, value: await withModelMenu(row, await setSessionOption(input)) };
   } catch (error) {
