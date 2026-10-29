@@ -544,6 +544,10 @@ export function ChatRoot(props: ChatRootProps) {
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
   const NO_ACTIVE_UNITS: ReturnType<typeof flattenTier> = [];
+  // An incremental append only reads the new tail's fold keys. Keep the full
+  // fold snapshot reactive so older headers still rebuild their hidden rows.
+  const committedFolds = createMemo(() => viewState().snapshot());
+  let lastCommittedFolds: Record<string, boolean> | undefined;
 
   // ── Committed-tier build + model-swap reset (single effect) ────────────────
   // This effect owns BOTH the incremental committed build and the model-swap
@@ -577,8 +581,10 @@ export function ChatRoot(props: ChatRootProps) {
 
     const prev = lastCommitted;
     const ctx = segmentCtx(false);
+    const folds = committedFolds();
 
     if (
+      folds === lastCommittedFolds &&
       next.length > prev.length &&
       (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1]) &&
       // The previous acknowledgement stops being the latest when another turn arrives.
@@ -616,6 +622,7 @@ export function ChatRoot(props: ChatRootProps) {
     }
 
     lastCommitted = next;
+    lastCommittedFolds = folds;
     setCommittedUnitsVersion((v) => v + 1);
   });
 
