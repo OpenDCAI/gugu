@@ -1,0 +1,44 @@
+.ia-editor { position: absolute; inset: 0; z-index: var(--z-float); display: flex; flex-direction: column; color: var(--fg); background: var(--bg); font-size: var(--font-body); outline: none; pointer-events: auto; }
+.ia-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.ia-header h2 { flex: 1; margin: 0; text-align: center; font-size: var(--font-body); font-weight: var(--font-weight-medium); }
+.ia-workspace { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.ia-stage { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--image-bg); touch-action: none; cursor: crosshair; user-select: none; }
+.ia-plane { position: absolute; transform-origin: center; }
+.ia-plane canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ia-toolbar { align-self: center; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 12px 16px; padding: 4px 8px; border-radius: var(--radius-capsule); background: var(--card); box-shadow: var(--shadow-lift); }
+.ia-tools,.ia-style-tools,.ia-colors,.ia-widths { display: flex; align-items: center; gap: 2px; }
+.ia-toolbar [aria-pressed="true"],.ia-note-chips [aria-pressed="true"] { background: var(--selected); }
+.ia-color { display: block; width: 18px; height: 18px; border-radius: var(--radius-circle); border: 1px solid var(--border-strong); }
+.ia-notes { flex: 0 0 280px; overflow: auto; padding: 12px; border-left: 1px solid var(--border); background: var(--card); }
+.ia-notes[data-collapsed] { flex-basis: auto; padding: 8px; }
+.ia-note-row { display: flex; align-items: end; gap: 8px; padding: 12px 0; border-radius: var(--radius-control); }
+.ia-note-row > [data-slot="field"] { flex: 1; min-width: 0; }
+.ia-note-row[data-active] { background: var(--selected); }
+.ia-note-chips { display: flex; flex: 0 0 auto; overflow-x: auto; gap: 8px; padding: 8px 12px; }
+.ia-note-chips > button { max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.ia-note-sheet,.ia-completion-sheet { padding: 16px; }
+.ia-completion-sheet { display: flex; flex-direction: column; gap: 12px; }
+.ia-sendbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ia-caption { flex: 1 1 160px; }
+.ia-include { display: flex; align-items: center; align-self: center; gap: 8px; color: var(--muted-fg); }
+.ia-send-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ia-shortcut { margin-left: 4px; opacity: .65; }
+.ia-error { flex: 1 0 100%; margin: 0; padding: 8px 12px; color: var(--danger-fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ia-source-note { color: var(--muted-fg); margin: 0; }
+.ia-hint { flex: 0 0 auto; color: var(--muted-fg); font-size: var(--font-caption); text-align: center; margin: 0; padding: 0 12px 8px; }
+.ia-text-editor { position: absolute; z-index: var(--z-raised); }
+.ia-text-editor [data-slot="field-control"] { font-size: inherit; line-height: 1.3; resize: none; background: var(--card); }
+.ia-loading { align-items: center; justify-content: center; gap: 16px; }
+.ia-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.ia-editor[aria-busy="true"] .ia-workspace,.ia-editor[aria-busy="true"] .ia-toolbar { pointer-events: none; }
+.ia-editor[data-mobile] .ia-header { padding: calc(env(safe-area-inset-top) + 8px) 12px 8px; }
+.ia-editor[data-mobile] .ia-toolbar { flex-direction: column; flex: 0 0 auto; gap: 4px; box-shadow: none; border-radius: 0; background: var(--bg); margin: 0; padding: 4px 8px 8px; }
+.ia-editor[data-mobile] .ia-tools { gap: 0; }
+.ia-editor[data-mobile] .ia-tools > button { width: 44px; height: 44px; }
+.ia-editor[data-mobile] .ia-style-tools > button,.ia-editor[data-mobile] .ia-colors > button { width: 32px; min-width: 32px; height: 36px; }
+.ia-editor[data-mobile] .ia-widths > button { min-height: 36px; padding: 0 8px; }
+.ia-editor[data-mobile] .ia-hint { padding-bottom: calc(env(safe-area-inset-bottom) + 8px); }
+.ia-completion-sheet .ia-sendbar { flex-direction: column; align-items: stretch; padding: 0; border: 0; }
+.ia-completion-sheet .ia-caption { flex: none; }
+.ia-completion-sheet .ia-send-buttons { flex-direction: column-reverse; align-items: stretch; }
+.ia-completion-sheet .ia-shortcut { display: none; }

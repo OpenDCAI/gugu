@@ -7,6 +7,7 @@ import {
   openImageFromThumb,
   openImageViewer,
   registerImageViewerHost,
+  registerFullImage,
 } from '../../../../apps/desktop/src/lib/imageViewer'
 
 let unregister: (() => void) | null = null
@@ -45,6 +46,17 @@ describe('registerImageViewerHost / openImageViewer', () => {
 })
 
 describe('galleryAround', () => {
+  it('keeps each image original message context, including full-resolution upgrade, without inferring a source for other images', async () => {
+    const first = thumb('https://img/first-thumb.png', 'first.png'), second = thumb('https://img/second.png', 'second.png')
+    const gallery = document.createElement('div'); gallery.setAttribute('data-image-gallery', ''); gallery.append(first, second); document.body.append(gallery)
+    const full = vi.fn(async () => 'blob:original')
+    const stop = registerFullImage(first, full, undefined, { chatId: 'source-chat', messageId: 'source-message' })
+    expect(galleryAround(second).items[0].source).toEqual({ chatId: 'source-chat', messageId: 'source-message' })
+    expect(galleryAround(second).items[1].source).toBeUndefined()
+    await expect(galleryAround(first).items[0].full?.()).resolves.toBe('blob:original')
+    stop()
+    expect(galleryAround(first).items[0].source).toBeUndefined()
+  })
   it('收集同一画廊里此刻渲染着的全部图,按文档顺序,从被点那张开始', () => {
     const list = document.createElement('div')
     list.setAttribute('data-image-gallery', '')

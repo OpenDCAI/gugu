@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn'
 import { ChevronRight } from '@/lib/icons'
 import { popupMotion } from './variants'
 import { useBackLayer } from './sheetStack'
+import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
 
 // @@@menu-variants - 菜单样式的唯一真相。`gg-menu*` 类名保留但不再承载样式:
 // Sidebar.css 的 `.gg-sidebar-profile-actions .gg-menu-item-icon > svg` 按这些名字定位,
@@ -102,6 +103,7 @@ export function Menu({
   onClose,
   ariaLabel,
 }: MenuProps) {
+  const portalContainer = useUiPortalContainer()
   const pointAnchor = useMemo(() => (
     elementAnchor || x === undefined || y === undefined
       ? null
@@ -118,7 +120,7 @@ export function Menu({
         if (!open) onClose?.()
       }}
     >
-      <MenuPrimitive.Portal>
+      <MenuPrimitive.Portal container={portalContainer}>
         <MenuPrimitive.Positioner
           className={cn('gg-menu-positioner window-no-drag-region', menuPositioner)}
           anchor={elementAnchor ?? pointAnchor}
@@ -217,6 +219,7 @@ export function MenuSubmenu({ icon, label, 'data-testid': testId, popupStyle, po
   children: ReactNode
 }) {
   const style = { ...submenuPopupStyle, ...popupStyle }
+  const portalContainer = useUiPortalContainer()
   return (
     <MenuPrimitive.SubmenuRoot>
       <MenuPrimitive.SubmenuTrigger className={cn('group/menu-item', menuItem)} style={submenuRowStyle} data-testid={testId}>
@@ -224,7 +227,7 @@ export function MenuSubmenu({ icon, label, 'data-testid': testId, popupStyle, po
         <span className={menuItemLabel}>{label}</span>
         <ChevronRight size={14} aria-hidden className="shrink-0 text-[var(--menu-icon)]" />
       </MenuPrimitive.SubmenuTrigger>
-      <MenuPrimitive.Portal>
+      <MenuPrimitive.Portal container={portalContainer}>
         <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
           <MenuPrimitive.Popup className={cn(menuPopup, popupClassName)} style={style}>{children}</MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
@@ -284,8 +287,9 @@ function DropdownMenuContent({
   zIndex = 'var(--z-menu)',
   ...props
 }: DropdownMenuContentProps) {
+  const portalContainer = useUiPortalContainer()
   return (
-    <MenuPrimitive.Portal>
+    <MenuPrimitive.Portal container={portalContainer}>
       <MenuPrimitive.Positioner
         className="gg-menu-positioner window-no-drag-region"
         positionMethod="fixed"

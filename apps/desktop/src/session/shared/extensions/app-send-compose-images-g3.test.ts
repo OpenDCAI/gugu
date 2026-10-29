@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES } from './app-runtime-protocol';
-import { composeImagesOf } from './app-send-core';
+import { composeImagesOf, composeInChat } from './app-send-core';
+
+const membership = vi.hoisted(() => vi.fn());
+vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({
+  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: membership }) }) }),
+}) }));
 
 /**
  * G3: `gugu.compose(text, { …, images })` — an App's "cite this" can carry a crop of what was picked, put beside the
@@ -9,6 +14,22 @@ import { composeImagesOf } from './app-send-core';
 const png = (bytes = 4) => ({ name: 'crop.png', type: 'image/png', bytes: new ArrayBuffer(bytes) });
 
 describe('composeImagesOf (G3)', () => {
+  it('allows an image-only draft in the source chat, with the same membership gate', async () => {
+    const account = vi.fn(async () => ({ token: 'test-token', userId: 'person' }));
+    const chat = '00000000-0000-4000-8000-000000000001';
+    membership.mockResolvedValueOnce({ data: { id: chat }, error: null });
+    const image = png();
+    await expect(composeInChat({ account }, { chat, images: [image], text: '' })).resolves.toEqual({ chatId: chat, images: [image], text: '' });
+    membership.mockResolvedValueOnce({ data: null, error: null });
+    await expect(composeInChat({ account }, { chat, images: [image], text: '' })).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it('still rejects an empty draft and invalid image bytes before checking membership', async () => {
+    const account = vi.fn();
+    await expect(composeInChat({ account }, { chat: 'source', text: '', images: [] })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(composeInChat({ account }, { chat: 'source', text: '', images: [{ type: 'image/png', bytes: 'not bytes' }] })).rejects.toMatchObject({ code: 'invalid' });
+    expect(account).not.toHaveBeenCalled();
+  });
   it('none given: no images; images given: each kept as it came, a missing name made from its type', () => {
     expect(composeImagesOf(undefined)).toEqual([]);
     const [named, unnamed] = composeImagesOf([png(), { name: '', type: 'image/webp', bytes: new ArrayBuffer(1) }]);

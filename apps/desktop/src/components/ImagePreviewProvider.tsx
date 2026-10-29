@@ -1,12 +1,12 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type PhotoSwipe from 'photoswipe'
 import type { Bounds, PhotoSwipeOptions, SlideData } from 'photoswipe'
 import 'photoswipe/style.css'
 import './imagePreview.css'
-import { X, Download, Copy, ChevronLeft, ChevronRight } from '@/lib/icons'
+import { X, Download, Copy, ChevronLeft, ChevronRight, Pencil } from '@/lib/icons'
 import { DUR_SLOW_MS, EASE } from '@/styles/motion'
 import { useToast } from './toastContext'
 import { useBackLayer } from './ui/sheetStack'
@@ -18,6 +18,7 @@ import { fetchBlob, downloadRemoteFile } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
 import {
@@ -35,6 +36,7 @@ import {
 // 查看器开着时接住返回键与 Esc。调用方经 lib/imageViewer 进来。
 
 const log = rendererLogger('media/image-viewer')
+const AnnotateEditor = lazy(() => import('./imageAnnotate/AnnotateEditor'))
 /** PhotoSwipe 处理完的方向键不再冒泡到底下的页面。 */
 const VIEWER_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
 const PRELOADER_DELAY_MS = 300
@@ -125,6 +127,7 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
     easing: `cubic-bezier(${EASE.join(', ')})`,
     bgOpacity: mobile ? 1 : 0.9,
     loop: false,
+    escKey: false,
     wheelToZoom: true,
     tapAction: 'close',
     errorMsg,
@@ -260,7 +263,7 @@ function ViewerButton({ label, testId, className, side, onClick, children }: {
   )
 }
 
-function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boolean }) {
+function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mobile: boolean; onEdit: () => void }) {
   const { t } = useTranslation('main')
   const { toast } = useToast()
   const [copying, setCopying] = useState(false)
@@ -305,6 +308,7 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       <div className="gg-image-viewer__bar">
         {mobile ? close : null}
         <div className="gg-image-viewer__spacer" />
+        <ViewerButton label={t('imageAnnotate.edit')} testId="image-preview-edit" onClick={onEdit}><Pencil /></ViewerButton>
         <ViewerButton label={t('shell.imagePreview.copy')} testId={AUTOMATION_TEST_IDS.imagePreviewCopy} onClick={() => void handleCopy()}>
           <Copy />
         </ViewerButton>
@@ -333,6 +337,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   const mobile = useMobileShell()
   const { toast } = useToast()
   const [viewer, setViewer] = useState<OpenViewer | null>(null)
+  const [editing, setEditing] = useState<ImageViewerItem | null>(null)
   // 宿主只登记一次,打开时读最新的形态与文案
   const latest = useRef({ t, mobile, toast })
   latest.current = { t, mobile, toast }
@@ -370,6 +375,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
             unbindMenu?.()
             if (active === pswp) active = null
             setViewer((open) => (open?.pswp === pswp ? null : open))
+            setEditing(null)
           })
           active = pswp
           pswp.init()
@@ -391,25 +397,55 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
 
   const openPswp = viewer?.pswp
   // 开着的查看器与 Sheet 同进一个栈:返回键 / Esc 只归栈顶,MainLayout 见 isSheetOpen() 就不动下面的页面
-  useBackLayer(openPswp ? () => openPswp.close() : undefined)
+  const isTopLayer = useBackLayer(openPswp ? () => editing ? setEditing(null) : openPswp.close() : undefined)
+  useEffect(() => {
+    if (!viewer || !editing) return
+    const previous = viewer.pswp.options.arrowKeys
+    const label = viewer.root.getAttribute('aria-label')
+    viewer.pswp.options.arrowKeys = false
+    viewer.root.dataset.annotating = 'true'
+    viewer.root.setAttribute('aria-label', t('imageAnnotate.title'))
+    return () => {
+      viewer.pswp.options.arrowKeys = previous
+      delete viewer.root.dataset.annotating
+      if (label) viewer.root.setAttribute('aria-label', label)
+      viewer.root.focus()
+    }
+  }, [viewer, editing, t])
+  useEffect(() => {
+    if (!viewer || editing) return
+    const editKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== 'e' || !isTopLayer()) return
+      if (event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) return
+      event.preventDefault(); event.stopPropagation(); setEditing(viewer.items[viewer.index])
+    }
+    window.addEventListener('keydown', editKey, true)
+    return () => window.removeEventListener('keydown', editKey, true)
+  }, [viewer, editing, isTopLayer])
   useEffect(() => {
     if (!openPswp) return
     // Esc:不在栈里的 Base UI 对话框在 document 上听 Esc。window 捕获阶段先于所有 document 监听,
     // 在这里关查看器并截住这一下,压在下面的对话框才不会跟着关。
     const onEscapeCapture = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing) return
+      if (event.key !== 'Escape' || event.isComposing || !isTopLayer()) return
       event.stopPropagation()
       event.preventDefault()
-      openPswp.close()
+      if (editing && event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) {
+        event.target.blur()
+        viewer?.root.querySelector<HTMLElement>('.ia-editor')?.focus()
+      } else if (editing) setEditing(null)
+      else openPswp.close()
     }
     window.addEventListener('keydown', onEscapeCapture, { capture: true })
     return () => window.removeEventListener('keydown', onEscapeCapture, { capture: true })
-  }, [openPswp])
+  }, [openPswp, editing, isTopLayer, viewer])
 
   return (
     <>
       {children}
-      {viewer ? createPortal(<ImageViewerChrome viewer={viewer} mobile={mobile} />, viewer.root) : null}
+      {viewer ? createPortal(editing ? <Suspense fallback={<div role="status">{t('imageAnnotate.loading')}</div>}>
+        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
+      </Suspense> : <ImageViewerChrome viewer={viewer} mobile={mobile} onEdit={() => setEditing(viewer.items[viewer.index])} />, viewer.root) : null}
     </>
   )
 }
