@@ -540,7 +540,8 @@ describe('orphaned agent schedules (#933)', () => {
   });
 
   it('keeps an orphan with an active run and reports the existing deletion refusal', async () => {
-    const { id, run } = await dueOneTimeRun();
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'active', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    const run = (await service.getNextScheduledRun(id))!;
     await insertRun({ automationId: id, triggerConfigSnapshot: run.triggerConfigSnapshot,
       agentConfigSnapshot: run.agentConfigSnapshot, scheduledAt: run.scheduledAt, status: 'creating_session',
       triggerKind: 'cron', startedAt: NOW });
