@@ -124,6 +124,11 @@ function failureOf(error: unknown): { code: string; status: number; message: str
   return { code: 'error', status: 0, message: error instanceof Error ? error.message : String(error) };
 }
 
+/** 对方回了话、但这会儿用不了(额度、QPS、临时错误):稍后再试。 */
+function unavailable(name: string): string {
+  return `${name} isn't available right now; try again later.`;
+}
+
 function notOpen(name: string): string {
   return `Gugu hasn't opened the ${name} connection to you yet.`;
 }
@@ -138,7 +143,7 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
     case 'invalid_fields':
       return { success: false, error: said, errorType: 'invalid_input' };
     case 'upstream_unavailable':
-      return { success: false, error: `${name} could not be reached from the Gugu platform: ${said}`, errorType: 'host_unreachable' };
+      return { success: false, error: unavailable(name), errorType: 'provider_unavailable' };
     case 'not_open':
       return { success: false, error: notOpen(name), errorType: 'not_open' };
     case 'unknown_provider':
@@ -169,6 +174,8 @@ export class PlatformCredentialService {
   private readonly migrationRetryAt = new Map<string, number>();
   /** 连着失败了几次(决定下一次隔多久);成功、作废、明确连上 / 断开都清零。 */
   private readonly migrationFailures = new Map<string, number>();
+  /** 上一次没搬成的原因(平台的码):连接页据此说「这会儿用不了」,而不是什么都不说。 */
+  private readonly migrationFailureCode = new Map<string, string>();
 
   constructor(private readonly deps: PlatformCredentialDeps) {}
 
@@ -399,6 +406,7 @@ export class PlatformCredentialService {
   private backOff(providerId: string, failure: { code: string; status: number }): void {
     const failures = (this.migrationFailures.get(providerId) ?? 0) + 1;
     this.migrationFailures.set(providerId, failures);
+    this.migrationFailureCode.set(providerId, failure.code);
     const wait = Math.min(MIGRATION_RETRY_FIRST_MS * 2 ** (failures - 1), MIGRATION_RETRY_MAX_MS);
     this.migrationRetryAt.set(providerId, this.now() + wait);
     this.deps.log.warn('A credential saved on this device could not be moved to the Gugu platform yet; it stays here and is retried later', {
@@ -412,6 +420,14 @@ export class PlatformCredentialService {
   private clearBackOff(providerId: string): void {
     this.migrationRetryAt.delete(providerId);
     this.migrationFailures.delete(providerId);
+    this.migrationFailureCode.delete(providerId);
+  }
+
+  /** 这台上还留着 #649 的 key,上一次往上搬时平台说对方这会儿用不了:照这个说(暂时的,❌ 要重连)。 */
+  private heldKeyUnavailable(integrationId: string, row: ProviderAccount): PlatformConnectionCheck | null {
+    if (keptByPlatform(row) || keyRejected(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) return null;
+    if (this.migrationFailureCode.get(integrationId) !== 'upstream_unavailable') return null;
+    return { connected: false, error: unavailable(this.provider(integrationId)?.name ?? integrationId), errorType: 'provider_unavailable' };
   }
 
   /** 先标成「被拒了」,再删 key:哪一步失败,都不会留下一把还会被反复上传的 key 却没有标记。 */
@@ -501,9 +517,12 @@ export class PlatformCredentialService {
     if (accounts && accounts.size > 0) {
       return { connected: false, errorType: 'authorization_expired', error: new PlatformCredentialRejectedError(integrationId).message };
     }
-    // 被拒的那把 key 是这台设备自己知道的事:问没问到平台都照说。
-    if ((await this.deps.accounts.listAccounts(integrationId)).some(keyRejected)) {
-      return keyRejectedCheck(this.provider(integrationId)?.name ?? integrationId);
+    // 被拒的那把 key、还留着没搬成的那把,都是这台设备自己知道的事:问没问到平台都照说。
+    const rows = await this.deps.accounts.listAccounts(integrationId);
+    if (rows.some(keyRejected)) return keyRejectedCheck(this.provider(integrationId)?.name ?? integrationId);
+    for (const row of rows) {
+      const held = this.heldKeyUnavailable(integrationId, row);
+      if (held) return held;
     }
     if (!answered) return this.unansweredCheck(integrationId);
     return { connected: false };
@@ -521,6 +540,8 @@ export class PlatformCredentialService {
         return { accountId: row.accountId, connected: false, errorType: 'authorization_expired', error: new PlatformCredentialRejectedError(integrationId).message };
       }
       if (keyRejected(row)) return { accountId: row.accountId, ...keyRejectedCheck(this.provider(integrationId)?.name ?? integrationId) };
+      const held = this.heldKeyUnavailable(integrationId, row);
+      if (held) return { accountId: row.accountId, ...held };
       if (!answered) return { accountId: row.accountId, ...this.unansweredCheck(integrationId) };
       return { accountId: row.accountId, connected: false };
     });

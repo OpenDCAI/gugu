@@ -60,5 +60,6 @@ const INTEGRATION_ERROR_KEYS = {
   not_open: 'integrations.errorNotOpen',
   timed_out: 'integrations.errorTimedOut',
   key_rejected: 'integrations.errorKeyRejected',
+  provider_unavailable: 'integrations.errorProviderUnavailable',
   generic: null,
 } as const satisfies Record<IntegrationError['type'], string | null>;

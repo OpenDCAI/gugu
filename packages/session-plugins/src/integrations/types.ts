@@ -37,4 +37,9 @@ export type IntegrationError =
   | { type: 'timed_out'; message: string }
   /** #921 a key this device kept from before was rejected on its way to the platform: enter it again. */
   | { type: 'key_rejected'; message: string }
+  /**
+   * #921 the provider answered but cannot be used right now (quota, QPS, a temporary or unrecognised error): try again
+   * later. Temporary: never a reauth, never a reason to drop a key. A network or host failure stays `host_unreachable`.
+   */
+  | { type: 'provider_unavailable'; message: string }
   | { type: 'generic'; message: string };

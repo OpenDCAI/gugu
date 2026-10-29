@@ -23,7 +23,8 @@ export function keyedMcpUrl(mcp: IntegrationKeyedMcp, credentials: IntegrationCr
  *   10009 USERKEY_PLAT_NOMATCH  请求key与绑定平台不符
  *   10013 USER_KEY_RECYCLED     Key被删除
  * 其余(访问量 / QPS / 余额、白名单 / 签名、服务权限、账号被封、服务器忙、参数问题、表里没有的新码)都不是 key 坏了:
- * 当「这会儿用不了」(host_unreachable),❌ 说 key 被拒、❌ 让好 key 显示成要重新授权。拿不准就不算。
+ * 当「这会儿用不了」(provider_unavailable),❌ 说 key 被拒、❌ 让好 key 显示成要重新授权。拿不准就不算。
+ * 网络不通、连不上主机才是 host_unreachable。
  * 与平台那边(gugu-cloud `services/cloud-computer/src/integrations/mcp-wire.ts`)同一条规则。
  */
 const AMAP_KEY_INVALID: ReadonlyMap<string, string> = new Map([
@@ -127,7 +128,7 @@ function keyRejected(name: string, said: string): { type: 'auth_failed'; message
   return { type: 'auth_failed', message: `${name} rejected the key (${said}). Check the key and that its service type is Web 服务.` };
 }
 
-/** 不是 key 坏了(额度、QPS、白名单、服务器忙……):这会儿用不了,稍后再试。 */
-function notServing(name: string, said: string): { type: 'host_unreachable'; message: string } {
-  return { type: 'host_unreachable', message: `${name} is not serving this key right now (${said}); try again later.` };
+/** 不是 key 坏了(额度、QPS、白名单、服务器忙……):高德回了话,但这会儿用不了,稍后再试。 */
+function notServing(name: string, said: string): { type: 'provider_unavailable'; message: string } {
+  return { type: 'provider_unavailable', message: `${name} isn't available right now (${said}); try again later.` };
 }
