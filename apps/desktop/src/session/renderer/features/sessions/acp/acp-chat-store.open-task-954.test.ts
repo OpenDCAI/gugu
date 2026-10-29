@@ -90,6 +90,9 @@ function savedTask(missing = false) {
   internal._startInput = () => ({ sessionId: id, providerId: record.providerId, providerSessionId: record.providerSessionId });
   return { store, record, open: () => internal._runBootstrap() };
 }
+// Re-read the mutable engine boundary after asynchronous replication, rather than
+// retaining TypeScript's earlier null narrowing across the callback.
+const engineDraftText = () => boundary.liveDraft?.text;
 const history = (store: InstanceType<typeof AcpChatStore>) =>
   store.chatState.transcript.state.committedTurns.map(turn => turn.id);
 
@@ -430,7 +433,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(store.draftText).toBe('next draft');
     expect(store.draftConflict).toBeNull();
     await vi.runOnlyPendingTimersAsync();
-    expect(boundary.liveDraft?.text).toBe('next draft');
+    expect(engineDraftText()).toBe('next draft');
   });
 
   it.each(['submitPrompt', 'queuePrompt'] as const)('%s visibly rejects a still-conflicting draft', async method => {
