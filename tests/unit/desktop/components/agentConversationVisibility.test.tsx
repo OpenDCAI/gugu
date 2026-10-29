@@ -74,6 +74,9 @@ it('excludes the floating editor from the observer and does not read a covered m
   messageTop = 520
   observer.callback([visible], {} as IntersectionObserver)
   expect(onVisibleItems).not.toHaveBeenCalled()
+  messageTop = 490 // Only the upper half is above the floating editor.
+  observer.callback([visible], {} as IntersectionObserver)
+  expect(onVisibleItems).not.toHaveBeenCalled()
   messageTop = 470
   observer.callback([visible], {} as IntersectionObserver)
   expect(onVisibleItems).toHaveBeenCalledWith(['visible-message'])

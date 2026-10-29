@@ -26,7 +26,10 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
       const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
       const content = body.getBoundingClientRect();
-      return content.width > 0 && content.height > 0 && content.bottom > viewport.top && content.top < bottom
+      // A covered short bubble has not been read. A reply taller than the
+      // viewport becomes eligible when its end reaches the readable region.
+      return content.width > 0 && content.height > 0 && content.bottom > viewport.top && content.bottom <= bottom
+        && (content.top >= viewport.top || content.height > bottom - viewport.top)
         && content.right > viewport.left && content.left < viewport.right;
     };
     const report = (elements: readonly Element[]) => {

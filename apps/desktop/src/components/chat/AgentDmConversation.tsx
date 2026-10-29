@@ -39,6 +39,7 @@ import { useTheme } from '@/store/theme'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { ConversationErrorBoundary } from './ConversationErrorBoundary'
 import { useAgentDmRead } from './useAgentDmRead'
+import { useConversationVisibility } from './useConversationVisibility'
 
 type Chrome = { attachGlyph: import('react').ReactNode; attachMenu?: readonly ComposerAttachAction[]; composerHeader?: import('react').ReactNode }
 
@@ -62,9 +63,10 @@ function AgentDmSession({ chat, shown, mobile = false, onBack, chrome, embedded,
   return <DmConversation key={chat.id} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} embedded={embedded} searchQuery={searchQuery} />
 }
 
-function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded, searchQuery = '' }: {
+function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, chrome, embedded, searchQuery = '' }: {
   chat: ChatItem; target: Target | null; shown: boolean; mobile: boolean; onBack?: () => void; chrome?: Chrome; embedded?: boolean; searchQuery?: string
 }) {
+  const { ref, shown } = useConversationVisibility(requestedShown)
   const { toast } = useToast()
   const filePreview = useMessageFilePreview({ mobile, visible: shown, closeRightSurfaces: () => {}, toast })
   const [dismissals, setDismissals] = useState(0)
@@ -123,7 +125,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
       onStop: target ? () => { void read.cancel() } : undefined }}
       onSend={async (text, options) => { await sendMessage(text, options) }} onSendAttachments={async (files, options) => { await sendAttachments(files, options) }} />
   </>
-  return <div data-testid="agent-dm-conversation" data-agent-user-id={chat.peer_user_id ?? undefined} className="relative flex h-full min-h-0 flex-1">
+  return <div ref={ref} data-testid="agent-dm-conversation" data-agent-user-id={chat.peer_user_id ?? undefined} className="relative flex h-full min-h-0 flex-1">
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {!embedded && !chrome && <PaneHeader title={name} titleLevel="panel" mobile={mobile}
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}

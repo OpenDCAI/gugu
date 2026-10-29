@@ -32,7 +32,15 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.scrollToItem.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+let intersections: { target: Element; notify: (visible: boolean) => void }[]
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.scrollToItem.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); intersections = []; vi.stubGlobal('IntersectionObserver', class {
+  constructor(private callback: IntersectionObserverCallback) {}
+  observe(target: Element) {
+    const notify = (visible: boolean) => this.callback([{ target, isIntersecting: visible, intersectionRect: { width: visible ? 900 : 0, height: visible ? 850 : 0 } } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+    intersections.push({ target, notify }); notify(true)
+  }
+  unobserve() {} disconnect() {}
+}) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -250,4 +258,37 @@ it('shows the retained-message notice until the peer replies, without losing it 
   const after = probe.props as { commands: ChatCommands; turns: TranscriptTurn[] }
   expect(after.commands.conversationProcessNotice?.('im:retained:process')).toBeNull()
   expect(after.turns.some(turn => turn.id === 'im:retained')).toBe(false)
+})
+
+
+it('captures unread on return to a retained desktop slot even when its logical shown prop stays true', async () => {
+  const rows = Array.from({ length: 10 }, (_, index) => message({ id: `hidden-reply-${index}`, seq: index + 2, chat_id: dm.id, is_mine: false }))
+  const own = message({ id: 'own-prompt', seq: 1, chat_id: dm.id, is_mine: true })
+  const markMessageVisible = vi.fn()
+  const draw = (chat: typeof dm, messages: typeof rows) => renderWithAppProviders(harness, createElement(AgentDmConversation, { chat, shown: true }), { chat: {
+    activeChat: chat, activeChatId: dm.id, messages, markMessageVisible,
+  } })
+  await draw({ ...dm, last_read_seq: 1, unread_locator: null }, [own])
+  const surface = () => intersections.find(entry => entry.target.getAttribute('data-testid') === 'agent-dm-conversation')
+  await act(async () => surface()?.notify(false)) // Contacts covers the retained task/chat slot.
+  const unread = { ...dm, last_read_seq: 1, unread_locator: { message_id: rows[0].id, message_seq: 2, cursor_seq: 1 } } as typeof dm
+  await draw(unread, [own, ...rows])
+  probe.setScrollMode.mockClear()
+  await act(async () => surface()?.notify(true)) // Messages → Conversations → same existing tab.
+  expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: rows[0].id, edge: 'top', offset: -8 })
+  const visible = (probe.props as { onVisibleItems: (ids: string[]) => void }).onVisibleItems
+  visible(rows.slice(5).map(row => row.id))
+  expect(markMessageVisible).not.toHaveBeenCalled()
+  visible(rows.slice(0, 3).map(row => row.id))
+  expect(markMessageVisible.mock.calls.map(([row]) => row.id)).toEqual(rows.slice(0, 3).map(row => row.id))
+  await draw({ ...dm, last_read_seq: 11, unread_locator: null }, [own, ...rows])
+  await act(async () => surface()?.notify(false))
+  const second = rows.map((row, index) => ({ ...row, id: `second-reply-${index}`, seq: index + 13 }))
+  const nextEntry = { ...dm, last_read_seq: 12, unread_locator: { message_id: second[0].id, message_seq: 13, cursor_seq: 12 } } as typeof dm
+  await draw(nextEntry, [own, ...rows, ...second])
+  probe.setScrollMode.mockClear(); markMessageVisible.mockClear()
+  await act(async () => surface()?.notify(true))
+  expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: second[0].id, edge: 'top', offset: -8 })
+  ;(probe.props as { onVisibleItems: (ids: string[]) => void }).onVisibleItems(second.slice(0, 2).map(row => row.id))
+  expect(markMessageVisible.mock.calls.map(([row]) => row.id)).toEqual(second.slice(0, 2).map(row => row.id))
 })
