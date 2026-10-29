@@ -100,6 +100,8 @@ it('includes a configured application on the next message and disconnects it onc
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })
   const connected = await journal.prepare()
   expect(connected.text).toContain('钉钉'); expect(connected.text).toContain('连接应用')
+  // A CLI application connected mid-session is used through a delegated task, not the catalog alone.
+  expect(connected.text).toContain('session_spawn')
   await connected.accepted()
   // A repeated cloud receipt and the authoritative refresh are not two new events.
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })

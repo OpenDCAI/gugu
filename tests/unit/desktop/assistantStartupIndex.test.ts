@@ -253,6 +253,16 @@ it('carries the delegation hint of a connected CLI application into the opening 
   ])
 })
 
+it('keeps the other local sources readable when a delegation hint names an unexpected tool', async () => {
+  const index = await assistantStartupIndex({ ...fixture(), localSources: async () => [
+    { source: 'assistant_memory', status: 'read', read: 'Read', items: [{ id: '/memory/a.md', name: 'a.md', modifiedAt: '2026-10-29T07:38:13Z' }] },
+    { source: 'integrations', status: 'read', read: 'catalog_list', items: [{ id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z',
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_open' }, task_skills: ['lark-calendar'] } }] },
+  ] })
+  expect(records(index).find(row => row.source === 'assistant_memory')).toMatchObject({ status: 'read' })
+  expect(records(index).find(row => row.source === 'integrations')?.items?.[0]).toMatchObject({ id: 'feishu', name: '飞书' })
+})
+
 it('keeps the delegation route when the budget forces application details out', async () => {
   const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
   const use = { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: Array.from({ length: 600 }, (_, i) => `lark-skill-${i}`) }
