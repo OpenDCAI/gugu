@@ -29,3 +29,8 @@ export function useQueuedSessionInputs(sessionId: string): readonly SessionInput
   return useMemo(() => rows.filter(row => row.sessionId === sessionId && row.accountId === ownerId), [rows, sessionId, ownerId])
 }
 
+
+export function useSessionInputAccount(): string | null {
+  return useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } },
+    () => state().valid() ? state().accountId : null, () => null)
+}

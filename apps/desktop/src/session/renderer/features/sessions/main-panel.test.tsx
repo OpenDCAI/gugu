@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ kind: 'project-error', reach: 'Lab Mac is offline' as string | null, link: 'closed' }));
+const state = vi.hoisted(() => ({ nativeInput: false, kind: 'project-error', reach: 'Lab Mac is offline' as string | null, link: 'closed' }));
+vi.mock('@/components/chat/OfflineSessionInput', () => ({ OfflineSessionInput: ({ label }: { label: string }) => <div>{label}{state.nativeInput ? <textarea aria-label="Offline native message" /> : null}</div> }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionPageStore: () => ({}), sessionViewKind: () => state.kind,
   getSessionManagerStore: () => ({}), sessionErrorMessage: () => 'Connection lost',
@@ -31,7 +32,7 @@ let root: Root;
 let container: HTMLDivElement;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
-  state.kind = 'project-error'; state.reach = 'Lab Mac is offline'; state.link = 'closed';
+  state.nativeInput = false; state.kind = 'project-error'; state.reach = 'Lab Mac is offline'; state.link = 'closed';
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -54,6 +55,15 @@ describe('task preparation while its machine is unavailable', () => {
     render();
     expect(container.textContent).toBe('Lab Mac is offline');
     expect(container.querySelector('button')).toBeNull();
+  });
+
+  it('keeps a native input surface available before the remote workspace has mounted', () => {
+    state.kind = 'project-error'; state.nativeInput = true;
+    render();
+    expect(container.querySelector('textarea')).not.toBeNull();
+    state.kind = 'ready'; state.reach = null; state.link = 'open';
+    render();
+    expect(container.textContent).toBe('Task workspace');
   });
 
   it('keeps an ordinary failure actionable when the machine is connected', () => {

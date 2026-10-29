@@ -1,3 +1,5 @@
+import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
+import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
 import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -760,8 +762,12 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const composerShown = useContext(PageShownContext);
+  const inputAccount = useSessionInputAccount();
   useEffect(() => {
     if (!composerShown) return;
+    const machine = machineRegistry.machineOf(store.runtimeSessionId);
+    const kept = readNativeOfflineDraft(machine, store.runtimeSessionId);
+    if (kept) { store.setDraftText(appendToDraft(store.draftText, kept)); writeNativeOfflineDraft(machine, store.runtimeSessionId, ''); }
     return registerNativeComposer(store.runtimeSessionId, async draft => {
       const files = draft.files ?? [];
       if (store.acceptsImagePrompts && files.some(file => file.type.startsWith('image/') && !toAttachmentMimeType(file))) throw new Error(translate('chat.unsupportedImageTitle'));
@@ -769,7 +775,7 @@ const ComposerForStore = observer(function ComposerForStore({
       await attachPathFiles(files.filter(file => !file.type.startsWith('image/')));
       store.setDraftText(appendToDraft(store.draftText, draft.text));
     });
-  }, [store, composerShown, addImageFiles, attachPathFiles, translate]);
+  }, [store, composerShown, inputAccount, addImageFiles, attachPathFiles, translate]);
 
   const handleAttachmentsChange = useCallback(
     (next: ComposerAttachment[]) => {
