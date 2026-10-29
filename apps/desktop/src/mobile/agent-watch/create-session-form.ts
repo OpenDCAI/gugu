@@ -149,14 +149,23 @@ export function reconcileModel(
   selection: CreateSelection,
   models: SessionpageSessionCreateModels | null,
   modelTouched = false,
+  lastUsed?: SessionpageSessionCreateOptions['lastUsed'],
 ): CreateSelection {
   if (!models || models.harness !== selection.harness) return selection
+  const explicitDefault = modelTouched || (lastUsed?.harness === selection.harness && lastUsed.model === null && canUseOwnCreateModels(models))
   const chosen = models.models.find((m) => m.id === selection.model && offeredInCreateMenu(m))
   const keepModel = chosen && (modelTouched || chosen.source === 'gugu' || canUseOwnCreateModels(models))
-  const model = keepModel || (modelTouched && selection.model === null) ? selection.model : defaultCreateModel(models)
+  const model = keepModel || (explicitDefault && selection.model === null) ? selection.model : defaultCreateModel(models)
   const effort =
     selection.effort !== null && !models.efforts.some((e) => e.id === selection.effort) ? null : selection.effort
   return model === selection.model && effort === selection.effort ? selection : { ...selection, model, effort }
+}
+
+/** 同一台机器、同一家引擎的自有模型登录读数；两个手机创建入口共用。 */
+export function createModelNeedsSignIn(selection: CreateSelection, models: SessionpageSessionCreateModels | null): boolean {
+  return models !== null && models.harness === selection.harness
+    && (models.harnessAuth === 'signed-out' || models.selectedCredential === 'uncredentialed' || models.harnessState === 'auth-required')
+    && (selection.model === null || models.models.some((choice) => choice.id === selection.model && choice.source === 'harness'))
 }
 
 /** 摘要行上推理档那一格写什么:选了写名字(目录没到写 id);没选 null。 */

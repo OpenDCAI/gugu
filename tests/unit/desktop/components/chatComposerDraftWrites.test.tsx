@@ -108,6 +108,7 @@ describe('chat editor draft writes', () => {
     vi.spyOn(sessionRpc, 'fetchCreateOptions').mockResolvedValue({ projects: [], lastUsed: null, harnesses: [
       { id: 'codex', name: 'Codex', status: 'available', watchable: true, sessionViews: ['general'], permissionModes: ['full-access'] },
     ] })
+    vi.spyOn(sessionRpc, 'fetchCreateModels').mockResolvedValue({ harness: 'codex', models: [], efforts: [], selected: null, selectedEffort: null })
     function Host() {
       const base = useDevicesStore()
       return <DevicesContext.Provider value={{ ...base, devices: [device('machine', [], { projects: [{

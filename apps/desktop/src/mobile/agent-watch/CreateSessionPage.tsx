@@ -18,7 +18,6 @@ import type {
 import { Thread } from '@/components/assistant-ui/thread.aui'
 import { ComposerExtrasProvider } from '@/components/assistant-ui/composer-extras'
 import { Button } from '@/components/ui/Button'
-import { canUseOwnCreateModels } from '@/lib/createModelDefault'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import { useAuth } from '@/store/auth'
 import { forgetPhoneSessionCreate, readPhoneSessionCreate, rememberPhoneSessionCreate } from '../local-agent/phoneSessionCreate'
@@ -37,6 +36,7 @@ import { bindCreationDraft, mobileCreationDraftKey } from './create-session-draf
 import './task-flow-catalog'
 import {
   createBlocker,
+  createModelNeedsSignIn,
   initialSelection,
   lastUsedDropped,
   reconcileModel,
@@ -158,9 +158,7 @@ export function CreateSessionPage({
         if (cancelled) return
         setModels(next)
         setModelsState('ready')
-        setSelection((current) => reconcileModel(current, next, modelTouched.current || (
-          options?.lastUsed?.harness === current.harness && options.lastUsed.model === null && canUseOwnCreateModels(next)
-        )))
+        setSelection((current) => reconcileModel(current, next, modelTouched.current, options?.lastUsed))
       })
       .catch(() => { if (!cancelled) setModelsState('failed') })
     return () => { cancelled = true }
@@ -168,8 +166,7 @@ export function CreateSessionPage({
 
   const blocker = options ? createBlocker(options, selection) : null
   const readingModelDefault = !modelTouched.current && (!models || models.harness !== harness) && modelsState !== 'failed'
-  const modelNeedsSignIn = !phoneAttempt && models && models.harness === harness && (models.harnessAuth === 'signed-out' || models.selectedCredential === 'uncredentialed' || models.harnessState === 'auth-required')
-    && (selection.model === null || models.models.some((choice) => choice.id === selection.model && choice.source === 'harness'))
+  const modelNeedsSignIn = !phoneAttempt && createModelNeedsSignIn(selection, models)
   const modelNotice = modelNeedsSignIn ? t('agentWatch.create.modelHarnessState.auth-required') : readingModelDefault ? t('agentWatch.create.modelLoading') : null
   const creating = pendingText !== null
   const canSubmit = online && options !== null && optionsError === null && blocker === null && !readingModelDefault && !modelNeedsSignIn
