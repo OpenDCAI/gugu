@@ -17,6 +17,10 @@ export const REMOTE_HOSTS_BRIDGE_KEY = '__GUGU_REMOTE_HOSTS__';
 /** 名下的一台别的机器(本机与云设备行不在其中)。 */
 export type RemoteHostDevice = {
   id: string;
+  /** Shared physical identity; endpoint IDs remain the routing identity for existing sessions. */
+  machineId?: string | null;
+  /** Another configuration of this computer: route its sessions, but do not offer it as another machine. */
+  isCurrentMachine?: true;
   /** 「在哪跑」里的名字(用户可改)。 */
   label: string;
   isOnline: boolean;
