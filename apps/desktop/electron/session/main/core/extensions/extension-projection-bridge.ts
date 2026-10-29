@@ -4,6 +4,7 @@ import { projectEvents } from '../projects/project-events';
 import { randomUUID } from 'node:crypto';
 import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
 import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
+import { ProjectionMediaAccess } from './projection-media-access';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
 
@@ -24,6 +25,7 @@ type SourceCommand = Omit<Extract<ProjectionSourceEvent, { type: 'input' }>, 'id
 export class ExtensionProjectionBridge {
   private lifecycle = 0;
   private readonly resources: ExtensionProjections;
+  private readonly mediaAccess: ProjectionMediaAccess;
   private readonly sources = new Map<string, Source>();
   private readonly inputs = new Map<string, PendingInput>();
   private readonly viewers = new Map<string, Viewer>();
@@ -32,7 +34,11 @@ export class ExtensionProjectionBridge {
 
   constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string>) {
     this.resources = new ExtensionProjections(({ extensionId }) => authorize(extensionId));
+    this.mediaAccess = new ProjectionMediaAccess(this.resources, pageId => this.epochs.get(pageId) ?? 0);
   }
+
+  /** Internal host adapter; deliberately absent from the App verb dispatcher. */
+  mediaResource(caller: BridgeCaller, sourceId: string) { return this.mediaAccess.open(caller, sourceId); }
 
   count(pageId: number): number {
     return [...this.sources.values()].filter(source => source.pageId === pageId && source.alive).length;
@@ -227,6 +233,7 @@ export class ExtensionProjectionBridge {
   /** The actual document/child went away. Other pages of the same App keep their own resources. */
   closePage(pageId: number): void {
     this.epochs.set(pageId, (this.epochs.get(pageId) ?? 0) + 1);
+    this.mediaAccess.closePage(pageId);
     for (const key of this.watches.keys()) if (key.startsWith(`${pageId}:`)) this.watches.delete(key);
     for (const [key, viewer] of this.viewers) {
       if (viewer.pageId === pageId) { viewer.close(); this.viewers.delete(key); }

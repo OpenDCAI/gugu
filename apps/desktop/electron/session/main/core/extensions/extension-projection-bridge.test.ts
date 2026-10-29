@@ -37,6 +37,23 @@ function setup() {
 }
 
 describe('App program → dedicated host resource → bound App page', () => {
+  it('ties internal media authority to the actual page document and program resource lifetime', async () => {
+    const { bridge, runtime } = setup();
+    const source = await runtime.create({ input: async () => {}, disconnect: async () => {}, refresh() {}, close() {} });
+    const viewer = page(95);
+    const first = bridge.mediaResource(viewer, source.id);
+    expect(first).toMatchObject({ extensionId: owner.extensionId, sessionId: 'task-a', pageId: 95, epoch: 0 });
+    bridge.closePage(95);
+    expect(first.signal.aborted).toBe(true);
+    expect(bridge.count(owner.pageId)).toBe(1);
+    const second = bridge.mediaResource(viewer, source.id);
+    expect(second.epoch).toBe(1);
+    expect(second.signal.aborted).toBe(false);
+    await source.close();
+    expect(second.signal.aborted).toBe(true);
+    expect(() => second.assertCurrent()).toThrow();
+  });
+
   it('requires the exact call\'s host-stamped session, ignoring a forged session argument', async () => {
     const { bridge } = setup();
     await expect(bridge.call({ ...program(), callingSession: undefined }, 'projectionCreate', { sessionId: 'task-a' })).rejects.toThrow(/inside a task tool call/);
