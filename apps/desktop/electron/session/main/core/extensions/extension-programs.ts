@@ -314,7 +314,7 @@ class ProgramTransport extends OwnedStdioTransport {
         if (program.onGuguNode) this.surface = attachProgramSurface(program.extensionId, child);
       },
       onClosed: () => {
-        this.surface?.close();
+        void Promise.resolve(this.surface?.close(true)).catch((error: unknown) => log.warn('App resources did not close cleanly', { error: String(error) }));
         this.surface = null;
       },
     });
@@ -484,10 +484,16 @@ export async function revokeExtensionPrograms(extensionId: string): Promise<void
   for (const key of [...starting.keys()]) if (key.startsWith(`${extensionId}/`)) starting.delete(key);
   const own = [...instances].filter((instance) => instance.key.startsWith(`${extensionId}/`));
   const stopped = own.map((instance) => {
-    // Withdraw IPC/file authority before waiting for the process to notice EOF or exit.
-    instance.transport.surface?.close();
-    instance.transport.surface = null;
-    return stop(instance);
+    const surface = instance.transport.surface;
+    if (!surface) return stop(instance);
+    // New calls/notifications lose authority now; only owned cleanup ACKs remain until held input is released.
+    instance.stopping = true;
+    if (instance.idleTimer) clearTimeout(instance.idleTimer);
+    if (live.get(instance.key) === instance) live.delete(instance.key);
+    return (async () => {
+      try { await surface.close(); }
+      finally { instance.transport.surface = null; await stop(instance); }
+    })();
   });
   const settled = await Promise.allSettled([...stopped, ...[...nativePrograms.values()].map((provider) => provider.retire(extensionId))]);
   const failed = settled.find((result) => result.status === 'rejected');

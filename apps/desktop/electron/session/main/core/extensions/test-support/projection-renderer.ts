@@ -8,7 +8,7 @@ const host: ProjectionHost = {
   projection: {
     create: args => fixture.call('create', args), publish: args => fixture.call('publish', args), close: args => fixture.call('close', args),
     closed: args => fixture.call('closed', args), inputResult: args => fixture.call('inputResult', args),
-    watch: args => fixture.call('watch', args), unwatch: args => fixture.call('unwatch', args), send: args => fixture.call('send', args),
+    watch: args => { Object.assign(window, { fixtureWatchId: args.watchId }); return fixture.call('watch', args); }, unwatch: args => fixture.call('unwatch', args), send: args => fixture.call('send', args),
   },
   onProjection: callback => fixture.hear(callback),
 };

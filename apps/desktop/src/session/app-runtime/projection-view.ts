@@ -1,6 +1,8 @@
 import type { ProjectionFrame, ProjectionInput } from '@shared/extensions/projection-protocol';
+import { ProjectionInputNotSent } from './projection-input-queue';
 import { projectionClient } from './projection-client';
 import type { ProjectionHost } from './projection-source';
+export type PendingProjectionText = { id: number; text: string; state: 'not-sent' | 'unconfirmed'; reason?: string };
 export type ProjectionViewState = 'connecting' | 'live' | 'input-paused' | 'closed';
 
 /** The shared picture/input surface. Its App owns surrounding chrome, target selection, and driver code. */
@@ -22,31 +24,41 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
   root.append(surface);
   let frame: ProjectionFrame | null = null;
   let ready = false;
-  let paused = false;
   let nextText = 0;
-  const pendingText = new Map<number, string>();
+  const observed = new WeakSet<Promise<unknown>>();
+  const pendingText = new Map<number, PendingProjectionText>();
   let composing = false;
   let committed: string | null = null;
   let button: 'left' | 'middle' | 'right' = 'left';
   let client: Awaited<ReturnType<typeof projectionClient>> | undefined;
   const lifetime = new AbortController();
   const pause = (error: unknown) => {
-    const wasPaused = paused;
-    paused = true;
     ready = false;
     input.disabled = true;
     options.state?.('input-paused');
     options.error?.(error);
-    if (!wasPaused) void client?.reset().catch(() => undefined);
+    void client?.reset().catch(options.error);
   };
   const reset = () => { if (ready) void client?.reset().catch(pause); };
   input.addEventListener('blur', reset);
   window.addEventListener('blur', reset, { signal: lifetime.signal });
   const send = (value: ProjectionInput) => {
+    const text = value.kind === 'text' ? { id: ++nextText, text: value.text, state: 'not-sent' as const } : undefined;
+    if (text) pendingText.set(text.id, text);
     if (!ready || !client) return;
-    const textId = ++nextText;
-    if (value.kind === 'text') pendingText.set(textId, value.text);
-    void client.input(value).then(() => pendingText.delete(textId), pause);
+    const operation = client.input(value, () => { if (text) pendingText.set(text.id, { ...text, state: 'unconfirmed' }); });
+    if (observed.has(operation)) return;
+    observed.add(operation);
+    void operation.then(result => {
+      if (result.status === 'applied') { if (text) pendingText.delete(text.id); return; }
+      if (text) pendingText.set(text.id, { ...text, state: result.status === 'rejected' ? 'not-sent' : 'unconfirmed', reason: result.reason });
+      if (result.status === 'unknown') pause(new Error(result.reason));
+      else options.error?.(new Error(result.reason));
+    }, error => {
+      if (text) pendingText.set(text.id, { ...text, reason: String(error) });
+      if (error instanceof ProjectionInputNotSent) options.error?.(error);
+      else pause(error);
+    });
   };
   const modifiers = (event: MouseEvent | KeyboardEvent) => [
     ...(event.altKey ? ['alt' as const] : []), ...(event.ctrlKey ? ['control' as const] : []),
@@ -115,7 +127,7 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
   });
   for (const [eventName, action] of [['keydown', 'down'], ['keyup', 'up']] as const) {
     input.addEventListener(eventName, event => {
-      if (event.isComposing || composing || event.key === 'Process' || event.key === 'Dead') return;
+      if (event.isComposing || composing || event.key === 'Process' || event.key === 'Dead' || event.getModifierState('AltGraph')) return;
       // The local paste event carries the committed text; forwarding the shortcut would paste it twice.
       if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') || (event.shiftKey && event.key === 'Insert')) return;
       // Printable characters come from input/composition, so Chinese input and paste are never typed twice.
@@ -133,14 +145,14 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
         frame = next;
       },
       state: (state, reason) => {
-        ready = state === 'live' && !paused;
+        ready = state === 'live';
         input.disabled = !ready;
-        options.state?.(paused && state !== 'closed' ? 'input-paused' : state, reason);
+        options.state?.(state, reason);
       },
       error: pause,
     });
   } catch (error) { lifetime.abort(); surface.remove(); throw error; }
-  return Object.freeze({ pendingText: () => [...pendingText.values()], close: async () => {
+  return Object.freeze({ pendingText: () => [...pendingText.values()].map(entry => ({ ...entry })), discardPendingText: (id: number) => pendingText.delete(id), close: async () => {
     lifetime.abort();
     try { await client?.close(); }
     finally { surface.remove(); }

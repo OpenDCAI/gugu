@@ -28,7 +28,7 @@ void app.whenReady().then(async () => {
   const source = new BrowserWindow({ show: false, width: 640, height: 480, webPreferences: { backgroundThrottling: false } });
   const other = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
   windows.push(source, other);
-  const html = '<body style="background:#184e91"><textarea id="native" style="width:80%;height:200px"></textarea><script>native.focus()</script>';
+  const html = `<body style="background:#184e91"><textarea id="native" style="width:80%;height:200px"></textarea><script>native.focus();window.held={key:false,mouse:false};addEventListener('keydown',e=>{if(e.key==='Shift')held.key=true});addEventListener('keyup',e=>{if(e.key==='Shift')held.key=false});addEventListener('mousedown',()=>held.mouse=true);addEventListener('mouseup',()=>held.mouse=false)</script>`;
   await source.loadURL(`data:text/html,${encodeURIComponent(html)}`);
   await other.loadURL(`data:text/html,${encodeURIComponent(html)}`);
   const program = (extensionId: string, pageId: number) => {
@@ -51,14 +51,32 @@ void app.whenReady().then(async () => {
   const a = program('native-projection-a', -1), b = program('native-projection-b', -2);
   const inputs: ProjectionInput[] = [];
   let captures = 0, stopped = false;
+  const held = new Map<string, { target: BrowserWindow; key: boolean; mouse: boolean }>();
   const driver = (target: BrowserWindow, capture: () => Promise<void>): ProjectionDriver => ({
     refresh: capture,
-    disconnect: async () => {},
-    close: () => { if (target === source) stopped = true; },
-    input: async (input, { signal }) => {
+    disconnect: async viewer => {
+      const state = held.get(viewer);
+      if (!state) return;
+      if (state.key) state.target.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Shift' });
+      if (state.mouse) state.target.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', x: 30, y: 30, clickCount: 1 });
+      await until(() => state.target.webContents.executeJavaScript('!held.key && !held.mouse'));
+      held.delete(viewer);
+    },
+    close: () => { assert.equal(held.size, 0); if (target === source) stopped = true; },
+    input: async (input, { signal, viewer }) => {
       signal.throwIfAborted();
       if (target === source) inputs.push(input);
       if (input.kind === 'text') await target.webContents.insertText(input.text);
+      if (input.kind === 'key') {
+        const state = held.get(viewer) ?? { target, key: false, mouse: false };
+        state.key = input.action === 'down'; held.set(viewer, state);
+        target.webContents.sendInputEvent({ type: input.action === 'down' ? 'keyDown' : 'keyUp', keyCode: input.key });
+      }
+      if (input.kind === 'pointer' && input.action !== 'move') {
+        const state = held.get(viewer) ?? { target, key: false, mouse: false };
+        state.mouse = input.action === 'down'; held.set(viewer, state);
+        target.webContents.sendInputEvent({ type: input.action === 'down' ? 'mouseDown' : 'mouseUp', button: input.button, x: 30, y: 30, clickCount: 1 });
+      }
       signal.throwIfAborted();
     },
   });
@@ -94,7 +112,7 @@ void app.whenReady().then(async () => {
     assert.ok(packets.some(packet => packet.type === 'frame' && packet.frame.data.length > 100));
     assert.equal(await viewer.webContents.executeJavaScript('document.querySelector("img").naturalWidth > 0 && !document.querySelector("textarea").disabled'), true);
   });
-  await check('native-unicode-once-and-target-isolation', async () => {
+  await check('native-unicode-once-and-fixture-routing', async () => {
     await viewer.webContents.executeJavaScript(`(() => {
       const input = document.querySelector('textarea');
       input.dispatchEvent(new CompositionEvent('compositionstart'));
@@ -116,11 +134,18 @@ void app.whenReady().then(async () => {
   });
   await check('native-app-revocation', async () => {
     const snapshot = await value(source);
+    const generation = packets[0]!.generation;
+    await bridge.call(page, 'projectionSend', { watchId: (await viewer.webContents.executeJavaScript('window.fixtureWatchId')) as string,
+      packet: { type: 'input', generation, frame: 1, sequence: 100, input: { kind: 'key', action: 'down', key: 'Shift' } } });
+    await bridge.call(page, 'projectionSend', { watchId: (await viewer.webContents.executeJavaScript('window.fixtureWatchId')) as string,
+      packet: { type: 'input', generation, frame: 1, sequence: 101, input: { kind: 'pointer', action: 'down', button: 'left', x: 0.5, y: 0.5 } } });
+    await until(() => source.webContents.executeJavaScript('held.key && held.mouse'));
     revokeExtensionProgramAccess(a.caller.extensionId);
     await until(() => viewer.webContents.executeJavaScript('document.querySelector("textarea").disabled'));
     await until(async () => stopped);
     await assert.rejects(publisher.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }), /closed/i);
     assert.equal(await value(source), snapshot);
+    assert.deepEqual(await source.webContents.executeJavaScript('held'), { key: false, mouse: false });
     assert.equal(bridge.count(b.caller.pageId), 1);
     await second.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' });
     await second.close();

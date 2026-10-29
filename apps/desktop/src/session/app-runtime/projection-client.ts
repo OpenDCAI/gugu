@@ -1,4 +1,5 @@
 import { projectionInput, type ProjectionFrame, type ProjectionHostPacket, type ProjectionInput } from '@shared/extensions/projection-protocol';
+import { ProjectionInputQueue, ProjectionInputNotSent } from './projection-input-queue';
 import type { ProjectionHost } from './projection-source';
 
 /** Renderers ACK after paint, not after receiving bytes. No queued input survives a lost generation. */
@@ -15,6 +16,7 @@ export async function projectionClient(host: ProjectionHost, id: string, options
   let closed = false;
   let ready = false;
   let resetting: Promise<void> | null = null;
+  const inputs = new ProjectionInputQueue(packet => bridge.send({ watchId, packet }));
   const state = (value: 'connecting' | 'live' | 'closed', reason?: string) => {
     ready = value === 'live';
     options.state?.(value, reason);
@@ -23,10 +25,12 @@ export async function projectionClient(host: ProjectionHost, id: string, options
     if (closed) return;
     if (packet.type === 'state') {
       if (packet.state === 'connecting') {
+        inputs.clear();
         generation = packet.generation;
         painted = sequence = 0;
         state('connecting');
       } else if (packet.generation === generation && packet.state === 'closed') {
+        inputs.clear();
         generation = '';
         painted = 0;
         state('closed', packet.reason);
@@ -55,20 +59,27 @@ export async function projectionClient(host: ProjectionHost, id: string, options
     reset() {
       if (closed) return Promise.reject(new Error('Projection is closed'));
       if (resetting) return resetting;
+      inputs.clear();
       generation = '';
       painted = sequence = 0;
       state('connecting');
-      resetting = bridge.watch({ id, watchId }).finally(() => { resetting = null; });
+      resetting = bridge.watch({ id, watchId }).catch(error => {
+        state('closed', error instanceof Error ? error.message : String(error));
+        throw error;
+      }).finally(() => { resetting = null; });
       return resetting;
     },
-    async input(raw: ProjectionInput) {
-      if (closed || !ready || !painted) throw new Error('Projection is not ready for input');
-      const input = projectionInput(raw);
-      await bridge.send({ watchId, packet: { type: 'input', generation, frame: painted, sequence: ++sequence, input } });
+    input(raw: ProjectionInput, sent?: () => void) {
+      if (closed || !ready || !painted) return Promise.reject(new ProjectionInputNotSent('Projection is not ready for input'));
+      let input: ProjectionInput;
+      try { input = projectionInput(raw); }
+      catch (error) { return Promise.reject(new ProjectionInputNotSent(error instanceof Error ? error.message : String(error))); }
+      return inputs.push({ type: 'input', generation, frame: painted, sequence: ++sequence, input }, sent);
     },
     async close() {
       if (closed) return;
       closed = true;
+      inputs.clear();
       ready = false;
       off();
       try { await bridge.unwatch({ watchId }); }

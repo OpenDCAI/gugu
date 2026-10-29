@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import { vi } from 'vitest';
 import { trackPageNavigation } from '../page-navigation-tracker';
 
-export function page(urls = ['https://example.test/'], activeIndex = urls.length - 1, options: { loading?: boolean } = {}) {
+export function page(urls = ['https://example.test/'], activeIndex = urls.length - 1) {
   const entries = urls.map(url => ({ url }));
   let attached = false, destroyed = false;
   const debuggerApi = Object.assign(new EventEmitter(), {
@@ -15,7 +15,7 @@ export function page(urls = ['https://example.test/'], activeIndex = urls.length
   const contents = Object.assign(new EventEmitter(), {
     debugger: debuggerApi,
     getURL: vi.fn(() => entries[activeIndex]?.url ?? ''),
-    isLoading: vi.fn(() => options.loading ?? false),
+    isLoading: vi.fn(() => false),
     navigationHistory: {
       getAllEntries: vi.fn(() => entries),
       getActiveIndex: vi.fn(() => activeIndex),

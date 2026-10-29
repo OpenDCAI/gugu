@@ -1,23 +1,22 @@
-import type { ProjectionFrame, ProjectionInput, ProjectionHostPacket, ProjectionSourceEvent, ProjectionViewerPacket } from '@shared/extensions/projection-protocol';
+import type { ProjectionFrame, ProjectionInput, ProjectionHostPacket, ProjectionSourceEvent, ProjectionViewerPacket, ProjectionInputOutcome } from '@shared/extensions/projection-protocol';
 
 export interface ProjectionHost {
   projection?: {
-    create(args: { nativeLocalInput?: boolean }): Promise<{ id: string }>;
+    create(args: Record<string, never>): Promise<{ id: string }>;
     publish(args: { id: string; frame: ProjectionFrame }): Promise<void>;
     close(args: { id: string }): Promise<void>;
     closed(args: { id: string; error?: string }): Promise<void>;
-    inputResult(args: { id: string; requestId: string; error?: string }): Promise<void>;
+    inputResult(args: { id: string; requestId: string; outcome?: ProjectionInputOutcome; error?: string }): Promise<void>;
     watch(args: { id: string; watchId: string }): Promise<void>;
     unwatch(args: { watchId: string }): Promise<void>;
-    send(args: { watchId: string; packet: ProjectionViewerPacket }): Promise<void>;
+    send(args: { watchId: string; packet: ProjectionViewerPacket }): Promise<ProjectionInputOutcome | void>;
   };
   onProjection?(handler: (watchId: string, packet: ProjectionHostPacket) => void): () => void;
   onProjectionSource?(handler: (event: ProjectionSourceEvent) => void): () => void;
 }
 
 export interface ProjectionDriver {
-  nativeLocalInput?: boolean;
-  input(input: ProjectionInput, context: { signal: AbortSignal; viewer: string; frame: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> }): Promise<void>;
+  input(input: ProjectionInput, context: { signal: AbortSignal; viewer: string; frame: Pick<ProjectionFrame, 'sequence' | 'width' | 'height'> }): Promise<ProjectionInputOutcome | void>;
   disconnect(viewer: string): Promise<void>;
   refresh(): void | Promise<void>;
   close(): void | Promise<void>;
@@ -69,20 +68,22 @@ export function projectionSources(host: ProjectionHost) {
             controller.signal.throwIfAborted();
             return source.driver.input(event.input, { signal: controller.signal, viewer: event.viewer, frame: event.frame });
           }).then(
-            () => bridge.inputResult({ id: event.id, requestId: event.requestId }),
+            outcome => bridge.inputResult({ id: event.id, requestId: event.requestId, ...(outcome ? { outcome } : {}) }),
             reason => bridge.inputResult({ id: event.id, requestId: event.requestId, error: errorOf(reason) }),
           ).catch(() => undefined).finally(() => source.requests.delete(event.requestId));
         });
       }
-      const { id } = await bridge.create({ ...(driver.nativeLocalInput === true ? { nativeLocalInput: true } : {}) });
+      const { id } = await bridge.create({});
       const source = { driver, requests: new Map<string, AbortController>(), closing: false };
       sources.set(id, source);
       let sequence = 0;
       return Object.freeze({
         id,
-        publish(frame: Omit<ProjectionFrame, 'sequence'>) {
+        async publish(frame: Omit<ProjectionFrame, 'sequence'>): Promise<number> {
           if (source.closing) return Promise.reject(new Error('Projection closed'));
-          return bridge.publish({ id, frame: { ...frame, sequence: ++sequence } });
+          const published = ++sequence;
+          await bridge.publish({ id, frame: { ...frame, sequence: published } });
+          return published;
         },
         close: () => bridge.close({ id }),
       });

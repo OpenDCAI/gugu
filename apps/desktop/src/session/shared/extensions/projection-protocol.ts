@@ -12,6 +12,9 @@ export type ProjectionFrame = {
   data: string;
 };
 
+/** Rejected means the driver did not apply it; unknown must never be automatically replayed. */
+export type ProjectionInputOutcome = { status: 'applied' } | { status: 'rejected' | 'unknown'; reason: string };
+
 type Modifiers = Array<'alt' | 'control' | 'meta' | 'shift'>;
 export type ProjectionInput =
   | { kind: 'pointer'; action: 'move' | 'down' | 'up'; x: number; y: number; button: 'left' | 'middle' | 'right'; modifiers?: Modifiers }
@@ -39,6 +42,16 @@ const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid projection packet');
   return value as Record<string, unknown>;
 };
+
+export function projectionInputOutcome(raw: unknown): ProjectionInputOutcome {
+  if (raw === undefined) return { status: 'applied' };
+  const value = record(raw);
+  if (value.status === 'applied') return { status: 'applied' };
+  if ((value.status === 'rejected' || value.status === 'unknown') && typeof value.reason === 'string') {
+    return { status: value.status, reason: value.reason.slice(0, 1000) };
+  }
+  throw new Error('Invalid projection input outcome');
+}
 
 export function projectionFrame(raw: unknown): ProjectionFrame {
   const value = record(raw);

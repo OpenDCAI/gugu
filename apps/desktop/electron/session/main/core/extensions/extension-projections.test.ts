@@ -25,7 +25,7 @@ function wire(transport: 'local' = 'local') {
 function setup(overrides: Partial<ProjectionSource> = {}) {
   const authorize = vi.fn();
   const resources = new ExtensionProjections(authorize);
-  const source: ProjectionSource = { localInput: 'forwarded', input: vi.fn(async () => {}), disconnect: vi.fn(async () => {}), refresh: vi.fn(), close: vi.fn(), ...overrides };
+  const source: ProjectionSource = { input: vi.fn(async () => {}), disconnect: vi.fn(async () => {}), refresh: vi.fn(), close: vi.fn(), ...overrides };
   const resource = resources.open(owner, source);
   const publish = (sequence: number) => resource.publish({ sequence, width: 640, height: 480, mime: 'image/png', data: 'aGVsbG8=' });
   const attach = (transport: 'local' = 'local') => {
@@ -52,7 +52,7 @@ describe('App/session scoped picture and input', () => {
     await s.resource.close();
   });
 
-  it('requires the installed/granted App both on admission and before an input executes', async () => {
+  it('requires the installed/granted App when input is admitted', async () => {
     const s = setup();
     const v = s.attach();
     s.publish(1);
@@ -115,23 +115,6 @@ describe('App/session scoped picture and input', () => {
     await s.resource.close();
   });
 
-  it('does not forward native Browser input; a local Computer mirror can forward once', async () => {
-    const s = setup({ localInput: 'native' });
-    const local = s.attach('local');
-    s.publish(1);
-    await local.ack(1);
-    await expect(local.input(1)).rejects.toThrow(/native input/);
-    expect(s.source.input).not.toHaveBeenCalled();
-    await s.resource.close();
-    const computer = setup();
-    const mirror = computer.attach();
-    computer.publish(1);
-    await mirror.ack(1);
-    await mirror.input(1);
-    expect(computer.source.input).toHaveBeenCalledTimes(1);
-    await computer.resource.close();
-  });
-
   it('does not send local preview pictures over an unnegotiated direct or relay connection', () => {
     const s = setup();
     for (const transport of ['direct', 'relay']) {
@@ -140,7 +123,7 @@ describe('App/session scoped picture and input', () => {
     expect(s.source.refresh).not.toHaveBeenCalled();
   });
 
-  it('disconnects one viewer without closing the source or another task', async () => {
+  it('disconnects one viewer without closing the source or the other viewer of the same task', async () => {
     const s = setup();
     const a = s.attach();
     const b = s.attach();
@@ -166,12 +149,13 @@ describe('App/session scoped picture and input', () => {
     await vi.waitFor(() => expect(inputSignal).toBeDefined(), { timeout: 1000 });
     revokeExtensionProgramAccess(owner.extensionId);
     expect(inputSignal!.aborted).toBe(true);
-    expect(s.source.close).toHaveBeenCalledTimes(1);
+    expect(s.source.close).not.toHaveBeenCalled();
     expect(v.connection.packets.at(-1)).toMatchObject({ type: 'state', state: 'closed' });
     await expect(input).rejects.toThrow(/closed/);
     expect(() => other.publish({ sequence: 1, width: 1, height: 1, mime: 'image/png', data: 'YQ==' })).not.toThrow();
     stopped.resolve();
     await s.resource.close();
+    expect(s.source.close).toHaveBeenCalledTimes(1);
     await other.close();
   });
 
@@ -245,4 +229,54 @@ describe('App/session scoped picture and input', () => {
     await expect(viewer.receive({ type: 'ack', generation: 'old', frame: 1 })).rejects.toThrow(/closed/i);
     await s.resource.close();
   });
+  it('rechecks grants at execution after the operation was admitted into the queue', async () => {
+    const blocked = deferred();
+    const s = setup({ input: vi.fn(async () => blocked.promise) });
+    const v = s.attach(); s.publish(1); await v.ack(1);
+    const first = v.input(1);
+    await vi.waitFor(() => expect(s.source.input).toHaveBeenCalledTimes(1));
+    const queued = v.input(2);
+    s.authorize.mockImplementation(() => { throw new Error('withdrawn after admission'); });
+    blocked.resolve(); await first;
+    await expect(queued).rejects.toThrow('withdrawn after admission');
+    expect(s.source.input).toHaveBeenCalledTimes(1);
+    await s.resource.close();
+  });
+
+  it('allows one controller and releases held keys/buttons before handing control to another viewer', async () => {
+    const held = new Set<string>(); const order: string[] = [];
+    const s = setup({ input: async (input) => { if (input.kind === 'key') held.add(input.key); else held.add('mouse'); },
+      disconnect: async () => { held.clear(); order.push('released'); }, close: () => { expect(held.size).toBe(0); order.push('closed'); } });
+    const a = s.attach(); const b = s.attach(); s.publish(1); await a.ack(1); await b.ack(1);
+    await a.viewer.receive({ type: 'input', generation: a.connection.generation(), frame: 1, sequence: 1, input: { kind: 'key', action: 'down', key: 'Shift' } });
+    await a.viewer.receive({ type: 'input', generation: a.connection.generation(), frame: 1, sequence: 2, input: { kind: 'pointer', action: 'down', button: 'left', x: 0.5, y: 0.5 } });
+    expect(held.size).toBe(2);
+    await expect(b.input(1)).rejects.toThrow(/another viewer/);
+    a.viewer.close(); await b.input(2);
+    expect(order).toEqual(['released']);
+    expect(held).toEqual(new Set(['mouse']));
+    revokeExtensionProgramAccess(owner.extensionId);
+    await s.resource.close();
+    expect(held.size).toBe(0);
+    expect(order).toEqual(['released', 'released', 'closed']);
+  });
+
+  it('ends only the named task/project and bounds resources with no viewer', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup();
+      const otherClose = vi.fn();
+      const other = s.resources.open({ ...owner, sessionId: 'task-b', projectId: 'project-b' }, { ...s.source, close: otherClose });
+      s.resources.closeScope({ sessionId: owner.sessionId });
+      await s.resource.close();
+      expect(otherClose).not.toHaveBeenCalled();
+      s.resources.closeScope({ projectId: 'project-b' }); await other.close();
+      expect(otherClose).toHaveBeenCalledOnce();
+      const idle = setup();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(idle.source.close).toHaveBeenCalledOnce();
+      await idle.resource.close();
+    } finally { vi.useRealTimers(); }
+  });
+
 });

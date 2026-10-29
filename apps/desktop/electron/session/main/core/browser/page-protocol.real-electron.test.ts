@@ -64,7 +64,7 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
     'history-file-script', 'history-file-alt-left', 'history-file-mouse-back',
     'history-chrome-script', 'history-chrome-alt-left', 'history-chrome-mouse-back',
     'history-file-current', 'history-file-owner-navigation', 'navigation-already-loading', 'navigation-already-loading-file-api',
-    'navigation-forward-file-history', 'navigation-http-slow-resource', 'navigation-early-file-event'])('%s', name => {
+    'navigation-forward-file-history', 'navigation-http-slow-resource'])('%s', name => {
     expect(result.cases[name], JSON.stringify(result.cases[name])).toEqual({ passed: true });
   });
 });

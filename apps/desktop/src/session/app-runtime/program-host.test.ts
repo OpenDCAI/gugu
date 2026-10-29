@@ -58,26 +58,24 @@ describe('gugu in a program', () => {
     const { gugu, sent, deliver, nextCall } = await program();
     const { programCall } = await import('./program-call');
     const api = gugu.projection as { create(driver: { input(): Promise<void>; disconnect(): Promise<void>; refresh(): void; close(): void }): Promise<{
-      id: string; publish(frame: unknown): Promise<void>;
+      id: string; publish(frame: unknown): Promise<number>;
     }> };
-    let refreshes = 0;
+    let source: { id: string; publish(frame: unknown): Promise<number> };
+    let published: Promise<number> | undefined;
     const created = programCall.run('projection-tool-call', () => api.create({ input: async () => {}, disconnect: async () => {},
-      refresh: () => { refreshes++; }, close() {},
+      refresh: () => { published = source.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }); }, close() {},
     }));
     const creation = await nextCall(0);
     expect(creation).toMatchObject({ method: 'projectionCreate', call: 'projection-tool-call' });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: creation.id, ok: true, value: { id: 'projection-resource' } });
-    const source = await created;
-    deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
-    await Promise.resolve();
-    expect(refreshes).toBe(1);
+    source = await created;
     const before = sent.length;
-    const published = source.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' });
+    deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
     const publication = await nextCall(before);
     expect(publication).toMatchObject({ method: 'projectionPublish', args: { id: 'projection-resource', frame: { sequence: 1 } } });
     expect(publication).not.toHaveProperty('call');
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: publication.id, ok: true });
-    await published;
+    await expect(published).resolves.toBe(1);
   });
 
   it('keeps file sync frames apart from calls: a sync frame is never taken for an answer', async () => {

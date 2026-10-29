@@ -56,4 +56,32 @@ describe('painted frame and reconnect input routing', () => {
     expect(h.projection.send).toHaveBeenLastCalledWith(expect.objectContaining({ packet: expect.objectContaining({ generation: 'new', frame: 3, sequence: 1 }) }));
     await client.close();
   });
+  it('coalesces continuous input behind a busy driver while keeping discrete barriers and the original generation', async () => {
+    const h = host();
+    let finish!: () => void;
+    vi.mocked(h.projection.send).mockImplementation(async ({ packet }) => {
+      if (packet.type === 'input' && packet.sequence === 1) await new Promise<void>(resolve => { finish = resolve; });
+    });
+    const client = await projectionClient(h, 'source', { paint: async () => {} });
+    h.emit({ type: 'state', generation: 'a', state: 'connecting' });
+    h.emit({ type: 'frame', generation: 'a', frame });
+    await flush();
+    const first = client.input({ kind: 'key', action: 'down', key: 'Shift' });
+    const moves = Array.from({ length: 100 }, (_, index) => client.input({ kind: 'pointer', action: 'move', button: 'left', x: index / 100, y: 0.5 }));
+    const up = client.input({ kind: 'key', action: 'up', key: 'Shift' });
+    const wheels = Array.from({ length: 100 }, () => client.input({ kind: 'wheel', x: 0.5, y: 0.5, deltaX: 0, deltaY: 1 }));
+    expect(h.projection.send).toHaveBeenCalledTimes(2); // painted ACK + the one executing input
+    finish();
+    await Promise.all([first, ...moves, up, ...wheels]);
+    const inputs = vi.mocked(h.projection.send).mock.calls.map(([args]) => args.packet).filter(p => p.type === 'input');
+    expect(inputs.map(p => p.input)).toEqual([
+      { kind: 'key', action: 'down', key: 'Shift' },
+      { kind: 'pointer', action: 'move', button: 'left', x: 0.99, y: 0.5 },
+      { kind: 'key', action: 'up', key: 'Shift' },
+      { kind: 'wheel', x: 0.5, y: 0.5, deltaX: 0, deltaY: 100 },
+    ]);
+    expect(inputs.every(p => p.generation === 'a' && p.frame === 1)).toBe(true);
+    await client.close();
+  });
+
 });

@@ -86,4 +86,24 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
       [CFG, 360],
     ]);
   });
+  it('invalidates a task binding before asynchronous retarget work and closes viewers on rebind', async () => {
+    const { extensionProjections } = await import('./extension-projection-bridge');
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    const closed = vi.spyOn(extensionProjections, 'closePage');
+    const binding = extensionSurfaceBindingForTests(PAGE)!;
+    binding.sessionId = 'task-a';
+    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    let finish!: () => void;
+    resourceChat.mockImplementationOnce(async id => { await new Promise<void>(resolve => { finish = resolve; }); return id; });
+    try {
+      const moving = retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT });
+      expect(binding.sessionId).toBeNull();
+      expect(closed).toHaveBeenLastCalledWith(PAGE);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function')); finish(); await moving;
+      expect(binding.sessionId).toBe('task-b');
+      await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-3' });
+      expect(closed).toHaveBeenCalledTimes(2);
+    } finally { closed.mockRestore(); }
+  });
+
 });

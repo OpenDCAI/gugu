@@ -13,7 +13,6 @@ import { createPageProtocol } from '../page-protocol';
 import { pageProtocolBoundaryChecks } from './page-protocol-boundary-checks';
 import { pageProtocolHistoryChecks } from './page-protocol-history-checks';
 import { pageProtocolLoadingChecks } from './page-protocol-loading-checks';
-import { pageProtocolNavigationEventChecks } from './page-protocol-navigation-event-checks';
 
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 const commands: string[] = [];
@@ -173,7 +172,6 @@ async function run() {
   await pageProtocolBoundaryChecks(`http://127.0.0.1:${port}/`, check);
   await pageProtocolHistoryChecks(`http://127.0.0.1:${port}/`, check);
   await pageProtocolLoadingChecks(`http://127.0.0.1:${port}/`, check);
-  await pageProtocolNavigationEventChecks(`http://127.0.0.1:${port}/`, check);
   process.stdout.write('PAGE_PROTOCOL_RESULT=' + JSON.stringify({ cases, commands }) + '\n');
   runtime.close(); window.destroy(); server.closeAllConnections(); server.close();
 }

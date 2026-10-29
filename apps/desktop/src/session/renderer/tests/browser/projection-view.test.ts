@@ -11,6 +11,7 @@ async function setup() {
   let watchId = '';
   const packets: ProjectionViewerPacket[] = [];
   let rejectInput = false;
+  let refuseInput = false;
   let watches = 0;
   const host: ProjectionHost = {
     projection: {
@@ -19,6 +20,7 @@ async function setup() {
       send: async args => {
         packets.push(args.packet);
         if (rejectInput && args.packet.type === 'input') throw new Error('Native input unavailable');
+        if (refuseInput && args.packet.type === 'input') return { status: 'rejected' as const, reason: 'Geometry changed' };
       },
     },
     onProjection: callback => { hear = callback; return () => {}; },
@@ -42,7 +44,7 @@ async function setup() {
     await vi.waitFor(() => expect(packets.filter(packet => packet.type === 'ack')).toHaveLength(acks + 1));
   };
   return { root, packets, states, emit, paint, view, watches: () => watches,
-    rejectInput: () => { rejectInput = true; }, input: root.querySelector('textarea')! };
+    refuseInput: (value: boolean) => { refuseInput = value; }, rejectInput: (value = true) => { rejectInput = value; }, input: root.querySelector('textarea')! };
 }
 
 describe('shared projection surface in Chromium', () => {
@@ -87,6 +89,7 @@ describe('shared projection surface in Chromium', () => {
     clipboard.setData('text/plain', '粘贴\n第二行');
     s.input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, cancelable: true }));
     s.input.dispatchEvent(new KeyboardEvent('keyup', { key: 'v', ctrlKey: true }));
+    await vi.waitFor(() => expect(s.packets.filter(p => p.type === 'input')).toHaveLength(2));
     const inputs = s.packets.filter(p => p.type === 'input').map(p => p.input);
     expect(inputs).toEqual([{ kind: 'text', text: '中文', source: 'ime' }, { kind: 'text', text: '粘贴\n第二行', source: 'paste' }]);
     expect(s.input.value).toBe('');
@@ -105,18 +108,50 @@ describe('shared projection surface in Chromium', () => {
     expect(s.input.disabled).toBe(false);
   });
 
-  it('retains rejected text, pauses input, and never replays it when another picture arrives', async () => {
+  it('retains unconfirmed text without replay and accepts new input after a fresh generation', async () => {
     const s = await setup();
     await s.paint();
     s.rejectInput();
     s.input.value = '不能丢的草稿';
     s.input.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: s.input.value }));
-    await vi.waitFor(() => expect(s.states.at(-1)).toBe('input-paused'));
-    expect(s.view.pendingText()).toEqual(['不能丢的草稿']);
+    await vi.waitFor(() => expect(s.states).toContain('input-paused'));
+    expect(s.view.pendingText()).toEqual([expect.objectContaining({ text: '不能丢的草稿', state: 'unconfirmed' })]);
     expect(s.input.disabled).toBe(true);
     await s.paint();
-    expect(s.states.at(-1)).toBe('input-paused');
+    expect(s.input.disabled).toBe(false);
+    expect(s.states.at(-1)).toBe('live');
     expect(s.packets.filter(p => p.type === 'input')).toHaveLength(1);
-    expect(s.view.pendingText()).toEqual(['不能丢的草稿']);
+    expect(s.view.pendingText()).toEqual([expect.objectContaining({ text: '不能丢的草稿', state: 'unconfirmed' })]);
+    s.rejectInput(false);
+    s.input.value = '新输入';
+    s.input.dispatchEvent(new InputEvent('input'));
+    await vi.waitFor(() => expect(s.packets.filter(p => p.type === 'input')).toHaveLength(2));
+    s.view.discardPendingText(s.view.pendingText()[0]!.id);
+    await vi.waitFor(() => expect(s.view.pendingText()).toEqual([]));
   });
+  it('rejects only the oversized or refused input and preserves text explicitly as not sent', async () => {
+    const s = await setup(); await s.paint();
+    s.input.value = 'x'.repeat(64 * 1024 + 1); s.input.dispatchEvent(new InputEvent('input'));
+    await vi.waitFor(() => expect(s.view.pendingText()[0]?.state).toBe('not-sent'));
+    expect(s.input.disabled).toBe(false);
+    expect(s.packets.filter(p => p.type === 'input')).toHaveLength(0);
+    s.view.discardPendingText(s.view.pendingText()[0]!.id);
+    s.refuseInput(true); s.input.value = 'refused'; s.input.dispatchEvent(new InputEvent('input'));
+    await vi.waitFor(() => expect(s.view.pendingText()[0]?.state).toBe('not-sent'));
+    expect(s.input.disabled).toBe(false);
+    s.refuseInput(false); s.input.value = 'valid'; s.input.dispatchEvent(new InputEvent('input'));
+    await vi.waitFor(() => expect(s.packets.filter(p => p.type === 'input')).toHaveLength(2));
+    await vi.waitFor(() => expect(s.view.pendingText()).toEqual([expect.objectContaining({ text: 'refused', state: 'not-sent' })]));
+  });
+
+  it('lets AltGr commit its printable text without a Ctrl+Alt shortcut', async () => {
+    const s = await setup(); await s.paint();
+    const key = new KeyboardEvent('keydown', { key: '€', ctrlKey: true, altKey: true, modifierAltGraph: true, cancelable: true });
+    s.input.dispatchEvent(key); expect(key.defaultPrevented).toBe(false);
+    s.input.value = '€'; s.input.dispatchEvent(new InputEvent('input', { data: '€' }));
+    s.input.dispatchEvent(new KeyboardEvent('keyup', { key: '€', ctrlKey: true, altKey: true, modifierAltGraph: true }));
+    await vi.waitFor(() => expect(s.packets.filter(p => p.type === 'input')).toHaveLength(1));
+    expect(s.packets.filter(p => p.type === 'input').map(p => p.input)).toEqual([{ kind: 'text', text: '€', source: 'typing' }]);
+  });
+
 });

@@ -145,7 +145,7 @@ describe('App program → dedicated host resource → bound App page', () => {
     const second = send(b, 'b', 1, 'input');
     await turn();
     bridge.closePage(a.pageId);
-    await expect(first).rejects.toThrow(/closed/i);
+    await expect(first).resolves.toMatchObject({ status: 'unknown', reason: expect.stringMatching(/closed/i) });
     expect(inputSignal!.aborted).toBe(true);
     expect(calls).toHaveLength(1);
     release();
@@ -155,4 +155,62 @@ describe('App program → dedicated host resource → bound App page', () => {
     await publisher.close();
     bridge.closePage(b.pageId);
   });
+  it('rejects an old task viewer after the actual page binding changes', async () => {
+    const { bridge, runtime } = setup(); const input = vi.fn(async () => {});
+    const source = await runtime.create({ input, disconnect: async () => {}, refresh() {}, close() {} });
+    const events: ExtensionHostEvent[] = []; const viewer = page(90, 'task-a', event => events.push(event));
+    await bridge.call(viewer, 'projectionWatch', { id: source.id, watchId: 'scope' });
+    await source.publish(frame);
+    const generation = (events[0] as Extract<ExtensionHostEvent, { type: 'projection' }>).packet.generation;
+    await bridge.call(viewer, 'projectionSend', { watchId: 'scope', packet: { type: 'ack', generation, frame: 1 } });
+    viewer.binding!.sessionId = 'task-b';
+    await expect(bridge.call(viewer, 'projectionSend', { watchId: 'scope', packet: { type: 'input', generation, frame: 1, sequence: 1, input: { kind: 'text', text: 'must not reach task-a' } } })).rejects.toThrow(/page changed/);
+    expect(input).not.toHaveBeenCalled(); await source.close();
+  });
+
+  it('releases watch reservations when a source closes, even without unwatch', async () => {
+    const { bridge, runtime } = setup(); const viewer = page(91);
+    for (let index = 0; index < 20; index++) {
+      const source = await runtime.create({ input: async () => {}, disconnect: async () => {}, refresh() {}, close() {} });
+      await bridge.call(viewer, 'projectionWatch', { id: source.id, watchId: String(index) });
+      await source.close();
+    }
+    expect(bridge.count(owner.pageId)).toBe(0);
+  });
+
+  it('does not impose the cancellation timeout on a healthy long-running input', async () => {
+    const { bridge, runtime } = setup(); let finish!: () => void;
+    const closed = vi.fn();
+    const source = await runtime.create({ input: async () => new Promise<void>(resolve => { finish = resolve; }), disconnect: async () => {}, refresh() {}, close: closed });
+    const events: ExtensionHostEvent[] = []; const viewer = page(92, 'task-a', event => events.push(event));
+    await bridge.call(viewer, 'projectionWatch', { id: source.id, watchId: 'long' }); await source.publish(frame);
+    const generation = (events[0] as Extract<ExtensionHostEvent, { type: 'projection' }>).packet.generation;
+    await bridge.call(viewer, 'projectionSend', { watchId: 'long', packet: { type: 'ack', generation, frame: 1 } });
+    vi.useFakeTimers();
+    const sending = bridge.call(viewer, 'projectionSend', { watchId: 'long', packet: { type: 'input', generation, frame: 1, sequence: 1, input: { kind: 'text', text: 'long input' } } });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(closed).not.toHaveBeenCalled(); finish();
+    await expect(sending).resolves.toEqual({ status: 'applied' }); vi.useRealTimers(); await source.close();
+  });
+
+  it('returns a publication receipt so a driver rejects same-sized target changes instead of typing into the new target', async () => {
+    const { bridge, runtime } = setup(); let target = 'tab-a'; const targets = new Map<number, string>(); const applied: string[] = [];
+    const source = await runtime.create({ input: async (input, context) => {
+      if (targets.get(context.frame.sequence) !== target) return { status: 'rejected', reason: 'Target changed' };
+      applied.push(input.kind); return { status: 'applied' };
+    }, disconnect: async () => {}, refresh() {}, close() {} });
+    const events: ExtensionHostEvent[] = []; const viewer = page(93, 'task-a', event => events.push(event));
+    await bridge.call(viewer, 'projectionWatch', { id: source.id, watchId: 'target' });
+    targets.set(await source.publish(frame), target);
+    const generation = (events[0] as Extract<ExtensionHostEvent, { type: 'projection' }>).packet.generation;
+    await bridge.call(viewer, 'projectionSend', { watchId: 'target', packet: { type: 'ack', generation, frame: 1 } });
+    await expect(bridge.call(viewer, 'projectionSend', { watchId: 'target', packet: { type: 'input', generation, frame: 1, sequence: 1, input: { kind: 'text', text: 'valid in tab-a' } } })).resolves.toMatchObject({ status: 'applied' });
+    target = 'tab-b'; targets.set(await source.publish(frame), target);
+    for (const [index, input] of [{ kind: 'text', text: 'private' }, { kind: 'key', action: 'down', key: 'Enter' }].entries()) {
+      await expect(bridge.call(viewer, 'projectionSend', { watchId: 'target', packet: { type: 'input', generation, frame: 1, sequence: index + 2, input } })).resolves.toMatchObject({ status: 'rejected', reason: 'Target changed' });
+    }
+    expect(applied).toEqual(['text']); await source.close();
+  });
+
 });

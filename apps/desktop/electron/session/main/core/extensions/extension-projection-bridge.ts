@@ -1,6 +1,8 @@
+import { sessionEvents } from '../sessions/session-events';
+import { projectEvents } from '../projects/project-events';
 import { randomUUID } from 'node:crypto';
-import type { ProjectionHostPacket, ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
-import { ExtensionProjections } from './extension-projections';
+import { projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
+import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
 
@@ -12,13 +14,14 @@ type Source = {
   hear(event: ProjectionSourceEvent): void;
   closed?: { resolve(): void; reject(reason: Error): void };
 };
-type PendingInput = { source: Source; resolve(): void; reject(error: Error): void };
-type Viewer = { pageId: number; receive(packet: unknown): Promise<void>; close(): void };
+type PendingInput = { source: Source; resolve(outcome?: ProjectionInputOutcome): void; reject(error: Error): void };
+type Viewer = { pageId: number; sessionId: string; epoch: number; receive(packet: unknown): Promise<void>; close(): void };
 type SourceCommand = Omit<Extract<ProjectionSourceEvent, { type: 'input' }>, 'id' | 'requestId'>
   | Omit<Extract<ProjectionSourceEvent, { type: 'disconnect' }>, 'id' | 'requestId'>;
 
 /** Dedicated, exact-recipient events. Pictures never use the App-wide program notification broadcaster. */
 export class ExtensionProjectionBridge {
+  private lifecycle = 0;
   private readonly resources: ExtensionProjections;
   private readonly sources = new Map<string, Source>();
   private readonly inputs = new Map<string, PendingInput>();
@@ -26,12 +29,12 @@ export class ExtensionProjectionBridge {
   private readonly epochs = new Map<number, number>();
   private readonly watches = new Map<string, string>();
 
-  constructor(authorize: (extensionId: string) => void) {
+  constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string | undefined> = async () => undefined) {
     this.resources = new ExtensionProjections(({ extensionId }) => authorize(extensionId));
   }
 
   count(pageId: number): number {
-    return [...this.sources.values()].filter(source => source.pageId === pageId).length;
+    return [...this.sources.values()].filter(source => source.pageId === pageId && source.alive).length;
   }
 
   private source(caller: BridgeCaller, id: unknown): Source {
@@ -49,22 +52,33 @@ export class ExtensionProjectionBridge {
     return `${caller.pageId}:${watch}`;
   }
 
-  private command(source: Source, event: SourceCommand, signal?: AbortSignal): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  private command(source: Source, event: SourceCommand, signal?: AbortSignal): Promise<ProjectionInputOutcome | void> {
+    return new Promise<ProjectionInputOutcome | void>((resolve, reject) => {
       const requestId = randomUUID();
-      const finish = (error?: Error) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let finished = false;
+      const finish = (error?: Error, outcome?: ProjectionInputOutcome) => {
+        if (finished) return;
+        finished = true;
         clearTimeout(timer);
         signal?.removeEventListener('abort', abort);
         this.inputs.delete(requestId);
-        if (error) reject(error); else resolve();
+        if (error) reject(error); else resolve(outcome);
+      };
+      const boundCleanup = () => {
+        timer ??= setTimeout(() => {
+          finish(new Error('Projection input cleanup timed out'));
+          void source.handle.close().catch(() => undefined);
+        }, 10_000);
       };
       const abort = () => {
+        boundCleanup();
         try { source.hear({ type: 'cancel', id: source.handle.id, requestId }); }
-        catch { void source.handle.close().catch(() => undefined); }
+        catch { finish(new Error('Projection producer disconnected')); void source.handle.close().catch(() => undefined); }
       };
-      // Cancellation does not release the next native input until the driver acknowledges cleanup.
-      const timer = setTimeout(() => { void source.handle.close().catch(() => undefined); }, 10_000);
-      this.inputs.set(requestId, { source, resolve: () => finish(), reject: finish });
+      // Only cleanup has a deadline. A healthy, long-running driver operation does not revoke its source.
+      if (event.type === 'disconnect') boundCleanup();
+      this.inputs.set(requestId, { source, resolve: outcome => finish(undefined, outcome), reject: finish });
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) { finish(new Error('Projection input cancelled')); return; }
       try { source.hear({ ...event, id: source.handle.id, requestId }); }
@@ -76,9 +90,12 @@ export class ExtensionProjectionBridge {
     if (method === 'projectionCreate') {
       if (caller.kind !== 'program' || !caller.callingSession) throw new Error('Create a projection inside a task tool call');
       if (this.count(caller.pageId) >= 16) throw new Error('Too many projections in this program');
+      const epoch = this.lifecycle;
+      const projectId = await this.projectOf(caller.callingSession);
+      if (epoch !== this.lifecycle) throw new Error('Projection task lifecycle changed');
+      if (this.count(caller.pageId) >= 16) throw new Error('Too many projections in this program');
       const hear = (event: ProjectionSourceEvent) => caller.hear({ type: 'projectionSource', event });
-      const handle = this.resources.open({ extensionId: caller.extensionId, sessionId: caller.callingSession }, {
-        localInput: args.nativeLocalInput === true ? 'native' : 'forwarded',
+      const handle = this.resources.open({ extensionId: caller.extensionId, sessionId: caller.callingSession, projectId }, {
         refresh: () => hear({ type: 'refresh', id: handle.id }),
         close: () => {
           for (const [requestId, pending] of this.inputs) {
@@ -102,7 +119,9 @@ export class ExtensionProjectionBridge {
         },
         input: (input, { frame, signal, viewer }) => this.command(source,
           { type: 'input', viewer, input, frame: { sequence: frame.sequence, width: frame.width, height: frame.height } }, signal),
-        disconnect: viewer => this.command(source, { type: 'disconnect', viewer }),
+        disconnect: async viewer => {
+          if (source.alive) await this.command(source, { type: 'disconnect', viewer });
+        },
       });
       const source: Source = { pageId: caller.pageId, extensionId: caller.extensionId, handle, alive: true, hear };
       this.sources.set(handle.id, source);
@@ -122,7 +141,7 @@ export class ExtensionProjectionBridge {
       const pending = typeof args.requestId === 'string' ? this.inputs.get(args.requestId) : undefined;
       if (!pending || pending.source !== source) throw new Error('Unknown projection input');
       if (typeof args.error === 'string') pending.reject(new Error(args.error.slice(0, 1000)));
-      else pending.resolve();
+      else pending.resolve(projectionInputOutcome(args.outcome));
       return;
     }
     const key = this.watchKey(caller, args.watchId);
@@ -146,11 +165,16 @@ export class ExtensionProjectionBridge {
         if (knownSessionMachine(sessionId)?.deviceId) throw new Error('Projection needs a direct connection to that computer');
         const viewer = this.resources.connect({ extensionId: caller.extensionId, sessionId }, args.id, {
           transport: 'local',
-          send: (packet: ProjectionHostPacket) => caller.hear({ type: 'projection', watchId: args.watchId as string, packet }),
+          send: (packet: ProjectionHostPacket) => {
+            if (packet.type === 'state' && packet.state === 'closed' && this.watches.get(key) === token) {
+              this.viewers.delete(key); this.watches.delete(key);
+            }
+            caller.hear({ type: 'projection', watchId: args.watchId as string, packet });
+          },
           onClose: () => () => {},
         });
         if (epoch !== (this.epochs.get(caller.pageId) ?? 0) || this.watches.get(key) !== token) { viewer.close(); throw new Error('Projection page changed'); }
-        this.viewers.set(key, { pageId: caller.pageId, ...viewer });
+        this.viewers.set(key, { pageId: caller.pageId, sessionId, epoch, ...viewer });
         return;
       } catch (error) {
         if (this.watches.get(key) === token) this.watches.delete(key);
@@ -161,9 +185,40 @@ export class ExtensionProjectionBridge {
     if (method === 'projectionUnwatch') { viewer?.close(); this.viewers.delete(key); this.watches.delete(key); return; }
     if (method === 'projectionSend') {
       if (!viewer) throw new Error('Projection viewer is closed');
-      return await viewer.receive(args.packet);
+      if (viewer.sessionId !== caller.binding?.sessionId || viewer.epoch !== (this.epochs.get(caller.pageId) ?? 0)) {
+        viewer.close(); this.viewers.delete(key); this.watches.delete(key);
+        throw new Error('Projection page changed');
+      }
+      try {
+        await viewer.receive(args.packet);
+        return { status: 'applied' };
+      } catch (error) {
+        if ((args.packet as { type?: unknown })?.type !== 'input') throw error;
+        return { status: error instanceof ProjectionInputFailure && error.uncertain ? 'unknown' : 'rejected',
+          reason: error instanceof Error ? error.message : String(error) };
+      }
     }
     throw new Error('Unknown projection call');
+  }
+
+  closeScope(scope: { sessionId: string } | { projectId: string }): void {
+    this.lifecycle++;
+    this.resources.closeScope(scope);
+  }
+
+  /** Only completion of already-closing, owned work bypasses withdrawn grants. No new work is admitted. */
+  isCleanup(caller: BridgeCaller, method: string, args: Record<string, unknown>): boolean {
+    let source: Source;
+    try { source = this.source(caller, args.id); } catch { return false; }
+    if (!source.handle.isClosing()) return false;
+    return method === 'projectionClosed' ? !!source.closed : method === 'projectionInputResult'
+      && typeof args.requestId === 'string' && this.inputs.get(args.requestId)?.source === source;
+  }
+
+  async closeProgram(pageId: number): Promise<void> {
+    const results = await Promise.allSettled([...this.sources.values()].filter(source => source.pageId === pageId).map(source => source.handle.close()));
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   }
 
   /** The actual document/child went away. Other pages of the same App keep their own resources. */
@@ -176,6 +231,7 @@ export class ExtensionProjectionBridge {
     for (const source of this.sources.values()) {
       if (source.pageId === pageId) {
         source.alive = false;
+        for (const pending of this.inputs.values()) if (pending.source === source) pending.reject(new Error('Projection producer closed'));
         source.closed?.resolve();
         void source.handle.close().catch(() => undefined);
       }
@@ -187,4 +243,14 @@ export const extensionProjections = new ExtensionProjectionBridge((id) => {
   const service = extensionsService();
   service.get(id);
   if (!service.isEnabled(id) || !service.hasCapability(id, 'agents:tools')) throw new Error('App program access was revoked');
+}, async sessionId => {
+  const { agentSessionContext } = await import('./extension-agent-context');
+  const context = await agentSessionContext(sessionId);
+  if (!context) throw new Error('Projection task is no longer on this computer');
+  return context.projectId;
 });
+
+// These hooks run synchronously, before another input can be admitted; a round finishing is not a task ending.
+sessionEvents.on('session:deleted', sessionId => extensionProjections.closeScope({ sessionId }));
+sessionEvents.on('session:archived', sessionId => extensionProjections.closeScope({ sessionId }));
+projectEvents.on('project:deleted', projectId => extensionProjections.closeScope({ projectId }));

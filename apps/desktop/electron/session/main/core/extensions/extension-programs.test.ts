@@ -171,8 +171,9 @@ describe('extension programs run by gugu (#6615)', () => {
     }
   });
 
-  it('revocation closes program authority before its transport finishes stopping', async () => {
-    const closeSurface = vi.fn();
+  it('revocation closes authority and awaits surface cleanup before stopping the transport', async () => {
+    const cleanup = Promise.withResolvers<void>();
+    const closeSurface = vi.fn(() => cleanup.promise);
     const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockReturnValue({
       pageId: -1, hand: () => async () => {}, openFiles: () => 0, close: closeSurface,
     });
@@ -187,9 +188,13 @@ describe('extension programs run by gugu (#6615)', () => {
       await whoami(target, 'user:a');
       const stopped = revokeExtensionPrograms(target.extensionId);
       expect(closeSurface).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+      cleanup.resolve();
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
       resume.resolve();
       await stopped;
     } finally {
+      cleanup.resolve();
       resume.resolve();
       await stopAllExtensionPrograms();
       close.mockRestore();

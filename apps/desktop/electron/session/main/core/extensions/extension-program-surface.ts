@@ -51,7 +51,7 @@ export interface ProgramSurface {
   hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person'): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
-  close(): void;
+  close(processGone?: boolean): void | Promise<void>;
 }
 
 let lastPageId = 0;
@@ -59,6 +59,8 @@ let lastPageId = 0;
 export function attachProgramSurface(extensionId: string, child: ChildProcess): ProgramSurface {
   const pageId = --lastPageId;
   /** Each call running now, by its id: whose it is, and what it handed. */
+  let closing: Promise<void> | undefined;
+  let withdrawn = false;
   const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
@@ -111,6 +113,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   const onMessage = (message: unknown) => {
     const frame = message as FrameToHost | null;
     if (frame?.m !== APP_FRAME_MARKER) return;
+    if (withdrawn && (frame.t !== 'call' || !extensionProjections.isCleanup(callerFor(undefined), frame.method, (frame.args ?? {}) as Record<string, unknown>))) return;
     if (frame.t === 'sync') {
       fileSync.fromPort(page, frame.data);
       return;
@@ -152,11 +155,18 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       };
     },
     openFiles: () => fileSync.openCount(pageId) + extensionProjections.count(pageId),
-    close() {
-      extensionProjections.closePage(pageId);
-      child.off('message', onMessage);
+    close(processGone = false) {
+      if (processGone) extensionProjections.closePage(pageId);
+      if (closing) return closing;
+      withdrawn = true;
+      calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));
+      closing = extensionProjections.closeProgram(pageId).finally(() => {
+        child.off('message', onMessage);
+        extensionProjections.closePage(pageId);
+      });
+      return closing;
     },
   };
 }
