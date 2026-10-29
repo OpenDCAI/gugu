@@ -27,9 +27,8 @@ export function MachineLimitNotice({
 }) {
   const { t } = useTranslation('settings')
   const { devices, phones } = useDevicesStore()
-  const endpoints = useMemo(() => [...devices, ...(phones ?? [])], [devices, phones])
-  const machines = useMemo(() => deviceMachines(endpoints), [endpoints])
-  const { openRemoveDevices, dialogs } = useDeviceRemoval(machines)
+  const machines = useMemo(() => deviceMachines([...devices, ...(phones ?? [])]), [devices, phones])
+  const { canRemoveDevices, openRemoveDevices, dialogs } = useDeviceRemoval(machines)
   const [reading, setReading] = useState<{ source: typeof refusal; value: typeof refusal; error: string } | null>(null)
   const [retry, setRetry] = useState(0)
   // Device removal already refreshes the store. Read the same enforcement RPC
@@ -83,7 +82,7 @@ export function MachineLimitNotice({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={machine.device_ids.some((id) => !endpoints.some((device) => device.device_id === id))}
+                disabled={!canRemoveDevices(machine.device_ids)}
                 onClick={() => openRemoveDevices(machine.device_ids)}
                 aria-label={t('devices.remove.label', { name: machine.label })}
               >

@@ -88,6 +88,22 @@ describe('machine limit notice occupants', () => {
     expect(row()?.querySelector('button')?.disabled).toBe(false)
   })
 
+  it('disables removal when the occupying machine is the current device', async () => {
+    const current: Device = { ...endpoint('stable'), is_current_device: true }
+    const refusal = {
+      ...initial, machines: [{ ...initial.machines![0]!, device_ids: ['stable'] }],
+    }
+    api.read.mockResolvedValue(refusal)
+    const value = context([current], vi.fn(async () => {}))
+    await harness.render(<DevicesContext.Provider value={value}>
+      <MachineLimitNotice refusal={refusal} />
+    </DevicesContext.Provider>)
+    expect(row()?.querySelector('button')?.disabled).toBe(true)
+    await click(row()?.querySelector('button') ?? null)
+    expect(document.querySelector('[data-testid="settings-device-remove-dialog"]')).toBeNull()
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
   it('shows a read failure and retries the authoritative RPC before offering removals', async () => {
     api.read.mockRejectedValueOnce(new Error('Current machines could not be loaded')).mockResolvedValue(initial)
     await harness.render(<DevicesContext.Provider value={context([endpoint('stable'), endpoint('beta')])}>
