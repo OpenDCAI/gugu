@@ -108,4 +108,28 @@ describe('@ 弹层读会话目录', () => {
     expect(await provider.resolveSession('unstarted-task')).toBeNull();
   });
 
+  it('keeps archived local and remote Agents out of task mentions and restores them after unarchive', async () => {
+    const archivedAt = '2026-10-29T00:00:00Z';
+    const archivedLocal = { ...LOCAL, sessionId: 'archived-local', identity: { users: {
+      ...LOCAL.identity.users, id: 'agent-archived-local', session_archived_at: archivedAt,
+    } } };
+    const archivedRemote = { ...REMOTE, sessionId: 'archived-remote', identity: { users: {
+      ...REMOTE.identity.users, id: 'agent-archived-remote', session_archived_at: archivedAt,
+    } } };
+    const provider = createLocalSessionMentionProvider();
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id)).toEqual(['aid:agent-local', 'aid:agent-remote']);
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect(await provider.resolveSession('archived-local')).toBeNull();
+    sessionPeers.mockResolvedValueOnce([LOCAL, { ...archivedLocal, identity: { users: {
+      ...archivedLocal.identity.users, session_archived_at: null,
+    } } }]);
+    directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id))
+      .toEqual(['aid:agent-local', 'aid:agent-archived-local', 'aid:agent-remote']);
+  });
+
+
 });

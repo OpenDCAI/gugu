@@ -378,7 +378,8 @@ export class RemoteHostsStore {
       }
       return [{
         sessionId: session.conversationId,
-        identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number } },
+        identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number,
+          ...(identity.session_archived_at != null ? { session_archived_at: identity.session_archived_at } : {}) } },
         engine: engineOf(session.harness),
       }];
     }));
