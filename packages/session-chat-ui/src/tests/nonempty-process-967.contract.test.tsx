@@ -46,7 +46,9 @@ describe('historical process disclosure after new turns', () => {
     await until('old header is expanded', () => v.header().getAttribute('aria-expanded') === 'true');
     await v.settle();
     expect(v.steps()).not.toBeNull();
-    expect(v.steps()!.textContent).toContain('message_conversations');
+    expect(v.steps()!.textContent).toContain('Called 1 MCP tool');
+    expect(v.steps()!.querySelector('[data-slot="tool-run"]')?.getAttribute('data-step-count')).toBe('1');
+    expect(v.steps()!.textContent).not.toContain('message_conversations');
     expect(v.steps()!.offsetHeight).toBeGreaterThan(0);
   });
 
@@ -66,7 +68,8 @@ describe('historical process disclosure after new turns', () => {
     v.header().click();
     await v.settle();
     expect(v.steps()).not.toBeNull();
-    expect(v.steps()!.textContent).toContain('message_conversations');
+    expect(v.steps()!.textContent).toContain('Called 1 MCP tool');
+    expect(v.steps()!.textContent).not.toContain('message_conversations');
   });
 
   it('keeps send-only segments non-expandable without losing their step counts or bubbles', async () => {
