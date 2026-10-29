@@ -167,7 +167,9 @@ describe('one agent status source for React and MobX', () => {
     expect(snapshot).toBe(getAgentPresenceSnapshot('local-source-agent'))
     expect(getAgentPresenceSnapshot('local-source-agent')?.presentation).toMatchObject({ tone: 'running', animate: true })
     await refreshObservedAgentPresenceFromRevision([{ agent_user_id: 'local-source-agent' }])
-    expect(snapshot).toBe(getAgentPresenceSnapshot('local-source-agent'))
+    // The store intentionally skips notifications for an unchanged projection.
+    // Updating the same cloud mirror must not add another status source or render.
+    expect(snapshot).toMatchObject({ presentation: getAgentPresenceSnapshot('local-source-agent')?.presentation })
     expect(getAgentPresenceSnapshot('local-source-agent')?.presentation.tone).toBe('running')
   })
 
