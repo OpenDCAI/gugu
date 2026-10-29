@@ -48,6 +48,25 @@ async function served(exports: Record<string, unknown>) {
 }
 
 describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
+  it('keeps legacy whole-call data writes serializable while exposing the real signal directly', async () => {
+    const data = openData() as unknown as Record<string, unknown>;
+    let descriptor: PropertyDescriptor | undefined;
+    const client = await served({ legacy: {
+      description: 'Save the caller stamp', inputSchema: { type: 'object', properties: {} },
+      run: (_args: unknown, call: unknown) => {
+        descriptor = Object.getOwnPropertyDescriptor(call, 'signal');
+        data.call = call;
+        return Object.keys(call as object);
+      },
+    } });
+    try {
+      const result = await client.callTool({ name: 'legacy', arguments: {}, _meta: { 'gugu/agent': AGENT } });
+      expect(result.isError).not.toBe(true);
+      expect(data.call).toEqual({ agent: AGENT });
+      expect(descriptor?.enumerable).toBe(false);
+      expect(descriptor?.value).toBeInstanceOf(AbortSignal);
+    } finally { await client.close(); }
+  });
   it('passes real MCP cancellation to the program’s driver signal', async () => {
     let driverSignal: AbortSignal | undefined;
     let aborted = false;

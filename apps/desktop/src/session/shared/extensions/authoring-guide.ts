@@ -419,7 +419,7 @@ export const follow = {
   agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
   \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
   like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
-  API 21: run receives \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
+  API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
   Return human steps immediately; the agent asks via existing questions/messages, then retries.
   run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
   naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.

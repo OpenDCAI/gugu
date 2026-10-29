@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { withBrowserCall } from './browser-call-scope';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../asks', () => import('../../../../../../../tests/support/ask-service'));
 vi.mock('../asks/ask', () => import('../../../../../../../tests/support/ask-service'));
@@ -88,6 +89,7 @@ function fakeGuest(id = 7) {
     isDestroyed() {
       return this.destroyed;
     },
+    close: vi.fn(), destroy: vi.fn(),
     getUserAgent: () => 'UA',
     zoom: 1,
     getZoomFactor() {
@@ -121,7 +123,7 @@ beforeEach(() => {
 });
 
 describe('native rendering lifetime', () => {
-  it('ends the page connection on its caller signal without closing or locking the task page', async () => {
+  it('ends the page connection on its owning session signal without closing or locking the task page', async () => {
     const { wc, dbg } = fakeGuest();
     const controller = new AbortController();
     const transport = createPaneTransport('cancelled-tool', 'kept-page', wc as never, controller.signal);
@@ -131,7 +133,8 @@ describe('native rendering lifetime', () => {
     await vi.waitFor(() => expect(dbg.attached).toBe(true));
     controller.abort();
     expect(closed).toHaveBeenCalledWith('the browser connection was cancelled');
-    expect(wc.destroyed).toBe(false);
+    expect(wc.close).not.toHaveBeenCalled();
+    expect(wc.destroy).not.toHaveBeenCalled();
     expect(dbg.detachCalls).toBe(1);
     const after = dbg.commands.length;
     transport.send({ id: 2, method: 'Input.insertText', params: { text: 'never' }, sessionId: 'gugu-agent-page' });
@@ -179,8 +182,10 @@ describe('native rendering lifetime', () => {
     const lease = { ready: Promise.reject(new Error('surface failed')), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() };
     vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
     const { wc, dbg } = fakeGuest();
-    const { transport, call } = connect('render-failure', 'failed-page', wc);
-    expect(await call('Target.setAutoAttach')).toMatchObject({ error: { message: 'surface failed' } });
+    const { transport, closes } = connect('render-failure', 'failed-page', wc);
+    transport.send({ id: 1, method: 'Target.setAutoAttach' });
+    // Listening now attaches before the first request; a failed viewport closes that connection.
+    await vi.waitFor(() => expect(closes).toEqual(['surface failed']));
     expect(dbg.commands).toHaveLength(0);
     transport.close();
     expect(lease.dispose).toHaveBeenCalledOnce();
@@ -565,6 +570,27 @@ describe('#7191 人看得见 agent 的鼠标:先飞过去,到了再交给网页'
     await vi.waitFor(() => expect([60, 61, 62].every((id) => received.some((m) => m.id === id))).toBe(true));
     expect(forwardedInput(dbg).map((c) => (c.params as { type: string }).type)).toEqual(['mouseMoved', 'mousePressed', 'mouseReleased']);
     agentBrowserToolFinished('c6');
+  });
+
+  it('drops only cancelled A while its cursor moves and lets concurrent B reach the same page', async () => {
+    const { wc, dbg } = fakeGuest(73);
+    const { transport, received, closes, call } = connect('parallel-cursor', 'parallel-cursor', wc);
+    await call('Target.setAutoAttach');
+    agentBrowserToolStarting('parallel-cursor');
+    const a = new AbortController(), b = new AbortController();
+    try {
+      withBrowserCall(a.signal, () => transport.send(mouse(771, { type: 'mouseMoved', x: 80, y: 80, buttons: 0 })));
+      await vi.waitFor(() => expect(moves().some(event => event.browserId === 'parallel-cursor')).toBe(true));
+      const pendingB = withBrowserCall(b.signal, () => call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'b' }, 'gugu-agent-page'));
+      a.abort();
+      await expect(pendingB).resolves.toHaveProperty('result');
+      await vi.waitFor(() => expect(received.some(message => message.id === 771 && message.error)).toBe(true));
+      agentCursorArrived(moves().find(event => event.browserId === 'parallel-cursor')!.moveId!);
+      await new Promise(done => setImmediate(done));
+      expect(forwardedInput(dbg)).toEqual([{ method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'b' }, sessionId: undefined }]);
+      expect(dbg.detachCalls).toBe(0);
+      expect(closes).toEqual([]);
+    } finally { agentBrowserToolFinished('parallel-cursor'); transport.close(); }
   });
 
   it('cancelling a connection while its cursor is moving drops queued input; a new turn can act without unlocking the page', async () => {

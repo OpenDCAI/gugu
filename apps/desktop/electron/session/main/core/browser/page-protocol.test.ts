@@ -25,7 +25,7 @@ function page() {
 
 describe('host-selected page protocol lease', () => {
   it('uses only the selected native page after its viewport is ready, preserving navigation and focus', async () => {
-    const first = page(), other = page();
+    const first = page();
     let ready!: () => void;
     const lease = createPageProtocol(first.contents, { ready: new Promise(done => { ready = done; }) });
     const command = lease.send('Runtime.evaluate', { expression: 'document.title' });
@@ -34,7 +34,6 @@ describe('host-selected page protocol lease', () => {
     ready();
     await command;
     expect(first.debuggerApi.sendCommand).toHaveBeenCalledWith('Runtime.evaluate', { expression: 'document.title' }, undefined);
-    expect(other.debuggerApi.attach).not.toHaveBeenCalled();
     lease.close();
     expect(first.debuggerApi.detach).toHaveBeenCalledOnce();
     expect(first.contents.close).not.toHaveBeenCalled();
@@ -49,12 +48,46 @@ describe('host-selected page protocol lease', () => {
     ['Target.sendMessageToTarget', { sessionId: 'other', message: '{}' }],
     ['Target.detachFromTarget', { sessionId: 'other' }], ['Target.setAutoAttach', { flatten: false }],
     ['Page.close', {}],
+    ['Network.getAllCookies', {}], ['Network.getCookies', {}], ['Storage.getCookies', {}],
+    ['Network.clearBrowserCookies', {}], ['Storage.clearDataForOrigin', { origin: 'https://other.test' }],
+    ['Fetch.enable', {}], ['IO.read', { handle: 'other-task' }],
+    ['Network.setCookies', { cookies: [] }], ['Unknown.futureMethod', {}],
   ])('refuses %s before touching the debugger', async (method, params) => {
     const current = page(), lease = createPageProtocol(current.contents);
     await expect(lease.send(method, params)).rejects.toThrow('not available');
     expect(current.debuggerApi.attach).not.toHaveBeenCalled();
     expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
     lease.close();
+  });
+
+  it('delivers native attachment events before the first command without dropping synchronous events', async () => {
+    const current = page(), heard = vi.fn();
+    const attach = current.debuggerApi.attach.getMockImplementation()!;
+    current.debuggerApi.attach.mockImplementationOnce(() => {
+      attach();
+      current.debuggerApi.emit('message', {}, 'Runtime.executionContextCreated', { context: { id: 7 } });
+    });
+    const lease = createPageProtocol(current.contents);
+    lease.onMessage(heard);
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledWith('Runtime.executionContextCreated', { context: { id: 7 } }, undefined));
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it('refuses a second lease without disturbing the first and permits a fresh lease after release', async () => {
+    const current = page(), first = createPageProtocol(current.contents);
+    await first.send('Runtime.enable');
+    const second = createPageProtocol(current.contents);
+    await expect(second.send('Runtime.enable')).rejects.toThrow('already in use');
+    second.close();
+    expect(current.debuggerApi.detach).not.toHaveBeenCalled();
+    await first.send('Input.insertText', { text: 'still owned by first' });
+    expect(current.debuggerApi.sendCommand).toHaveBeenLastCalledWith('Input.insertText', { text: 'still owned by first' }, undefined);
+    first.close();
+    const next = createPageProtocol(current.contents);
+    await next.send('Runtime.enable');
+    expect(current.debuggerApi.attach).toHaveBeenCalledTimes(2);
+    next.close();
   });
 
   it('accepts only child sessions announced by this page and forgets detached descendants', async () => {
@@ -101,6 +134,27 @@ describe('host-selected page protocol lease', () => {
     expect(current.debuggerApi.sendCommand).toHaveBeenCalledOnce();
     expect(current.debuggerApi.detach).toHaveBeenCalledOnce();
     expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it('cancels one native command without detaching the lease or failing concurrent commands', async () => {
+    const current = page(), controller = new AbortController(), closed = vi.fn();
+    let finishA!: () => void, finishB!: () => void;
+    current.debuggerApi.sendCommand.mockImplementation((_method, params) => new Promise(resolve => {
+      const done = () => resolve({ value: (params as { expression: string }).expression });
+      if ((params as { expression: string }).expression === 'a') finishA = done; else finishB = done;
+    }));
+    const lease = createPageProtocol(current.contents); lease.onClose(closed);
+    const a = lease.send('Runtime.evaluate', { expression: 'a' }, undefined, controller.signal);
+    const rejected = expect(a).rejects.toBeDefined();
+    const b = lease.send('Runtime.evaluate', { expression: 'b' });
+    await vi.waitFor(() => expect(current.debuggerApi.sendCommand).toHaveBeenCalledTimes(2));
+    controller.abort(); await rejected;
+    finishB(); await expect(b).resolves.toEqual({ value: 'b' });
+    finishA();
+    expect(current.debuggerApi.detach).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+    expect(lease.attached).toBe(true);
+    lease.close();
   });
 
   it('borrows captures from the native rendering owner', async () => {

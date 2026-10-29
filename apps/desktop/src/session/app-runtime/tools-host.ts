@@ -35,7 +35,9 @@ const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: '
 export type ToolCall = { [field in keyof typeof STAMP]?: string } & { signal: AbortSignal };
 
 function callOf(meta: Record<string, unknown> | undefined, signal: AbortSignal): ToolCall {
-  return { ...Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]])), signal };
+  const call = Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]]));
+  // Older tools save the whole stamp in JSON data. The live signal is accessible, never enumerable.
+  return Object.defineProperty(call, 'signal', { value: signal }) as ToolCall;
 }
 
 export interface AppTool {
