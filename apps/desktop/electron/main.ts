@@ -242,6 +242,7 @@ import {
   SESSION_CACHE_KEY,
   PROJECT_CACHE_KEY,
   provisionSessionpageAgentForSession,
+  sessionpageAgentSessionForStart,
   registerExistingSessionpageAgents,
   unregisterForeignSessionpageAgents,
   refreshAgentNamingFacts,
@@ -925,8 +926,10 @@ function createDeviceSessionpageBridge() {
       const emdash = loadEmdashBridge()
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
+      const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
+        existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,

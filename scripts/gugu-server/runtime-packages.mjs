@@ -35,7 +35,22 @@ export const ADAPTER_PACKAGES = ADAPTER_BRIDGE_ENTRIES.map((entry) => packageNam
 /** Playwright runs installed Apps' background HTML on the server (server/extension-background.ts). */
 export const APP_PAGE_PACKAGES = ['@playwright/mcp']
 
-export const RUNTIME_PACKAGES = [...NATIVE_EXTERNAL_PACKAGES, ...ADAPTER_PACKAGES, ...APP_PAGE_PACKAGES]
+/**
+ * 宿主同样从应用根取、但不是桥的两个包,按 CLI 版本配 Claude 桥(#6394)靠它们,server 包以前都不带:
+ *  - `@gugu-acp/compat`:随包的配对表(acp-bridge/claude-bridge-deps.ts 读它的 package.json)。读不到就一律用随包的桥、
+ *    也不联网查表 —— 配桥在 server 上从没生效过;
+ *  - `npm`:随 App 交付的 npm(engine-downloader.ts 的 resolveBundledNpmInvocation 按路径跑
+ *    `node_modules/npm/bin/npm-cli.js`),联网查最新的表、下载配上的桥都用它。缺了,表读得到也只能停在随包那一版。
+ *    它的 `exports` 不导出 bin/,闸里按 package.json 认包在。
+ */
+export const APP_ROOT_PACKAGE_FILES = ['@gugu-acp/compat/package.json', 'npm/package.json']
+
+export const RUNTIME_PACKAGES = [
+  ...NATIVE_EXTERNAL_PACKAGES,
+  ...ADAPTER_PACKAGES,
+  ...APP_ROOT_PACKAGE_FILES.map((file) => packageNameOf(file)),
+  ...APP_PAGE_PACKAGES,
+]
 
 /**
  * 适配器依赖树里的平台原生二进制包:与桌面包同一组排除(electron-builder.cjs 的 @@@thin-claude-native /
@@ -68,7 +83,7 @@ export function runtimeResolvedSpecifiers(source) {
 
 /**
  * 两类运行时现解析的模块都必须解析到**包自己的** app/node_modules 里:
- *  - 声明的 package 桥(ADAPTER_BRIDGE_ENTRIES),从应用根解析 —— 与宿主同一种解析法;
+ *  - 声明的 package 桥(ADAPTER_BRIDGE_ENTRIES)与配对表(APP_ROOT_PACKAGE_FILES),从应用根解析 —— 与宿主同一种解析法;
  *  - dist-electron 里其余字面量的 `.resolve("<包>/…")`,从所在 chunk 解析。
  * ⚠️ 只看 chunk 里的字面量不够:#6394 起桥的说明符是宿主按声明拼出来的,chunk 里不再有字面量,
  *    只扫 chunk 的闸会一个都查不到、静默放行。
@@ -96,6 +111,7 @@ export function assertRuntimeSpecifiersResolve(appDir) {
   }
   const fromAppRoot = createRequire(join(appDir, 'package.json'))
   for (const specifier of ADAPTER_BRIDGE_ENTRIES) check(fromAppRoot, specifier, 'acp.bridge')
+  for (const specifier of APP_ROOT_PACKAGE_FILES) check(fromAppRoot, specifier, 'app root')
   for (const file of readdirSync(distDir)) {
     if (!/\.(c|m)?js$/.test(file)) continue
     const path = join(distDir, file)

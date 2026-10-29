@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 // owner 10-28 手机试用:agent 名是一整条会话标题时,失败条在手机宽度里撑成半屏高、只剩图标和名字的空框。
-it.each(['zh-CN', 'en-US'] as const)('%s: a long session title keeps the phone failure bar one row — name shortened, reason fills the rest in at most two lines', async (locale) => {
+it.each(['zh-CN', 'en-US'] as const)('%s: a long agent name leaves a readable phone failure card and reachable actions', async (locale) => {
   setLocalePreference(locale)
   await page.viewport(390, 844)
   host = document.body.appendChild(document.createElement('div'))
@@ -40,16 +40,35 @@ it.each(['zh-CN', 'en-US'] as const)('%s: a long session title keeps the phone f
     </LocalizationProvider>,
   )
   await until('the failure bar has rendered', () => !!host?.querySelector('[data-testid="agent-turn-failure-retry"]'))
-  const bar = host.querySelector<HTMLElement>('.atf-bar')!.getBoundingClientRect()
-  const message = host.querySelector<HTMLElement>('.atf-msg')!.getBoundingClientRect()
+  const bar = host.querySelector<HTMLElement>('[role="status"]')!.getBoundingClientRect()
+  const messageElement = host.querySelector<HTMLElement>('.tfc-reason')!
+  const message = messageElement.getBoundingClientRect()
   const retry = host.querySelector<HTMLElement>('[data-testid="agent-turn-failure-retry"]')!.getBoundingClientRect()
   const dismiss = host.querySelector<HTMLElement>('[data-testid="agent-turn-failure-dismiss"]')!.getBoundingClientRect()
-  const name = host.querySelector<HTMLElement>('.atf-nm')!.getBoundingClientRect()
-  const lineHeight = Number.parseFloat(getComputedStyle(host.querySelector('.atf-msg')!).lineHeight)
-  expect(Math.abs(name.top + name.height / 2 - (message.top + message.height / 2)), 'name and reason share one row').toBeLessThanOrEqual(1)
-  expect(message.height, 'the reason takes at most two lines').toBeLessThanOrEqual(lineHeight * 2 + 1)
+  const nameElement = host.querySelector<HTMLElement>('.tfc-name')!
+  const name = nameElement.getBoundingClientRect()
+  const title = host.querySelector<HTMLElement>('.tfc-title')!.getBoundingClientRect()
+  const messageStyle = getComputedStyle(messageElement)
+  const lineHeight = Number.parseFloat(messageStyle.lineHeight)
+  const messageInsets = Number.parseFloat(messageStyle.borderTopWidth) + Number.parseFloat(messageStyle.borderBottomWidth)
+    + Number.parseFloat(messageStyle.paddingTop) + Number.parseFloat(messageStyle.paddingBottom)
+  expect(nameElement.scrollWidth, 'the long name is shortened').toBeGreaterThan(nameElement.clientWidth)
+  expect(Math.abs(name.top + name.height / 2 - (title.top + title.height / 2)), 'name and failure title share the header row').toBeLessThanOrEqual(1)
+  expect(title.width, 'the failure title stays readable').toBeGreaterThan(48)
+  expect(message.top, 'the cause occupies its own row').toBeGreaterThanOrEqual(name.bottom - 1)
+  expect(message.height - messageInsets, 'the cause text stays on one line').toBeLessThanOrEqual(lineHeight + 1)
   expect(message.width, 'the reason takes the room the name gave up').toBeGreaterThan(name.width)
-  expect(bar.height, 'the bar stays a short notice').toBeLessThan(80)
-  for (const control of [retry, dismiss]) expect(control.right).toBeLessThanOrEqual(bar.right)
+  expect(message.width, 'the cause has readable horizontal space').toBeGreaterThan(120)
+  expect(retry.top, 'the phone action row follows the cause').toBeGreaterThanOrEqual(message.bottom - 1)
+  expect(bar.height, 'two text rows and one action row stay a compact notice').toBeLessThanOrEqual(lineHeight * 2 + retry.height + 28)
+  const frame = host.getBoundingClientRect()
+  expect(bar.left).toBeGreaterThanOrEqual(frame.left)
+  expect(bar.right).toBeLessThanOrEqual(frame.right)
+  for (const control of [retry, dismiss]) {
+    expect(control.left).toBeGreaterThanOrEqual(bar.left)
+    expect(control.right).toBeLessThanOrEqual(bar.right)
+    expect(control.top).toBeGreaterThanOrEqual(bar.top)
+    expect(control.bottom).toBeLessThanOrEqual(bar.bottom)
+  }
   await page.getByTestId('agent-turn-failure').screenshot({ path: `turn-failure-bar-phone-${locale}.png` })
 })

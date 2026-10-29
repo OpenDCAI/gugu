@@ -18,6 +18,7 @@ import {
   completedSingleProvisionSession,
   assertResumeRecordOwner,
   createResumeStore,
+  getProvision,
   getProvisionOperation,
   provisionSingleAgent,
   resumeSingleAgent,
@@ -30,6 +31,7 @@ import { provisionCloudComputer } from './cloudComputerStore'
 import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
 import { getCurrentAuthUserId } from './supabase'
+import { cancelTeamProvision } from './teamProvisionSaga'
 
 /** 起名、称呼、自我介绍的长短(名字 30 字、称呼 80 字;介绍是交给管家的那段,管家收 4000)。 */
 export const ASSISTANT_NAME_MAX = 30
@@ -77,7 +79,7 @@ export function pendingLocalAssistant(ownerUserId: string): ProvisionResumeRecor
 
 export class AssistantSetupError extends Error {
   constructor(
-    readonly kind: 'not-desktop' | 'still-starting' | 'failed',
+    readonly kind: 'not-desktop' | 'still-starting' | 'failed' | 'cancelled',
     message: string,
   ) {
     super(message)
@@ -149,11 +151,23 @@ export function resumeLocalAssistant(record: ProvisionResumeRecord): Promise<Cre
   return singleFlight(async () => {
     await assertResumeRecordOwner(record, getCurrentAuthUserId, 'single')
     const operation = await getProvisionOperation(record.operationId)
-    if (operation?.phase === 'cancelled') {
-      // Cancellation is authoritative in the DB. Drop only this finished recovery pointer;
-      // a retry from onboarding creates a fresh operation instead of reviving the reclaimed agent.
+    if (operation && (operation.owner_user_id !== record.ownerUserId || operation.kind !== 'single')) {
+      throw new Error('assistant setup operation does not belong to this recovery record')
+    }
+    const member = operation ? await getProvision(record.members[0]!.provisionId) : null
+    if (member && (member.operation_id !== record.operationId || member.owner_user_id !== record.ownerUserId || member.member_key !== 'assistant')) {
+      throw new Error('assistant setup member does not belong to this recovery record')
+    }
+    const removed = !!member?.provisioned_agent_user_id && !member.agent_user_id
+    if (operation?.phase === 'cleaning_up' || (removed && operation?.phase !== 'completed' && operation?.phase !== 'cancelled')) {
+      const result = await cancelTeamProvision(record.operationId, { resumeStore: assistantResumeStore })
+      if (!result.fullyCancelled) throw new AssistantSetupError('failed', 'assistant setup cleanup is still in progress; try again')
+      throw new AssistantSetupError('cancelled', 'the previous assistant setup has ended; start a new setup')
+    }
+    if (operation?.phase === 'cancelled' || (operation?.phase === 'completed' && removed)) {
+      // Only an authoritative terminal can release this pointer. A new setup remains an explicit user action.
       assistantResumeStore.forget(record.ownerUserId, record.operationId)
-      throw new AssistantSetupError('failed', 'assistant setup was cancelled; start a new setup')
+      throw new AssistantSetupError('cancelled', 'the previous assistant setup has ended; start a new setup')
     }
     const ipc = desktopIpc()
     if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
