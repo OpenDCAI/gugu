@@ -114,6 +114,19 @@ describe('keyed hosted MCP (AMap)', () => {
     expect(result.error?.message).not.toContain(GOOD);
   });
 
+  it('a tool result that is not an error is not a wrong key, even when its text says INVALID_USER_KEY', async () => {
+    const amap = fakeAmap(GOOD);
+    const said = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const message = JSON.parse(String(init?.body ?? '{}')) as { id?: number; method?: string };
+      if (message.method === 'tools/call') {
+        return Response.json({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: '{"info":"INVALID_USER_KEY"}' }] } });
+      }
+      return amap.fetchImpl(input, init);
+    }) as typeof fetch;
+    const result = await verifyKeyedMcpCredentials('高德地图', mcp, { apiKey: GOOD }, said);
+    expect(result).toEqual({ connected: true, credentials: { apiKey: GOOD } });
+  });
+
   it('a network failure stays “can’t reach AMap”: only an answer from AMap is “not available right now”', async () => {
     const down = (async () => {
       throw new TypeError(`fetch failed for https://mcp.amap.com/mcp?key=${GOOD}`);

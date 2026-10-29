@@ -40,6 +40,10 @@ function fakePlatform() {
   const state = {
     /** The next PUTs answer this; `code: null` = an answer without the platform's error code (a proxy, say). */
     putFault: null as null | { status: number; code: string | null },
+    /** How many PUTs `putFault` answers before the platform behaves again. */
+    putFaultTimes: Number.POSITIVE_INFINITY,
+    /** The platform stores the key, then takes this long to answer (ms): the device may give up first. */
+    putStallsAfterStoring: 0,
     /** PUTs never reach the platform (the network drops them); everything else answers. */
     putDown: false,
     /** false = `GET /integrations` does not list AMap at all. */
@@ -86,7 +90,8 @@ function fakePlatform() {
     if (credential && method === 'PUT') {
       state.onPut?.();
       if (state.putDown) throw new TypeError('fetch failed');
-      if (state.putFault) {
+      if (state.putFault && state.putFaultTimes > 0) {
+        state.putFaultTimes -= 1;
         const { status, code } = state.putFault;
         return Response.json(code ? { error: code, message: 'Try again later.' } : { message: 'Bad gateway or proxy answer.' }, { status });
       }
@@ -110,6 +115,16 @@ function fakePlatform() {
       if (apiKey !== GOOD) return Response.json({ error: 'auth_failed', message: `AMap rejected ${apiKey} (INVALID_USER_KEY)` }, { status: 422 });
       saved.set(credential[1]!, { apiKey, rejected: false });
       if (manual) disconnected.delete(credential[1]!);
+      if (state.putStallsAfterStoring) {
+        // Like a real fetch, the wait ends when the device gives up (its signal aborts).
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, state.putStallsAfterStoring);
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(init.signal!.reason);
+          });
+        });
+      }
       return Response.json({ connected: true, updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' });
     }
     if (credential && method === 'DELETE') {
@@ -136,7 +151,7 @@ afterEach(() => {
 });
 
 /** One of the person's devices: its own account table, signed in with its own session token. */
-async function device(platform: Platform, name: string, clock = { now: 1_000_000 }, options: { noPlatform?: boolean } = {}) {
+async function device(platform: Platform, name: string, clock = { now: 1_000_000 }, options: { noPlatform?: boolean; requestTimeoutMs?: number } = {}) {
   const fixture = await openRegistryFixture('empty');
   opened.push(fixture);
   const token = { value: `${name}-session-1` };
@@ -144,7 +159,13 @@ async function device(platform: Platform, name: string, clock = { now: 1_000_000
   const service = new PlatformCredentialService({
     client: () => options.noPlatform
       ? null
-      : createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => token.value, anonKey: 'anon', fetch: platform.fetchImpl }),
+      : createPlatformIntegrationsClient({
+        baseUrl: BASE,
+        accessToken: async () => token.value,
+        anonKey: 'anon',
+        fetch: platform.fetchImpl,
+        ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+      }),
     accounts: fixture.registry,
     providers: platformCustodyProviders,
     log: { info: (...args: unknown[]) => logs.push(args), warn: (...args: unknown[]) => logs.push(args) },
@@ -389,6 +410,48 @@ describe('credentials the platform keeps (#921)', () => {
     expect(JSON.stringify(result)).not.toContain(GOOD);
     expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
     expect(d.fixture.secretStore.secrets.size).toBe(0);
+  });
+
+  it('a 408 on the page’s connect is sent once more by the device itself; only a second 408 shows, and it never asks the person to retry', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    platform.state.putFault = { status: 408, code: 'request_timeout' };
+    platform.state.putFaultTimes = 1;
+
+    expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
+    expect(platform.requests.filter((request) => request.method === 'PUT').map((request) => request.body)).toEqual([
+      { fields: { apiKey: GOOD }, connect: 'manual' },
+      { fields: { apiKey: GOOD }, connect: 'manual' },
+    ]);
+
+    const e = await device(platform, 'E');
+    platform.saved.clear();
+    platform.state.putFaultTimes = Number.POSITIVE_INFINITY;
+    const result = await e.service.connect('amap', { apiKey: GOOD });
+    expect(result).toMatchObject({ success: false, errorType: 'timed_out' });
+    expect(platform.requests.filter((request) => request.method === 'PUT' && request.authorization === 'Bearer E-session-1')).toHaveLength(2);
+    expect(JSON.stringify(result)).not.toMatch(/try again|再试/i);
+  });
+
+  it('the device gives up waiting before the platform answers: it re-reads the list, and a key the platform did store shows as connected', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D', undefined, { requestTimeoutMs: 50 });
+    platform.state.putStallsAfterStoring = 200;
+
+    expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
+    expect(await d.service.check('amap')).toEqual({ connected: true });
+  });
+
+  it('the device cannot reach the platform: a plain network error (no English leftovers, no retry wording), nothing kept', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    platform.state.down = true;
+
+    const result = await d.service.connect('amap', { apiKey: GOOD });
+    expect(result).toMatchObject({ success: false, errorType: 'network' });
+    expect(JSON.stringify(result)).not.toMatch(/try again|再试/i);
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+    expect(await d.service.check('amap')).toMatchObject({ connected: false, errorType: 'network' });
   });
 
   it('with no platform configured at all, the key is kept on this computer from the first look, edits included', async () => {
@@ -653,6 +716,33 @@ describe('credentials the platform keeps (#921)', () => {
       expect(await b.service.check('amap')).toEqual(unavailable);
       expect(await b.service.checkAccounts('amap')).toEqual([{ accountId: 'default', ...unavailable }]);
       expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+    });
+
+    it('a check the person asks for skips one back-off slot, without resetting how the automatic back-off grows', async () => {
+      const platform = fakePlatform();
+      const clock = { now: 1_000_000 };
+      const b = await device(platform, 'B', clock);
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+      platform.state.putFault = { status: 502, code: 'upstream_unavailable' };
+      const uploads = () => platform.requests.filter((request) => request.method === 'PUT').length;
+
+      await b.service.refresh({ maxAgeMs: 0 }); // 1st upload; next slot in 5 min
+      clock.now += 60_000;
+      b.service.checkedByPerson('amap');
+      await b.service.check('amap'); // the person's check: uploads now
+      expect(uploads()).toBe(2);
+      clock.now += 60_000;
+      await b.service.refresh({ maxAgeMs: 0 }); // automatic: waits its slot (10 min after the 2nd)
+      expect(uploads()).toBe(2);
+      clock.now += 9 * 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(uploads()).toBe(3);
+      clock.now += 19 * 60_000;
+      await b.service.refresh({ maxAgeMs: 0 }); // 20 min after the 3rd: not yet
+      expect(uploads()).toBe(3);
+      clock.now += 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(uploads()).toBe(4);
     });
 
     it('the back-off doubles from 5 minutes and stops growing at an hour', async () => {

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
+  PLATFORM_REQUEST_TIMEOUT_MS,
   createPlatformIntegrationsClient,
   isPlatformServiceMissing,
   PlatformCredentialRejectedError,
@@ -230,4 +231,9 @@ describe('a forwarded call that the platform turns down (#921)', () => {
     expect((error as Error).message).toMatch(/amap isn't available right now; try again later/i)
     expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401/i)
   })
+})
+
+it('the device waits longer than the platform’s 30 s key check, and less than the 60 s its public entry allows', () => {
+  expect(PLATFORM_REQUEST_TIMEOUT_MS).toBeGreaterThan(30_000)
+  expect(PLATFORM_REQUEST_TIMEOUT_MS).toBeLessThan(60_000)
 })
