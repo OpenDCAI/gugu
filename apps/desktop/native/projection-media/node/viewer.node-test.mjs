@@ -1,6 +1,8 @@
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
 import assert from 'node:assert/strict'
 import { openProjectionVideo } from '../web/viewer.mjs'
+
+const test = (name, run) => nodeTest(name, { timeout: 2000 }, run)
 
 // State-machine fixtures; actual browser/decoder coverage is in host-browser.node-test.mjs.
 const fixture = (t, options = {}) => {
