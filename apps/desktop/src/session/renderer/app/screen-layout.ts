@@ -32,7 +32,9 @@ export type ScreenBlockContent =
   | { kind: 'project'; projectId: string }
   | { kind: 'chat'; chatId: string }
   /** 一个对话里的一张 App 页(那个对话的那张,或为它的一个文件开的),从那个对话的页签条上拿出来单独占一块。 */
-  | { kind: 'chat-app'; chatId: string; tabKind: string; itemId?: string; title: string };
+  | { kind: 'chat-app'; chatId: string; tabKind: string; itemId?: string; title: string }
+  /** 示例项目(#709):打包在 app 里的一个项目的样子,只有一份。 */
+  | { kind: 'sample-project' };
 
 /** 能单独开成一扇窗的:会话、App(项目、对话这一轮只在主窗里)。 */
 export type WindowableContent = Extract<ScreenBlockContent, { kind: 'session' | 'app' }>;
@@ -53,6 +55,8 @@ export function contentKey(content: ScreenBlockContent): string {
       return blockKey.chat(content.chatId);
     case 'chat-app':
       return blockKey.chatApp(content.chatId, content.tabKind, content.itemId);
+    case 'sample-project':
+      return blockKey.sampleProject();
   }
 }
 
@@ -534,6 +538,8 @@ function isBlockContent(value: unknown): value is ScreenBlockContent {
       return typeof block.chatId === 'string';
     case 'chat-app':
       return typeof block.chatId === 'string' && typeof block.tabKind === 'string' && typeof block.title === 'string';
+    case 'sample-project':
+      return true;
     default:
       return false;
   }

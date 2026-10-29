@@ -74,7 +74,8 @@ export type CloudBrowserServerMessage =
     }
   | { type: 'tab_close_result'; tabId: string; closed: boolean }
   | { type: 'input_result'; id: string; ok: boolean }
-  | { type: 'vault_result'; requestId: string; ok: boolean; reason?: 'gone' | 'noForm' | 'saveFailed' }
+  /** Rejection only, for protocol-13 clients. Retire with removed-vault-request.ts. */
+  | { type: 'vault_result'; requestId: string; ok: false; reason: 'gone'; code: 'feature_removed'; message: string }
   | { type: 'error'; code: string; message: string };
 
 export type CloudBrowserMouseEvent = 'mousePressed' | 'mouseReleased' | 'mouseMoved' | 'mouseWheel';
@@ -111,8 +112,7 @@ export type CloudBrowserClientMessage =
       modifiers: number;
       text?: string;
     }
-  | { type: 'input_text'; id: string; text: string }
-  | { type: 'vault_submit'; requestId: string; username: string; password: string; save: boolean };
+  | { type: 'input_text'; id: string; text: string };
 
 /** 一段文字一次最多发这么多(4096 字);更长的分块发。 */
 export const CLOUD_BROWSER_TEXT_CHUNK = 4096;
@@ -198,10 +198,6 @@ export function parseCloudBrowserClientMessage(raw: string): CloudBrowserClientM
     case 'input_text':
       if (!isId(value.id) || typeof value.text !== 'string' || value.text.length === 0 || value.text.length > CLOUD_BROWSER_TEXT_CHUNK || !isSendableText(value.text)) return null;
       return { type: 'input_text', id: value.id, text: value.text };
-    case 'vault_submit':
-      if (!isId(value.requestId) || typeof value.username !== 'string' || typeof value.password !== 'string' || typeof value.save !== 'boolean') return null;
-      if (value.username.length > 512 || value.password.length > 1024 || (!value.username && !value.password)) return null;
-      return { type: 'vault_submit', requestId: value.requestId, username: value.username, password: value.password, save: value.save };
     default:
       return null;
   }

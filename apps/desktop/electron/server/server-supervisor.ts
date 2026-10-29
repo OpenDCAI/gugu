@@ -18,6 +18,7 @@ import path from 'node:path'
 import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
+import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
 import { accountDataDir, accountIsBusy, listAccounts, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
@@ -107,6 +108,8 @@ export async function runSupervisor(): Promise<void> {
     process.exit(SUPERVISOR_EXIT_ALREADY_RUNNING)
   }
   process.on('exit', release)
+  // Include signed-out accounts: their saved website logins must not wait for another sign-in.
+  for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, log)
   const home = serverHome()
   const startedAt = Date.now()
   // 正在跑 = 没有人要它停:上一次 stop 留下的记号作废(看门人据此判断要不要再拉起)。

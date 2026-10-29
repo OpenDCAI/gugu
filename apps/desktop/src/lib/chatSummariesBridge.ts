@@ -10,6 +10,7 @@ import { useSyncExternalStore } from 'react'
 
 export type ChatSummary = {
   readonly alias?: string | null
+  readonly publicId?: number
   readonly unreadCount: number
   readonly isMarkedUnread: boolean
   readonly hasMessages: boolean
@@ -27,10 +28,11 @@ type Summaries = ReadonlyMap<string, ChatSummary>
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
 export function publishChatSummaries(chats: readonly {
-  id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
+  id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
 }[]): void {
   const next: Summaries = new Map(chats.map((chat) => [chat.id, {
     ...(chat.alias ? { alias: chat.alias } : {}),
+    ...(typeof chat.public_id === 'number' && Number.isSafeInteger(chat.public_id) && chat.public_id > 0 ? { publicId: chat.public_id } : {}),
     unreadCount: chat.unread_count,
     isMarkedUnread: chat.is_marked_unread === true,
     hasMessages: Boolean(chat.last_message_at),
@@ -42,7 +44,7 @@ export function publishChatSummaries(chats: readonly {
   const current = read()
   if (current && current.size === next.size && [...next].every(([id, summary]) => {
     const was = current.get(id)
-    return was !== undefined && was.alias === summary.alias && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
+    return was !== undefined && was.alias === summary.alias && was.publicId === summary.publicId && (Object.keys(summary) as (keyof ChatSummary)[]).every((key) => was[key] === summary[key])
   })) return
   ;(window as unknown as Record<string, unknown>)[KEY] = next
   window.dispatchEvent(new Event(EVENT))
@@ -54,6 +56,17 @@ function read(): Summaries | null {
 
 /** 会话页(不在渲染里):壳那份全部对话(属于我的每一个);壳还没读成过 = null。 */
 export const readChatSummaries = read
+
+/** A message_send address can be a UUID or a public number; resolve it using the signed-in chat list. */
+export function resolveChatId(address: string): string | null {
+  const summaries = read()
+  if (summaries?.has(address)) return address
+  if (!/^[1-9]\d*$/.test(address)) return null
+  const publicId = Number(address)
+  if (!Number.isSafeInteger(publicId)) return null
+  for (const [id, summary] of summaries ?? []) if (summary.publicId === publicId) return id
+  return null
+}
 
 /** 会话页:壳那边的对话变了(有了消息、改了名)。 */
 export function subscribeChatSummaries(listener: () => void): () => void {

@@ -46,7 +46,7 @@ const button = () => harness.container.querySelector<HTMLButtonElement>('[data-t
 describe('browser-assistance ask: the way to the task’s Browser Use tab', () => {
   it('a login ask opens this task’s Browser Use tab', async () => {
     await harness.render(createNode(BrowserAssistanceAction, { sessionId: 'task-1', settlement: login }))
-    expect(button()?.textContent).toContain('在 Browser Use 里登录')
+    expect(button()?.textContent).toContain('在 Browser Use 里查看')
     await act(async () => button()!.click())
     await vi.waitFor(() => expect(fx.open).toHaveBeenCalledWith('task-1'))
   })

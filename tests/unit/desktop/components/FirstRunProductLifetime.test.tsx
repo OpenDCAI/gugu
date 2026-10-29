@@ -15,9 +15,11 @@ const io = vi.hoisted(() => ({
   writeOccupation: vi.fn(),
   writeFirstRunHarness: vi.fn(),
   requestAssistantSetupHandoff: vi.fn(),
+  enrollSampleProject: vi.fn(async (_userId: string) => undefined),
 }))
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
 vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ startFirstRunHints: vi.fn(async () => undefined), readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/sampleProject', () => ({ enrollSampleProject: io.enrollSampleProject }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: {} }))
 vi.mock('../../../../apps/desktop/src/components/firstRun/FirstRunTerminal', () => ({
   FirstRunTerminal: ({ onDone }: { onDone: () => void }) => createNode('button', { 'data-testid': 'terminal-continue', onClick: onDone }, 'Continue'),
@@ -86,11 +88,14 @@ describe('desktop product lifetime across the first-run tour', () => {
     await waitForCondition(() => !!document.querySelector('[data-testid="first-run-tour-choice"]'), 'tour choice shown')
     expect(document.querySelector('[data-testid="first-run-step-count"]')?.textContent).toBe('5 / 5')
     expect(io.finishFirstRun).not.toHaveBeenCalled()
+    expect(io.enrollSampleProject).not.toHaveBeenCalled()
     await clickElement(document.querySelector('[data-testid="first-run-tour-skip"]')!)
     await waitForCondition(() => !document.querySelector('[data-testid="first-run-tour-choice"]'), 'choice dismissed')
     expect(io.requestAssistantSetupHandoff).toHaveBeenCalledTimes(testId === 'assistant-intro-primary' ? 1 : 0)
 
     expect(io.finishFirstRun).toHaveBeenCalledOnce()
+    expect(io.enrollSampleProject).toHaveBeenCalledWith('owner-1')
+    expect(io.enrollSampleProject.mock.invocationCallOrder[0]).toBeLessThan(io.finishFirstRun.mock.invocationCallOrder[0]!)
     expect(sessionMount()).toBe(mount)
     expect(mount.isConnected).toBe(true)
     expect(mount.firstElementChild).toBe(content)
@@ -106,6 +111,21 @@ describe('desktop product lifetime across the first-run tour', () => {
     expect(mount.firstElementChild).toBe(content)
     expect(entry.importSessionEntry).toHaveBeenCalledOnce()
   })
+  // #709 第 5 页两个出口都给新账号记上示例项目,在「走完」之前记;第 4 页还不记。
+  it.each(['first-run-tour-start', 'first-run-tour-skip'])('%s enrolls the sample project before finishing', async (choice) => {
+    await harness.render(createNode(FirstRunGate, {
+      user: { id: 'owner-1', email: 'owner@example.test', nickname: 'Owner' },
+    }, createNode(EmdashSessionFrame)))
+    await waitForCondition(() => !!document.querySelector('[data-testid="assistant-intro-later"]'), 'intro shown')
+    await clickElement(document.querySelector('[data-testid="assistant-intro-later"]')!)
+    await waitForCondition(() => !!document.querySelector('[data-testid="first-run-tour-choice"]'), 'tour choice shown')
+    expect(io.enrollSampleProject).not.toHaveBeenCalled()
+    await clickElement(document.querySelector(`[data-testid="${choice}"]`)!)
+    await waitForCondition(() => io.finishFirstRun.mock.calls.length === 1, 'finished')
+    expect(io.enrollSampleProject).toHaveBeenCalledWith('owner-1')
+    expect(io.enrollSampleProject.mock.invocationCallOrder[0]).toBeLessThan(io.finishFirstRun.mock.invocationCallOrder[0]!)
+  })
+
   it('keeps the task page connected when going back from the intro to the terminal step', async () => {
     await harness.render(createNode(FirstRunGate, {
       user: { id: 'owner-1', email: 'owner@example.test', nickname: 'Owner' },

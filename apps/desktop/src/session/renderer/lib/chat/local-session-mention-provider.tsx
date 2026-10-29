@@ -1,6 +1,7 @@
 import type { ContextMentionProvider, MentionItem } from '@gugu/session-ui/react/components';
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
 import type { LocalAgentCreationTool } from '@/lib/agentCreationTools';
+import { filterMentionCandidates } from '@/lib/mentionMatch';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
@@ -79,14 +80,15 @@ function mentionItemsFromLocalSessionCandidates(
   candidates: readonly MentionCandidate[],
   query: string,
 ): MentionItem[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  return candidates
-    .filter((candidate) =>
-      [candidate.name, candidate.number, candidate.title ?? ''].some((value) =>
-        value.toLowerCase().includes(normalizedQuery),
-      ),
-    )
-    .map((candidate) => ({
+  // 与群聊 @ 同一套匹配:拼音全拼/首字母/混拼、咕咕号全等或前缀,标题当备注比。
+  const searchable = candidates.map((candidate) => ({
+    candidate,
+    name: candidate.name,
+    alias: candidate.title,
+    guguNumber: candidate.number ? Number(candidate.number) : null,
+  }));
+  return filterMentionCandidates(searchable, query)
+    .map(({ candidate }) => ({
       // `aid:` = 界面上那一栏的名字(分享浮层写着 **Agent ID**),owner 2026-09-16 拍板。
       // 发出去的文本是 `@[Claude 1](aid:<Agent ID>)` —— 人看名字,机器拿 Agent ID。
       id: `aid:${candidate.id}`,

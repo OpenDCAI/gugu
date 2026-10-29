@@ -14,6 +14,7 @@ import {
 } from '@shared/cloud-browser';
 import type { CdpEvent, CdpHub } from './cdp-hub';
 import { cloudBrowser, type CloudBrowser } from './cloud-browser';
+import { removedVaultRequest } from './removed-vault-request';
 
 /**
  * #7199 云浏览器的实时画面与接管(`/v1/browser/{target}/stream`):云电脑本机回环上的一个 websocket,
@@ -22,7 +23,7 @@ import { cloudBrowser, type CloudBrowser } from './cloud-browser';
  * - 画面 = 那个页签的 `Page.startScreencast`(JPEG,有变化才出帧);每个看的人按自己要的帧率收、画完回 ack 才给下一张
  *   (pacing:ack)。没人看的页签不出帧。
  * - 接管是独占的(cloud-browser.ts):只有拿着控制权的那个连接发的点击 / 键盘 / 文字 / 切换关闭标签页才交给 Chrome。
- * - 密码保险箱的账号密码只经这条线进来(隧道是 SSH,端到端加密)。
+ * - Protocol-13 credential submissions are refused immediately; see removed-vault-request.ts.
  * 凭证 = 每次进程启动随机的一串,经 `cloudBrowser.status` 交给本人(设备 RPC 只有本人收得到)。
  */
 
@@ -58,7 +59,6 @@ const PERSON_ACTIONS = new Set<CloudBrowserClientMessage['type']>([
   'control_release',
   'automation_stop',
   'automation_resume',
-  'vault_submit',
 ]);
 const SCREENCAST_QUALITY = 60;
 
@@ -203,7 +203,10 @@ export class CloudBrowserLiveServer {
       (socket as WebSocket & { guguAlive?: boolean }).guguAlive = true;
     });
     socket.on('message', (data) => {
-      const message = parseCloudBrowserClientMessage(String(data));
+      const raw = String(data);
+      const removed = removedVaultRequest(raw);
+      if (removed) return this.send(client, { type: 'vault_result', requestId: removed.requestId, ok: false, reason: 'gone', code: 'feature_removed', message: 'Saving website passwords has been removed. Update Gugu, or take control and log in on the page.' });
+      const message = parseCloudBrowserClientMessage(raw);
       if (!message) return this.send(client, { type: 'error', code: 'invalid_message', message: 'unrecognized message' });
       void this.handle(client, message).catch((error: unknown) => {
         log.warn('Cloud browser: a viewer message failed', { type: message.type, error: String(error) });
@@ -308,11 +311,6 @@ export class CloudBrowserLiveServer {
       case 'automation_resume':
         this.browser.resumeAutomation();
         return;
-      case 'vault_submit': {
-        const result = await this.browser.submitCredential(message.requestId, { username: message.username, password: message.password }, message.save);
-        this.send(client, result.ok ? { type: 'vault_result', requestId: message.requestId, ok: true } : { type: 'vault_result', requestId: message.requestId, ok: false, reason: result.reason });
-        return;
-      }
       default:
         break;
     }

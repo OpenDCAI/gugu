@@ -6,7 +6,7 @@ import { createNode, createReactHarness } from '../../../support/testHarness'
 /**
  * owner 10-28:看 / 接管 agent 浏览器的地方 = Browser Use App 的每任务一份页签(宿主页 hostPage: 'browser')。
  * 这台电脑上的任务只指到它自带的「浏览器」页签;咕咕 server 上的任务画那台机器的 Chrome,
- * 只有**这个任务**在等人登录时才递出密码保险箱。
+ * 这个任务请人登录时,只提供接管网页的路径。
  */
 const fx = vi.hoisted(() => {
   const tabs = [{ tabId: 'T1', title: '京东', url: 'https://www.jd.com/', byAgent: true }]
@@ -158,7 +158,7 @@ describe('Browser Use host page', () => {
     expect(harness.container.textContent).toContain('浏览器还没打开')
   })
 
-  it('the vault comes up for a pending login of this task only', async () => {
+  it('a pending login offers browser takeover without opening the removed credential form', async () => {
     fx.machine = server
     fx.asks = { s1: loginAsk }
     await harness.render(createNode(BrowserUseHostPage, { sessionId: 's2', active: true }))
@@ -169,7 +169,11 @@ describe('Browser Use host page', () => {
     harness = createReactHarness()
     await harness.render(createNode(BrowserUseHostPage, { sessionId: 's1', active: true }))
     await settle()
-    expect(vault()).not.toBeNull()
+    expect(vault()).toBeNull()
+    expect(document.querySelector('input[type="password"]')).toBeNull()
+    expect(harness.container.textContent).not.toContain('保存密码')
+    expect(harness.container.textContent).not.toContain('保险箱')
+    expect(harness.container.textContent).toContain('接管浏览器')
     expect(harness.container.querySelector('[data-browser-use-line]')?.getAttribute('data-browser-use-line')).toBe('needs')
   })
 
@@ -181,13 +185,13 @@ describe('Browser Use host page', () => {
     const page = harness.container.querySelector('[data-testid="browser-use-page"]')!
     expect(page.textContent).toContain('登录 jd.com')
     expect(page.textContent).toContain('接管浏览器')
-    expect(page.textContent).toContain('自己在页面上登录')
+    expect(page.textContent).toContain('在页面上登录')
     await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="browser-use-done"]')!.click())
     await settle()
     expect(fx.respond).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 's1', itemId: 'ask-1', kind: 'permission', optionId: 'done' }))
   })
 
-  it('a page not on screen does not push the vault at the person', async () => {
+  it('an inactive page does not open a credential form', async () => {
     fx.machine = server
     fx.asks = { s1: loginAsk }
     await harness.render(createNode(BrowserUseHostPage, { sessionId: 's1', active: false }))

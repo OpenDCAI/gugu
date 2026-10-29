@@ -693,6 +693,7 @@ export default {
       "reconnect": "Reconnect",
       "copyAddress": "Copy address",
       "remove": "Remove this machine",
+      "removeVersions": "Remove a version…",
       "rename": "Rename",
       "uninstall": "Uninstall Gugu server"
     },
@@ -710,6 +711,7 @@ export default {
     "offline": "Offline",
     "online": "Online",
     "remove": {
+      "versions": { "title": "Remove a version on \"{{name}}\"" },
       "version": {
         "label": "Remove {{version}} on \"{{name}}\"",
         "title": "Remove {{version}} on \"{{name}}\"?",
