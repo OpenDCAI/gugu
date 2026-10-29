@@ -66,6 +66,7 @@ describe('shared ACP prompt admission', () => {
     expect(state.queuedPrompts.map(prompt => prompt.origin)).toEqual(['manual', 'manual']);
     await finish();
     await Promise.all(deliveries.map(delivery => delivery.completion));
+    await harness.agent.called('prompt', envelopes.length + 1);
     expect(harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt))
       .toEqual(envelopes.map(text => [{ type: 'text', text }]));
   });
