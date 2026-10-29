@@ -7,6 +7,7 @@ import { AttachmentsError } from '@gugu/core/cloud/attachmentsApi'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 const logger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => logger }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentUploadTransport', () => ({ xhrAttachmentUpload: (url: string, init: RequestInit) => fetch(url, init) }))
 const mocks = vi.hoisted(() => ({ upload: vi.fn(), commit: vi.fn(), read: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: mocks.read } }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
@@ -62,11 +63,11 @@ describe('attachment send recovery', () => {
     const { args, onSent } = arrange()
     mocks.upload.mockImplementationOnce(() => new Promise(() => {}))
     const done = sendAttachmentBatch(args)
-    await vi.advanceTimersByTimeAsync(120_600)
+    await vi.advanceTimersByTimeAsync(15_600)
     await done
     expect(mocks.upload).toHaveBeenCalledTimes(2)
     expect(mocks.commit).toHaveBeenCalledOnce(); expect(onSent).toHaveBeenCalledOnce()
-    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 120_001, outcome: 'timeout' }), 'attachment send stage timing')
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 15_000, outcome: 'timeout' }), 'attachment send stage timing')
   })
   it('recovers a lost commit response by its original ID without committing it twice', async () => {
     const { args, rows } = arrange()
@@ -165,7 +166,11 @@ it('allows a large slow upload beyond two minutes instead of restarting its byte
   const { args, onSent } = arrange()
   const large = new File(['x'], 'large.png', { type: 'image/png' })
   Object.defineProperty(large, 'size', { value: 50 * 1024 * 1024 })
-  mocks.upload.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve('staging/large'), 180_000)))
+  mocks.upload.mockImplementation((_endpoint, _file, _scope, options) => new Promise(resolve => {
+    let loaded = 0
+    const progress = setInterval(() => options.onProgress({ loaded: ++loaded * 1024, total: large.size }), 10_000)
+    setTimeout(() => { clearInterval(progress); resolve('staging/large') }, 180_000)
+  }))
   const result = sendAttachmentBatch({ ...args, files: [large] }).catch(error => error)
   await vi.advanceTimersByTimeAsync(180_100)
   expect(mocks.upload).toHaveBeenCalledOnce()
@@ -224,6 +229,8 @@ it('caps the size allowance at the signed upload plan expiry', async () => {
   const { args } = arrange()
   mocks.upload.mockImplementationOnce((_endpoint, _file, _scope, options) => {
     options.onPlan({ expires_at: new Date(Date.now() + 30_000).toISOString() })
+    setTimeout(() => options.onProgress({ loaded: 1, total: 3 }), 10_000)
+    setTimeout(() => options.onProgress({ loaded: 2, total: 3 }), 20_000)
     return new Promise(() => {})
   })
   const done = sendAttachmentBatch(args)
