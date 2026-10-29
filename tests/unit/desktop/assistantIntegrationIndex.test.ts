@@ -6,7 +6,7 @@ const data = vi.hoisted(() => ({
 }))
 vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry: { getAll: () => [
   { metadata: { id: 'dingtalk', name: '钉钉' } }, { metadata: { id: 'feishu', name: '飞书' } }, { metadata: { id: 'email', name: '邮箱' } },
-  { metadata: { id: 'github', name: 'GitHub' } },
+  { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
 ] } }))
 // Mail hands its tools to sessions; GitHub only links issues and gives an agent nothing to call.
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/session-integrations', () => ({
@@ -14,6 +14,7 @@ vi.mock('../../../apps/desktop/electron/session/main/core/integrations/session-i
 }))
 vi.mock('../../../apps/desktop/electron/session/main/core/provider-accounts/provider-account-registry-instance', () => ({ providerAccountRegistry: data }))
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/cli/cli-integrations', () => ({
+  cliMethodOf: (id: string) => ['dingtalk', 'feishu', 'wecom'].includes(id) ? { kind: 'cli' } : null,
   connectedCliSkills: async (configured: (id: string) => Promise<boolean>) => [
     ...await configured('dingtalk') ? [{ extensionId: 'dingtalk', name: 'dws', dir: '/installed/dws/skills/dws' }] : [],
     ...await configured('feishu') ? ['lark-calendar', 'lark-doc'].map(name => ({ extensionId: 'feishu', name, dir: `/installed/lark/skills/${name}` })) : [],
@@ -45,4 +46,10 @@ it('derives the delegation row from the live connection: it appears on connect a
   })
   data.connected.delete('feishu')
   expect((await configuredIntegrationIndex()).some(row => row.id.startsWith('feishu:'))).toBe(false)
+})
+
+it('never marks a connected CLI application issue-only while its skills cannot be read', async () => {
+  data.connected.add('wecom')
+  expect((await configuredIntegrationIndex()).find(row => row.id === 'wecom:default')).not.toHaveProperty('note')
+  data.connected.delete('wecom')
 })
