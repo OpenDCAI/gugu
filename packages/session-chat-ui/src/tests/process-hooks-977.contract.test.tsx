@@ -69,6 +69,20 @@ describe('conversation hooks remain semantic process steps', () => {
       v.host.style.width = `${width}px`;
       await untilStable('expanded completion remeasures', () => v.host.querySelector('[data-conversation-step="completed"]')?.getBoundingClientRect().height);
       noOverlap();
+      if (width === 500) {
+        const viewport = v.host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]')!;
+        const reply = v.host.querySelector<HTMLElement>('[data-user-card="reply"]')!;
+        const replyTop = reply.getBoundingClientRect().top;
+        expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+        viewport.scrollTop = viewport.scrollHeight;
+        const last = [...viewport.querySelectorAll<HTMLElement>('[data-process-step]')].at(-1)!;
+        const visible = viewport.getBoundingClientRect();
+        const bounds = last.getBoundingClientRect();
+        expect(bounds.top).toBeGreaterThanOrEqual(visible.top - 1);
+        expect(bounds.bottom).toBeLessThanOrEqual(visible.bottom + 1);
+        expect(last.contains(document.elementFromPoint(bounds.left + 10, bounds.top + bounds.height / 2))).toBe(true);
+        expect(reply.getBoundingClientRect().top).toBeCloseTo(replyTop, 0);
+      }
     }
     full.querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
     await until('the completion closes', () => v.host.querySelector<HTMLElement>('[data-conversation-step="completed"]')!.offsetHeight === 32);
