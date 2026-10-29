@@ -2,6 +2,8 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Avatar } from '../../../../apps/desktop/src/components/Avatar'
+import { AGENT_AVATAR_PALETTES, agentAvatarPalette } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
+import { boringAgentAvatarDataUri } from '../../../../apps/desktop/src/lib/boringAgentAvatar'
 import { SessionAvatar } from '../../../../apps/desktop/src/mobile/agent-watch/StatusGlyph'
 import { runtime } from '../../../../apps/desktop/src/components/agentAvatar/engine/runtime'
 import { installIdentityDirectoryBridge, publishIdentityDirectory } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
@@ -41,15 +43,36 @@ afterEach(() => {
 })
 
 describe('default agent avatars', () => {
-  it('renders a static beam SVG with the full agent id and homepage palette, plus the existing status badge', async () => {
+  it('renders a static beam SVG with the full agent id and its palette, plus the existing status badge', async () => {
     await render({ agentStatus: 'working' })
     expect(svg()?.getAttribute('data-agent-avatar-boring')).toBe(ID)
     expect(svg()?.getAttribute('width')).toBe('32')
     expect(harness.container.querySelector('canvas')).toBeNull()
     expect(harness.container.querySelector('.av-status--working')).not.toBeNull()
     const fills = Array.from(svg()!.querySelectorAll('[fill]')).map((el) => el.getAttribute('fill'))
-    expect(fills.some((fill) => ['#00686c', '#32c2b9', '#edecb3', '#fad928', '#ff9915'].includes(fill!))).toBe(true)
+    expect(fills.some((fill) => agentAvatarPalette(ID).includes(fill!))).toBe(true)
     expect(runtime.register).not.toHaveBeenCalled()
+  })
+
+  it('spreads ids over the curated palettes and keeps image-only projections on the same palette', () => {
+    const used = new Set(Array.from({ length: 400 }, (_, i) => agentAvatarPalette(`${ID}-${i}`)))
+    expect(used.size).toBe(AGENT_AVATAR_PALETTES.length)
+    const svgText = decodeURIComponent(boringAgentAvatarDataUri(ID))
+    expect(agentAvatarPalette(ID).some((color) => svgText.includes(`fill="${color}"`))).toBe(true)
+  })
+
+  it('keeps every palette colour within the first palette\'s contrast bounds on the dark page and on white', () => {
+    const channel = (v: number) => (v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+    const luminance = (hex: string) => [1, 3, 5].map((i) => channel(parseInt(hex.slice(i, i + 2), 16)))
+      .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0)
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+      return (hi + 0.05) / (lo + 0.05)
+    }
+    const floor = (surface: string) => Math.min(...AGENT_AVATAR_PALETTES[0].map((c) => contrast(c, surface)))
+    for (const surface of ['#121212', '#ffffff']) {
+      for (const color of AGENT_AVATAR_PALETTES.flat()) expect(contrast(color, surface)).toBeGreaterThanOrEqual(floor(surface))
+    }
   })
 
   it('keeps the same face across renames, sizes and built-in v1 URLs, including older or unknown looks', async () => {

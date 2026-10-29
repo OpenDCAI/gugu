@@ -1,4 +1,4 @@
-import { hostAsks } from '../../../../../../../../tests/support/ask-service';
+import { hostAsks, respond } from '../../../../../../../../tests/support/ask-service';
 vi.mock('../../asks', () => import('../../../../../../../../tests/support/ask-service'));
 vi.mock('../../asks/ask', () => import('../../../../../../../../tests/support/ask-service'));
 import fs from 'node:fs';
@@ -10,14 +10,12 @@ import WebSocket from 'ws';
 
 /**
  * #7199 云浏览器整条链路对着一个真 Chrome 跑一遍:Playwright 工具经每会话一页签的 transport 驱动页面、实时画面帧、
- * 人接管时 agent 被拒、交还后继续、停止 / 继续、密码保险箱把账号密码填进页面而工具结果里没有密码。
+ * 人接管时 agent 被拒、交还后继续、停止 / 继续、接管登录后工具结果里没有密码。
  *
  * 要一个 Chrome / Chromium(CI 上没有)⇒ 默认跳过;本机跑:
  *   GUGU_CLOUD_BROWSER_REAL=<chrome 或 chrome-headless-shell 的路径> npx vitest run --project session-main <本文件>
  */
 const chrome = process.env.GUGU_CLOUD_BROWSER_REAL;
-const FILLED_BY_PERSON = new RegExp('^' + 'The person entered their login for http://127.0.0.1:PORT and it was filled into the page (username and password). You never see the credentials and must not ask the person to type them in chat. Now submit the form (click the login button) and check the result with browser_snapshot.'
-  .replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('PORT', '\\d+') + '$');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-cloud-browser-'));
 const statusHook = vi.hoisted(() => ({ cb: null as null | ((change: { sessionId: string; reading: { running: boolean } }) => void) }));
 
@@ -117,7 +115,7 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
     return until(() => messages.slice(from).find(match));
   }
 
-  it('drives a tab, streams frames, gates on takeover and stop, fills the vault without leaking the password', async () => {
+  it('drives a tab, streams frames, refuses removed forms and redacts a login entered during takeover', async () => {
     const opened = await call('browser_navigate', { url: base });
     expect(opened.text).toContain('登录测试');
     expect(browser.status(null).tabs.some((tab) => tab.url.startsWith(base) && tab.byAgent)).toBe(true);
@@ -171,47 +169,43 @@ describe.skipIf(!chrome)('cloud browser against a real Chrome', () => {
     socket.send(JSON.stringify({ type: 'automation_resume' }));
     await until(() => browser.status(null).automation !== 'stopped');
 
-    // 密码保险箱:agent 请登录 → 人在保险箱里填 → 页面里填上了,工具结果和快照里都没有密码
+    // A protocol-13 client is refused immediately, then keeps using the same browser connection.
+    mark = messages.length;
+    socket.send(JSON.stringify({ type: 'vault_submit', requestId: 'legacy-login', username: 'discarded', password: 'never-fill-this', save: true }));
+    await waitAfter(messages, mark, m => m.type === 'vault_result' && m.requestId === 'legacy-login' && m.code === 'feature_removed' && m.reason === 'gone');
+    expect(fs.existsSync(path.join(tmp, 'cloud-browser', 'saved-logins.enc'))).toBe(false);
+
+    // Login asks still wait for the person; credentials are entered on the page during takeover.
+    await call('browser_navigate', { url: base });
     const login = browser.requestLogin(sessionId, { reason: '查订单' });
     const pending = await until(() => [...(hostAsks.get(sessionId)?.values() ?? [])].find(item => item.request.origin?.source === 'browser-assistance'));
     const requestId = pending.request.itemId;
     expect(pending.request.origin?.payload).not.toHaveProperty('password');
-    socket.send(JSON.stringify({ type: 'vault_submit', requestId, username: 'alice', password: 'S3cret-pass!', save: true }));
-    await until(() => messages.find((m) => m.type === 'vault_result' && m.ok === true));
+    mark = messages.length;
+    socket.send(JSON.stringify({ type: 'control_acquire' }));
+    await waitAfter(messages, mark, m => m.type === 'state' && m.control === 'granted');
+    socket.send(JSON.stringify({ type: 'input_mouse', eventType: 'mousePressed', x: 30, y: 18, button: 'left', buttons: 1, clickCount: 1, modifiers: 0 }));
+    socket.send(JSON.stringify({ type: 'input_mouse', eventType: 'mouseReleased', x: 30, y: 18, button: 'left', buttons: 0, clickCount: 1, modifiers: 0 }));
+    socket.send(JSON.stringify({ type: 'input_text', id: 'login-u', text: 'alice' }));
+    await until(() => messages.find(m => m.type === 'input_result' && m.id === 'login-u' && m.ok === true));
+    socket.send(JSON.stringify({ type: 'input_keyboard', eventType: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 0 }));
+    socket.send(JSON.stringify({ type: 'input_keyboard', eventType: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 0 }));
+    socket.send(JSON.stringify({ type: 'input_text', id: 'login-p', text: 'typed-Login-88' }));
+    await until(() => messages.find(m => m.type === 'input_result' && m.id === 'login-p' && m.ok === true));
+    await respond({ conversationId: sessionId, itemId: requestId, kind: 'permission', optionId: 'done', by: 'desktop' });
     const told = await login;
     expect(told.ok).toBe(true);
-    // What the agent is told after the person logged in (#7199): which fields were filled and whether it was saved.
-    expect(told.message).toMatch(FILLED_BY_PERSON);
-    expect(told.message).not.toContain('S3cret');
-    expect(told.message).not.toContain('alice');
+    expect(told.message).toContain('handed the browser back');
+    expect(told.message).not.toContain('typed-Login-88');
     const after = await call('browser_snapshot');
-    expect(after.text).not.toContain('S3cret-pass!');
-    const ref = /button "登录" \[ref=(e\d+)\]/.exec(after.text ?? '')?.[1];
-    expect(ref).toBeTruthy();
-    const clicked = await call('browser_click', { element: '登录', target: ref });
-    expect(clicked.text).not.toContain('### Error');
-    // 动作附带的整页快照是 Playwright 自己写的文件(结果里只有链接):文件里也没有密码
-    const pageFiles = fs.readdirSync(tools.outputDir).filter((name) => name.endsWith('.yml'));
-    expect(pageFiles.length).toBeGreaterThan(0);
-    const pageText = pageFiles.map((name) => fs.readFileSync(path.join(tools.outputDir, name), 'utf8')).join('\n');
-    expect(pageText).not.toContain('S3cret-pass!');
-    expect(pageText).not.toContain('typed-Secret-77');
-    expect(pageText).toContain('••••••');
-    // agent 自己给文件名:不落盘,内容回到结果里照常被盖掉
-    const own = await call('browser_snapshot', { filename: 'mine.md' });
-    expect(own.text).toContain('••••••');
-    expect(own.text).not.toContain('S3cret-pass!');
-    expect(fs.existsSync(path.join(tmp, 'mine.md'))).toBe(false);
-    const submitted = await call('browser_snapshot');
-    expect(submitted.text).toContain('hello alice / 12');
-    expect(submitted.text).not.toContain('S3cret-pass!');
-
-    // 保存过 = 下次不问,直接填
-    await call('browser_navigate', { url: base });
-    const again = await browser.requestLogin(sessionId, {});
-    expect(again.ok).toBe(true);
-    expect(again.message).toMatch(/saved/);
-    expect(fs.readFileSync(path.join(tmp, 'cloud-browser', 'saved-logins.enc'), 'utf8')).toContain('enc:');
+    expect(after.text).not.toContain('typed-Login-88');
+    expect(after.text).toContain('••••••');
+    expect(fs.existsSync(path.join(tmp, 'cloud-browser', 'saved-logins.enc'))).toBe(false);
+    // A subsequent login asks again instead of filling credentials from a removed store.
+    const again = browser.requestLogin(sessionId, {});
+    const next = await until(() => [...(hostAsks.get(sessionId)?.values() ?? [])].find(item => item.request.itemId !== requestId));
+    await respond({ conversationId: sessionId, itemId: next.request.itemId, kind: 'permission', optionId: 'cancel', by: 'desktop' });
+    expect((await again).ok).toBe(false);
 
     // 小图
     const shot = await live.snapshot(null, 480);

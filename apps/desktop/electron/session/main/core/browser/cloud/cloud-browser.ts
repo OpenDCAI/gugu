@@ -1,9 +1,10 @@
 import { ask, respond, withdrawAll } from '../../asks';
 import { hostAsks } from '../../asks/ask';
+import { humanToolPending, runHumanTool } from '../../asks/human-tool-wait';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { app, safeStorage } from 'electron';
+import { app } from 'electron';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { agentSessionContext } from '@main/core/extensions/extension-agent-context';
 import { log } from '@main/lib/logger';
@@ -11,7 +12,7 @@ import type { AgentBrowserBridgeShape } from '../agent-browser';
 import { CdpHub, type CdpEvent } from './cdp-hub';
 import { findChrome, launchChrome, openDisplay, type LaunchedChrome } from './chrome';
 import { createCloudPageTransport } from './page-transport';
-import { CredentialStore, fillLogin, readPasswordValues, siteOf, type Credential, type FillResult } from './vault';
+import { readPasswordValues, siteOf } from './browser-passwords';
 import type {
   CloudBrowserAssistance,
   CloudBrowserAutomation,
@@ -27,7 +28,7 @@ import type {
  *  - 控制权(exclusive):人「接管浏览器」→ agent 的浏览器动作一律拒,直到「交还给 Agent」;agent 正在做一步时
  *    人申请接管 = 等这一步做完再交(界面显示「等待 Agent 完成当前操作…」);
  *  - 自动化:running / idle / stopped。人「停止任务」= agent 之后的浏览器动作一律拒,直到「允许 Agent 继续」;
- *  - 求助:agent 请人登录(密码保险箱)或请人接手一步(验证码、短信码)—— 工具调用挂着,等人做完。
+ *  - 求助:agent 请人接管登录或接手一步(验证码、短信码)—— 工具调用挂着,等人做完。
  * 画面、输入、标签页的 websocket 在 live-server.ts;这里只出状态与动作。
  */
 
@@ -37,8 +38,6 @@ const DRIVING_IDLE_MS = 3_000;
  * (10-15 实测),CDP 也没有标题事件 —— 只能拉 Target.getTargets。
  */
 const TAB_REFRESH_MS = 2_000;
-/** 人填了但没勾「保存」:多步登录(先账号、下一页才要密码)在这段时间里接着用,❌ 再问一遍。 */
-const REMEMBER_UNSAVED_MS = 10 * 60_000;
 /** 交还前读密码框的上限:页面卡死也得交还(❌ agent 一直被挡着),读不到的只进日志。 */
 const RELEASE_READ_MS = 3_000;
 
@@ -54,9 +53,9 @@ export const STOPPED_MESSAGE =
 type ChangeListener = () => void;
 
 type AssistanceOutcome =
-  | { kind: 'filled'; fill: FillResult }
   | { kind: 'returned' }
   | { kind: 'dismissed' }
+  | { kind: 'withdrawn' }
   | { kind: 'stopped' }
   | { kind: 'timeout' }
   | { kind: 'ended'; reason: string };
@@ -78,22 +77,17 @@ export class CloudBrowser {
   private tabRefresh: ReturnType<typeof setInterval> | null = null;
   private holder: string | null = null;
   private pendingHolder: string | null = null;
-  private readonly remembered = new Map<string, { credential: Credential; until: number }>();
-  /** What the vault filled for a login ask, kept here until its answer comes back (the Ask carries no credentials). */
-  private readonly filled = new Map<string, FillResult>();
   /**
    * 填进过页面的密码(各种写法)。Playwright 的页面快照会把密码框的值原样写出来(`textbox "密码": …`,10-15 实测),
    * 所以交回 agent 的每个浏览器工具结果都过一遍 redact —— ❌ 指望 agent 不去看。
    */
   private readonly secrets = new Set<string>();
   private readonly listeners = new Set<ChangeListener>();
-  private readonly store: CredentialStore;
 
   constructor(
     private readonly env: NodeJS.ProcessEnv = process.env,
     private readonly dataDir: string = app.getPath('userData')
   ) {
-    this.store = new CredentialStore(path.join(dataDir, 'cloud-browser', 'saved-logins.enc'), () => safeStorage);
     agentStatusWriter.on('agent:status', ({ sessionId, reading }) => {
       if (!this.sessionTab.has(sessionId)) return;
       if (reading.running) {
@@ -400,8 +394,14 @@ export class CloudBrowser {
     return (await agentSessionContext(sessionId))?.workspaceRoot ?? null;
   }
 
-  /** 请人登录(密码保险箱)。返回给 agent 的那段话 —— 永远不含账号密码。 */
-  async requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  /** 请人接管浏览器,在页面上完成登录,然后交还。 */
+  requestLogin(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_login', signal,
+      lifetime => this.waitForLogin(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForLogin(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     const owned = this.sessionTab.get(sessionId);
@@ -410,26 +410,19 @@ export class CloudBrowser {
     if (!owned || !tab || !site) {
       return { ok: false, message: 'Open the site\'s login page in the browser first (browser_navigate), then call browser_request_login again.' };
     }
-    let saved: Credential | null = null;
-    try {
-      saved = this.store.get(site);
-    } catch (error) {
-      // 存档解不开(密钥换了 / 文件坏了):当没存过,请人填 —— ❌ 每个站点的登录都跟着报错。
-      log.warn('Cloud browser: could not read the saved logins', { error: String(error) });
-    }
-    const reuse = saved ?? this.recall(site);
-    if (reuse) {
-      const fill = await this.fill(owned, reuse);
-      if (fill.username || fill.password) return { ok: true, message: filledMessage(site, fill, saved ? 'saved' : 'recent') };
-    }
     const outcome = await this.waitForPerson(sessionId, { kind: 'login', site, url: tab.url, ...(args.reason ? { text: args.reason } : {}) }, signal);
-    if (outcome.kind === 'filled') return { ok: true, message: filledMessage(site, outcome.fill, 'person') };
-    if (outcome.kind === 'returned') return { ok: true, message: 'The person finished the login step. Submit the form and check the result with browser_snapshot.' };
+    if (outcome.kind === 'returned') return { ok: true, message: 'The person finished the login step and handed the browser back. Take a fresh browser_snapshot and check the result before continuing.' };
     return { ok: false, message: outcomeMessage(outcome, 'login') };
   }
 
   /** 请人接手一步(验证码、短信码、确认付款……):等人接管再交还。 */
-  async requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  requestTakeover(sessionId: string, args: { reason?: string }, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+    return runHumanTool(sessionId, 'browser_request_takeover', signal,
+      lifetime => this.waitForTakeover(sessionId, args, lifetime),
+      requestId => ({ ok: true, message: JSON.stringify(humanToolPending(requestId)) }));
+  }
+
+  private async waitForTakeover(sessionId: string, args: { reason?: string }, signal: AbortSignal): Promise<{ ok: boolean; message: string }> {
     const gate = this.gate();
     if (gate) return { ok: false, message: gate };
     if (!this.sessionTab.has(sessionId)) return { ok: false, message: 'Open the page in the browser first (browser_navigate), then ask the person.' };
@@ -458,13 +451,11 @@ export class CloudBrowser {
     const itemId = randomUUID();
     const result = await ask(sessionId, { itemId, kind: 'permission', title: assistance.text ?? (assistance.kind === 'login' ? `Log in to ${assistance.site}` : 'Take over the browser'),
       options: [{ optionId: 'done', name: 'Done', kind: 'allow_once' }, { optionId: 'cancel', name: 'Cancel', kind: 'reject_once' }], origin: { source: 'browser-assistance', payload: assistance } }, { signal });
-    const fill = this.filled.get(itemId);
-    this.filled.delete(itemId);
-    if (fill) return { kind: 'filled', fill };
     if (typeof result !== 'string' && result.optionId === 'done') {
       if (this.holder) await this.releaseControl(this.holder);
       return { kind: 'returned' };
     }
+    if (result === 'withdrawn' && !this.endedReason && this.automation !== 'stopped') return { kind: 'withdrawn' };
     if (result === 'unavailable') return { kind: 'ended', reason: 'This task is unavailable; no request was opened.' };
     return result === 'timeout' ? { kind: 'timeout' } : this.endedReason ? { kind: 'ended', reason: this.endedReason } : { kind: this.automation === 'stopped' ? 'stopped' : 'dismissed' };
   }
@@ -474,56 +465,6 @@ export class CloudBrowser {
     if (pending?.requestId === requestId) void respond({ conversationId: pending.sessionId, itemId: requestId, kind: 'permission', optionId, by: 'desktop' })
       .then(result => { if (!result.ok) log.warn('Cloud browser: the answer was refused', { code: result.error.code }); })
       .catch((error: unknown) => log.warn('Cloud browser: the answer could not be delivered', { error: String(error) }));
-  }
-
-  private recall(site: string): Credential | null {
-    const entry = this.remembered.get(site);
-    if (!entry) return null;
-    if (Date.now() > entry.until) {
-      this.remembered.delete(site);
-      return null;
-    }
-    return entry.credential;
-  }
-
-  private async fill(targetId: string, credential: Credential): Promise<FillResult> {
-    for (const variant of secretVariants(credential.password)) this.secrets.add(variant);
-    const hub = await this.ensureHub();
-    const { sessionId } = await hub.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
-    try {
-      return await fillLogin(hub, sessionId, credential);
-    } finally {
-      void hub.send('Target.detachFromTarget', { sessionId }).catch(() => undefined);
-    }
-  }
-
-  // ── 人那一侧(live-server.ts 经 websocket 调)────────────────────────────────
-
-  /** 人在保险箱里点「确认添加」。返回给保险箱的结果(失败的原因让人看得懂;❌ 回显密码)。 */
-  async submitCredential(requestId: string, credential: Credential, save: boolean): Promise<{ ok: true } | { ok: false; reason: 'gone' | 'noForm' | 'saveFailed' }> {
-    const pending = this.pendingAssistance();
-    if (!pending || pending.requestId !== requestId || pending.kind !== 'login' || !pending.site) return { ok: false, reason: 'gone' };
-    const targetId = this.sessionTab.get(pending.sessionId);
-    if (!targetId) return { ok: false, reason: 'gone' };
-    const fill = await this.fill(targetId, credential);
-    if (!fill.username && !fill.password) return { ok: false, reason: 'noForm' };
-    let saved = false;
-    if (save) {
-      try {
-        this.store.save(pending.site, credential);
-        saved = true;
-      } catch (error) {
-        log.warn('Cloud browser: saving the login failed', { site: pending.site, error: String(error) });
-        this.remembered.set(pending.site, { credential, until: Date.now() + REMEMBER_UNSAVED_MS });
-        this.filled.set(requestId, fill);
-        this.answerAssistance(requestId, 'done');
-        return { ok: false, reason: 'saveFailed' };
-      }
-    }
-    if (!saved) this.remembered.set(pending.site, { credential, until: Date.now() + REMEMBER_UNSAVED_MS });
-    this.filled.set(requestId, fill);
-    this.answerAssistance(requestId, 'done');
-    return { ok: true };
   }
 
   /** 人「接管浏览器」。agent 正在做一步 = 先排着(pending),这一步做完就给。 */
@@ -698,25 +639,13 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-function filledMessage(site: string, fill: FillResult, source: 'saved' | 'recent' | 'person'): string {
-  const who =
-    source === 'saved'
-      ? `Filled the login the person saved for ${site}`
-      : source === 'recent'
-        ? `Filled the login the person entered for ${site} a moment ago`
-        : `The person entered their login for ${site} and it was filled into the page`;
-  const what = fill.username && fill.password ? 'username and password' : fill.password ? 'the password' : 'the username';
-  const next = fill.password
-    ? 'Now submit the form (click the login button) and check the result with browser_snapshot.'
-    : 'This page only asks for the username first: submit it, and when the password page appears call browser_request_login again (it fills the password without asking the person again).';
-  return `${who} (${what}). You never see the credentials and must not ask the person to type them in chat. ${next}`;
-}
-
 function outcomeMessage(outcome: AssistanceOutcome, kind: 'login' | 'takeover'): string {
   switch (outcome.kind) {
+    case 'withdrawn':
+      return 'The original browser request was withdrawn before the person answered. This is not approval or a refusal by the person.';
     case 'dismissed':
       return kind === 'login'
-        ? 'The person closed the password vault without logging in. Do not ask for the password in chat; tell them you need them to log in and wait.'
+        ? 'The person declined to log in. Tell them what is needed and wait; do not ask for the password in chat.'
         : 'The person declined to take over. Tell them what is needed and wait.';
     case 'stopped':
       return STOPPED_MESSAGE;

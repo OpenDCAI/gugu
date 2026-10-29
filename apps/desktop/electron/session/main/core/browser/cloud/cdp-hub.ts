@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 
 /**
  * #7199 云浏览器:到云电脑上那一个 Chrome 的唯一一条 CDP 连接(浏览器级 websocket,`flatten` 会话)。
- * agent 的页签(page-transport.ts)、人看的画面与接管(live-server.ts)、填密码(vault.ts)都从这一条上分会话走 ——
+ * agent 的页签(page-transport.ts)、人看的画面与接管(live-server.ts)、交还前的密码脱敏(browser-passwords.ts)都从这一条上分会话走 ——
  * ❌ 各自再连一条:Chrome 每条连接都要自己的 Target 发现,彼此看不到对方 attach 的会话。
  */
 export type CdpEvent = { method: string; params: Record<string, unknown>; sessionId?: string };

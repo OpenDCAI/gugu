@@ -1079,7 +1079,7 @@ export const CLOUD_BROWSER_RULE = `To work with a web page (open, read, click, t
 (if they are not in your tool list, find them with \`catalog_list\`): they drive your own browser, which the person watches live in their chat with you and can take over; it
 keeps the logins they made there. When you talk about it, call it your browser: do not tell the person which machine or
 server it runs on. Do not launch another browser, Playwright or Chrome for that. When a page needs
-the person's login, call \`browser_request_login\` (they type it into a password vault, you never see it); never ask
+the person's login, call \`browser_request_login\` (they take control and log in on the page themselves); never ask
 for a password in chat. When a step needs the person (CAPTCHA, SMS or 2FA code, a payment confirmation), call
 \`browser_request_takeover\`. If a tool says the person took over or stopped the browser, stop and tell them what you
 did; do not retry.`

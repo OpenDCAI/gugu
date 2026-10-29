@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
@@ -67,43 +67,91 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   const join = useMyAgentJoin(owned && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
   const openable = task && (owned || onOpenTopic)
-  const Root = openable ? 'button' : 'div'
+  return (
+    <ComposerCardFrame
+      cardType={card.type}
+      // 卡上记着接手的是哪种 agent(贴卡时写下的),谁看都画这一枚;没记的老卡画通用的星 —— ❌ 去查这个 agent 现在看不看得到。
+      mark={task ? (task.agentType ? <EngineIcon engine={task.agentType} size={13} /> : <Sparkles size={13} />) : <Clock size={13} />}
+      title={task ? t('message.taskCard.task') : `${t('message.taskCard.schedule')} · ${card.type === 'schedule' ? card.scheduleLabel : ''}`}
+      time={time}
+      text={card.text}
+      onOpen={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
+    >
+      {task && !owned ? (
+        <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
+      ) : task && (
+        <TaskCardHandedTo
+          agentName={task.agentName}
+          agentAvatar={task.agentAvatar ?? null}
+          agentUserId={task.agentUserId}
+          note={join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}
+          mark={join ? null : <TaskStatusMark status={status} />}
+        />
+      )}
+    </ComposerCardFrame>
+  )
+}
+
+/**
+ * 任务卡 / 已安排卡的那一面:卡头(记号、是什么、时刻)、原话,底下一行由调用方给。只管长相,❌ 读任何数据 ——
+ * 群里的卡(ComposerCardView)和示例项目(#709)里那张预先写好的卡画的是同一面。
+ */
+export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, tour, children }: {
+  cardType: ComposerCard['type']
+  mark: ReactNode
+  title: string
+  time: string
+  text: string
+  /** 给了 = 整张卡可点(打开它的会话、话题或详情)。 */
+  onOpen?: () => void
+  /** 分步引导定位这张卡用的锚点。 */
+  tour?: string
+  children?: ReactNode
+}) {
+  const { t } = useTranslation('messaging')
+  const Root = onOpen ? 'button' : 'div'
   return (
     <Root
-      type={openable ? 'button' : undefined}
+      type={onOpen ? 'button' : undefined}
       data-testid="composer-card"
-      data-card-type={card.type}
-      title={openable ? t('message.taskCard.open') : undefined}
-      onClick={openable ? () => (onOpenTopic ? onOpenTopic() : openTaskCardSession(task, place.local)) : undefined}
+      data-card-type={cardType}
+      data-tour={tour}
+      title={onOpen ? t('message.taskCard.open') : undefined}
+      onClick={onOpen}
       className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left enabled:cursor-pointer enabled:hover:border-[var(--border-strong)]"
     >
       <span className="flex h-6 items-center gap-2">
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-document)] border border-[var(--border)]">
-          {/* 卡上记着接手的是哪种 agent(贴卡时写下的),谁看都画这一枚;没记的老卡画通用的星 —— ❌ 去查这个 agent 现在看不看得到。 */}
-          {task ? (task.agentType ? <EngineIcon engine={task.agentType} size={13} /> : <Sparkles size={13} />) : <Clock size={13} />}
+          {mark}
         </span>
-        <span className="min-w-0 truncate text-[var(--font-body)] font-semibold">
-          {task ? t('message.taskCard.task') : `${t('message.taskCard.schedule')} · ${card.type === 'schedule' ? card.scheduleLabel : ''}`}
-        </span>
+        <span className="min-w-0 truncate text-[var(--font-body)] font-semibold">{title}</span>
         <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
       </span>
-      <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{card.text}</span>
-      {task && !owned ? (
-        <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
-      ) : task && (
-        <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
-          <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
-          <span className="flex min-w-0 items-center gap-1">
-            <Avatar name={task.agentName} avatarUrl={task.agentAvatar ?? null} seed={task.agentUserId} isAgent harnessBadge={false} size={16} still />
-            <b className="truncate font-medium text-[var(--text-secondary)]">{task.agentName}</b>
-          </span>
-          <span className="min-w-0 truncate">
-            {join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}
-          </span>
-          <span className="ml-auto flex shrink-0 items-center">{join ? null : <TaskStatusMark status={status} />}</span>
-        </span>
-      )}
+      <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{text}</span>
+      {children}
     </Root>
+  )
+}
+
+/** 任务卡最后一行「交给 谁 · 在哪 …… 状态」。 */
+export function TaskCardHandedTo({ agentName, agentAvatar, agentUserId, note, mark }: {
+  agentName: string
+  agentAvatar: string | null
+  agentUserId: string
+  note: string
+  mark: ReactNode
+}) {
+  const { t } = useTranslation('messaging')
+  return (
+    <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
+      <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <Avatar name={agentName} avatarUrl={agentAvatar} seed={agentUserId} isAgent harnessBadge={false} size={16} still />
+        <b className="truncate font-medium text-[var(--text-secondary)]">{agentName}</b>
+      </span>
+      <span className="min-w-0 truncate">{note}</span>
+      <span className="ml-auto flex shrink-0 items-center">{mark}</span>
+    </span>
   )
 }
 

@@ -11,7 +11,7 @@ describe('#7199 cloud browser wire', () => {
     expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'input_mouse', eventType: 'mouseWheel', x: 1, y: 2, button: 'none', buttons: 0, clickCount: 0, modifiers: 0, deltaY: 1e9 }))).toMatchObject({ deltaY: 1e5 });
     expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'input_text', id: 't1', text: 'a\0b' }))).toBeNull();
     expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'vault_submit', requestId: 'r1', username: '', password: '', save: false }))).toBeNull();
-    expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'vault_submit', requestId: 'r1', username: 'a', password: 'b', save: true }))).toMatchObject({ type: 'vault_submit' });
+    expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'vault_submit', requestId: 'r1', username: 'a', password: 'b', save: true }))).toBeNull();
     expect(parseCloudBrowserClientMessage(JSON.stringify({ type: 'rm_rf' }))).toBeNull();
     expect(parseCloudBrowserClientMessage('not json')).toBeNull();
   });

@@ -23,7 +23,7 @@ import { respond } from '../../asks';
 /**
  * What the agent is told when it asks the person for a step in the browser (#7199): taken over and handed back,
  * declined, not answered in time, stopped, the browser gone, replaced by another ask, the agent's call gone.
- * These outcomes must not change when the ask moves onto the session's Ask queue. The person's two gestures
+ * Programmatic withdrawal is not a person's refusal. The person's two gestures
  * reach the browser differently before and after that move; only `person` below knows how.
  */
 const person = {
@@ -107,23 +107,23 @@ describe('#7199 asking the person for a browser step: what the agent is told', (
     });
   });
 
-  it('another task asks meanwhile ⇒ the first is closed as declined, only the second waits', async () => {
+  it('another task asks meanwhile ⇒ the first is withdrawn, only the second waits', async () => {
     const b = browserWithTab('task-1', 'task-2');
     const first = b.requestTakeover('task-1', {});
     const second = b.requestTakeover('task-2', {});
-    await expect(first).resolves.toEqual({ ok: false, message: 'The person declined to take over. Tell them what is needed and wait.' });
+    await expect(first).resolves.toEqual({ ok: false, message: 'The original browser request was withdrawn before the person answered. This is not approval or a refusal by the person.' });
     expect(b.sessionInUse('task-2')).toBe(true);
     expect(b.sessionInUse('task-1')).toBe(false);
     person.decline(b, person.pendingId(b)!);
     await second;
   });
 
-  it("the agent's call goes away ⇒ closed as declined", async () => {
+  it("the agent's call goes away ⇒ withdrawn without a human refusal", async () => {
     const b = browserWithTab('task-1');
     const call = new AbortController();
     const told = b.requestTakeover('task-1', {}, call.signal);
     call.abort();
-    await expect(told).resolves.toEqual({ ok: false, message: 'The person declined to take over. Tell them what is needed and wait.' });
+    await expect(told).resolves.toEqual({ ok: false, message: 'The original browser request was withdrawn before the person answered. This is not approval or a refusal by the person.' });
     expect(person.pendingId(b)).toBeUndefined();
   });
 });

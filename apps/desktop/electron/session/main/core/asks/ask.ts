@@ -5,6 +5,7 @@ import { sessionEvents } from '../sessions/session-events';
 import { readSessionRow, syncAsked, type SessionTimelineResult } from '../session-timeline/service';
 import { log } from '@main/lib/logger';
 import { ASK_SOURCE_SPEC, type AskSourceSpec } from './sources';
+import { registerHumanToolAsk } from './human-tool-wait';
 const fail = (code: string, message: string) => ({ ok: false as const, error: { code, message } });
 
 /**
@@ -68,6 +69,7 @@ export function ask(
   const withdrawQuestions = (sessionId: string) => withdrawAll(sessionId, 'agent-question');
   hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawQuestions), sessionEvents.on('session:deleted', withdrawQuestions)];
   return new Promise((resolve) => {
+    let unregisterHumanTool = () => undefined as void;
     const asks = hostAsks.get(conversationId) ?? new Map<string, AskEntry>();
     hostAsks.set(conversationId, asks);
     const wait = `host-ask:${request.itemId}`;
@@ -78,6 +80,7 @@ export function ask(
     const onAbort = () => aborted();
     const end = (answer: AskResult, publish = true) => {
       if (!asks.delete(request.itemId)) return;
+      unregisterHumanTool();
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
       if (asks.size === 0) hostAsks.delete(conversationId);
@@ -90,9 +93,12 @@ export function ask(
     const timer = timeoutMs === undefined ? null : setTimeout(() => aborted('timeout'), timeoutMs);
     timer?.unref?.();
     asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: () => aborted(), detach: () => end('withdrawn', false) });
+    if (request.origin.source === 'browser-assistance' || request.origin.source === 'app-install') {
+      unregisterHumanTool = registerHumanToolAsk(conversationId, request.itemId);
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
     reportHostWait(conversationId, wait, true, request.origin.source);
     syncAsked(conversationId);
-    options.signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
