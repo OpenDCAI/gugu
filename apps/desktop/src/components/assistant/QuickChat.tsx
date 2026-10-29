@@ -3,8 +3,9 @@ import { rendererLogger } from '@/lib/log';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { turnFailureReason, visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
-import { agentFailureText } from '../../lib/agentTurnFailure'
+import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
+import { SystemMessageNotice } from '../chat/SystemMessageNotice'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../ui/Button'
@@ -103,7 +104,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   const { messages, loadingMessages, sendMessage, setFollowingTail, memberReadSeqs } = useChatConversation(chatId, conversations)
   const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
-  const recent = visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
+  const recent = projectTurnFailureMessages(visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at)).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
@@ -152,7 +153,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
             <span>{t('quickChat.empty')}</span>
           </div>
         ) : (
-          recent.map((message) => <QuickMessage key={message.id} message={message} queued={queuedIds.has(message.id)} />)
+          recent.map((message) => <QuickMessage key={message.id} message={message} queued={queuedIds.has(message.id)} senderName={name} />)
         )}
       </div>
       <footer className="qc-compose">
@@ -176,11 +177,10 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   )
 }
 
-function QuickMessage({ message, queued }: { message: MessageItem; queued: boolean }) {
+function QuickMessage({ message, queued, senderName }: { message: MessageItem; queued: boolean; senderName: string }) {
   const { t } = useTranslation('assistant')
   if (message.content_type === 'system') {
-    const reason = turnFailureReason(message)
-    return <div className="qc-system">{reason ? agentFailureText(reason) : message.content}</div>
+    return <SystemMessageNotice message={message} senderName={senderName} />
   }
   const body =
     message.content_type === 'text' ? (

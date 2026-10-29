@@ -434,6 +434,10 @@ export default {
       },
       "switchToTunnel": "Use a remote tunnel instead",
       "machineLimit": {
+        "occupants": "Machines occupying slots",
+        "available": "A slot is available. Retry adding the machine.",
+        "continue": "Continue waiting",
+
         "total": "Gugu server limit reached ({{used}}/{{max}}); not added.",
         "tunnel": "Remote tunnel limit reached ({{used}}/{{max}}); not added. Remote SSH doesn't count.",
         "unknown": "Gugu server limit reached; not added.",
@@ -693,6 +697,7 @@ export default {
       "reconnect": "Reconnect",
       "copyAddress": "Copy address",
       "remove": "Remove this machine",
+      "removeVersions": "Remove a version…",
       "rename": "Rename",
       "uninstall": "Uninstall Gugu server"
     },
@@ -710,6 +715,7 @@ export default {
     "offline": "Offline",
     "online": "Online",
     "remove": {
+      "versions": { "title": "Remove a version on \"{{name}}\"" },
       "version": {
         "label": "Remove {{version}} on \"{{name}}\"",
         "title": "Remove {{version}} on \"{{name}}\"?",

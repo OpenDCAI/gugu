@@ -18,6 +18,8 @@ import {
   type CrossMachineDeps,
 } from '../../../../apps/desktop/electron/cross-machine-sessions'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '../../../../packages/core/src/cloud/deviceRpcRequester'
+import { createDeviceActionCaller } from '@gugu/core/cloud/deviceActionCaller'
+import { assistantStartupIndex } from '../../../../apps/desktop/electron/sessionpage/assistant-startup-index'
 
 const NOW = Date.parse('2026-09-30T04:00:00.000Z')
 
@@ -114,6 +116,43 @@ describe('reaching another machine', () => {
       ['dev-b', false, true],
       ['dev-c', false, false],
     ])
+  })
+
+  it('groups machine discovery without redirecting explicit endpoint calls or dropping activity history', async () => {
+    const old = { ...device('old', 'old configuration', false, '2026-09-29T00:00:00Z'), machine_id: 'hardware',
+      session_digest: [{ conversationId: 'old-task', projectId: 'old-project', projectName: 'Old project', title: 'Old task',
+        harness: 'codex', agentStatus: 'idle', lastInteractedAt: null, supported: true }] }
+    const online = { ...device('new', 'online configuration', true), machine_id: 'hardware' }
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [old, online] })
+    expect((await xm.listDeviceRows()).map(row => row.device_id)).toEqual(['new'])
+    expect((await xm.devices()).map(row => row.deviceId)).toEqual(['new'])
+    expect(await xm.ensureReachable('old').catch(error => error.code)).toBe('SESSION_DEVICE_OFFLINE')
+    expect((await xm.activityDevices()).find(row => row.device_id === 'old')?.session_titles).toEqual({ 'old-task': 'Old task' })
+    old.is_online = true
+    await xm.call('old', CALLER, { action: 'get', session_id: 'old-task' })
+    expect(actions(call)).toEqual([['old', 'get']])
+  })
+
+  it('does not reintroduce an orphan in the assistant startup index union of session and native discovery', async () => {
+    const rows = [device('dev-a', 'this box', true),
+      { ...device('old', 'old configuration', false), machine_id: 'hardware' },
+      { ...device('new', 'online configuration', true), machine_id: 'hardware' }]
+    const { xm } = makeCrossMachine(undefined, { listDevices: async () => rows })
+    const native = createDeviceActionCaller({
+      listDevices: async () => rows.map(row => ({ device_id: row.device_id, machine_id: row.machine_id, label: row.label,
+        platform: row.platform, online: row.is_online, last_seen_at: row.last_seen_at, this_machine: row.device_id === 'dev-a' })),
+      rpc: async () => ({ result: null }),
+    })
+    const index = await assistantStartupIndex({ accountId: async () => 'owner', run: async action => {
+      if (action.action === 'devices') return xm.listDeviceRows()
+      if (action.action === 'device_actions') return { devices: await native.describe() }
+      if (action.action === 'project_list') return []
+      if (action.action === 'library_read') return { items: [] }
+      throw new Error(`Unexpected action ${action.action}`)
+    } })
+    const records = index.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    expect(records.flatMap(record => record.device_id ? [record.device_id] : [])).toEqual(['device:dev-a', 'device:new'])
+    expect(index).not.toContain('device:old')
   })
 
   it('advertises a phone task runtime even without native file actions', async () => {

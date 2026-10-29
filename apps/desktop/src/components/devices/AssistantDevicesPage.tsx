@@ -30,10 +30,11 @@ import { ConnectMoreDevices } from './ConnectMoreDevices'
 import { PhoneGlyph } from './assistantDeviceUi'
 import { useDeviceActionGroupText } from '../settings/deviceActionGroupText'
 import { platform } from '../../platform'
-import { deviceMachineFor, deviceMachines, useDeviceMachineSections } from '../../lib/deviceMachines'
-import { machineKeyOf } from '../contacts/contactsByDevice'
+import { deviceMachineFor, deviceMachines, machineKeyOf } from '@gugu/core/shared/deviceMachines'
+import { useDeviceMachineSections } from '../../lib/deviceMachines'
 import { DeviceMachineConfigurations } from './DeviceMachineConfigurations'
 import { DeviceMachineArchive } from './DeviceMachineArchive'
+import { useDeviceRemoval } from '../settings/useDeviceRemoval'
 
 export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice, panelNavigation = false }: {
   panelNavigation?: boolean
@@ -57,6 +58,8 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const currentComputer = computer?.device
   const currentPhone = phone?.device
   const { state: thisActions } = useThisDeviceState()
+  // 一台机器的多个版本:与「设置 › 设备」同一个移除动作(版本列表上逐个移除,当前这台除外)。
+  const { configurationActions, dialogs } = useDeviceRemoval(machines)
   const [localOpen, setLocalOpen] = useState<string | null>(null)
   const open = onOpenDevice ? openedDeviceId ?? null : localOpen
   const setOpen = onOpenDevice ?? setLocalOpen
@@ -64,7 +67,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const openedMachine = deviceMachineFor(machines, open)
   const opened = openedMachine?.device
   if ((thisPhone && open === 'this-phone') || (openedMachine?.current && opened && isPhoneDevice(opened))) {
-    if (onOpenDevice) return <><DeviceMachineConfigurations devices={phone?.configurations} /><PhoneDeviceActionsPage /></>
+    if (onOpenDevice) return <><DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />{dialogs}</>
     return (
       <SettingsPage data-testid="assistant-this-phone-actions">
         <div className="flex items-center gap-2">
@@ -74,14 +77,15 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
           </Button>
           <div className="text-[length:var(--font-title)] font-medium">{t('devices.assistantPage.phoneTitle')}</div>
         </div>
-        <DeviceMachineConfigurations devices={phone?.configurations} /><PhoneDeviceActionsPage />
+        <DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />
+        {dialogs}
       </SettingsPage>
     )
   }
   if (thisComputer && open === 'this-computer') return computer
-    ? <DeviceActionsPage device={computer.device} configurations={computer.configurations} isThisDevice={computer.device.is_current_device === true} panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
+    ? <><DeviceActionsPage device={computer.device} configurations={computer.configurations} configurationActions={configurationActions} isThisDevice={computer.device.is_current_device === true} panelNavigation={panelNavigation} onBack={() => setOpen(null)} />{dialogs}</>
     : <ThisDeviceActions panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
-  if (opened) return <DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
+  if (opened) return <><DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} configurationActions={configurationActions} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />{dialogs}</>
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
   /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说。 */

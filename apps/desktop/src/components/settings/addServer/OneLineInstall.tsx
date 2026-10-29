@@ -118,9 +118,9 @@ export function OneLineInstall({
             // 「已添加」这句话自己说清了,❌ 再配一枚绿勾(装饰图标 + 装饰色)。
             <span className="text-[var(--fg)]">{t('devices.addServer.oneLine.appeared', { name: appeared.label })}</span>
           ) : refusal ? (
-            <span className="text-[var(--fg)]" role="alert">
-              <MachineLimitNotice refusal={refusal} onUpgrade={onUpgrade} onRemoveMachine={onRemoveMachine} />
-            </span>
+            <div className="text-[var(--fg)]" role="alert">
+              <MachineLimitNotice refusal={refusal} onUpgrade={onUpgrade} onRemoveMachine={onRemoveMachine} onAvailable={() => setRefusal(null)} />
+            </div>
           ) : (
             <>
               {/* 在等那台机器连上来 = live(connecting)。 */}

@@ -11,9 +11,9 @@ export const IDLE_RECLAIM_TICK_MS = 60_000;
 
 export type ReclaimTarget = { projectId: string; sessionId: string };
 
-/** 此刻仍持有引擎进程或浏览器页的一条会话。 */
+/** 此刻仍持有引擎进程的一条会话。 */
 export type LiveSession = ReclaimTarget & {
-  runtime: 'acp' | 'pty' | 'browser';
+  runtime: 'acp' | 'pty';
   /** ACP:运行时摘要说它静止(没有在飞的轮、待批准、排队的句、后台任务),且适配器能按原 session 接回来。 */
   acpAtRest?: boolean;
 };
@@ -22,7 +22,7 @@ export type LiveSession = ReclaimTarget & {
 export type SessionFacts = {
   /** 状态写入者写下的基础态;null = 没有状态源。 */
   status: string | null;
-  /** 停了再起会接回原来那条对话(ACP 另看 `acpAtRest`);只释放浏览器页时没有引擎要续跑。 */
+  /** 停了再起会接回原来那条对话(ACP 另看 `acpAtRest`)。 */
   resumable: boolean;
 };
 
@@ -103,7 +103,7 @@ export class IdleReclaimer {
       if (idleMs < IDLE_RECLAIM_AFTER_MS) continue;
       if (this.deps.onScreen(entry.sessionId) || withTerminals.has(entry.sessionId)) continue;
       if (this.deps.watchedRemotely(entry.sessionId)) continue;
-      if (entry.runtime !== 'browser' && (!facts.resumable || (entry.runtime === 'acp' && !entry.acpAtRest))) continue;
+      if (!facts.resumable || (entry.runtime === 'acp' && !entry.acpAtRest)) continue;
       const target = { projectId: entry.projectId, sessionId: entry.sessionId };
       try {
         await this.deps.stop(target, entry.runtime);

@@ -12,17 +12,17 @@ const { uploadMock, commitMock, getByIdMock } = vi.hoisted(() => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: getByIdMock } }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async importOriginal => ({ ...await importOriginal<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
-vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: uploadMock, commitAttachment: commitMock }))
+vi.mock('@gugu/core/cloud/attachmentsApi', async original => ({ ...await original<typeof import('@gugu/core/cloud/attachmentsApi')>(), uploadAttachmentBytes: uploadMock, commitAttachment: commitMock }))
 const threadGate = vi.hoisted(() => vi.fn(async (_chatId: string, operation: string) => { if (_chatId.startsWith('dm-')) throw new Error(`${operation}: private chats do not support threads`) }))
 vi.mock('../../../../apps/desktop/src/lib/chatThreadGate', () => ({ requireThreadCapableChat: threadGate }))
 const file = (name: string) => new File([name], name, { type: 'text/plain' })
-const row = (id: string) => ({ id }) as unknown as MessageItem
+const row = (id: string, args: Record<string, unknown> = {}) => ({ ...args, id, seq: 1, content_type: 'attachment', content: '[File] file', created_at: new Date(0).toISOString() }) as unknown as MessageItem
 type Commit = { staging_key: string; message_id: string; file_name: string; content_type: string; caption?: string }
 const commits = () => commitMock.mock.calls.map((call) => call[1] as Commit)
 function arrange() {
   uploadMock.mockReset().mockImplementation(async (_e: unknown, f: { name: string }) => `staging/u/${f.name}`)
-  commitMock.mockReset().mockImplementation(async (_e: unknown, args: Commit) => ({ id: `msg-${args.file_name}` }))
-  getByIdMock.mockReset().mockImplementation(async (id: string) => row(id))
+  commitMock.mockReset().mockImplementation(async (_e: unknown, args: Commit) => row(args.message_id, args))
+  getByIdMock.mockReset().mockImplementation(async (id: string) => row(id, commitMock.mock.calls.map(call => call[1]).find(args => args.message_id === id)))
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const onSent = vi.fn()
   const appendMessage = vi.fn()
@@ -35,11 +35,12 @@ describe('sendAttachmentBatch', () => {
   it('happy path: per-file onSent after verified insert, returns first inserted id', async () => {
     const { onSent, appendMessage, run } = arrange()
     const [a, b] = [file('a.txt'), file('b.txt')]
-    await expect(run([a, b])).resolves.toBe('msg-a.txt')
+    const first = await run([a, b])
+    expect(first).toBe(commits()[0].message_id)
     expect(onSent.mock.calls.map((c) => c[0])).toEqual([a, b])
     expect(onSent.mock.calls.map((c) => c[1]), 'onSent 带批内序号(同一 File 可能排进队两次)').toEqual([0, 1])
     expect(appendMessage).toHaveBeenCalledTimes(2)
-    expect(uploadMock.mock.calls.map(call=>call[2])).toEqual([{chat_id:'chat-1',as:'user-1'},{chat_id:'chat-1',as:'user-1'}])
+    expect(uploadMock.mock.calls.map(call=>call[2])).toEqual([{chat_id:'chat-1',as:'user-1',request_id:expect.any(String)},{chat_id:'chat-1',as:'user-1',request_id:expect.any(String)}])
     expect(commits().map((c) => c.staging_key), 'each file commits its own upload').toEqual(['staging/u/a.txt', 'staging/u/b.txt'])
     expect(commitMock.mock.calls[0]![1]).toMatchObject({ chat_id: 'chat-1', sender_user_id: 'user-1', to_user_ids: [], is_whisper: false })
   })
@@ -118,6 +119,7 @@ describe('sendAttachmentBatch', () => {
     await vi.waitFor(() => expect(appended, 'placeholder is on screen before the upload finishes').toHaveLength(1))
     expect(appended[0]).toMatchObject({ seq: -1, local_send_state: 'sending', content_type: 'attachment' })
     expect(appended[0].content).toContain('[URL] blob:preview')
+    await vi.waitFor(() => expect(uploadMock).toHaveBeenCalledOnce())
     releaseUpload()
     await done
     expect(commits()[0]!.message_id, 'the commit reuses the placeholder id').toBe(appended[0].id)
@@ -129,6 +131,10 @@ describe('sendAttachmentBatch', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const appended: MessageItem[] = []
     const removePlaceholder = vi.fn()
+    getByIdMock.mockImplementation(async (id: string) => {
+      const args = commitMock.mock.calls.map(call => call[1]).find(args => args.message_id === id)
+      return args?.file_name === 'b.txt' ? null : row(id, args)
+    })
     commitMock.mockImplementation(async (_e: unknown, args: Commit) => {
       if (args.file_name === 'b.txt') throw new Error('denied')
       return { id: args.message_id }
@@ -143,8 +149,12 @@ describe('sendAttachmentBatch', () => {
   it('#2188 verification null mid-batch: throws, aborts the rest — committed stays reported', async () => {
     const { onSent, run } = arrange()
     const [a, b, c] = [file('a.txt'), file('b.txt'), file('c.txt')]
-    getByIdMock.mockImplementation(async (id: string) => (id === 'msg-b.txt' ? null : row(id)))
-    await expect(run([a, b, c])).rejects.toThrow(/附件 b\.txt 保存失败/)
+    commitMock.mockImplementation(async (_endpoint, args: Commit) => ({ id: args.message_id }))
+    getByIdMock.mockImplementation(async (id: string) => {
+      const args = commitMock.mock.calls.map(call => call[1]).find(args => args.message_id === id)
+      return args?.file_name === 'b.txt' ? null : row(id, args)
+    })
+    await expect(run([a, b, c])).rejects.toThrow(i18n.t('composer.attachmentPersistenceFailed', { ns: 'messaging', fileName: 'b.txt' }))
     expect(onSent.mock.calls.map((cl) => cl[0]), 'only the verified first file is reported committed').toEqual([a])
     expect(commits().map((c) => c.file_name), 'the batch aborts before committing the third file').toEqual(['a.txt', 'b.txt'])
   })

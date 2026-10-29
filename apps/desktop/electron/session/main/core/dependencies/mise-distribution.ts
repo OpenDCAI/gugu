@@ -186,8 +186,16 @@ export function vendorPlatformLookupKey(
 }
 
 function linuxHasGlibc(): boolean {
-  const header = (process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header;
-  return typeof header?.glibcVersionRuntime === 'string';
+  const report = process.report as NodeJS.ProcessReport & { excludeNetwork: boolean };
+  if (!report) return false;
+  const excludeNetwork = report.excludeNetwork;
+  try {
+    report.excludeNetwork = true;
+    const header = (report.getReport() as { header?: { glibcVersionRuntime?: string } }).header;
+    return typeof header?.glibcVersionRuntime === 'string';
+  } finally {
+    report.excludeNetwork = excludeNetwork;
+  }
 }
 
 type VendorManifestBackend = Extract<MiseTarget['backend'], { kind: 'vendor-manifest' }>;

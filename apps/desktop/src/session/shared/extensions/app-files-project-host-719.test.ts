@@ -1,14 +1,18 @@
 import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FilesPlatform } from './app-files-core';
+import { createProjectFilePublisher } from '../../../../electron/projectFilePublication';
+import { bridgeFailure } from './bridge-protocol';
 
 /**
  * #719: a project chat that keeps its files on its host machine. An agent there could not store a file's next version —
  * `files.replace` always took the cloud upload, which such a chat refuses — and every refusal reached it in the layers'
  * words ("Local revisions must be published by the host"). On the host the next version is published there, from the
- * version read; anywhere else the refusal says whose computer keeps the file and that nothing was changed. The host
- * publisher and the database are fakes; the publisher's own rules are in tests/unit/desktop/electron/projectFilePublication.test.ts.
+ * version read. #791: another machine uses that same publisher's handoff; its refusals name the machine and leave the
+ * file unchanged. Remote cases run the real publisher and handoff client against a fake attachments endpoint.
  */
 
 type Row = Record<string, unknown>;
@@ -91,6 +95,40 @@ const keptOnHost = expect.objectContaining({
   message: "行程.md was not changed: this project chat keeps its files on 小禾's computer, and only an agent on that computer can change them. Nothing was changed.",
 });
 
+function remotePublisher(row: Row, outcome: 'published' | 'host_offline' | 'conflict' | 'cancelled' | 'expired' = 'published') {
+  const calls: { route: string; body: Row }[] = [];
+  const host = { host_label: 'Studio Mac', host_account_id: HOST_OWNER };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const route = url.split('/').at(-1)!;
+    if (route === 'put') return new Response(null, { status: 200 });
+    const body = JSON.parse(String(init?.body)) as Row;
+    calls.push({ route, body });
+    let answer: Row;
+    if (route === 'file-handoff-request') {
+      if (outcome === 'conflict') row.version = 2;
+      answer = outcome === 'host_offline' || outcome === 'conflict'
+        ? { status: outcome, current_version: row.version, ...host }
+        : { status: 'uploading', upload: { url: 'https://store.test/put', method: 'PUT', fields: {}, max_bytes: body.ciphertext_bytes } };
+    } else if (route === 'file-handoff-commit') answer = { status: 'ready' };
+    else if (route === 'file-handoff-status') {
+      if (outcome === 'published') row.version = 2;
+      answer = { status: outcome, version: row.version, message_id: null, ...host };
+    } else throw new Error(`Unexpected route ${route}`);
+    return new Response(JSON.stringify(answer));
+  });
+  publishFile = createProjectFilePublisher({
+    identity: async () => ({ accountId: ME, deviceId: 'requester' }), root: async () => null,
+    env: { GUGU_HOME: join(tmpdir(), `gugu-app-handoff-${randomUUID()}`) },
+    rpc: async (name) => {
+      if (name === 'file_project_policy_for') return { host_device_id: 'host', host_account_id: HOST_OWNER };
+      if (name === 'workspace_get_as') return [placed(row)];
+      throw new Error(`Unexpected publisher RPC ${name}`);
+    },
+    endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: fetch as typeof globalThis.fetch }),
+  });
+  return { calls, fetch };
+}
+
 describe('files.replace in a project chat that keeps its files on its host', () => {
   it('on the host: the next version is published there, from the version read, and nothing goes to the cloud', async () => {
     const row = stage();
@@ -112,7 +150,54 @@ describe('files.replace in a project chat that keeps its files on its host', () 
       .rejects.toMatchObject({ code: 'content-changed', detail: { reason: 'replaced-since', now: 2, expected: 1 } });
   });
 
-  it('on another machine: the refusal says whose computer keeps it and that nothing was changed, never "published by the host"', async () => {
+  it('on another machine: uses the shared encrypted handoff and returns the same file at its next version', async () => {
+    const row = stage(), remote = remotePublisher(row);
+    await expect(files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 }))
+      .resolves.toMatchObject({ id: row.id, version: 2 });
+    expect(remote.calls.map(({ route }) => route)).toEqual(['file-handoff-request', 'file-handoff-commit', 'file-handoff-status']);
+    expect(remote.calls[0]!.body).toMatchObject({ item_id: row.id, expected_version: 1, file_name: row.filename,
+      content_type: content.contentType, size_bytes: content.bytes.byteLength, as: AGENT,
+      sha256: createHash('sha256').update(new Uint8Array(content.bytes)).digest('hex') });
+    expect(remote.calls[0]!.body).not.toHaveProperty('message');
+    expect(uploads).toEqual([]);
+  });
+
+  it.each(['host_offline', 'cancelled', 'expired'] as const)('a %s handoff names the machine, leaves the version unchanged and stays off the ordinary uploader', async (status) => {
+    const row = stage(), remote = remotePublisher(row, status);
+    const error = await files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 }).catch((error: unknown) => error);
+    expect(error).toMatchObject({ code: 'unavailable', message: expect.stringContaining('"Studio Mac" (小禾\'s computer)'),
+      detail: { reason: status === 'cancelled' ? 'timeout' : status } });
+    expect(JSON.parse(JSON.stringify(bridgeFailure(error)))).toMatchObject({
+      code: 'unavailable', message: (error as Error).message, detail: { reason: status === 'cancelled' ? 'timeout' : status },
+    });
+    expect((error as Error).message).toContain(status === 'host_offline' ? 'is offline' : 'did not take the new version in time');
+    expect(row.version).toBe(1);
+    expect(uploads).toEqual([]);
+    if (status === 'host_offline') {
+      expect(remote.calls.map(({ route }) => route)).toEqual(['file-handoff-request']);
+      expect(remote.fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('a handoff version conflict stays content-changed, with the current version', async () => {
+    const row = stage(), remote = remotePublisher(row, 'conflict');
+    await expect(files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: 'content-changed', detail: { reason: 'replaced-since', now: 2, expected: 1 } });
+    expect(remote.calls.map(({ route }) => route)).toEqual(['file-handoff-request']);
+    expect(uploads).toEqual([]);
+  });
+
+  it('an already stale copy is refused before the publisher or uploader is called', async () => {
+    const row = stage(), remote = remotePublisher(row);
+    row.version = 2;
+    await expect(files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: 'content-changed', detail: { now: 2, expected: 1 } });
+    expect(remote.calls).toEqual([]);
+    expect(publishCalls).toEqual([]);
+    expect(uploads).toEqual([]);
+  });
+
+  it('an older host-only refusal is still translated for people', async () => {
     const row = stage();
     uploadRefusal = new AttachmentsError('upload', 403, 'denied', 'Project files are not uploaded proactively');
     await expect(files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 })).rejects.toEqual(keptOnHost);

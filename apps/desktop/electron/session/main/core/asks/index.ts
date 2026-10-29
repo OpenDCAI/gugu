@@ -6,7 +6,7 @@
  * Register every source in sources.ts. respond() keeps the existing first-answer-wins
  * settlement and runtime delivery; the host handler lives in ask.ts.
  * This module owns deadlines, cancellation and archive withdrawal. Callers keep no clock.
- * Vault credentials, device needs_confirmation results and social invitations stay outside Ask.
+ * Device needs_confirmation results and social invitations stay outside Ask.
  */
 export { ask, withdrawAll, type AskAnswer, type AskResult } from './ask';
 export { respond } from '../session-timeline/service';
