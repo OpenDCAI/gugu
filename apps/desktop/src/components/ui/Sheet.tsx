@@ -6,6 +6,7 @@ import { useMobileShell } from '../../hooks/useMobileShell'
 import { Dialog } from './Dialog'
 import { sheetBackdropMotion, sheetContentMotion } from './sheetMotion'
 import { useBackLayer } from './sheetStack'
+import './sheet.css'
 
 // 几何归 `.gg-window-layer`(tokens.css @@@window-layer):铺在 Windows 标题栏行下面,不盖住窗口外框。
 const sheetViewport = 'gg-window-layer flex justify-center pointer-events-none'
@@ -20,7 +21,7 @@ const visuallyHidden =
 // @@@1278-sheet — shared responsive Sheet/Dialog primitive.
 //
 // Desktop: a centered dialog (gugu's existing modal look — bordered card, pops in).
-// Mobile (mobile shell / <720px): a bottom-sheet — full-width, anchored to the bottom edge, 32px
+// Mobile (mobile shell / <720px): a bottom-sheet — full-width, anchored to the bottom edge, 24px
 // top corners, 85dvh tall, sliding up from the bottom (max-sm Dialog→bottom-sheet
 // pattern). Content taller than the sheet scrolls in the sheet itself
 // (@@@sheet-scroll in sheetMotion.ts). One primitive, both presentations, so each migrated modal
@@ -113,7 +114,7 @@ export function Sheet({
     // 85dvh rounded bottom-sheet; fit-content wizards hug their content (mobileHeight = cap only).
     height: fullScreenMobile ? '100dvh' : mobileFitContent ? 'auto' : mobileHeight,
     maxHeight: fullScreenMobile ? undefined : mobileHeight,
-    borderRadius: fullScreenMobile ? '0' : '32px 32px 0 0',
+    borderRadius: fullScreenMobile ? '0' : 'var(--ta-radius-card) var(--ta-radius-card) 0 0',
     paddingBlockEnd: 'env(safe-area-inset-bottom)',
   }
 
@@ -129,6 +130,7 @@ export function Sheet({
     // 形状由这里唯一决定(原来是一个 prop,14 个调用点各拍一个数字)。#7333 视觉规范:较大的全局 Sheet / Dialog
     // 外壳 16(--radius-dialog),里面的卡片仍是 12 —— 所以是一个新名字,❌ 把 --radius-xl 一起放大。
     borderRadius: 'var(--radius-dialog)',
+    background: 'var(--modal-bg)',
   }
 
   return (
@@ -169,7 +171,8 @@ export function Sheet({
             data-testid={testId}
             data-sheet-mobile={mobile ? 'true' : 'false'}
             data-sheet-fullscreen={fullScreenMobile ? 'true' : 'false'}
-            style={{ ...(mobile ? mobileStyle : desktopStyle), background: 'var(--modal-bg)' }}
+            data-ta-scope={mobile ? '' : undefined}
+            style={mobile ? mobileStyle : desktopStyle}
           >
             {!titleId && (
               <Dialog.Title className={visuallyHidden}>{ariaLabel ?? t('dialog.label')}</Dialog.Title>

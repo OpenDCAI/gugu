@@ -43,7 +43,7 @@ export function MessageFilePreviewPanel({ viewerRef, file, videoUrl, onVideoErro
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
   const meta = [extension, file.sizeBytes > 0 ? formatAttachmentSize(file.sizeBytes) : null].filter(Boolean).join(' · ')
   return (
-    <aside ref={viewerRef} data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
+    <aside ref={viewerRef} data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: mobile ? 'transparent' : 'var(--bg-primary)' }}>
       {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回。页签里:页签就是文件名、×(关掉回上一页)和最大化,不再画一行。 */}
       {tabbed && !mobile ? null : mobile ? (
         <PaneHeader
