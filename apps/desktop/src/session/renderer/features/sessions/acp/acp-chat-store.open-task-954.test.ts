@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
@@ -10,6 +12,8 @@ const boundary = vi.hoisted(() => ({
   records: new Map<string, { id: string; providerId: string; providerSessionId: string; providerSessionState?: 'missing' }>(),
   start: vi.fn(), queue: vi.fn(), draft: vi.fn(),
   liveDraft: null as { rev: number; text: string; updatedAt: number } | null,
+  engineRev: 0,
+  draftListeners: new Set<(draft: unknown) => void>(),
   toasts: [] as Array<{ description?: string }>,
 }));
 vi.mock('../stores/session-registry', () => ({
@@ -44,7 +48,11 @@ vi.mock('@gugu/session-wire', async (original) => ({
         default: return null;
       }
     }
-    onChange() { return () => {}; }
+    onChange(listener: (draft: unknown) => void) {
+      if (this.handle.topic !== 'draft') return () => {};
+      boundary.draftListeners.add(listener);
+      return () => boundary.draftListeners.delete(listener);
+    }
     onGone() { return () => {}; }
     async dispose() {}
   },
@@ -87,9 +95,19 @@ const history = (store: InstanceType<typeof AcpChatStore>) =>
 
 beforeEach(() => {
   boundary.records.clear(); boundary.toasts.length = 0; boundary.liveDraft = null;
+  boundary.engineRev = 0; boundary.draftListeners.clear();
   boundary.start.mockReset().mockResolvedValue({ success: true, data: { providerSessionId: 'original-provider-id' } });
   boundary.queue.mockReset().mockResolvedValue({ success: true, data: { queued: true } });
-  boundary.draft.mockReset().mockResolvedValue({ success: true, data: undefined });
+  boundary.draft.mockReset().mockImplementation(async ({ draft }) => {
+    // The real cell ignores stale revisions. Assert the engine's text too, so
+    // a successful RPC alone cannot make a lost draft look synchronized.
+    if (draft.rev > boundary.engineRev) {
+      boundary.engineRev = draft.rev;
+      boundary.liveDraft = draft.input ? { ...draft.input, rev: draft.rev, updatedAt: 1 } : null;
+      for (const listener of boundary.draftListeners) listener(boundary.liveDraft);
+    }
+    return { success: true, data: undefined };
+  });
 });
 afterEach(() => {
   stores.splice(0).forEach(store => store.dispose());
@@ -176,7 +194,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     boundary.start.mockImplementationOnce(() => resume.promise);
     store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(boundary.start).toHaveBeenCalledOnce());
-    expect(store.loadError).toBeNull();
+    expect(store.loadError?.kind).toBe('provider_session_missing');
     expect(record.providerSessionState).toBe('missing');
     vi.useFakeTimers();
     store.setDraftText('keep during retry');
@@ -230,6 +248,32 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(history(store)).toEqual(['saved-turn']);
   });
 
+
+  it('does not infer missing re-probe consent from an error before the durable mark arrives', async () => {
+    const { store, open } = savedTask();
+    boundary.start.mockResolvedValueOnce({ success: false, error: {
+      type: 'provider_session_missing', cause: { name: 'Error', message: 'saved ID is absent' },
+    } });
+    await open();
+    store.retry();
+    expect(store.affordances.canSubmit).toBe(false);
+    expect(store.canQueueBeforeSession).toBe(false);
+    await vi.waitFor(() => expect(store.historyLoading).toBe(false));
+    expect(boundary.start).toHaveBeenCalledTimes(1);
+    expect(store.loadError?.kind).toBe('provider_session_missing');
+    expect(history(store)).toEqual(['saved-turn']);
+  });
+
+  it('does not retry a disposed task', async () => {
+    const { store, open } = savedTask(true);
+    await open();
+    store.dispose();
+    store.retry({ retryMissing: true });
+    await Promise.resolve();
+    expect(boundary.start).not.toHaveBeenCalled();
+    expect(store.historyLoading).toBe(false);
+  });
+
   it('ordinary retry still starts fresh after the host clears the old provider reference', async () => {
     const { store, record, open } = savedTask(true);
     await open();
@@ -243,45 +287,130 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     });
   });
 
-  it.each(['latest draft', ''])('flushes the latest pending draft %j once on recovery, including a clear', async text => {
-    const { store, record, open } = savedTask(true);
+  it.each(['latest draft', ''])('flushes local %j when the engine still equals base', async text => {
+    const { store, open } = savedTask();
+    boundary.liveDraft = { rev: 5, text: 'shared base', updatedAt: 1 };
+    boundary.engineRev = 5;
     await open();
+    expect(store.draftText).toBe('shared base');
+    runInAction(() => { store.loadError = { kind: 'adapter_lost', message: 'disconnected' }; });
     vi.useFakeTimers();
-    store.setDraftText('superseded draft');
-    store.setDraftText(text);
-    // Recovery happens before the debounce; it must cancel that pending timer.
-    boundary.liveDraft = { rev: 0, text: 'older engine draft', updatedAt: 1 };
-    runInAction(() => { delete record.providerSessionState; });
-    store.retry({ retryMissing: true });
-    await vi.waitFor(() => expect(store.session).not.toBeNull());
-    expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
-      sessionId: store.runtimeSessionId,
-      draft: { rev: 2, input: text ? { text } : null },
-    });
+    store.setDraftText('superseded local'); store.setDraftText(text);
+    store.retry();
+    await vi.waitFor(() => expect(store.historyLoading).toBe(false));
     await vi.runOnlyPendingTimersAsync();
-    expect(boundary.draft).toHaveBeenCalledTimes(1);
     expect(store.draftText).toBe(text);
+    expect(boundary.liveDraft?.text ?? '').toBe(text);
+    expect(store.draftConflict).toBeNull();
+    expect(boundary.draft).toHaveBeenCalledTimes(1);
   });
 
-  it.each([2, 3])('acknowledges engine revision %i without overwriting its newer draft', async rev => {
+  it.each([2, 3, 9])('adopts engine rev %i when local still equals base', async rev => {
+    const { store, open } = savedTask();
+    boundary.liveDraft = { rev: 5, text: 'shared base', updatedAt: 1 };
+    await open();
+    runInAction(() => { store.loadError = { kind: 'adapter_lost', message: 'disconnected' }; });
+    boundary.liveDraft = { rev, text: 'other device draft', updatedAt: 2 };
+    boundary.engineRev = rev;
+    store.retry();
+    await vi.waitFor(() => expect(store.historyLoading).toBe(false));
+    expect(store.draftText).toBe('other device draft');
+    expect(boundary.liveDraft.text).toBe('other device draft');
+    expect(store.draftConflict).toBeNull();
+    expect(boundary.draft).not.toHaveBeenCalled();
+  });
+
+  it.each([2, 3, 9])('keeps both changed texts at engine rev %i until an explicit choice', async rev => {
     const { store, record, open } = savedTask(true);
     await open();
     vi.useFakeTimers();
-    store.setDraftText('first local draft');
-    store.setDraftText('unacknowledged local draft');
-    boundary.liveDraft = { rev, text: 'newer draft from another device', updatedAt: 1 };
-    runInAction(() => { delete record.providerSessionState; });
+    store.setDraftText('first local draft'); store.setDraftText('local unsaved draft');
+    boundary.liveDraft = { rev, text: 'other device draft', updatedAt: 1 };
+    boundary.engineRev = rev;
+    delete record.providerSessionState;
     store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(store.session).not.toBeNull());
     await vi.runOnlyPendingTimersAsync();
-    expect(boundary.draft).not.toHaveBeenCalled();
-    // A subsequent genuine local edit advances from the acknowledged revision.
-    store.setDraftText('new edit after recovery');
+    expect(store.draftText).toBe('local unsaved draft');
+    expect(boundary.liveDraft.text).toBe('other device draft');
+    expect(store.draftConflict?.text).toBe('other device draft');
+    expect(store.affordances.canSubmit).toBe(false);
+    store.setDraftText('local edit while deciding');
     await vi.runOnlyPendingTimersAsync();
-    expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
-      sessionId: store.runtimeSessionId,
-      draft: { rev: rev + 1, input: { text: 'new edit after recovery' } },
+    expect(boundary.draft).not.toHaveBeenCalled();
+    store.resolveDraftConflict('engine');
+    expect(store.draftText).toBe('other device draft');
+    expect(boundary.liveDraft.text).toBe('other device draft');
+    expect(store.draftConflict).toBeNull();
+    expect(boundary.draft).not.toHaveBeenCalled();
+  });
+
+  it('overwrites only after choosing the local draft, using the latest engine snapshot', async () => {
+    const { store, open } = savedTask();
+    store.setDraftText('local draft');
+    boundary.liveDraft = { rev: 7, text: 'other draft', updatedAt: 1 };
+    boundary.engineRev = 7;
+    await open();
+    expect(store.draftConflict?.text).toBe('other draft');
+    boundary.liveDraft = { rev: 8, text: 'another remote edit', updatedAt: 2 };
+    boundary.engineRev = 8;
+    for (const listener of boundary.draftListeners) listener(boundary.liveDraft);
+    expect(store.draftText).toBe('local draft');
+    expect(store.draftConflict?.text).toBe('another remote edit');
+    store.resolveDraftConflict('local');
+    await vi.waitFor(() => expect(boundary.liveDraft?.text).toBe('local draft'));
+    expect(store.draftText).toBe('local draft');
+    expect(store.draftConflict).toBeNull();
+    expect(boundary.draft).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not confuse its own acknowledgement with a remote edit while typing', async () => {
+    const { store, open } = savedTask();
+    await open();
+    vi.useFakeTimers();
+    // Delay the acknowledgement until after another local edit.
+    const write = Promise.withResolvers<unknown>();
+    boundary.draft.mockImplementationOnce(({ draft }) => {
+      boundary.liveDraft = { ...draft.input, rev: draft.rev, updatedAt: 1 };
+      return write.promise;
     });
+    store.setDraftText('sent draft');
+    await vi.runOnlyPendingTimersAsync();
+    store.setDraftText('newer local draft');
+    for (const listener of boundary.draftListeners) listener(boundary.liveDraft);
+    expect(store.draftText).toBe('newer local draft');
+    expect(store.draftConflict).toBeNull();
+    write.resolve({ success: true, data: undefined });
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.liveDraft?.text).toBe('newer local draft');
+  });
+
+  it('keeps the next typed draft when the live engine clears a submitted prompt', async () => {
+    const { store, open } = savedTask();
+    boundary.liveDraft = { rev: 5, text: 'submitted prompt', updatedAt: 1 };
+    boundary.engineRev = 5;
+    await open();
+    vi.useFakeTimers();
+    store.setDraftText('next draft');
+    boundary.liveDraft = null;
+    for (const listener of boundary.draftListeners) listener(null);
+    expect(store.draftText).toBe('next draft');
+    expect(store.draftConflict).toBeNull();
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.liveDraft?.text).toBe('next draft');
+  });
+
+  it.each(['submitPrompt', 'queuePrompt'] as const)('%s visibly rejects a still-conflicting draft', async method => {
+    const { store, open } = savedTask();
+    store.setDraftText('local input');
+    boundary.liveDraft = { rev: 1, text: 'remote input', updatedAt: 1 };
+    boundary.engineRev = 1;
+    await open();
+    store[method]('local input');
+    expect(store.draftText).toBe('local input');
+    expect(boundary.liveDraft.text).toBe('remote input');
+    expect(boundary.queue).not.toHaveBeenCalled();
+    expect(boundary.toasts.at(-1)?.description).toBe(translateSessionMessage('composer.draftConflict'));
   });
 
   it('does not write an untouched draft when a session becomes live', async () => {
@@ -313,7 +442,8 @@ function missingStateReadsOutsideGetter(source: string): string[] {
   return outside;
 }
 
-const storeSource = () => readFileSync(new URL('./acp-chat-store.ts', import.meta.url), 'utf8');
+// Resolve a source path, not Vite's new-URL asset transform (which can yield a data URL).
+const storeSource = () => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'acp-chat-store.ts'), 'utf8');
 it('forbids reading providerSessionState outside the one missing getter', () => {
   expect(missingStateReadsOutsideGetter(storeSource())).toEqual([]);
 });

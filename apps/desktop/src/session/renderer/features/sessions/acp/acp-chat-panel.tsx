@@ -23,7 +23,7 @@ import type {
   MentionItem,
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
-import { autorun, when } from 'mobx';
+import { autorun } from 'mobx';
 import { observer, useObserver } from 'mobx-react-lite';
 import { collectBackgroundCommands, collectSubagents } from '@renderer/features/sessions/view/background-task-rosters';
 import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals';
@@ -67,6 +67,8 @@ import {
   sortAgentsByAvailability,
 } from '@renderer/lib/components/agent-availability-groups';
 import { toast } from '@renderer/lib/hooks/use-toast';
+import { Alert, AlertDescription } from '@renderer/lib/ui/alert';
+import { Button } from '@renderer/lib/ui/button';
 import { useNavigate } from '@renderer/lib/layout/navigation-actions';
 import type { SessionCondition as ChatSessionCondition } from '@gugu/session-chat-ui';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
@@ -1638,6 +1640,19 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      {store.draftConflict ? (
+        <Alert variant="warning" data-testid="draft-conflict">
+          <AlertDescription>{translate('composer.draftConflict')}</AlertDescription>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" onClick={() => store.resolveDraftConflict('engine')}>
+              {translate('composer.useEngineDraft')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => store.resolveDraftConflict('local')}>
+              {translate('composer.overwriteEngineDraft')}
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
       <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
@@ -2103,17 +2118,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
               { ...retry, run: () => store.retry({ retryMissing: true }) },
               ...(canRestartSession ? [{
                 label: translate('transcript.condition.startFresh'),
-                run: () => {
-                  void sessionRegistry
-                    .get(store.sessionId)
-                    ?.restartSession(store.sessionId)
-                    .then(async () => {
-                      // The host reset may reply before session:changed arrives.
-                      await when(() => !sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)?.data.providerSessionId);
-                      store.retry();
-                    })
-                    .catch(() => {});
-                },
+                run: () => { void store.startFresh(); },
               }] : []),
             ],
           };
