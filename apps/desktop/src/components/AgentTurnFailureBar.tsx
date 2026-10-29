@@ -1,11 +1,12 @@
 // #2115 普通 ACP 回合失败条：composer 上方浮动条同槽位（RunningTokenBar 的失败态邻居，flexShrink:0
 // 兄弟，不 overlay 消息列表）。「{name} 回复失败：{人话}」+ 重试 + 关闭——重试 = CAS error→pending
 // 重排原 deliver 命令（真重投递，❌ 假按钮）；原始错误只进 console（useAgentTurnFailure 已记）。
-// 视觉复用聊天上下文的轻量通知：短说明与真实操作，不把原始诊断放进正文或悬浮提示。
+// 与聊天流共用 TurnFailureCard；原因仍为既有本地化文案，宿主诊断不进入展示层。
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, X } from '@/lib/icons'
-import { agentTurnFailureNeedsModelChoice, agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
+import { turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
+import { TurnFailureCard } from './chat/TurnFailureCard'
+import { agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
 import { rendererLogger } from '../lib/log'
 import { requeueErroredDeviceCommand } from '../lib/supabase'
 import { platform } from '../platform'
@@ -63,7 +64,7 @@ export function AgentTurnFailureSlot({
     markNotified(failure)
   }, [failure, stateKind, displayName, wasNotified, markNotified])
   if (!chatId) return null
-  if (!failure) return stored.readFailed ? <><style>{STYLE}</style><div data-chat-composer-notice="" className="atf-bar" role="status"><span className="atf-msg">{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div></> : null
+  if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3.5 my-1.5 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
   return (
@@ -130,24 +131,10 @@ const QUOTA_STYLE = `
 
 const turnFailureLog = rendererLogger('agent/turn-failure')
 
-// 名字可以是一整条会话标题:它先让(收缩权重远大于原因),最窄留 4em、超出省略;原因占满剩下的宽度,最多两行。
-// ❌ 名字不缩 —— 手机宽度里原因栏被挤成 0 宽、一字一行竖着排,整条撑成半屏高的空框(owner 10-28 手机试用「怎么我这会有占位」)。
-const STYLE = `
-.atf-bar{display:flex;align-items:center;gap:8px;margin:6px 14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-document);background:var(--bg-secondary);font-size:var(--font-body);color:var(--text-secondary);flex-shrink:0;min-width:0}
-.atf-msg{flex:1 1 auto;min-width:0;line-height:var(--lh-body);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-.atf-nm{color:var(--faint-fg);flex:0 1000 auto;min-width:4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.atf-btn{flex-shrink:0;border:none;background:none;padding:2px 6px;border-radius:6px;font-size:var(--font-body);color:var(--text-secondary);cursor:pointer}
-.atf-btn:hover{background:var(--hover);color:var(--text-primary)}
-.atf-btn:active{background:var(--press)}
-.atf-btn[disabled]{opacity:.5;cursor:default}
-.atf-x{flex-shrink:0;border:none;background:none;padding:2px 5px;border-radius:6px;font-size:var(--font-body);color:var(--text-tertiary);cursor:pointer;line-height:1}
-.atf-x:hover{background:var(--hover);color:var(--text-primary)}
-.atf-x:active{background:var(--press)}
-`
-
 export function AgentTurnFailureBar({
   failure,
   displayName,
+  avatar,
   onDismiss,
   onOpenModel,
 }: {
@@ -158,10 +145,7 @@ export function AgentTurnFailureBar({
   onDismiss: () => void
   onOpenModel?: () => void
 }) {
-  const { t } = useTranslation('messaging')
   const [retrying, setRetrying] = useState(false)
-  const userMessage = agentTurnFailureUserMessage(failure.rawMessage)
-  const detail = failure.rawMessage.trim()
 
   const handleRetry = async () => {
     if (retrying) return
@@ -198,28 +182,10 @@ export function AgentTurnFailureBar({
 
   return (
     <div data-testid="agent-turn-failure" data-chat-composer-notice="" style={{ flexShrink: 0 }}>
-      <style>{STYLE}</style>
-      <div className="atf-bar" role="status" aria-live="polite" aria-label={userMessage}>
-        <AlertTriangle size={16} className="shrink-0 text-[var(--warn)]" aria-hidden />
-        <span className="atf-nm" title={displayName}>{displayName}</span>
-        <span
-          className="atf-msg"
-          aria-label={userMessage}
-        >
-          {userMessage}
-        </span>
-        {onOpenModel && agentTurnFailureNeedsModelChoice(detail) ? (
-          <Button variant="ghost" size="sm" className="atf-btn" onClick={onOpenModel} data-testid="agent-turn-failure-model">
-            {t('agent.turnFailure.changeModel')}
-          </Button>
-        ) : null}
-        <Button variant="ghost" size="sm" className="atf-btn" onClick={() => void handleRetry()} disabled={retrying} data-testid="agent-turn-failure-retry">
-          {retrying ? t('agent.turnFailure.retrying') : t('agent.turnFailure.retry')}
-        </Button>
-        <Button variant="ghost" size="icon" className="atf-x" onClick={onDismiss} aria-label={t('common.close')} data-testid="agent-turn-failure-dismiss">
-          <X size={14} aria-hidden />
-        </Button>
-      </div>
+      <TurnFailureCard reason={turnFailureReasonFromError(failure.rawMessage)} placement="composer"
+        agentId={failure.agentUserId} displayName={displayName} avatar={avatar}
+        createdAt={new Date(failure.at).toISOString()} onDismiss={onDismiss} onOpenSettings={onOpenModel}
+        onRetry={() => void handleRetry()} retrying={retrying} />
     </div>
   )
 }

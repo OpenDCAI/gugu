@@ -64,6 +64,17 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "card": {
+        "generic": "Reply not completed",
+        "authentication": "Model authorization refused",
+        "network": "Cannot reach the model service",
+        "timeout": "No response in time",
+        "offline": "The device disconnected",
+        "rateLimited": "Too many requests",
+        "nextMessage": "The next message will retry automatically",
+        "recovered": "{{name}}: {{count}} earlier failed replies · recovered",
+        "settings": "Open settings"
+      },
       "state": {
         "exhausted": "out of credits",
         "weekly": "weekly limit reached",
