@@ -148,3 +148,37 @@ it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the pho
     context.dispose()
   }
 })
+
+it.each([320, 390])('keeps permission, model and attachment controls separate on a %ipx agent composer', async (width) => {
+  await page.viewport(width, 844)
+  host = document.body.appendChild(document.createElement('div'))
+  host.setAttribute('data-phone-shell', '')
+  host.style.cssText = `width:${width}px`
+  root = createRoot(host)
+  root.render(
+    <LocalizationProvider>
+      <div data-agent-conversation=""><ChatMessageComposer onSend={vi.fn(async () => {})} conversation={{
+        permissionModeOptions: { full: { name: '完全访问' } }, selectedPermissionMode: 'full',
+        modelOptions: { default: { name: 'Default' } }, selectedModel: 'default',
+      }} /></div>
+    </LocalizationProvider>,
+  )
+  await until('the agent options have mounted', () => !!host?.querySelector('[data-slot="composer-permission-mode"]'))
+  const permission = host.querySelector<HTMLElement>('[data-slot="composer-permission-mode"]')!.closest('button')!
+  const attach = [...host.querySelectorAll<HTMLButtonElement>('[data-slot="composer-actions-start"] > button')].find(button => button !== permission)!
+  const input = host.querySelector<HTMLElement>('[data-slot="composer-input"]')!
+  const model = host.querySelector<HTMLElement>('[data-testid="composer-model-trigger"]')!
+  const controls = [permission, attach, input, model]
+  for (const [index, control] of controls.entries()) {
+    const box = control.getBoundingClientRect()
+    expect(box.width).toBeGreaterThan(0)
+    expect(box.left).toBeGreaterThanOrEqual(0)
+    expect(box.right).toBeLessThanOrEqual(width)
+    for (const other of controls.slice(index + 1)) {
+      const next = other.getBoundingClientRect()
+      const overlap = Math.min(box.right, next.right) - Math.max(box.left, next.left) > 1
+        && Math.min(box.bottom, next.bottom) - Math.max(box.top, next.top) > 1
+      expect(overlap, 'each option and the attachment button keeps its own visible target').toBe(false)
+    }
+  }
+})

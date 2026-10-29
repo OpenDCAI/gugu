@@ -33,6 +33,21 @@
   grid-row: 2;
 }
 
+/* Shared agent options occupy the metadata row. The attachment button keeps
+   its own cell beside the input; permission and model remain accessible. */
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-slot='composer-actions-start'] > button:has([data-slot='composer-permission-mode']) {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: start;
+  max-width: calc(50% - var(--spacing-xs));
+}
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-slot='composer-model'] > button {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: end;
+  max-width: calc(50% - var(--spacing-xs));
+}
+
 [data-phone-shell] {
   --phone-font-caption: calc((var(--font-caption) + var(--font-body)) / 2);
   --pane-pad-x: var(--spacing-lg);
