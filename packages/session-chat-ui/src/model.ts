@@ -84,7 +84,7 @@ export type ChatMessage = {
    * 与 `TranscriptTurn.startedAt` 同一条合同）。折叠头拿它当段与段的边界（#5350）。
    */
   at?: number;
-  /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
+  /** Parsed Gugu delivery metadata; hosts may supply a view-only projection without rewriting the wire envelope. */
   guguDelivery?: DeliveryReading;
   /**
    * View-only reference to the message this one explicitly replies to. Only a real anchor counts
@@ -93,7 +93,9 @@ export type ChatMessage = {
    * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
    * `chatId` the group the quoted message was said in (absent for a DM).
    */
-  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string };
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; excerpt?: boolean; unloaded?: boolean };
+  /** Explicit excerpt headers for individual messages inside one batched delivery. */
+  conversationReplies?: Readonly<Record<string, NonNullable<ChatMessage['conversationReply']>>>;
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
   /**

@@ -3,11 +3,12 @@ import { readDeliveryEnvelope, renderDeliveryEnvelope } from '@gugu/core/local/a
 import { replyItems, successfulMessageSend } from '@gugu/session-core/session-record/reply-process'
 import { sentAttachmentOf, type AttachmentTurn, type SentAttachment } from '@gugu/session-core/session-record/sent-attachment'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import type { ChatMessage } from '@gugu/session-chat-ui'
+import { withSentReplies, type ChatMessage } from '@gugu/session-chat-ui'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { composerCardLine } from '@/lib/composerCardCopy'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
 import { isPendingDelivery } from '@gugu/core/shared/ui/systemNotice'
+import { partialQuotedContent } from './messageQuoteContent'
 
 /** Pending delivery status ends only when that agent actually answers on the same line. */
 export function displayedDmMessages(messages: readonly MessageItem[]): MessageItem[] {
@@ -20,18 +21,20 @@ export function displayedDmMessages(messages: readonly MessageItem[]): MessageIt
 export function dmRecord(messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): TranscriptTurn[] {
   const quotes = visibleReplyQuoteIds(messages)
   return displayedDmMessages(messages).map(message => {
+    const partial = message.content_type === 'text' ? partialQuotedContent(message) : null
     const replyId = quotes.has(message.id) ? message.reply_to_message_id : null
     const reply = replyId ? {
-      itemId: replyId, text: message.reply_to_content ?? '',
+      itemId: replyId, text: partial?.quoteText ?? message.reply_to_content ?? '',
       from: names[message.reply_to_sender_user_id ?? '']?.display_name,
       fromId: message.reply_to_sender_user_id ? `user:${message.reply_to_sender_user_id}` : undefined,
+      ...(partial ? { excerpt: true } : {}),
     } : undefined
     const attachment = message.content_type === 'attachment' ? parseAttachmentContent(message.content, message) : null
     const link = attachment?.source.kind === 'url' ? attachment.source.url
       : attachment?.source.kind === 'item' ? `gugu-file://${attachment.source.itemId}?v=${attachment.source.version}`
       : attachment?.source.kind === 'message' ? `gugu-message-file://${attachment.source.messageId}` : attachment ? `gugu-message-file://${message.id}` : null
     const content = attachment ? [attachment.caption, link ? `[${attachment.fileName}](${link})` : attachment.fileName].filter(Boolean).join('\n')
-      : message.content_type === 'card' ? composerCardLine(message.content ?? '') : message.content ?? ''
+      : message.content_type === 'card' ? composerCardLine(message.content ?? '') : partial?.replyText ?? message.content ?? ''
     if (message.content_type === 'system') return { id: `im:${message.id}`, seq: message.seq, initiator: 'agent', items: [{
       kind: 'session-notice', id: message.id, seq: message.seq, code: 'provider-notice', detail: content, at: Date.parse(message.created_at),
     }] }
@@ -45,7 +48,7 @@ export function dmRecord(messages: readonly MessageItem[], names: Readonly<Recor
       }) : content,
       at: Date.parse(message.created_at),
       ...(attachment && link ? { sentAttachment: { messageId: message.id, name: attachment.fileName, href: link, ...(attachment.caption ? { caption: attachment.caption } : {}) } } : {}),
-      ...(reply && !message.is_mine ? { sentReplyTo: reply.itemId, conversationReply: reply } : {}),
+      ...(reply && (!message.is_mine || partial) ? { sentReplyTo: reply.itemId, conversationReply: reply } : {}),
     }
     // IM confirms a persisted message, not a duration or an execution process.
     return { id: `im:${message.id}`, seq: message.seq, initiator: message.is_mine ? 'user' : 'agent', items: [item] }
@@ -73,6 +76,39 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
   return ids
 }
 
+/** IM identity authorizes presentation only; preserve the provider's tools and wire envelopes. */
+function projectDmExcerpts(turns: readonly TranscriptTurn[], messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): readonly TranscriptTurn[] {
+  const excerpts = new Map(dmRecord(messages.filter(message => message.content_type === 'text' && partialQuotedContent(message)), names)
+    .flatMap(turn => turn.items.flatMap(item => item.kind === 'message' ? [[item.id, item as ChatMessage] as const] : [])))
+  if (!excerpts.size) return turns
+  const aliases = dmRecordIds(turns)
+  return turns.map(turn => {
+    const projected = withSentReplies(turn, { allDestinations: true })
+    return { ...projected, items: projected.items.map(item => {
+      if (item.kind !== 'message') return item
+      const envelope = readDeliveryEnvelope(item.text)
+      if (envelope) {
+        const replies: Record<string, NonNullable<ChatMessage['conversationReply']>> = {}
+        const segments = envelope.segments.map(segment => {
+          const facts = segment.facts, id = facts?.messageId?.replace(/^msg:/, '')
+          const excerpt = id ? excerpts.get(id) : undefined
+          if (!excerpt?.conversationReply || !facts || !id) return segment
+          const own = readDeliveryEnvelope(excerpt.text)
+          replies[id] = excerpt.conversationReply
+          return { ...segment, body: own?.body ?? excerpt.text, facts: { ...facts,
+            replyTo: facts.replyTo ? { ...facts.replyTo, preview: excerpt.conversationReply.text } : null } }
+        })
+        const values = Object.values(replies)
+        return !values.length ? item : { ...item, guguDelivery: { segments, body: segments.map(segment => segment.body).join('\n\n') },
+          ...(segments.length === 1 ? { conversationReply: values[0] } : { conversationReplies: replies }) }
+      }
+      const ids = aliases.get(item.id)
+      const excerpt = ids?.length === 1 ? excerpts.get(ids[0]) : undefined
+      return excerpt ? { ...item, text: excerpt.text, conversationReply: excerpt.conversationReply, sentReplyTo: excerpt.sentReplyTo } : item
+    }) }
+  })
+}
+
 export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): readonly TranscriptTurn[] {
   const visible = displayedDmMessages(messages)
   const resolved = new Set(messages.filter(message => isPendingDelivery(message) && !visible.includes(message)).map(message => `im:${message.id}`))
@@ -89,12 +125,13 @@ export function mergeDmRecord(turns: readonly TranscriptTurn[], messages: readon
     }))
     return Object.keys(known).length ? { ...turn, sentAttachments: known } : turn
   }) : base
-  const recorded = new Set([...dmRecordIds(enriched).values()].flat())
+  const projected = projectDmExcerpts(enriched, messages, names)
+  const recorded = new Set([...dmRecordIds(projected).values()].flat())
   const known = messages.filter(message => recorded.has(message.id))
   const watermark = known.length ? Math.max(...known.map(message => message.seq)) : null
   const pending = dmRecord(visible.filter(message => !recorded.has(message.id) && (watermark === null || message.seq > watermark || message.local_send_state || isPendingDelivery(message))), names)
   // Session turns and IM messages have independent sequence spaces. Only the
   // adapter's turn order belongs to the transcript; keep the IM item seq intact.
-  const lastSeq = enriched.at(-1)?.seq ?? 0
-  return pending.length ? [...enriched, ...pending.map((turn, index) => ({ ...turn, seq: lastSeq + index + 1 }))] : enriched
+  const lastSeq = projected.at(-1)?.seq ?? 0
+  return pending.length ? [...projected, ...pending.map((turn, index) => ({ ...turn, seq: lastSeq + index + 1 }))] : projected
 }

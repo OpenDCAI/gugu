@@ -47,6 +47,8 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const data = item as ChatMessage;
     const quoted = readDeliveryEnvelope(item.text)?.segments[0]?.facts?.replyTo?.messageId.replace(/^msg:/, '') ?? data.sentReplyTo;
     const original = quoted ? messages.get(quoted) : undefined;
+    if (data.conversationReply?.excerpt) return { ...item, conversationReply: { ...data.conversationReply,
+      ...(original ? { itemId: original.item.id, ...(data.conversationReply.unloaded ? { unloaded: false } : {}) } : { unloaded: true }) } };
     if (!original) return item;
     const conversationReply = { itemId: original.item.id, text: original.text, ...(original.from ? { from: original.from } : {}),
       ...(original.fromId ? { fromId: original.fromId } : {}), ...(original.self ? { self: true } : {}), ...(original.chatId ? { chatId: original.chatId } : {}) };

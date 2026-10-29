@@ -40,7 +40,8 @@ export function conversationVars(item: ChatMessage, vars: MessageVars): MessageV
 
 function segments(item: ChatMessage): ChatMessage[] {
   const batch = item.guguDelivery?.segments;
-  return batch && batch.length > 1 ? batch.map((segment, index) => ({ ...segmentItem(item, segment, index), conversationReply: undefined })) : [item];
+  return batch && batch.length > 1 ? batch.map((segment, index) => ({ ...segmentItem(item, segment, index),
+    conversationReply: item.conversationReplies?.[segment.facts?.messageId?.replace(/^msg:/, '') ?? ''] })) : [item];
 }
 
 export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
@@ -49,7 +50,7 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 /** agent 发出去的那条带了 reply_to_message_id ⇒ 气泡上方一行「谁 · 摘要」(owner 10-28);❌ 猜出来的不画。 */
 function sentQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
-  return item.role === 'assistant' && item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
+  return (item.role === 'assistant' || item.conversationReply?.excerpt) && item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
 }
 
 /** 引用里的摘要截短一点(owner 10-28「比现在短一点」);一行放不下再由 CSS 省略。 */

@@ -46,6 +46,7 @@ export type {
 } from './state/chat-state';
 
 export { createChatView } from './chat-view';
+export { withSentReplies } from './state/sent-replies';
 export type {
   ChatView,
   ChatViewOptions,
