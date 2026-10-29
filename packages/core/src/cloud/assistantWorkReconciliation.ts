@@ -9,7 +9,7 @@ export type ReconciledWork = {
 }
 export type WorkReconciliationEvent = {
   message_id:string;kind:string;work_id?:string;assistant_user_id?:string;from_session_id?:string;from_device_id?:string;
-  to_session_id?:string;to_device_id?:string;platform_received_at?:string;executor_admitted_at?:string|null;
+  to_session_id?:string;to_device_id?:string;to_device_label?:string|null;platform_received_at?:string;executor_admitted_at?:string|null;
   assistant_admitted_at?:string|null;owner_delivered_at?:string|null;terminal_origin?:string|null;reason_code?:string|null;
   executor_session_id?:string|null;
   abandonment_notified_at?:string|null;abandoned_reason_code?:string|null
@@ -62,7 +62,10 @@ export function createAssistantWorkReconciler(deps:{
     const noticeKind=event.kind==='completed'?'completed':'handoff'
     const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${noticeKind}:${category}`)
     if(!await current(ctx)) return
-    const text=`「${work.title}」有消息没能送到：${reason}。`
+    const label=event.to_device_label?.trim()
+    const text=kind==='abandonment_notice'&&event.kind==='dispatch'&&event.abandoned_reason_code==='DELIVERY_EXPIRED'
+      ? `「${work.title}」发给${label?`「${label}」`:'目标'}设备的活没送到：已超过 24 小时。`
+      : `「${work.title}」有消息没能送到：${reason}。`
     // The committed idempotent owner message is the proof. Losing its RPC reply cannot produce another notice.
     let posted=postedNotices.get(key)
     if(!posted) {

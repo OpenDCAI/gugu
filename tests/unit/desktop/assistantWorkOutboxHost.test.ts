@@ -14,6 +14,22 @@ function fixture(target='cloud') {
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
 }
 describe('account delivery host',()=>{
+  it('reconciles server-expired work after a realtime claim returns no deliveries',async()=>{
+    const f=fixture();let changed!:()=>void
+    f.rpc.mockResolvedValue({data:{events:[]},error:null})
+    f.subscribe.mockImplementation(async(_owner:string,cb:()=>void)=>{changed=cb;return()=>{}})
+    const afterDrain=vi.fn(async()=>{})
+    const host=createAssistantWorkOutboxHost({...f.deps,afterDrain,active:async()=>false})
+    try {
+      await host.tick()
+      await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
+      changed()
+      await vi.waitFor(()=>expect(afterDrain).toHaveBeenCalledOnce(),{timeout:500})
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_claim',expect.any(Object))
+      expect(f.deliverLocal).not.toHaveBeenCalled()
+      expect(f.requestRemote).not.toHaveBeenCalled()
+    } finally {host.stop()}
+  })
   it('reports a failed claim through the availability route without waking a receiver',async()=>{
     const f=fixture(),unavailable=vi.fn(async()=>{})
     f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing migration'}} as never)
@@ -71,11 +87,12 @@ describe('account delivery host',()=>{
     await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
     changed()
     await vi.waitFor(()=>expect(f.deliverLocal).toHaveBeenCalledOnce())
+    await vi.waitFor(()=>expect(afterDrain).toHaveBeenCalledOnce())
     expect(claims()).toBeGreaterThan(0)
     const before=claims();assistant=true
     await host.tick()
     expect(claims()).toBeGreaterThan(before)
-    expect(afterDrain).toHaveBeenCalledOnce()
+    expect(afterDrain).toHaveBeenCalledTimes(2)
     host.stop()
   })
   it('a tick claims as before when the assistant check fails, and event kicks never wait for it',async()=>{
