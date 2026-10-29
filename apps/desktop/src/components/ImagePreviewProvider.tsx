@@ -1,5 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type PhotoSwipe from 'photoswipe'
@@ -19,6 +19,7 @@ import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imag
 import { rendererLogger } from '../lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
+import { commandRegistry } from '@renderer/lib/commands/registry'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
 import {
@@ -338,6 +339,13 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast()
   const [viewer, setViewer] = useState<OpenViewer | null>(null)
   const [editing, setEditing] = useState<ImageViewerItem | null>(null)
+  const annotating = editing !== null
+  useLayoutEffect(() => {
+    if (!annotating) return
+    const paused = commandRegistry.shortcutsPaused
+    commandRegistry.setShortcutsPaused(true)
+    return () => commandRegistry.setShortcutsPaused(paused)
+  }, [annotating])
   // 宿主只登记一次,打开时读最新的形态与文案
   const latest = useRef({ t, mobile, toast })
   latest.current = { t, mobile, toast }
