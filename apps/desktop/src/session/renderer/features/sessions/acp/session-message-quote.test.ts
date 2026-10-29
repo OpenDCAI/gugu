@@ -25,6 +25,14 @@ describe('task quote sources and draft', () => {
     expect(sessionMessageQuoteSource(message('s:turn:0:message:auto:0'), 's')).toBeNull();
     expect(sessionMessageQuoteSource({ ...message('unsupported'), sourceItemId: null } as ChatMessage, 's')).toBeNull();
   });
+  it('preserves opaque provider IDs containing a numeric turn suffix', () => {
+    const storedId = 's:turn:s3:message:provider:turn:12:part';
+    const liveSourceId = 'source:stable:message:provider:turn:12:part';
+    expect(sessionMessageQuoteSource(message(storedId), 's'))
+      .toEqual({ kind: 'session', sessionId: 's', itemId: storedId });
+    expect(sessionMessageQuoteSource({ ...message('s:turn:0:message:provider:turn:12:part'), sourceItemId: liveSourceId }, 's'))
+      .toEqual({ kind: 'session', sessionId: 's', itemId: liveSourceId });
+  });
   it('reads a selection only from the same message and refuses selections crossing messages', () => {
     document.body.innerHTML = '<div id="a">same words</div><div id="b">same words</div>';
     const a = document.getElementById('a')!, b = document.getElementById('b')!;

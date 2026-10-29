@@ -10,7 +10,9 @@ export function sessionMessageQuoteSource(message: ChatMessage, sessionId: strin
     if (source?.kind === 'chat') return source;
   }
   const itemId = message.sourceItemId === undefined ? message.id : message.sourceItemId;
-  return itemId && !itemId.startsWith('optimistic:') && !/:turn:\d+:/.test(itemId)
+  const runtimePrefix = `${sessionId}:turn:`;
+  const runtimeIndex = itemId?.startsWith(runtimePrefix) && /^\d+:/.test(itemId.slice(runtimePrefix.length));
+  return itemId && !itemId.startsWith('optimistic:') && !runtimeIndex
     ? { kind: 'session', sessionId, itemId } : null;
 }
 

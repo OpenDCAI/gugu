@@ -3,6 +3,7 @@ import type { ChatCommands } from '@gugu/session-chat-ui';
 import type { PromptEditorRef } from '@gugu/session-ui/react/components';
 import { showRendererContentMenu } from '@/lib/contentContextMenu';
 import { rendererLogger } from '@/lib/log';
+import { platform } from '@/platform';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { AcpChatStore } from './acp-chat-store';
@@ -54,7 +55,7 @@ export function useSessionMessageQuotes(store: AcpChatStore | null | undefined, 
           setSessionQuote(current, { source, text, sender });
           editor.current?.focus('end');
         } else if (action === 'copy') {
-          await navigator.clipboard.writeText(text);
+          await platform.writeClipboardText(text);
           toast({ title: t('transcript.copied') });
         }
       }).catch(error => {

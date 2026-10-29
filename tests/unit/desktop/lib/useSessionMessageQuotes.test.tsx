@@ -9,13 +9,15 @@ import { getSessionQuote } from '../../../../apps/desktop/src/session/renderer/f
 import { createReactHarness } from '../../../support/testHarness';
 
 const menu = vi.hoisted(() => vi.fn());
+const writeClipboardText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('@/lib/contentContextMenu', () => ({ showRendererContentMenu: menu }));
+vi.mock('@/platform', () => ({ platform: { writeClipboardText } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 const { useSessionMessageQuotes } = await import('../../../../apps/desktop/src/session/renderer/features/sessions/acp/use-session-message-quotes');
 
 let harness: ReturnType<typeof createReactHarness>;
-beforeEach(() => { harness = createReactHarness(); menu.mockReset(); document.getSelection()?.removeAllRanges(); });
+beforeEach(() => { harness = createReactHarness(); menu.mockReset(); writeClipboardText.mockClear(); document.getSelection()?.removeAllRanges(); });
 afterEach(() => harness.cleanup());
 
 async function setup() {
@@ -32,6 +34,18 @@ async function setup() {
 }
 
 describe('task message quote entry points', () => {
+  it.each([false, true])('uses the platform clipboard for copy (selected=%s)', async selected => {
+    const c = await setup();
+    if (selected) {
+      const range = document.createRange(); range.setStart(c.root.firstChild!, 0); range.setEnd(c.root.firstChild!, 4);
+      document.getSelection()!.addRange(range);
+    }
+    menu.mockResolvedValue('copy');
+    await act(async () => c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith(selected ? 'same' : 'same words');
+    expect(getSessionQuote(c.state)).toBeNull();
+    c.dispose(); c.root.remove();
+  });
   it('quotes a whole Solid message by identity, keeps the draft and never sends it', async () => {
     const c = await setup();
     let answer!: (action: string) => void;
