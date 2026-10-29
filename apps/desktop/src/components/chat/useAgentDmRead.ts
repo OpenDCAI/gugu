@@ -20,10 +20,11 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   if (!activation.current || (shown && !activation.current.shown)) {
     const locator = unreadEntry?.locator ?? chat.unread_locator
     const first = locator?.message_id ?? null
-    activation.current = { shown, cursor: new AgentDmReadCursor(first, locator?.cursor_seq ?? chat.last_read_seq), first, placed: null, loading: false }
+    activation.current = { shown, cursor: new AgentDmReadCursor(first, Math.max(locator?.cursor_seq ?? 0, chat.last_read_seq)), first, placed: null, loading: false }
   }
   activation.current.shown = shown
   const current = activation.current
+  current.cursor.acknowledge(chat.last_read_seq)
   // An authorized IM row can precede the session window's watermark without
   // having a projected item. It cannot become a permanent visibility barrier.
   const unavailable = messages.filter(row => !dmTranscriptItem(row.id, aliases)).map(row => row.id)
@@ -39,9 +40,9 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     const itemId = dmTranscriptItem(current.first, aliases)
     if (itemId && current.placed !== itemId) {
       current.placed = itemId
-      // Address the message's first render unit through the item scroll API,
-      // leaving a small reading gap above its body and trailing receipt.
-      view.current.scrollToItem(itemId, { align: 'start', offset: -8 })
+      // Keep the intent even when the first history seed has not built its
+      // render units yet; an imperative item lookup at mount can miss them.
+      view.current.setScrollMode({ kind: 'anchor', itemId, edge: 'top', offset: -8 })
     }
   }, [shown, current, aliases])
   useLayoutEffect(() => {
@@ -57,7 +58,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     if (!shown || document.visibilityState === 'hidden') return
     const canonical = visibleDmMessageIds(ids, aliases, messages)
     for (const row of current.cursor.visible(canonical, messages)) markMessageVisible(row)
-    if (current.first && canonical.includes(current.first)) unreadEntry?.onSeen()
+    if (current.first && canonical.includes(current.first)) { current.first = null; unreadEntry?.onSeen() }
     reportFollowing()
   }, [shown, aliases, messages, current, markMessageVisible, unreadEntry, reportFollowing])
   return { view, onVisibleItems, onAtBottomChange: (value: boolean) => { atBottom.current = value; reportFollowing() },

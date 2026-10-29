@@ -99,19 +99,29 @@ const mounted: Mounted[] = [];
 
 async function mountTranscript(
   itemCount: number,
-  opts: { composer?: 'slot' | 'none'; height?: number; turns?: TranscriptTurn[] } = {}
+  opts: {
+    composer?: 'slot' | 'none'; height?: number; turns?: TranscriptTurn[];
+    pinUserMessages?: boolean; unreadId?: string; top?: number; agentConversation?: boolean;
+  } = {}
 ): Promise<Mounted> {
-  const ctx = createChatContext({ theme: DEFAULT_THEME });
+  const ctx = createChatContext(opts.agentConversation ? { layout: { preset: 'double', userGutter: 0, agentConversation: true } } : { theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   state.transcript.history.seed(opts.turns ?? generateMockTranscript(itemCount, 7));
 
   const host = document.createElement('div');
   host.dataset.scrollContractHost = '';
-  host.style.cssText = `position:fixed;top:0;left:0;width:800px;height:${opts.height ?? 400}px;`;
+  host.style.cssText = `position:fixed;top:${opts.top ?? 0}px;left:0;width:800px;height:${opts.height ?? 400}px;`;
   document.body.appendChild(host);
 
   const mountView = async () => {
-    const view = createChatView({ context: ctx, state, parent: host, composer: opts.composer });
+    const view = createChatView({
+      context: ctx, state, parent: host, composer: opts.composer, pinUserMessages: opts.pinUserMessages,
+      onViewMounted: ready => {
+        if (!opts.unreadId) return;
+        ready.setScrollMode({ kind: 'anchor', itemId: opts.unreadId, edge: 'top', offset: -8 });
+        ready.composerSlot!.style.height = '140px';
+      },
+    });
     await until('transcript scroll container mounts', () => host.querySelector('[data-chat-scroll]') != null);
     const scrollEl = host.querySelector('[data-chat-scroll]') as HTMLElement;
     await settled(scrollEl);
@@ -166,16 +176,13 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
         outputText: `sent (id=msg:${receipt(index)})`,
       }],
     }));
-    const { ctx, view, host, scrollEl } = await mountTranscript(0, { composer: 'slot', height: 600, turns });
-    ctx.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
-    view.composerSlot!.style.height = '140px';
-    await settled(scrollEl);
     const id = `call-12:sent:${receipt(12)}`;
-    view.scrollToItem(id, { align: 'start', offset: -8 });
+    const { view, host, scrollEl } = await mountTranscript(0, { composer: 'slot', height: 600, turns, pinUserMessages: true, unreadId: id, top: 45, agentConversation: true });
     const body = () => host.querySelector<HTMLElement>(`[data-agent-conversation-message="${id}"] [data-user-card]`);
     await until('unread body is mounted', () => body() !== null);
     await settled(scrollEl);
     const bounds = body()!.getBoundingClientRect();
+    expect(scrollEl.getBoundingClientRect().top).toBe(45);
     expect(bounds.top).toBeGreaterThanOrEqual(scrollEl.getBoundingClientRect().top);
     expect(bounds.bottom).toBeLessThanOrEqual(view.composerSlot!.getBoundingClientRect().top);
   });

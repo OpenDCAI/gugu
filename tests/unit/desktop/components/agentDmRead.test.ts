@@ -9,8 +9,10 @@ it('does not read eight accumulated replies when only the last three are visible
   expect(cursor.canFollow(rows)).toBe(false)
   expect(cursor.visible([rows[0].id, rows[1].id], rows)).toEqual(rows.slice(0, 2))
   expect(cursor.canFollow(rows)).toBe(false)
+  cursor.acknowledge(2)
   expect(cursor.visible(rows.slice(2, 5).map(row => row.id), rows)).toEqual(rows.slice(2))
   expect(cursor.canFollow(rows)).toBe(true)
+  cursor.acknowledge(8)
   expect(cursor.visible(rows.map(row => row.id), rows)).toEqual([])
 })
 it('waits for a first unread outside the loaded window and uses only canonical receipt identity', () => {
@@ -42,4 +44,14 @@ it('skips an unprojected first unread without reporting it visible or blocking l
   const cursor = new AgentDmReadCursor(rows[0].id, 0)
   cursor.ignore([rows[0].id])
   expect(cursor.visible([rows[1].id], rows.slice(0, 2))).toEqual([rows[1]])
+})
+
+it('retries visible replies until the store confirms their read watermark', () => {
+  const cursor = new AgentDmReadCursor(rows[0].id, 0)
+  expect(cursor.visible([rows[0].id], rows)).toEqual([rows[0]])
+  // The first callback happened before the chat store began observing it.
+  expect(cursor.visible([rows[0].id], rows)).toEqual([rows[0]])
+  cursor.acknowledge(1)
+  expect(cursor.visible([rows[0].id], rows)).toEqual([])
+  expect(cursor.visible([rows[1].id], rows)).toEqual([rows[1]])
 })

@@ -4,25 +4,29 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 export class AgentDmReadCursor {
   private seen = new Set<string>()
   private skipped = new Set<string>()
-  private committed = new Set<string>()
-  constructor(readonly firstUnreadId: string | null, private readSeq: number) {}
-  ignore(ids: readonly string[]): void { for (const id of ids) this.skipped.add(id) }
+  private pending = new Map<string, MessageItem>()
+  private confirmedSeq: number
+  constructor(readonly firstUnreadId: string | null, private readSeq: number) { this.confirmedSeq = readSeq }
+  acknowledge(seq: number): void {
+    this.confirmedSeq = Math.max(this.confirmedSeq, seq)
+    this.readSeq = Math.max(this.readSeq, seq)
+    for (const [id, row] of this.pending) if (row.seq <= this.confirmedSeq) this.pending.delete(id)
+  }
+  ignore(ids: readonly string[]): void { for (const id of ids) { this.skipped.add(id); this.pending.delete(id) } }
 
   visible(ids: readonly string[], rows: readonly MessageItem[]): MessageItem[] {
     for (const id of ids) this.seen.add(id)
     const unread = rows.filter(row => row.seq > this.readSeq && !row.thread_root_id).sort((a, b) => a.seq - b.seq)
     // The first unread may still be outside the loaded IM window.
     if (this.firstUnreadId && !this.seen.has(this.firstUnreadId) && !this.skipped.has(this.firstUnreadId)) return []
-    const ready: MessageItem[] = []
     for (const row of unread) {
       if (!row.is_mine && !row.retracted_at && !this.seen.has(row.id) && !this.skipped.has(row.id)) break
       this.readSeq = row.seq
-      if (this.seen.has(row.id) && !this.committed.has(row.id)) {
-        ready.push(row)
-        this.committed.add(row.id)
-      }
+      if (this.seen.has(row.id)) this.pending.set(row.id, row)
     }
-    return ready
+    // Reporting visibility is not an acknowledgement: an opening store may
+    // not yet observe this chat. Retry until its read watermark confirms it.
+    return [...this.pending.values()]
   }
 
   canFollow(rows: readonly MessageItem[]): boolean {
