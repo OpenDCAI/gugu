@@ -22,6 +22,7 @@
     "./package.json": "./package.json",
     "./acp/client": "./src/acp/client.ts",
     "./session-record/contract": "./src/session-record/contract.ts",
+    "./session-record/native-read": "./src/session-record/native-read.ts",
     "./session-record/tool-image": "./src/session-record/tool-image.ts",
     "./session-record/message-preview": "./src/session-record/message-preview.ts",
     "./session-record/live-requests": "./src/session-record/live-requests.ts",

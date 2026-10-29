@@ -30,6 +30,8 @@ const state = vi.hoisted(() => ({
   /** 这台机器上会话给自己排的定时(repo.listSessionSchedules 的桩);多数用例没有。 */
   schedules: [] as unknown[],
   deliverText: vi.fn(),
+  nativeUnread: [] as string[],
+  storedHistory: vi.fn(),
   deliverPermission: vi.fn(),
   prepareQuestion: vi.fn(),
   deliverQuestion: vi.fn(),
@@ -41,7 +43,7 @@ const state = vi.hoisted(() => ({
   pendingWatchCalls: [] as string[],
   pendingWatchDisposed: 0,
   /** 用例手里的那根线：调它就等于运行时报了一批新的待答审批。 */
-  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[]) => void),
+  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void),
   /** 活运行时报的会话选项(live-options 的桩);默认三格都没有。 */
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
@@ -60,6 +62,10 @@ vi.mock('../sessions/agent-question-store', () => ({
     persistedQuestions.set(id, (persistedQuestions.get(id) ?? []).map(item => item.itemId === itemId ? { ...item, state: result.state, optionId: result.optionId, resolvedBy: result.by } : item));
   },
 }));
+
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+
+vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
 
 vi.mock('@main/db/client', () => ({
   db: {
@@ -189,7 +195,7 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
     conversationId: string,
-    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[]) => void
+    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void
   ) => {
     state.pendingWatchCalls.push(conversationId);
     if (!state.pendingWatchAvailable) return null;
@@ -364,6 +370,8 @@ describe('session timeline service', () => {
     state.pendingWatchCalls = [];
     state.pendingWatchDisposed = 0;
     state.emitPending = null;
+    state.nativeUnread = [];
+    state.storedHistory.mockReset();
     state.rows = [row()];
     state.projects = [];
     state.deliverText = vi.fn(async () => ({ accepted: 'started' as const }));
@@ -372,6 +380,22 @@ describe('session timeline service', () => {
     state.deliverQuestion = vi.fn();
     state.permissionChannelError = vi.fn(() => null);
     state.questionSend.mockReset().mockResolvedValue({ status: 'delivered' });
+  });
+
+  it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    state.nativeUnread = ['conv-1:turn:s5:message:auto:assistant:0'];
+    const turns = Array.from({ length: 10 }, (_, seq) => ({ id: `conv-1:turn:s${seq}`, seq, initiator: 'user', items: [] }));
+    state.storedHistory.mockImplementation(async ({ before, limit }: { before?: number; limit: number }) => {
+      const page = turns.filter(turn => before === undefined || turn.seq < before).slice(-limit);
+      return { turns: page, nextCursor: page[0]?.seq || null, originTurnIds: page.map(turn => `live:${turn.seq}`) };
+    });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 5 }, { seq: 6 }, { seq: 7 }], hasNewer: true } });
+    const active = { id: 'live:10', seq: 10, initiator: 'user' as const, items: [] };
+    state.emitPending?.([], [], null, active);
+    expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {

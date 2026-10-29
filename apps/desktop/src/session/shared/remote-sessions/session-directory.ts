@@ -180,7 +180,7 @@ export function directoryRows(devices: readonly Device[], liveSessions: Readonly
  * 记录状态(新宿主,spec session-always-openable)。离线机器的行来自心跳摘要,两样都没有 ⇒ 点不开。
  */
 export function rowOpens(session: SessionpageSessionSummary): boolean {
-  return session.supported || session.recordState !== undefined
+  return session.supported || session.recordState !== undefined || Boolean(session.agent?.userId)
 }
 
 /**

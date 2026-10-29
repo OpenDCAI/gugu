@@ -1,8 +1,11 @@
+import { registerNativeComposer } from '@/lib/nativeComposerHandoff'
+import { useNativeConversationRead } from '@/hooks/useNativeConversationRead'
+import { useConversationVisibility } from '@/components/chat/useConversationVisibility'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { toolImageUrl } from '@gugu/session-core/acp/client'
+import { attachmentMimeTypeSchema, toolImageUrl, type PromptAttachment } from '@gugu/session-core/acp/client'
 import { openImageViewer } from '@/lib/imageViewer'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
-import { fetchToolImage } from './sessionpage-rpc'
+import { machineRpc, fetchToolImage } from './sessionpage-rpc'
 import { phoneTimelineClient } from '../local-agent/phoneTimelineClient'
 import type { ChatCommands, ChatView } from '@gugu/session-chat-ui'
 import type { ComposerAttachment, PromptEditorRef } from '@gugu/session-ui/react/components'
@@ -34,21 +37,23 @@ import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
 import { messageForUser } from '@/lib/userFacingError'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
-export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false,
+export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
-  onStop, stopping, footerNotice, onLoadOlder, emptyNote,
+  onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
-  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean; machineLabel?: string
+  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean; nativeRecord?: boolean; machineLabel?: string
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
-  onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string) => Promise<void>
+  onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, attachments?: PromptAttachment[]) => Promise<void>
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
   headerRunning?: boolean
   onStop: () => void; stopping: boolean; footerNotice?: ReactNode; onLoadOlder: () => Promise<void>
-  onLoadToolImage?: (itemId: string, index: number) => Promise<void>; emptyNote?: ReactNode
+  onAtBottom?: () => void; onLoadToolImage?: (itemId: string, index: number) => Promise<void>; emptyNote?: ReactNode
 }) {
   const { resolvedLocale } = useLocale()
   const { theme } = useTheme()
+  const visibility = useConversationVisibility(true)
+  const reading = useNativeConversationRead(deviceId, phoneHost ? undefined : sessionId, visibility.shown, () => timeline.turns)
   const view = useRef<ChatView | null>(null)
   const [dismissals, setDismissals] = useState(0)
   const [backgroundError, setBackgroundError] = useState<string | null>(null)
@@ -92,18 +97,36 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       })
     }
   }
+  const handoff = useRef({ addFiles, setDraftText, draftText })
+  handoff.current = { addFiles, setDraftText, draftText }
+  useEffect(() => {
+    if (!visibility.shown) return
+    return registerNativeComposer(sessionId, value => {
+      const target = handoff.current
+      target.addFiles(value.files ?? [])
+      const next = appendToDraft(editor.current?.getText() ?? target.draftText, value.text)
+      target.setDraftText(next); editor.current?.setText(next)
+    })
+  }, [sessionId, visibility.shown])
   const submit = async (value: string) => {
     if (sending || stopping || inFlight.current) return
     inFlight.current = true
     try {
       if (!await uploads.waitForUploads()) return
       const sentAttachments = attachments
-      const text = composePromptText(value, fileMentionsFor(sentAttachments, paths.current))
-      if (!text) return
+      const images: PromptAttachment[] = sentAttachments.flatMap(file => {
+        const path = paths.current.get(file.id)
+        const mimeType = attachmentMimeTypeSchema.safeParse(file.mimeType)
+        return !phoneHost && sessionRuntime === 'acp' && path && mimeType.success ? [{ type: 'local-file' as const, originalPath: path, name: file.name, mimeType: mimeType.data }] : []
+      })
+      const imagePaths = new Set(images.flatMap(image => image.type === 'local-file' ? [image.originalPath] : []))
+      const text = composePromptText(value, fileMentionsFor(sentAttachments.filter(file => !imagePaths.has(paths.current.get(file.id) ?? '')), paths.current))
+      if (!text && !images.length) return
       composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
       setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
-        await onSend(text)
+        await onSend(text, images)
+        view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) { paths.current.delete(file.id); uploads.forget(file.id) }
       } catch {
         const live = editor.current?.getText() ?? ''
@@ -124,7 +147,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
-    resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : fetchToolImage(deviceId, sessionId, itemId, index))),
+    resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : nativeRecord ? machineRpc(deviceId).sessionTimeline.sessionNativeToolImage({ conversationId: sessionId, itemId, index }).then(result => { if (!result.ok) throw new Error(result.error.message); if (!result.value.ok) throw new Error(result.value.message); return result.value.image }) : fetchToolImage(deviceId, sessionId, itemId, index))),
     onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputs.handlers, conversationAgentName: () => agentName, onStop,
     onStopBackgroundTask: ({ stopId }) => {
       setBackgroundError(null)
@@ -146,8 +169,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       toolbarExtra={<><ComposerAttachButton disabled={sending} mobile onPickFile={() => input.current?.click()} /></>} />
   </>
   return <ThemeProvider theme={theme} target="documentElement"><MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-    <SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
-      onReachStart={() => { void onLoadOlder() }} composerContent={composer} onReady={ready => { view.current = ready }} className="relative min-h-0 flex-1" />
-    {turns.length === 0 ? emptyNote : null}{outputs.panel}{options.confirmation}
+    <div ref={visibility.ref} className="relative flex min-h-0 flex-1 flex-col"><SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
+      onReachStart={() => { void onLoadOlder() }} composerContent={composer} shown={visibility.shown} onAtBottomChange={atBottom => { if (atBottom) onAtBottom?.() }} onVisibleItems={reading.onVisibleItems} onReady={ready => { view.current = ready; reading.onReady(ready) }} className="relative min-h-0 flex-1" />
+    {turns.length === 0 ? emptyNote : null}</div>{outputs.panel}{options.confirmation}
   </MessageProvider></ThemeProvider>
 }

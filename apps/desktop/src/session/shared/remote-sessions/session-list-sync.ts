@@ -185,6 +185,7 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
       byId.set(entry.projectId, { id: entry.projectId, name: entry.projectName, path: '' })
     }
     sessions.push({
+      ...(entry.nativeUnreadCount !== undefined ? { nativeUnreadCount: entry.nativeUnreadCount } : {}),
       conversationId: entry.conversationId,
       projectId: entry.projectId,
       title: entry.title,

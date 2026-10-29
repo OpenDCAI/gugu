@@ -1,5 +1,5 @@
 import { openFixture } from '@tooling/utils/db';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 
@@ -20,6 +20,10 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+
+import { nativeConversationUnread } from './session-conversation-read';
+import { events } from '@main/lib/events';
 import { getStoredToolImage, persistCommittedTurn, readStoredTurns, storedRevertBoundary, truncateStoredHistory } from './session-turn-store';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
@@ -56,6 +60,8 @@ describe('conversation-turn-store', () => {
       INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
     `);
   });
+
+  afterEach(() => { fixture.close(); vi.clearAllMocks(); });
 
   it('resolves a stopped runtime picture through its persisted origin without confusing reused runtime IDs', async () => {
     const originalId = 'c1:turn:0';
@@ -164,6 +170,7 @@ describe('conversation-turn-store', () => {
       .all() as { seq: number; data: string }[];
     expect(rows).toHaveLength(2);
     const revised = JSON.parse(rows[1]!.data) as TranscriptTurn;
+    expect(nativeConversationUnread('c1')).toEqual(['c1:turn:s1:m2']);
     expect(revised.outcome).toEqual({ kind: 'cancelled', reason: 'cancelled' });
     expect(revised.items.map((item) => [item.id, (item as { text: string }).text])).toEqual([
       ['c1:turn:s1:m', 'sleep 120'],
@@ -199,9 +206,7 @@ describe('conversation-turn-store', () => {
   });
 
   it('前一条写入失败后,排队的后一条仍然落盘', async () => {
-    const insert = vi.spyOn(fixture.db, 'insert').mockImplementationOnce(() => {
-      throw new Error('transient insert failure');
-    });
+    fixture.sqlite.exec("CREATE TRIGGER fail_first BEFORE INSERT ON session_turns WHEN NEW.turn_id = 'c1:turn:0' BEGIN SELECT RAISE(ABORT, 'transient insert failure'); END");
     const first = persistCommittedTurn({
       sessionId: 'c1',
       source: 'live',
@@ -216,7 +221,22 @@ describe('conversation-turn-store', () => {
     await expect(first).rejects.toThrow('transient insert failure');
     await expect(second).resolves.toBeUndefined();
     expect(storedTexts(fixture).map((item) => ('text' in item ? item.text : null))).toEqual(['后续写入']);
-    insert.mockRestore();
+
+  });
+
+  it('rolls back the stored turn when its unread journal cannot be committed', async () => {
+    fixture.sqlite.exec("CREATE TRIGGER fail_journal BEFORE INSERT ON kv WHEN NEW.key = 'native-conversation-read:c1' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END");
+    const reply: TranscriptTurn = { ...turn('c1:turn:0', 'question'), items: [{ kind: 'message', id: 'c1:turn:0:message:reply', seq: 0, role: 'assistant', text: 'answer' }] };
+    await expect(persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: reply })).rejects.toThrow('journal unavailable');
+    expect(storedTexts(fixture)).toEqual([]);
+    expect(nativeConversationUnread('c1')).toEqual([]);
+    expect(events.emit).not.toHaveBeenCalled();
+    fixture.sqlite.exec('DROP TRIGGER fail_journal');
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: reply });
+    expect(nativeConversationUnread('c1')).toEqual(['c1:turn:s0:message:reply']);
+    await truncateStoredHistory('c1', 0);
+    expect(storedTexts(fixture)).toEqual([]);
+    expect(nativeConversationUnread('c1')).toEqual([]);
   });
 
   it('库里空时,重放回来的历史被吃进来(老会话 / 刚从编程模式切过来的会话)', async () => {

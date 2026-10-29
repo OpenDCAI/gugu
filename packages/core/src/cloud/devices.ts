@@ -220,6 +220,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     const title = typeof row.title === 'string' ? row.title : ''
     if (!sessionId || !title) continue
     out.push({
+      ...(typeof row.nativeUnreadCount === 'number' && Number.isSafeInteger(row.nativeUnreadCount) && row.nativeUnreadCount >= 0 ? { nativeUnreadCount: row.nativeUnreadCount } : {}),
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',
       projectName: !isImplicitSessionHomeProjectId(typeof row.projectId === 'string' ? row.projectId : null) && typeof row.projectName === 'string' ? row.projectName : '',

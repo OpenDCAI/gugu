@@ -27,6 +27,14 @@ async function busySession() {
 }
 
 describe('shared ACP prompt admission', () => {
+  it('keeps image references on the same native prompt instead of making a second input', async () => {
+    const promptDetached = vi.fn(async () => ({ requestId: 'native-1', queued: true }));
+    state.client = { promptDetached, waitPromptDetached: async () => ({}) };
+    const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const }];
+    const result = await injectEmdashPromptDetached('conv-1', 'caption', { origin: 'manual', attachments });
+    await result.completion;
+    expect(promptDetached).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', prompt: { text: 'caption', origin: 'manual', attachments } });
+  });
   it('keeps several idle-only replies as separate user messages with exact provider-visible text', async () => {
     const { harness, runtime, finish } = await busySession();
     const texts = ['Check the first result.\nKeep this line.', 'Check the second result.', 'Check the third result.'];

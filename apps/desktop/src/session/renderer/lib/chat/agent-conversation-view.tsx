@@ -30,9 +30,11 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     let seen = new WeakSet<Element>();
     let observer: IntersectionObserver;
     let frame = 0;
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const candidates = new Map<Element, { geometry: string; since: number }>();
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
-      if (composerContent && (!slot || slot.getBoundingClientRect().height <= 0)) return false;
+      if ((composerContent || props.composer === 'slot') && (!slot || slot.getBoundingClientRect().height <= 0)) return false;
       const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
       const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
       const content = body.getBoundingClientRect();
@@ -44,7 +46,22 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     };
     const report = (elements: readonly Element[]) => {
       if (!observing || document.visibilityState === 'hidden') return;
-      const ids = elements.filter(readable).map(element => element.getAttribute('data-agent-conversation-message')).filter((id): id is string => !!id);
+      const ids: string[] = [];
+      for (const element of elements) {
+        if (!readable(element)) { candidates.delete(element); continue; }
+        const rect = element.getBoundingClientRect();
+        const geometry = `${rect.top}/${rect.bottom}/${slot?.getBoundingClientRect().top ?? ''}`;
+        const candidate = candidates.get(element);
+        if (!candidate || candidate.geometry !== geometry) candidates.set(element, { geometry, since: performance.now() });
+        else if (performance.now() - candidate.since >= 250) {
+          const id = element.getAttribute('data-agent-conversation-message');
+          if (id) ids.push(id);
+        }
+      }
+      if (settle === undefined && elements.some(element => { const candidate = candidates.get(element); return candidate && performance.now() - candidate.since < 250; })) settle = setTimeout(() => {
+        settle = undefined;
+        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+      }, 260);
       if (ids.length) onVisibleItems(ids);
     };
     // A virtual row can already intersect before its anchored body is laid out.
@@ -88,8 +105,8 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     };
     document.addEventListener('visibilitychange', visibleAgain);
     host.addEventListener('scroll', schedule, true);
-    return () => { observing = false; cancelAnimationFrame(frame); host.removeEventListener('scroll', schedule, true); document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
-  }, [shown, onVisibleItems, slot, !!composerContent]);
+    return () => { observing = false; clearTimeout(settle); cancelAnimationFrame(frame); host.removeEventListener('scroll', schedule, true); document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
+  }, [shown, onVisibleItems, slot, !!composerContent, props.composer]);
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}

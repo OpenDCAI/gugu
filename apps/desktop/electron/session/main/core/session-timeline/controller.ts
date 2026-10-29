@@ -28,6 +28,7 @@ import {
 import { createRPCController, withSender } from '@shared/lib/ipc/rpc';
 import * as create from './create-session';
 import * as service from './service';
+import { markNativeConversationVisible, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { readTaskExchanges, watchTaskExchanges, unwatchTaskExchanges } from './task-exchanges';
 import type { TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
 import { taskExchangeChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
@@ -94,6 +95,10 @@ export const sessionTimelineController = createRPCController({
     if (owned.get(sender)?.exchanges.delete(subscriptionId)) unwatchTaskExchanges(`${sender}:${subscriptionId}`);
   }),
   sessionsList: async () => service.listSessions(),
+  sessionNativeRecord: service.nativeRecord,
+  sessionNativeToolImage: service.nativeToolImage,
+  sessionReadState: (input: { conversationId: string }) => ({ unreadKeys: nativeConversationUnread(input.conversationId) }),
+  sessionVisible: (input: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: markNativeConversationVisible(input.conversationId, input.itemIds) }),
   sessionSnapshot: async (input: SessionpageSessionSnapshotRequest) =>
     trimmed(await service.snapshot(input), input.trim, trimSnapshotForTransport),
   sessionAfter: async (input: SessionpageSessionAfterRequest) =>
@@ -131,7 +136,7 @@ export const sessionTimelineController = createRPCController({
   sessionBackgroundTasks: (input: { conversationId: string }) => service.backgroundTasks(input),
   sessionStopBackgroundTask: (input: { conversationId: string; stopId: string }) => service.stopBackgroundTask(input),
   sessionQueue: (input: Parameters<typeof service.changeQueue>[0]) => service.changeQueue(input),
-  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
+  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text, input.clientMessageId, input.attachments),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),
   sessionUpdate: (input: SessionpageSessionUpdateRequest) => service.updateSession(input),

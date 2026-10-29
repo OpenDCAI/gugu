@@ -606,6 +606,12 @@ export type SessionpageSessionReloadModelRequest = {
 export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
+  /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
+  nativeInputVersion?: 1;
+  /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
+  nativeUnreadKeys?: string[];
+  nativeUnreadCount?: number;
+  nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;
   title: string;
@@ -1076,6 +1082,9 @@ export type SessionpageSessionUnsubscribeRequest = { subscriptionId: string };
 export type SessionpageSessionSendRequest = {
   conversationId: string;
   text: string;
+  /** Stable across reconnects and client restarts; the host's existing durable message router deduplicates it. */
+  clientMessageId?: string;
+  attachments?: import('../acp/client').PromptAttachment[];
 };
 /** 端上对一条结算的回答(会话 id 与回答者由调用方补上)。 */
 export type SettlementResponse =
@@ -1148,3 +1157,13 @@ export type SessionpageQueueAction =
   | { kind: 'delete'; id: string }
   | { kind: 'reorder'; ids: string[] }
   | { kind: 'send-now'; id: string; steers: boolean };
+
+/** ACP clients read the same durable commits and live turn as the desktop task page. */
+export type NativeSessionRecord = {
+  latestStoredSeq: number;
+  hasNewer: boolean;
+  turns: TranscriptTurn[];
+  originTurnIds: string[];
+  nextCursor: number | null;
+  activeTurn: TranscriptTurn | null;
+};

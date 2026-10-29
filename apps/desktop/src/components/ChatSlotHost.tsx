@@ -1,3 +1,4 @@
+import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useContactsStore } from '../store/contactsContext'
 import { useSidebarChatView } from '../lib/sidebarChatsBridge'
 import { useEffect, useSyncExternalStore } from 'react'
@@ -25,7 +26,8 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
   // 「还不知道」:不发,❌ 发一份空的让每个项目块先画首页。
   // 名字与对话列表那一行同一个函数(chatDisplayName):私聊没有自己的名字,写对方(备注优先)——列表、⌘K 面板、
   // 「来自 X」三处叫法一样。
-  const { chats, chatsRead, identitiesById } = useChatStore('chats', 'chatsRead', 'identitiesById')
+  const { chats: imChats, chatsRead, identitiesById } = useChatStore('chats', 'chatsRead', 'identitiesById')
+  const chats = useNativeAgentChats(imChats)
   useEffect(() => {
     if (chatsRead) publishChatSummaries(chats.map((chat) => ({ ...chat, name: chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name) })))
   }, [chats, chatsRead, identitiesById])

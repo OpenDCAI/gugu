@@ -1,3 +1,4 @@
+import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
@@ -13,6 +14,8 @@ import { IconButton } from '@/components/ui/IconButton'
 import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { SessionConversation } from './SessionConversation'
+import { enqueueSessionInput } from '@/lib/sessionInputOutboxBridge'
+import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
@@ -85,9 +88,13 @@ export function SessionTimelinePage({
   const apps = useSessionApps()
   const {
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
-    reload, loadOlder, loadToolImage, send, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
+    reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
+
+  const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
+  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
+  const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
@@ -209,10 +216,10 @@ export function SessionTimelinePage({
         cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
       ) : null}
 
-      {error ? (
+      {(error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
-          detail={error}
+          detail={nativeRecord.error ?? error ?? undefined}
           tone="danger"
           testId="agent-watch-timeline-error"
         >
@@ -224,31 +231,32 @@ export function SessionTimelinePage({
 
       {/* ⚠️ 此前是 `phase !== 'error'`:首次拉取失败就把时间线**和输入框**一起藏掉。
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
-      {phase !== 'error' || timeline.turns.length > 0 ? (
+      {(
         <SessionConversation
           agentName={agent?.displayName ?? session.title}
           agentUserId={agent?.agentUserId ?? session.agent?.userId}
-          timeline={timeline}
+          timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
-          phoneHost={phoneHost}
+          phoneHost={phoneHost} nativeRecord={native}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={send}
+          onSend={async (text, attachments) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(attachments?.length ? { attachments } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           sending={sending}
           agentWorking={attention === 'running'}
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={actionErrorNotice}
-          onLoadOlder={loadOlder}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} />{actionErrorNotice}</>}
+          onAtBottom={native ? nativeRecord.loadNewer : undefined}
+          onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}
-          emptyNote={phase === 'loading' || timeline.turns.length > 0 ? (
+          emptyNote={online && (phase === 'loading' || timeline.turns.length > 0) ? (
             /* 刚建的会话:记录要等 agent 写下第一行才有。那时说「正在等它开口」,❌ 不说「正在读取」——
                读取早就成功了,是对面还没写。线上已画着刚发的那句时不说(线程有内容就不画空态):那句本身就是「发出去了」。
                画在线程自己的空态位上,❌ 在线程上方另起一行:那样空着的线程还会再说一句「Nothing in this task yet」
@@ -259,7 +267,7 @@ export function SessionTimelinePage({
             </div>
           ) : null}
         />
-      ) : null}
+      )}
 
       <SessionActions
           anchor={menuAnchor}

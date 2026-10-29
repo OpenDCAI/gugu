@@ -1,5 +1,11 @@
+import { appendToDraft } from '@/store/chatContext';
+import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { useSessionSourceMessage } from './use-session-source-message';
+import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
+import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
+import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
@@ -479,7 +485,7 @@ const ComposerForStore = observer(function ComposerForStore({
    * 那一件的 chip 上写着为什么、能重试。正文在等的时候留在输入框里,❌ 先清掉再说。
    */
   const sendWhenReady = useCallback(
-    async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void) => {
+    async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void | Promise<void>) => {
       if (sendingRef.current) return;
       sendingRef.current = true;
       try {
@@ -500,13 +506,13 @@ const ComposerForStore = observer(function ComposerForStore({
         const promptAttachments = imagePromptAttachments(current, imageRefsRef.current);
         const text = composePromptText(value, fileMentionsFor(current, filePathsRef.current));
         if (!text && promptAttachments.length === 0) return;
+        try { await deliver(text, promptAttachments); } catch { editorApiRef.current?.setText(value); return; }
         setAttachments([]);
         filePathsRef.current.clear();
         imageRefsRef.current.clear();
         fileUploads.clear();
         editorApiRef.current?.clear();
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
-        deliver(text, promptAttachments);
       } finally {
         sendingRef.current = false;
       }
@@ -515,12 +521,12 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const handleSubmit = useCallback(
-    (value: string) => sendWhenReady(value, (text, attachments) => store.submitPrompt(text, attachments)),
+    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.submitPrompt(text, attachments); }),
     [store, sendWhenReady]
   );
 
   const handleSubmitWhileWorking = useCallback(
-    (value: string) => sendWhenReady(value, (text, attachments) => store.queuePrompt(text, attachments)),
+    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.queuePrompt(text, attachments); }),
     [store, sendWhenReady]
   );
 
@@ -752,6 +758,18 @@ const ComposerForStore = observer(function ComposerForStore({
     },
     [store, translate, attachPathFiles]
   );
+
+  const composerShown = useContext(PageShownContext);
+  useEffect(() => {
+    if (!composerShown) return;
+    return registerNativeComposer(store.runtimeSessionId, async draft => {
+      const files = draft.files ?? [];
+      if (store.acceptsImagePrompts && files.some(file => file.type.startsWith('image/') && !toAttachmentMimeType(file))) throw new Error(translate('chat.unsupportedImageTitle'));
+      await addImageFiles(files.filter(file => file.type.startsWith('image/')));
+      await attachPathFiles(files.filter(file => !file.type.startsWith('image/')));
+      store.setDraftText(appendToDraft(store.draftText, draft.text));
+    });
+  }, [store, composerShown, addImageFiles, attachPathFiles, translate]);
 
   const handleAttachmentsChange = useCallback(
     (next: ComposerAttachment[]) => {
@@ -1638,6 +1656,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
+      <SessionInputQueue sessionId={store.runtimeSessionId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -1652,7 +1671,7 @@ const ComposerForStore = observer(function ComposerForStore({
         }
         // Store owns both live sending and pre-session queue admission.
         // 正在用的咕咕模型要会员了(#7056):下一轮之前停下,原因与去路在面板那一行。
-        canSubmit={a.canSubmit && (store.draftText.trim().length > 0 || attachments.length > 0)
+        canSubmit={(a.canSubmit || canQueueNativeInput(store)) && (store.draftText.trim().length > 0 || attachments.length > 0)
           && sendHold !== 'waiting' && !membershipLockedModel}
         placeholder={startupPlaceholderKeyValue ? translate(startupPlaceholderKeyValue) : undefined}
         onSubmit={handleSubmit}
@@ -1782,7 +1801,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const activeTab = pane.resolvedTabs.find((t) => t.isActive && t.kind === tabKind);
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const visibility = useConversationVisibility(useContext(PageShownContext));
+  const rootRef = visibility.ref;
+  const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => store?.chatState.transcript.state.committedTurns ?? []);
   const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const sourceMessage = useSessionSourceMessage(store, viewRef, () => toast({ title: translate('transcript.originalMessageMissing'), variant: 'destructive' }));
@@ -1821,11 +1842,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     (view: ChatView) => {
       viewRef.current = view;
       bindReadyView(view);
+      reading.onReady(view);
       setComposerSlot(view.composerSlot);
       setHeroSlot(view.heroSlot);
       setOverlaySlot(view.contentOverlay);
     },
-    [bindReadyView]
+    [bindReadyView, reading.onReady]
   );
   // transcript 没了时必须把句柄交回去。留着一个已 dispose 的 view 比留 null 更糟：
   // `?.` 不再短路，调用会真的落到一个已释放的 Solid root 上。
@@ -2172,7 +2194,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     });
   }, [store, translate]);
 
-  useMarkSeenWhenShown(sessionStore, useContext(PageShownContext) && !store?.isTransient);
+  useMarkSeenWhenShown(sessionStore, visibility.shown && !store?.isTransient);
 
   useEffect(() => {
     if (!store) return;
@@ -2447,6 +2469,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             onReady={handleReady}
             onDisposed={handleTranscriptGone}
             commands={transcriptCommands}
+            shown={visibility.shown}
+            onVisibleItems={reading.onVisibleItems}
             onAtBottomChange={setAtBottom}
             onReachStart={handleReachStart}
             layout={{ ...chatLayout, agentConversation: true }}

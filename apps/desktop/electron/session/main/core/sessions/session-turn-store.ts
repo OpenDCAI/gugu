@@ -5,6 +5,7 @@ import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
 import { randomUUID } from 'node:crypto';
 import { activitySignal } from '../activity/signals';
+import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -111,9 +112,12 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     if (!row) throw new Error(`Cannot revise missing stored turn: sessionId=${input.sessionId} turnId=${input.turn.id} source=${input.source}`);
     // 改口的可能是结局(进程退出改写 prompt_failed),也可能是内容(落定后才到的尾巴,#6191)
     // ⇒ 整轮按库里的序号重编号后替换,❌ 只挑某个字段写。
-    await db.update(sessionTurns).set({
-      data: JSON.stringify(renumberStoredTurn(input.turn, input.sessionId, row.seq)),
-    }).where(eq(sessionTurns.id, row.id));
+    const publish = db.transaction(tx => {
+      const revised = renumberStoredTurn(input.turn, input.sessionId, row.seq);
+      tx.update(sessionTurns).set({ data: JSON.stringify(revised) }).where(eq(sessionTurns.id, row.id)).run();
+      return noteNativeConversationReplies(input.sessionId, revised, input.turn, tx);
+    });
+    publish?.();
     return;
   }
   if (input.source === 'replay') {
@@ -125,8 +129,8 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
   // 之后的一段，直接拿来当键必然与库里已有的行撞号。
   const next = await nextSeq(input.sessionId);
   const turn = renumberStoredTurn(input.turn, input.sessionId, next);
-  const inserted = await db
-    .insert(sessionTurns)
+  const inserted = db.transaction(tx => {
+    const result = tx.insert(sessionTurns)
     .values({
       id: `${input.sessionId}:${next}`,
       sessionId: input.sessionId,
@@ -137,11 +141,15 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
       data: JSON.stringify(turn),
     })
     .onConflictDoNothing()
-    .returning({ seq: sessionTurns.seq });
+    .returning({ seq: sessionTurns.seq }).all();
+    const publish = input.source === 'live' && result.length ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx) : undefined;
+    return { rows: result, publish };
+  });
+  inserted.publish?.();
   // The activity index names a turn by this stored sequence, assigned here and nowhere else: the runtime's own turn
   // ids restart at 0 with every run, and the provider record numbers its turns from a different stream. A replayed
   // turn is history arriving late, not something that happened now.
-  if (input.source === 'live' && inserted.length > 0) {
+  if (input.source === 'live' && inserted.rows.length > 0) {
     activitySignal({ event_id: `session.turn_recorded:${randomUUID()}`, kind: 'session.turn_recorded',
       session_id: input.sessionId, turn_seq: next, occurred_at: input.turn.endedAt ?? null });
   }
@@ -287,11 +295,13 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
   await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  const removed = await db.delete(sessionTurns)
-    .where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq)))
-    .returning({ seq: sessionTurns.seq });
+  const removed = db.transaction(tx => {
+    const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
+    return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
+  });
+  removed.publish?.();
   // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
-  if (removed.length > 0) {
+  if (removed.rows.length > 0) {
     activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
       session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
   }

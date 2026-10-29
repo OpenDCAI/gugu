@@ -41,7 +41,7 @@ export interface EmdashDeliveryBridge {
   injectEmdashPromptDetached(
     sessionId: string,
     text: string,
-    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual' },
+    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] },
   ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
@@ -469,6 +469,7 @@ class EmdashAgentRegistry {
     const steerIfBusy = !isHumanDmDelivery(text) && !opts?.delivery?.queue
       && sessionInjectionCapabilityFor(summary.providerId, 'acp').timing === 'next-tool-call'
     const injectOpts = {
+      ...(opts?.delivery?.attachments?.length ? { attachments: opts.delivery.attachments } : {}),
       ...(opts?.delivery?.origin ? { origin: opts.delivery.origin } : {}),
       ...(steerIfBusy ? { steerIfBusy: true } : {}),
       ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),

@@ -159,7 +159,7 @@ export type DeviceSessionDigestEntry = {
   unseen?: boolean
   parentConversationId?: string | null
   /** 这条会话的 agent id(#7199,见 `DeviceSessionSummary.agentUserId`);宿主还没读到花名册时不带。 */
-  agentUserId?: string | null
+  agentUserId?: string | null; nativeUnreadCount?: number
 }
 
 /** 摘要由宿主提供（会话在它手里）。缺省 = 这台机器不报摘要，列写 `[]`。 */

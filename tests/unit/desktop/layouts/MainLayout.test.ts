@@ -1,3 +1,4 @@
+vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { act, useEffect, type ReactNode } from 'react'
@@ -26,6 +27,10 @@ vi.mock('../../../../apps/desktop/src/lib/notices', async (original) => ({
   ...await original<object>(), notify: deliveryNotice,
 }))
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+const openNativeConversation = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('../../../../apps/desktop/src/lib/guguLinks', async original => ({
+  ...await original<object>(), openTarget: openNativeConversation,
+}))
 const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/hooks/useSourceMessageReveal')>()
@@ -1238,6 +1243,11 @@ describe('MainLayout: agent sender-name entry', () => {
   it.each(['owned', 'existing-external', 'new-external'] as const)('uses the contact chat action and its access rules for %s', async scenario => {
     const peer = { id: 'sender-agent', type: 'agent', display_name: 'Sender agent', owner_user_id: scenario === 'owned' ? 'user-1' : 'other-owner' }
     taskRoute.contacts = [peer]
+    openNativeConversation.mockClear()
+    if (scenario === 'owned') Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+      invoke: vi.fn(async () => ({ projectId: 'native-project', sessionId: 'native-session', view: 'general', platformRecovery: null, projectionError: null })),
+      eventOn: () => () => {},
+    } })
     if (scenario === 'existing-external') chatStoreMock.chats = [{ id: 'sender-dm', kind: 'ai', peer_user_id: peer.id }] as never
     chatServiceMock.getOrCreateDM.mockResolvedValue('sender-dm')
     const { toast } = await renderMainLayoutWithToast()
@@ -1246,10 +1256,13 @@ describe('MainLayout: agent sender-name entry', () => {
       expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
       expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
       expect(toast).toHaveBeenCalled()
+    } else if (scenario === 'owned') {
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+      expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'native-session', projectId: 'native-project' })
+      expect(chatServiceMock.getOrCreateDM).toHaveBeenCalledWith('user-1', peer.id)
     } else {
       expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('sender-dm', false)
-      if (scenario === 'owned') expect(chatServiceMock.getOrCreateDM).toHaveBeenCalledWith('user-1', peer.id)
-      else expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+      expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
     }
   })
 })

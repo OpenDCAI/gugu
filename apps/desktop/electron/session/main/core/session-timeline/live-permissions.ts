@@ -49,7 +49,7 @@ export type SessionStateWatch = { dispose(): void };
  */
 async function watchRunningSessionState(
   sessionId: string,
-  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null) => void
+  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, activeTurn?: TranscriptTurn | null) => void
 ): Promise<SessionStateWatch | null> {
   const client = await peekAcpRuntimeClient();
   if (!client) return null;
@@ -58,7 +58,7 @@ async function watchRunningSessionState(
   let turn: TranscriptTurn | null = null;
   let activeTurn: ReplicaState<TranscriptTurn | null> | null = null;
   const emitLatest = () => {
-    if (state) onChange(state.pendingPermissions.map(permissionToPendingRequest), state.queuedPrompts, state.isGenerating ? liveReplyOf(turn) : null);
+    if (state) onChange(state.pendingPermissions.map(permissionToPendingRequest), state.queuedPrompts, state.isGenerating ? liveReplyOf(turn) : null, turn);
   };
   const emit = (next: SessionState) => { state = next; emitLatest(); };
 
@@ -151,7 +151,7 @@ async function watchRunningSessionState(
 /** A timeline may open before its runtime, or survive a model switch that replaces that runtime. */
 export async function watchSessionState(
   sessionId: string,
-  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null) => void
+  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, activeTurn?: TranscriptTurn | null) => void
 ): Promise<SessionStateWatch> {
   let disposed = false;
   let generation = 0;
@@ -162,8 +162,8 @@ export async function watchSessionState(
     current = null;
     if (!disposed) onChange([], [], null);
     try {
-      const next = await watchRunningSessionState(sessionId, (requests, queue, reply) => {
-        if (!disposed && generation === own) onChange(requests, queue, reply);
+      const next = await watchRunningSessionState(sessionId, (requests, queue, reply, activeTurn) => {
+        if (!disposed && generation === own) onChange(requests, queue, reply, activeTurn);
       });
       if (disposed || generation !== own) next?.dispose();
       else current = next;

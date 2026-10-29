@@ -57,7 +57,7 @@ it('advances read only for actually visible messages and ignores callbacks after
   document.dispatchEvent(new Event('visibilitychange'))
   expect(observer.observe).toHaveBeenCalledTimes(2)
   observer.callback([visible], {} as IntersectionObserver)
-  expect(onVisibleItems).toHaveBeenCalledWith(['visible-message'])
+  await vi.waitFor(() => expect(onVisibleItems).toHaveBeenCalledWith(['visible-message']))
   onVisibleItems.mockClear()
   await render(false)
   observer.callback([visible], {} as IntersectionObserver)
@@ -79,7 +79,7 @@ it('excludes the floating editor from the observer and does not read a covered m
   expect(onVisibleItems).not.toHaveBeenCalled()
   messageTop = 470
   observer.callback([visible], {} as IntersectionObserver)
-  expect(onVisibleItems).toHaveBeenCalledWith(['visible-message'])
+  await vi.waitFor(() => expect(onVisibleItems).toHaveBeenCalledWith(['visible-message']))
 })
 
 it('reads a resting message after anchor layout without requiring an intersection change or a scroll', async () => {
@@ -93,7 +93,7 @@ it('reads a resting message after anchor layout without requiring an intersectio
     harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!.style.transform = 'translateY(-500px)'
   })
   await paint()
-  expect(onVisibleItems).toHaveBeenCalledWith(['visible-message'])
+  await vi.waitFor(() => expect(onVisibleItems).toHaveBeenCalledWith(['visible-message']))
 })
 
 it('does not let the post-layout scan read a covered message or run after hiding', async () => {
@@ -126,5 +126,24 @@ it('waits for the floating composer geometry before marking a partially covered 
   harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!.style.transform = 'translateY(0)'
   await act(async () => {})
   await paint()
+  expect(onVisibleItems).not.toHaveBeenCalled()
+})
+
+it('does not read through an external task composer while it is growing into place', async () => {
+  const onVisibleItems = vi.fn()
+  let bottom = 560
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const composer = this.hasAttribute('data-test-composer')
+    const body = this.hasAttribute('data-agent-conversation-message') || this.hasAttribute('data-user-card')
+    const top = composer ? bottom : body ? 490 : 45
+    const height = this.hasAttribute('data-agent-conversation') ? 600 : composer ? 645 - bottom : 20
+    return { x: 0, y: top, top, bottom: top + height, left: 0, right: 400, width: 400, height, toJSON() {} }
+  })
+  await harness.render(createElement(AgentConversationView, { shown: true, composer: 'slot', onVisibleItems, context: {} as ChatContext, state: {} as ChatState }))
+  await paint()
+  expect(onVisibleItems).not.toHaveBeenCalled()
+  bottom = 500
+  harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!.style.transform = 'translateY(0)'
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)) })
   expect(onVisibleItems).not.toHaveBeenCalled()
 })

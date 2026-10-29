@@ -1,7 +1,10 @@
+import { createNativeRecordReader } from './native-record';
+import { promptAttachmentSchema } from '@gugu/session-core/acp/client';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
 import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
+import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
@@ -164,6 +167,7 @@ type TimelineEntry = {
   pendingWatch: SessionStateWatch | null;
   /** What the live runtime last reported waiting (an ACP session's own approvals); the host's asks are added to it (D-31). */
   runtimeRequests: readonly PendingRequest[];
+  nativeActiveTurn?: import('@gugu/session-core/acp/client').TranscriptTurn | null;
   disposed: boolean;
   /**
    * 没有记录可读时的替身(见 stand-in-timeline.ts)。它**不进缓存**:真记录一出现,下一次 acquire
@@ -385,9 +389,10 @@ function disposeEntry(entry: TimelineEntry): void {
  * 一起拖死。接不上就 warn 一句，时间线照常可读，只是没有审批卡（与接这条之前的行为一致）。
  */
 function attachPendingRequests(entry: TimelineEntry): void {
-  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply) => {
+  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply, activeTurn) => {
     if (entry.disposed) return;
     entry.runtimeRequests = requests;
+    entry.nativeActiveTurn = activeTurn ?? null;
     syncPending(entry);
     entry.timeline.syncQueuedPrompts(queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => ({ ...prompt, text: conversationQueueText(prompt.text) })));
     entry.timeline.syncLiveReply(liveReply ?? null);
@@ -725,6 +730,9 @@ function summaryOf(
     ...statusFieldsOf(session),
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
+    nativeInputVersion: 1,
+    nativeUnreadKeys: nativeConversationUnread(session.id),
+    nativeUnreadAliases: nativeConversationAliases(session.id),
     ...(location.supported ? {} : { unsupportedReason: location.reason, ...notStartedFacts(session) }),
     // 这三项库里早就有,先前没往手机端传 —— 手机上于是既没有置顶区、也认不出未读、
     // 更画不出子 agent 的谱系,而桌面侧栏三样都有。口径与 `sessions/utils.ts`
@@ -1089,7 +1097,7 @@ const sessionsSubscriptions = new Map<string, { stop: () => void }>();
 const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
-const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId'];
+const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadCount'];
 function changesSessionList(channel: string, data: unknown): boolean {
   if (channel === sessionCreatedChannel.name || channel === sessionDeletedChannel.name) {
     return true;
@@ -1213,8 +1221,12 @@ function writeTargetFrom(row: SessionRow): SessionWriteTarget {
 
 export async function send(
   conversationId: string,
-  text: string
-): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued' }>> {
+  text: string,
+  clientMessageId?: string,
+  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
+  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
+  if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
@@ -1229,7 +1241,8 @@ export async function send(
     if (!started.ok) return fail(started.error.code, started.error.message);
   }
   try {
-    return { ok: true, value: await deliverSessionText(writeTargetFrom(row), text) };
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
+    return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
     return fail('send_failed', (error as Error)?.message ?? String(error));
@@ -1462,3 +1475,7 @@ export async function changeQueue(input: { conversationId: string; action: impor
     return fail('queue_update_failed', error instanceof Error ? error.message : String(error));
   }
 }
+
+const nativeRecordReader = createNativeRecordReader({ readSession: readSessionRow, activeTurn: id => entries.get(id)?.nativeActiveTurn, withTimeline });
+export const nativeRecord = nativeRecordReader.snapshot;
+export const nativeToolImage = nativeRecordReader.image;
