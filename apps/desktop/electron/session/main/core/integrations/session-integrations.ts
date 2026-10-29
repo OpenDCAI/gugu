@@ -57,10 +57,11 @@ export async function connectedSessionIntegrations(
   platform: PlatformCredentialService = platformCredentials
 ): Promise<SessionIntegration[]> {
   const entries: SessionIntegration[] = [];
-  // #921 平台保管的那几家连没连,以平台为准:开会话前现问一次(问不到用上一次的答复)—— 别的设备连上 / 断开的,
-  // 这条会话就跟上了。之后会话里那台的工具清单定死在模型前缀里,中途断开由转发口当场说「没连」。
+  // #921 平台保管的那几家:按这台设备上已照抄下来的平台答复给,❌ 开会话等网络。平台在后台问(开 App、换登录、
+  // 资源库 / 面板来看、这里顺手一次)。代价:别处刚断开的,这条会话可能还拿着工具(一调转发口就说「没连」,请他重连);
+  // 别处刚连上的,下一条会话才有。
   if (integrationPluginRegistry.getAll().some((plugin) => platform.isPlatformProvider(plugin.metadata.id))) {
-    await platform.refresh({ maxAgeMs: 0 });
+    void platform.refresh();
   }
   for (const plugin of integrationPluginRegistry.getAll()) {
     const integrationId = plugin.metadata.id;

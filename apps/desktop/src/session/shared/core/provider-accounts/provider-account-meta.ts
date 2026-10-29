@@ -42,6 +42,12 @@ const v1Schema = z.object({
  */
 export const PLATFORM_CREDENTIAL_SOURCE = 'platform';
 
+/**
+ * #921 `credentialSource` of an account whose #649 key the provider rejected when it was moved to the platform: the
+ * key is gone, the row stays (nothing behind its credentialRef) so the connection page asks for a key again.
+ */
+export const REJECTED_KEY_SOURCE = 'platform-rejected-key';
+
 // ---------------------------------------------------------------------------
 // Versioned schema
 // ---------------------------------------------------------------------------

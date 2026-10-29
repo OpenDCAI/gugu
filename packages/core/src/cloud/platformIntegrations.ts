@@ -5,7 +5,7 @@
  *
  *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt, disconnectedAt }] }] }
  *           state:connected · reconnect(存着、但对方不认了 / 换钥后解不开,要重连) · not_connected(没存,时间为空)
- *           disconnectedAt:这个人最近一次断开它的时刻(明确再连一次就清掉);老一点的平台没有这个字段
+ *           disconnectedAt:这个人最近一次断开它的时刻(明确再连一次就清掉),没断开过 = null。state 与 disconnectedAt 每一行都有
  *  · PUT    /integrations/:provider/credential   { fields, migration? } → { connected: true, updatedAt, checkedAt }
  *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 not_open
  *           `migration: { savedAt }` = 设备上 #649 留下的 key 搬上来:平台已存着 = 409 already_connected(❌ 覆盖);
@@ -27,7 +27,7 @@ export type PlatformIntegrationAccount = {
   accountId: string
   /** false = 平台存着,但用不了了(对方不认、换钥后解不开):要重连。 */
   connected: boolean
-  /** 平台没给 state(老一点的平台)时按 connected 推。「没存」的那种(not_connected)不在这里 —— 那就是没有这一行。 */
+  /** 「没存」的那种(not_connected)不在这里 —— 那就是没有这一行。 */
   state: 'connected' | 'reconnect'
   updatedAt: string | null
   checkedAt: string | null
@@ -37,11 +37,8 @@ export type PlatformIntegrationProvider = {
   provider: string
   /** 平台存着的账号(连着的、要重连的);没存的不在这里。 */
   accounts: PlatformIntegrationAccount[]
-  /**
-   * accountId → 这个人最近一次断开它的时刻(没断开过的不在里面)。null = 这个平台不报断开(应答里哪一行都没有这个字段),
-   * ❌ 当成「没断开过」。
-   */
-  disconnectedAt: Record<string, string> | null
+  /** accountId → 这个人最近一次断开它的时刻(没断开过的不在里面)。 */
+  disconnectedAt: Record<string, string>
 }
 
 /** #649 留在设备上的 key 搬上平台时带上:平台据此不覆盖已存着的、不推翻这个人断开过的。savedAt = null:不知道它是什么时候存的。 */
@@ -126,11 +123,8 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-/** 时间照平台给的原样留着(ISO);给的是毫秒数也认。 */
-function timestamp(value: unknown): string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString()
-  return text(value)
-}
+/** 时间照平台给的原样留着(ISO)。 */
+const timestamp = text
 
 function badResponse(what: string): CloudComputerError {
   return new CloudComputerError(200, 'bad_response', `cloud-computer ${what} returned an unexpected shape`)
@@ -144,30 +138,22 @@ export function parsePlatformIntegrations(value: unknown): PlatformIntegrationPr
     const row = entry as { provider?: unknown; accounts?: unknown } | null
     const provider = text(row?.provider)
     if (!provider || !Array.isArray(row?.accounts)) throw badResponse('/integrations')
-    const reportsDisconnections = row.accounts.some((raw: unknown) => raw !== null && typeof raw === 'object' && 'disconnectedAt' in raw)
     const disconnectedAt: Record<string, string> = {}
+    const accounts: PlatformIntegrationAccount[] = []
     for (const raw of row.accounts as unknown[]) {
       const account = raw as Record<string, unknown> | null
       const accountId = text(account?.accountId)
-      const at = timestamp(account?.disconnectedAt)
-      if (accountId && at) disconnectedAt[accountId] = at
+      const state = account?.state
+      if (!accountId || (state !== 'connected' && state !== 'reconnect' && state !== 'not_connected') || !account || !('disconnectedAt' in account)) {
+        throw badResponse('/integrations')
+      }
+      const at = timestamp(account.disconnectedAt)
+      if (at) disconnectedAt[accountId] = at
+      // 平台说这一行没存:就是没有这一行,❌ 当成「要重连」。
+      if (state === 'not_connected') continue
+      accounts.push({ accountId, connected: state === 'connected', state, updatedAt: timestamp(account.updatedAt), checkedAt: timestamp(account.checkedAt) })
     }
-    return {
-      provider,
-      disconnectedAt: reportsDisconnections ? disconnectedAt : null,
-      accounts: row.accounts.flatMap((raw: unknown): PlatformIntegrationAccount[] => {
-        const account = raw as Record<string, unknown> | null
-        const accountId = text(account?.accountId)
-        const state = text(account?.state)
-        if (!accountId || (state !== 'connected' && state !== 'reconnect' && state !== 'not_connected' && typeof account?.connected !== 'boolean')) {
-          throw badResponse('/integrations')
-        }
-        // 平台说这一行没存:就是没有这一行,❌ 当成「要重连」。
-        if (state === 'not_connected') return []
-        const connected = state === 'connected' || state === 'reconnect' ? state === 'connected' : account?.connected === true
-        return [{ accountId, connected, state: connected ? 'connected' : 'reconnect', updatedAt: timestamp(account?.updatedAt), checkedAt: timestamp(account?.checkedAt) }]
-      }),
-    }
+    return { provider, accounts, disconnectedAt }
   })
 }
 

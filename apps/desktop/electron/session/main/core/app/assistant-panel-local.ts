@@ -59,7 +59,7 @@ export const assistantPanelLocal = {
       return accounts.map(account => {
         const check = verified && verified.checkedAt >= account.updatedAt ? verified.checks.find(check => check.accountId === account.accountId) : undefined
         return {
-          ...(check ? { checkResult: check.connected ? 'ok' : check.errorType === 'authorization_expired' ? 'reauth' : 'failed',checkedAt: verified!.checkedAt } : {}),
+          ...(check ? { checkResult: check.connected ? 'ok' : check.errorType === 'authorization_expired' || check.errorType === 'key_rejected' ? 'reauth' : 'failed',checkedAt: verified!.checkedAt } : {}),
           providerId,accountId: account.accountId,configured: true,isDefault: account.isDefault,
           displayName: account.meta?.displayName ?? account.meta?.login,
           publicMetadata: { version: 1,providerId,accountId: account.accountId,isDefault: account.isDefault,

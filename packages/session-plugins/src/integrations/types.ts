@@ -35,4 +35,6 @@ export type IntegrationError =
   | { type: 'not_open'; message: string }
   /** #921 The platform did not answer in time (`408 request_timeout`): temporary, try again shortly. */
   | { type: 'timed_out'; message: string }
+  /** #921 a key this device kept from before was rejected on its way to the platform: enter it again. */
+  | { type: 'key_rejected'; message: string }
   | { type: 'generic'; message: string };

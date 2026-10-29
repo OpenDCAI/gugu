@@ -15,7 +15,7 @@ import type {
   ProviderAccountMetaInput,
   ProviderAccountRegistry,
 } from '@main/core/provider-accounts/provider-account-registry';
-import { PLATFORM_CREDENTIAL_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
+import { PLATFORM_CREDENTIAL_SOURCE, REJECTED_KEY_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
 import type { IntegrationEndpoint } from '../../../../integration-mcp-bridge';
 import { DEFAULT_INTEGRATION_ACCOUNT_ID } from './integration-credential-store';
 
@@ -98,6 +98,15 @@ const LIST_TIMEOUT_MS = 5_000;
 
 function keptByPlatform(account: ProviderAccount): boolean {
   return account.meta?.credentialSource === PLATFORM_CREDENTIAL_SOURCE;
+}
+
+/** #649 的 key 在搬上平台时被对方拒了:key 已删,这一行留着,好让连接页请他重新填。 */
+function keyRejected(account: ProviderAccount): boolean {
+  return account.meta?.credentialSource === REJECTED_KEY_SOURCE;
+}
+
+function keyRejectedCheck(name: string): { connected: false; error: string; errorType: IntegrationError['type'] } {
+  return { connected: false, error: `${name} rejected this key; enter it again.`, errorType: 'key_rejected' };
 }
 
 /** 这一行的 meta 去掉版本号、标成平台保管(显示名等原样留着)。 */
@@ -210,7 +219,7 @@ export class PlatformCredentialService {
     this.lastFailure = null;
     for (const provider of providers) {
       for (const row of await this.deps.accounts.listAccounts(provider.id)) {
-        if (keptByPlatform(row)) await this.deps.accounts.removeAccount(provider.id, row.accountId);
+        if (keptByPlatform(row) || keyRejected(row)) await this.deps.accounts.removeAccount(provider.id, row.accountId);
       }
     }
   }
@@ -315,8 +324,9 @@ export class PlatformCredentialService {
    * #649 留在本机加密库里的那份,作为搬迁传上平台;成功了才删本机的。这个人的明确操作压过它:
    *  · 平台已存着一份(连着的、要重连的都算)→ ❌ 覆盖,本机这份作废,照平台的显示;
    *  · 这个人断开过 → 本机这份作废,不传(#649 没记过它是什么时候存的,就当它早于那次断开);
-   *  · 平台在两步之间才知道的(409 already_connected / disconnected_after)→ 一样作废,❌ 再试。
-   * 老一点的平台不报断开(`disconnectedAt === null`)、也不认搬迁标记:只在它什么都没存时传,跟以前一样。
+   *  · 平台在两步之间才知道的(409 already_connected / disconnected_after)→ 一样作废,❌ 再试;
+   *  · 对方不认这把 key(422)/ 格式不对(400)→ 删掉、❌ 再试,连接页请他重新填。
+   * 只有网络不通、平台 5xx(以及超时、限流、登录这类与 key 无关的)才留着 key、过一阵再试。
    */
   private async moveLocalKeys(
     client: PlatformIntegrationsClient,
@@ -333,7 +343,7 @@ export class PlatformCredentialService {
         await this.keepOnPlatformOnly(provider.id, row);
         continue;
       }
-      if (listed?.disconnectedAt?.[row.accountId]) {
+      if (listed?.disconnectedAt[row.accountId]) {
         await this.dropDisconnected(provider.id, row);
         continue;
       }
@@ -353,6 +363,16 @@ export class PlatformCredentialService {
           await this.dropDisconnected(provider.id, row);
           continue;
         }
+        if (failure.status === 400 || failure.status === 422) {
+          this.migrationRetryAt.delete(provider.id);
+          await this.markKeyRejected(provider.id, row);
+          this.deps.log.warn('A credential saved on this device was rejected on its way to the Gugu platform; it was dropped', {
+            provider: provider.id,
+            code: failure.code,
+            status: failure.status,
+          });
+          continue;
+        }
         this.migrationRetryAt.set(provider.id, this.now() + MIGRATION_RETRY_MS);
         this.deps.log.warn('A credential saved on this device could not be moved to the Gugu platform yet; it stays here and is retried later', {
           provider: provider.id,
@@ -366,6 +386,13 @@ export class PlatformCredentialService {
       await this.keepOnPlatformOnly(provider.id, row);
       this.deps.log.info('A credential saved on this device moved to the Gugu platform', { provider: provider.id });
     }
+  }
+
+  /** 先标成「被拒了」,再删 key:哪一步失败,都不会留下一把还会被反复上传的 key 却没有标记。 */
+  private async markKeyRejected(providerId: string, row: ProviderAccount): Promise<void> {
+    const { version: _version, ...rest } = row.meta ?? { version: '1' as const };
+    await this.deps.accounts.upsertAccount({ providerId, accountId: row.accountId, meta: { ...rest, credentialSource: REJECTED_KEY_SOURCE } });
+    await this.deps.accounts.clearSecret(providerId, row.accountId);
   }
 
   /** 这个人断开过:本机这份 #649 的 key 连同这一行一起删掉(❌ 传上去把它连回来)。 */
@@ -411,7 +438,10 @@ export class PlatformCredentialService {
   private async mirror(providerId: string, accounts: Map<string, boolean>): Promise<void> {
     const rows = await this.deps.accounts.listAccounts(providerId);
     for (const accountId of accounts.keys()) {
-      if (rows.some((row) => row.accountId === accountId)) continue;
+      const row = rows.find((candidate) => candidate.accountId === accountId);
+      // 被拒的那一行:平台现在存着一份(别的设备连的)就以平台为准。
+      if (row && keyRejected(row)) await this.deps.accounts.upsertAccount({ providerId, accountId, meta: platformMeta(row) });
+      if (row) continue;
       await this.deps.accounts.upsertAccount({ providerId, accountId, meta: { credentialSource: PLATFORM_CREDENTIAL_SOURCE } });
     }
     for (const row of rows) {
@@ -431,12 +461,16 @@ export class PlatformCredentialService {
   /** 资源库 / 面板上的「连接状态」:现问平台。存着但对方不认了 = 要重连(❌ 说成登录问题)。 */
   async check(integrationId: string): Promise<PlatformConnectionCheck> {
     const answered = await this.refresh({ maxAgeMs: 0 });
-    if (!answered) return this.unansweredCheck(integrationId);
-    const accounts = this.snapshot?.get(integrationId);
+    const accounts = answered ? this.snapshot?.get(integrationId) : undefined;
     if (accounts && [...accounts.values()].some(Boolean)) return { connected: true };
     if (accounts && accounts.size > 0) {
       return { connected: false, errorType: 'authorization_expired', error: new PlatformCredentialRejectedError(integrationId).message };
     }
+    // 被拒的那把 key 是这台设备自己知道的事:问没问到平台都照说。
+    if ((await this.deps.accounts.listAccounts(integrationId)).some(keyRejected)) {
+      return keyRejectedCheck(this.provider(integrationId)?.name ?? integrationId);
+    }
+    if (!answered) return this.unansweredCheck(integrationId);
     return { connected: false };
   }
 
@@ -446,12 +480,13 @@ export class PlatformCredentialService {
     const answered = await this.refresh({ maxAgeMs: 0 });
     const known = this.snapshot?.get(integrationId);
     return (await this.deps.accounts.listAccounts(integrationId)).map((row) => {
-      if (!answered) return { accountId: row.accountId, ...this.unansweredCheck(integrationId) };
-      const connected = known?.get(row.accountId);
+      const connected = answered ? known?.get(row.accountId) : undefined;
       if (connected) return { accountId: row.accountId, connected: true };
       if (connected === false) {
         return { accountId: row.accountId, connected: false, errorType: 'authorization_expired', error: new PlatformCredentialRejectedError(integrationId).message };
       }
+      if (keyRejected(row)) return { accountId: row.accountId, ...keyRejectedCheck(this.provider(integrationId)?.name ?? integrationId) };
+      if (!answered) return { accountId: row.accountId, ...this.unansweredCheck(integrationId) };
       return { accountId: row.accountId, connected: false };
     });
   }
@@ -526,8 +561,8 @@ export class PlatformCredentialService {
         await this.client()?.deleteCredential(integrationId);
       } catch (error) {
         const failure = failureOf(error);
-        // 平台上没存着 / 没有这项服务 / 还没对他开放(平台上也就不可能替他存着):只剩本机的要删。
-        if (failure.code !== 'not_connected' && failure.code !== 'not_open' && !isPlatformServiceMissing(error)) {
+        // 没有这项服务 / 还没对他开放(平台上也就不可能替他存着):只剩本机的要删。
+        if (failure.code !== 'not_open' && !isPlatformServiceMissing(error)) {
           this.deps.log.warn('The Gugu platform did not remove the credential', { provider: integrationId, code: failure.code, status: failure.status });
           return { success: false, error: `Could not disconnect ${provider.name} on the Gugu platform: ${failure.message}` };
         }

@@ -1,5 +1,5 @@
 import type { IntegrationCredentials } from '@gugu/session-plugins/integrations';
-import { PLATFORM_CREDENTIAL_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
+import { PLATFORM_CREDENTIAL_SOURCE, REJECTED_KEY_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
 import type {
   ProviderAccount,
   ProviderAccountRegistry,
@@ -340,8 +340,9 @@ export class IntegrationCredentialStore {
   }
 }
 
+/** #921 rows with nothing behind their credentialRef by design: the platform keeps it, or the key was rejected. */
 function keptByPlatform(account: ProviderAccount): boolean {
-  return account.meta?.credentialSource === PLATFORM_CREDENTIAL_SOURCE;
+  return account.meta?.credentialSource === PLATFORM_CREDENTIAL_SOURCE || account.meta?.credentialSource === REJECTED_KEY_SOURCE;
 }
 
 function toIntegrationAccount(
