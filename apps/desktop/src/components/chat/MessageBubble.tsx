@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
-import { Avatar } from '../Avatar'
+import { Avatar } from '../Avatar'; import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -241,7 +241,7 @@ export const MessageBubble = memo(function MessageBubble({
   const { toast } = useToast()
   const handleCopyText = async (content = msg.content ?? '') => {
     try {
-      await navigator.clipboard.writeText(content)
+      await (platform.kind === 'capacitor' ? platform.writeClipboardText(content) : navigator.clipboard.writeText(content))
       toast(t('message.copied'), 'success')
     } catch (error) {
       toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
