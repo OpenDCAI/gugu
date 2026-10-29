@@ -169,6 +169,8 @@ export interface AppPlatform {
    * 可选:只有带本机设备 runtime 的宿主(Electron)有这个口;网页与移动端没有可通知的对象。
    */
   notifyDeviceCommandsChanged?: () => void
+  /** 渲染层建 / 改 / 删了定时任务:本机设备 runtime 当场重排(表上没有事件)。只有 Electron 有。 */
+  notifyScheduledTasksChanged?: () => void
   /**
    * #6396 本账号的 agent 有变动(另一台设备建了 / 改名 / 删了)—— 告诉本机会话页起名那一层当场刷新「用到几号」。
    * 可选:只有在本机起会话页会话的宿主(Electron)有这个口。

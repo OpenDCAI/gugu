@@ -12,14 +12,23 @@ import { assistantWorkDeliveryTarget } from '@gugu/core/cloud/assistantWorkRouti
 
 export type AssistantWorkHostContext = AssistantWorkOutboxContext & { client: AssistantWorkRpcClient }
 
+/** While the account's work channel is subscribed, heartbeat claims are only a safety net: once per this interval. */
+export const ASSISTANT_WORK_SAFETY_INTERVAL_MS = 5 * 60_000
+/** A retry is claimed this long after its backoff ends: the server's clock decides available_at. */
+const RETRY_SLACK_MS = 1000
+
 /** The host owns only transport. Task creation/terminal commits are installed by the ledger bridge. */
 export function createAssistantWorkOutboxHost(deps: {
   context(): Promise<AssistantWorkHostContext | null>
   deliverLocal(event: AssistantWorkDeliveryEvent, signal?: AbortSignal): Promise<{ admitted: boolean; messageId: string; receipt?: Record<string, unknown> }>
   prepareRemote(deviceId: string, signal: AbortSignal): Promise<void>
   requestRemote(deviceId: string, type: string, payload: unknown, signal: AbortSignal): Promise<DeviceRpcResponse<unknown>>
-  subscribe(ownerId: string, changed: () => void): Promise<() => void>
+  /** `live(false)` when the channel drops (it reconnects by itself), `live(true)` when it is subscribed again. */
+  subscribe(ownerId: string, changed: () => void, live: (up: boolean) => void): Promise<() => void>
   afterDrain?: () => Promise<void>
+  /** Whether the account has an assistant to work for. Heartbeat ticks claim only then; event kicks always claim. */
+  active?(): Promise<boolean>
+  safetyIntervalMs?: number
   warn(detail: { code: string; messageId?: string }): void
   unavailable?(context: AssistantWorkOutboxContext, failure: {code: string; day: string}, signal: AbortSignal): Promise<void>
 }) {
@@ -27,6 +36,21 @@ export function createAssistantWorkOutboxHost(deps: {
   let unsubscribe: (() => void) | null = null
   let subscribeFlight: Promise<void> | null = null
   let stopped = false
+  let live = false
+  let lastSafetyAt: number | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let retryAt = Infinity
+  // A failed delivery / notice goes back with a backoff that no event announces: claim it when it is due, not at the
+  // next safety claim (the retry delay stays what the server set). One timer, at the earliest due time.
+  let kick = (): void => {}
+  const kickAfter = (ms: number) => {
+    if (stopped) return
+    const at = Date.now() + Math.max(0, ms) + RETRY_SLACK_MS
+    if (retryTimer && retryAt <= at) return
+    if (retryTimer) clearTimeout(retryTimer)
+    retryAt = at
+    retryTimer = setTimeout(() => { retryTimer = null; retryAt = Infinity; kick() }, at - Date.now())
+  }
   const rpc = async (name: string, args: Record<string, unknown>, claimed: AssistantWorkOutboxContext) => {
     const current = await deps.context()
     if (!current || current.ownerId !== claimed.ownerId || current.runtimeInstanceId !== claimed.runtimeInstanceId) {
@@ -57,7 +81,7 @@ export function createAssistantWorkOutboxHost(deps: {
     deliver: deps.deliverLocal,
   })
   const pump = createAssistantWorkOutboxPump({
-    context: deps.context, rpc, warn: deps.warn, unavailable: deps.unavailable,
+    context: deps.context, rpc, warn: deps.warn, unavailable: deps.unavailable, retryIn: kickAfter,
     deliver: async (event, signal): Promise<AssistantWorkAdmission> => {
       const current = await deps.context()
       if (!current || !event.assistant_user_id) throw Object.assign(new Error('Outbox context unavailable'), { code: 'OUTBOX_CONTEXT_UNAVAILABLE' })
@@ -81,16 +105,18 @@ export function createAssistantWorkOutboxHost(deps: {
     const current = await deps.context()
     if (stopped || !current || subscriptionOwner === current.ownerId) return
     if (subscribeFlight) return subscribeFlight
-    unsubscribe?.(); unsubscribe = null
+    unsubscribe?.(); unsubscribe = null; live = false
     const owner = current.ownerId
-    subscribeFlight = deps.subscribe(owner, () => { void pump.kick() }).then(off => {
+    subscribeFlight = deps.subscribe(owner, () => { void pump.kick() }, up => { live = up }).then(off => {
       if (stopped) { off(); return }
       unsubscribe = off; subscriptionOwner = owner
     }).finally(() => { subscribeFlight = null })
     await subscribeFlight
   }
-  return {
+  const host = {
     context: deps.context,
+    /** Claim again in `ms`: a notice's backoff, set by its claim (the outbox pump reports its own). */
+    kickAfter,
     async kick(): Promise<void> {
       if (stopped) return
       try {
@@ -98,6 +124,28 @@ export function createAssistantWorkOutboxHost(deps: {
         await pump.kick(); await deps.afterDrain?.()
       }
       catch { deps.warn({ code: 'WORK_OUTBOX_UNAVAILABLE' }) }
+    },
+    /**
+     * Heartbeat: an account with no assistant has nothing to claim (every work row names its assistant), so its idle
+     * runtime does not poll the outbox / notice claims. New work still lands: each work event broadcasts
+     * assistant_work_changed, and the subscription kept here claims it at once; the tick after an assistant appears
+     * claims again. A failing check claims as before.
+     */
+    async tick(): Promise<void> {
+      if (stopped) return
+      if (deps.active && !(await deps.active().catch(() => true))) {
+        void ensureSubscription().catch(() => deps.warn({code:'WORK_EVENTS_UNAVAILABLE'}))
+        return
+      }
+      // Subscribed: every new work event is broadcast and claimed at once, retries have their own timer, so the
+      // heartbeat claim is a safety net. Dropped (or never subscribed): every heartbeat claims, as before.
+      const at = Date.now()
+      if (live && lastSafetyAt !== null && at - lastSafetyAt < (deps.safetyIntervalMs ?? ASSISTANT_WORK_SAFETY_INTERVAL_MS)) {
+        void ensureSubscription().catch(() => deps.warn({code:'WORK_EVENTS_UNAVAILABLE'}))
+        return
+      }
+      lastSafetyAt = at
+      await this.kick()
     },
     rpcHandlers(): DeviceRpcHandlers {
       return { 'assistantWork.reconcile': async (_payload, ctx) => {
@@ -113,8 +161,10 @@ export function createAssistantWorkOutboxHost(deps: {
         }
       } }
     },
-    stop(): void { stopped = true; unsubscribe?.(); unsubscribe = null; pump.stop() },
+    stop(): void { stopped = true; unsubscribe?.(); unsubscribe = null; if (retryTimer) clearTimeout(retryTimer); retryTimer = null; pump.stop() },
   }
+  kick = () => { void host.kick() }
+  return host
 }
 
 export type AssistantWorkOutboxHost = ReturnType<typeof createAssistantWorkOutboxHost>

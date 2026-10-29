@@ -201,6 +201,7 @@ import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unif
 import {createDesktopAssistantWorkHistory} from './assistant-work-history'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
 import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isSubscribeFailure, subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol'
 import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
 import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
@@ -1704,6 +1705,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if(response.error) throw response.error
     },
     warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
+    retryIn: ms => assistantWorkOutbox?.kickAfter(ms),
 
   })
   const host = createAssistantWorkOutboxHost({
@@ -1731,6 +1733,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         return data?.id === post.messageId
       },
     }),
+    active: async () => {
+      const current = await context()
+      return !current || !!(await resolveAssistant(current))
+    },
     afterDrain: async () => {
       void history.kick()
       await reconciler.kick()
@@ -1758,14 +1764,19 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
       return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
     },
-    subscribe: async (ownerId, changed) => {
+    subscribe: async (ownerId, changed, live) => {
       const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
         .on('broadcast', { event: 'assistant_work_changed' }, changed)
       const off = await subscribeAuthenticatedElectronRealtimeChannel({
         realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
       }, createChannel(), {
         label: `assistant-work:${ownerId}`, createChannel,
-        onStatus: status => { if (String(status).endsWith('SUBSCRIBED')) changed() },
+        onStatus: status => {
+          if (subscribeStatusName(status).endsWith('SUBSCRIBED')) { live(true); changed() }
+          else if (isSubscribeFailure(status)) live(false)
+        },
+        // Like the command wake: a dropped channel reconnects by itself; until then every heartbeat claims.
+        reconnectOnStatus: status => isSubscribeFailure(status),
       })
       return () => { void off() }
     },
@@ -2025,7 +2036,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -2510,6 +2521,10 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
 // 广播只挂在 INSERT 上 ⇒ 没有任何事件会叫醒宿主;由发起方在这里说一声。
 ipcMain.on('device-runtime:commands-changed', () => {
   deviceRuntimeHost?.notifyCommandsChanged()
+})
+// 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
+ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
+  deviceRuntimeHost?.notifyScheduledTasksChanged()
 })
 // #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
