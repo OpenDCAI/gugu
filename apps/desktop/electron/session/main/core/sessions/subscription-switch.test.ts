@@ -88,6 +88,52 @@ it('says which provider and how many sessions are working, so the UI can word it
   });
 });
 
+// 10-30:重启后 9 个欠着消息的 Codex 会话同时冷启动 7 分钟,这期间切换一律被拒。停掉起到一半的会话不丢任何一轮。
+it('does not count sessions that are only starting or replaying as working, and stops them with the rest', async () => {
+  summary('starting', { lifecycle: 'starting' });
+  summary('replaying', { lifecycle: 'replaying' });
+  summary('idle');
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:starting', 'stop:replaying', 'stop:idle', 'select:codex:work', 'reclaimed:starting', 'reclaimed:replaying', 'reclaimed:idle']);
+});
+
+it('still counts a turn that is running or being cancelled', async () => {
+  summary('working', { lifecycle: 'working' });
+  summary('cancelling', { lifecycle: 'cancelling' });
+  await expect(switchSubscription('codex', 'work', {})).rejects.toMatchObject({ count: 2 });
+  expect(mocks.calls).toEqual([]);
+});
+
+// 用户看过「有会话正在工作」仍要切(额度用完时手上的回合本来也跑不下去):正在工作的也一起关掉，照切。
+it('closes working sessions too when the user chose to close them and switch', async () => {
+  summary('busy', { isGenerating: true });
+  summary('idle');
+  await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
+  expect(mocks.calls).toEqual(['stop:busy', 'stop:idle', 'select:codex:work', 'reclaimed:busy', 'reclaimed:idle']);
+});
+
+it('waits out a process that is still exiting instead of failing the switch', async () => {
+  summary('slow', { isGenerating: true });
+  const { stopExactSessionpageSession } = await import('./session-orchestration');
+  vi.mocked(stopExactSessionpageSession).mockClear();
+  const pending = () => Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
+  vi.mocked(stopExactSessionpageSession).mockRejectedValueOnce(pending()).mockRejectedValueOnce(pending());
+  await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
+  expect(mocks.calls).toEqual(['stop:slow', 'select:codex:work', 'reclaimed:slow']);
+  expect(vi.mocked(stopExactSessionpageSession)).toHaveBeenCalledTimes(3);
+});
+
+it('gives up and keeps the old subscription when a process never exits', async () => {
+  summary('stuck');
+  const { stopExactSessionpageSession } = await import('./session-orchestration');
+  vi.mocked(stopExactSessionpageSession).mockClear();
+  const pending = Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
+  vi.mocked(stopExactSessionpageSession).mockRejectedValueOnce(pending).mockRejectedValueOnce(pending).mockRejectedValueOnce(pending);
+  await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('stop_pending');
+  expect(vi.mocked(stopExactSessionpageSession)).toHaveBeenCalledTimes(3);
+  expect(mocks.calls).toEqual([]);
+});
+
 it('keeps every other connection failure a plain message', () => {
   expect(connectionFailure(new Error('login missing'))).toEqual({ type: 'invalid-state', message: 'login missing' });
   expect(connectionFailure('boom')).toEqual({ type: 'invalid-state', message: 'boom' });

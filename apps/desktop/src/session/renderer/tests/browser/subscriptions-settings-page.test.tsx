@@ -50,6 +50,8 @@ const control = vi.hoisted(() => ({
   rejectSelect: false,
   selectMessage: 'Switch failed',
   selectBusy: null as { providerId: string; count: number } | null,
+  stopBusySessions: [] as boolean[],
+  usageByConnection: {} as Record<string, { windowMinutes: number; usedPercent: number }[]>,
   connectionsError: false,
 }));
 
@@ -84,8 +86,10 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
       control.connections.push(connection);
       return { success: true, data: connection };
     },
-    selectConnection: async ({ connectionId }: { connectionId: string }) => {
-      if (control.rejectSelect) {
+    selectConnection: async ({ connectionId, stopBusySessions }: { connectionId: string; stopBusySessions?: boolean }) => {
+      control.stopBusySessions.push(stopBusySessions === true);
+      // 「关掉并切换」= 正在工作的也关掉:宿主不再拒。
+      if (control.rejectSelect && !(stopBusySessions && control.selectBusy)) {
         return { success: false, error: { type: 'invalid-state', message: control.selectMessage, ...(control.selectBusy ? { sessionsBusy: control.selectBusy } : {}) } };
       }
       control.selected = connectionId;
@@ -96,13 +100,13 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
       if (control.hold) await control.hold;
       return { success: true, data: { payer: 'subscription', plan: 'Claude Max 20x' } };
     },
-    readSubscriptionUsage: async () => ({
+    readSubscriptionUsage: async ({ connectionId }: { connectionId?: string }) => ({
       success: true,
       data: {
         kind: 'windows',
         onDemand: true,
         readAt: Date.now(),
-        windows: [
+        windows: connectionId && control.usageByConnection[connectionId] ? control.usageByConnection[connectionId] : [
           { windowMinutes: 300, usedPercent: 18, resetsAt: Date.now() + 3_600_000 },
           { windowMinutes: 10_080, group: 'Fable', usedPercent: 92 },
         ],
@@ -128,6 +132,8 @@ beforeEach(() => {
   control.rejectSelect = false;
   control.selectMessage = 'Switch failed';
   control.selectBusy = null;
+  control.stopBusySessions = [];
+  control.usageByConnection = {};
   control.connectionsError = false;
   control.connections = [{ id: 'native', kind: 'native', name: '', current: true }];
   host = document.createElement('div');
@@ -309,9 +315,9 @@ it('a long switch refusal is shown under the row heading and does not squeeze th
 // 2026-10-23 owner:「提示更温柔一点,不要飘红,language 也变一下」。因有会话正在工作而没切,不是出错:
 // 主进程把「哪一家、几个」随错误带来,界面按自己的语言用安静的字色说;不认得这个字段的旧主进程走上面那条(红、原文)。
 it.each([
-  ['en-US' as const, 6, /^6 Codex sessions are still working\. Switch once they finish/],
-  ['en-US' as const, 1, /^1 Codex session is still working\. Switch once it finishes/],
-  ['zh-CN' as const, 6, /^还有 6 个 Codex 会话正在工作，等它们完成后再切换吧/],
+  ['en-US' as const, 6, /^6 Codex sessions are still working\. Switching now interrupts them/],
+  ['en-US' as const, 1, /^1 Codex session is still working\. Switching now interrupts it/],
+  ['zh-CN' as const, 6, /^还有 6 个 Codex 会话正在工作，现在切换会中断它们/],
 ])('a refusal because sessions are working is a calm note in the UI language (%s, %i)', async (language, count, expected) => {
   setLocalePreference(language);
   control.codex = true;
@@ -353,6 +359,78 @@ it.each([
   (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
   await until('the note is gone once a switch goes through', () => row.querySelector('.subscription-note') === null);
   expect(control.selected).toBe('saved-api');
+  expect(thrown).toEqual([]);
+});
+
+// 10-30 owner:「要求会话停了才能切，又不给一个百分百成功的一键暂停，我想切额度都切不了」。
+// 被拒之后一键关掉正在工作的会话、接着切到刚才选的那个号;关不关由人定,❌ 让人自己去找会话一个个停。
+it('a refusal offers one click that closes the working sessions and switches to the chosen connection', async () => {
+  setLocalePreference('zh-CN');
+  control.codex = true;
+  control.rejectSelect = true;
+  control.selectBusy = { providerId: 'codex', count: 9 };
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  host.style.width = '720px';
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the refusal offers to close and switch', () => row.querySelector('[data-testid="subscription-close-and-switch"]') !== null);
+  const closeAndSwitch = row.querySelector('[data-testid="subscription-close-and-switch"]') as HTMLButtonElement;
+  expect(closeAndSwitch.textContent).toBe('关掉并切换');
+  expect(control.stopBusySessions).toEqual([false]);
+  expect(control.connections.find(c => c.current)?.id).toBe('native');
+
+  closeAndSwitch.click();
+  await until('the switch goes through', () => control.selected === 'saved-api');
+  expect(control.stopBusySessions).toEqual([false, true]);
+  await until('the refusal is gone', () => row.querySelector('.subscription-note') === null && row.querySelector('[data-testid="subscription-close-and-switch"]') === null);
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  expect(thrown).toEqual([]);
+});
+
+it('a real failure is red and offers no close-and-switch', async () => {
+  control.codex = true;
+  control.rejectSelect = true;
+  control.selectMessage = 'Sign in before using this connection';
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the failure is displayed', () => row.querySelector('[role="alert"]') !== null);
+  expect(row.querySelector('[data-testid="subscription-close-and-switch"]')).toBeNull();
+});
+
+// 10-30 owner:「现在只有换号了才知道另一个号的额度，不换号我也想知道其他号的额度」。
+it('the switch menu shows how much each account has left without switching to it', async () => {
+  setLocalePreference('zh-CN');
+  control.codex = true;
+  control.connections = [
+    { id: 'native', kind: 'native', name: '', current: true },
+    { id: 'second', kind: 'account', name: 'Second account', current: false },
+  ];
+  control.usageByConnection = {
+    native: [{ windowMinutes: 10_080, usedPercent: 100 }],
+    second: [{ windowMinutes: 300, usedPercent: 10 }, { windowMinutes: 10_080, usedPercent: 35 }],
+  };
+  host.style.width = '720px';
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the other account shows its quota', () => layer.querySelector('[data-testid="connection-quota-second"]') !== null);
+  const second = layer.querySelector('[data-testid="connection-quota-second"]') as HTMLElement;
+  expect(second.textContent).toBe('5 小时剩余 90% · 每周剩余 65%');
+  expect(second.hasAttribute('data-warning')).toBe(false);
+  await until('the current account shows its quota', () => layer.querySelector('[data-testid="connection-quota-native"]') !== null);
+  const current = layer.querySelector('[data-testid="connection-quota-native"]') as HTMLElement;
+  expect(current.textContent).toBe('每周剩余 0%');
+  expect(current.hasAttribute('data-warning')).toBe(true);
+  expect(control.selected).toBe('');
   expect(thrown).toEqual([]);
 });
 

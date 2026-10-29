@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, MoreHorizontal, Plus } from '@/lib/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -18,7 +18,9 @@ import { useLibraryHost } from '@renderer/features/library/library-host';
 import { forceRefreshHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
 import { harnessModelCredentialKey } from '@renderer/lib/stores/use-harness-model-credential';
 import { resolveSignInMethod } from '../agents-page/agent-account';
-import { ConnectionActionError, errorText, sessionsBusyOf, subscriptionKey } from './subscription-queries';
+import type { SubscriptionUsageWindow } from '@gugu/session-core/agents/plugins';
+import { ConnectionActionError, errorText, readUsage, sessionsBusyOf, SUBSCRIPTION_STALE_MS, subscriptionKey } from './subscription-queries';
+import { NEARLY_USED_PERCENT, windowLabel } from './subscription-view';
 
 function connectionsKey(machine: string | null, providerId: string) {
   return ['subscriptions', machine ?? 'local', providerId, 'connections'];
@@ -38,8 +40,11 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
   });
 }
 
-/** 切换没成时给行摆的一句话。`gentle`=被拒而不是出错(有会话正在工作),不飘红。 */
-export type SwitchNotice = { tone: 'gentle' | 'error'; text: string };
+/**
+ * 切换没成时给行摆的一句话。`gentle`=被拒而不是出错(有会话正在工作),不飘红。
+ * `closeAndSwitch`:被拒时的出路 —— 一键把正在工作的会话也关掉、接着切(额度用完时它们本来也跑不下去)。
+ */
+export type SwitchNotice = { tone: 'gentle' | 'error'; text: string; closeAndSwitch?: () => void };
 
 /** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
 export function SubscriptionConnections({ agent, machine, onError }: {
@@ -61,7 +66,7 @@ export function SubscriptionConnections({ agent, machine, onError }: {
     void queryClient.invalidateQueries({ queryKey: harnessModelCredentialKey(agent.id) });
   };
   const action = useMutation({
-    mutationFn: async ({ kind, id }: { kind: 'select' | 'remove' | 'refresh'; id: string }) => {
+    mutationFn: async ({ kind, id, stopBusySessions }: { kind: 'select' | 'remove' | 'refresh'; id: string; stopBusySessions?: true }) => {
       if (agent.id !== 'claude' && agent.id !== 'codex') throw new Error('Unsupported harness');
       const client = await getAgentConfigRuntimeClient(machine);
       if (kind === 'refresh') {
@@ -69,7 +74,9 @@ export function SubscriptionConnections({ agent, machine, onError }: {
         if (!reading.success) throw new Error(errorText(reading.error));
       } else {
         const input: { providerId: 'claude' | 'codex'; connectionId: string } = { providerId: agent.id, connectionId: id };
-        const result = kind === 'select' ? await client.selectConnection(input) : await client.removeConnection(input);
+        const result = kind === 'select'
+          ? await client.selectConnection(stopBusySessions ? { ...input, stopBusySessions } : input)
+          : await client.removeConnection(input);
         if (!result.success) throw new ConnectionActionError(result.error);
       }
       // Commit the connection first. Model refresh failure must not disguise a successful switch.
@@ -86,7 +93,15 @@ export function SubscriptionConnections({ agent, machine, onError }: {
     ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
     : action.error ? errorText(action.error) : null;
   const tone = busy ? 'gentle' : 'error';
-  useEffect(() => { onError?.(failure === null ? null : { tone, text: failure }); }, [failure, tone, onError]);
+  // 被拒的那次切的是哪个连接:「关掉并切换」原样再切一次。
+  const refusedId = busy && action.variables?.kind === 'select' ? action.variables.id : null;
+  const { mutate } = action;
+  const closeAndSwitch = useCallback(() => {
+    if (refusedId) mutate({ kind: 'select', id: refusedId, stopBusySessions: true });
+  }, [refusedId, mutate]);
+  useEffect(() => {
+    onError?.(failure === null ? null : { tone, text: failure, ...(refusedId ? { closeAndSwitch } : {}) });
+  }, [failure, tone, refusedId, closeAndSwitch, onError]);
   const signIn = (connectionId: string) => {
     if (!method || !canSignIn) return;
     setOpen(false);
@@ -153,6 +168,15 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
     },
     staleTime: 30_000, retry: false,
   });
+  // 不切过去也看得到这个号还剩多少(10-30 owner):按连接读，与「订阅」行同一把键、同一份读数。
+  const usage = useQuery({
+    queryKey: subscriptionKey(machine, agent.id, 'usage', connection.id),
+    queryFn: () => readUsage(machine, agent.id, false, connection.id),
+    staleTime: SUBSCRIPTION_STALE_MS, retry: false,
+    enabled: connection.kind !== 'api-key',
+  });
+  const quota = usage.data?.kind === 'windows' ? remainingLine(usage.data.windows, translate) : null;
+  const nearlyUsed = usage.data?.kind === 'windows' && usage.data.windows.some((window) => window.usedPercent >= NEARLY_USED_PERCENT);
   const status = details.data?.status;
   const name = connection.kind === 'native' ? translate('subscriptions.connections.existing') : connection.name;
   const description = status?.kind === 'authenticated' && status.account ? status.account
@@ -166,6 +190,7 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
         className="subscription-connection-choice">
         <span><span className="subscription-connection-name">{name}{details.data?.plan?.plan && <span className="subscription-plan-badge">{details.data.plan.plan}</span>}</span>
           <span className="subscription-connection-description block">{description}</span>
+          {quota && <span className="subscription-connection-quota block" data-testid={`connection-quota-${connection.id}`} data-warning={nearlyUsed || undefined}>{quota}</span>}
           {details.error && <span className="subscription-error block">{errorText(details.error)}</span>}
         </span>
       </DropdownMenuRadioItem>
@@ -177,6 +202,14 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
       </DropdownMenuSub>}
     </div>
   );
+}
+
+/** 「5 小时剩余 29% · 每周剩余 50%」—— 与「订阅」行的额度条同一种算法，只是压成一行。 */
+function remainingLine(windows: readonly SubscriptionUsageWindow[], translate: ReturnType<typeof useSessionMessages>['translate']): string {
+  const percent = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+  return windows
+    .map((window) => `${translate('subscriptions.remaining', { window: windowLabel(window, translate) })} ${percent.format(100 - Math.min(100, Math.max(0, window.usedPercent)))}%`)
+    .join(' · ');
 }
 
 function ConnectionForm({

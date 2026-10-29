@@ -173,11 +173,20 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
   );
 }
 
-/** 被拒(有会话正在工作)是平常事,用安静的字色说;真出错才红。 */
+/** 被拒(有会话正在工作)是平常事,用安静的字色说,旁边给一键「关掉并切换」;真出错才红。 */
 function SwitchNoticeLine({ notice }: { notice: SwitchNotice }) {
-  return notice.tone === 'gentle'
-    ? <p className="subscription-note" role="status">{notice.text}</p>
-    : <p className="subscription-error" role="alert">{notice.text}</p>;
+  const { translate } = useSessionMessages();
+  if (notice.tone !== 'gentle') return <p className="subscription-error" role="alert">{notice.text}</p>;
+  return (
+    <div className="subscription-switch-refusal">
+      <p className="subscription-note" role="status">{notice.text}</p>
+      {notice.closeAndSwitch && (
+        <Button variant="outline" size="sm" data-testid="subscription-close-and-switch" onClick={notice.closeAndSwitch}>
+          {translate('subscriptions.connections.closeAndSwitch')}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function UsageBlock({
