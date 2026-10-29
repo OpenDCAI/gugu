@@ -174,6 +174,7 @@ export const exportAcpTranscriptCommandSchema = z.object({ sessionId: z.string()
 export const exportRawAcpLogCommandSchema = exportAcpTranscriptCommandSchema;
 
 export const uploadAttachmentCommandSchema = z.object({
+  uploadId: z.uuid().optional(),
   originalPath: z.string().optional(),
 });
 export const uploadAttachmentResponseSchema = attachmentRefSchema;

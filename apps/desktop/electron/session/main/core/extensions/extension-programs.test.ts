@@ -171,8 +171,12 @@ describe('extension programs run by gugu (#6615)', () => {
     }
   });
 
-  it('revocation closes program authority before its transport finishes stopping', async () => {
-    const closeSurface = vi.fn();
+  it.each([
+    ['revocation', revokeExtensionPrograms, false], ['retirement/upgrade', retireExtensionPrograms, false],
+    ['retirement after the last running call', retireExtensionPrograms, true],
+  ] as const)('%s awaits surface cleanup before stopping the transport', async (_name, terminate, busy) => {
+    const cleanup = Promise.withResolvers<void>();
+    const closeSurface = vi.fn(() => cleanup.promise);
     const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockReturnValue({
       pageId: -1, hand: () => async () => {}, openFiles: () => 0, close: closeSurface,
     });
@@ -182,14 +186,30 @@ describe('extension programs run by gugu (#6615)', () => {
       await resume.promise;
       await realClose.call(this);
     });
-    const target = { ...program('authority-close', 'v1'), onGuguNode: true as const };
+    const release = path.join(fs.mkdtempSync(path.join(dir, 'retire-')), 'release');
+    const target = { ...program('authority-close', 'v1', busy ? 'held' : '', release), onGuguNode: true as const };
     try {
       await whoami(target, 'user:a');
-      const stopped = revokeExtensionPrograms(target.extensionId);
+      let inFlight: Promise<unknown> | undefined;
+      if (busy) {
+        const holding = new Promise<void>(resolve => {
+          const off = onExtensionProgramNotification(id => { if (id === target.extensionId) { off(); resolve(); } });
+        });
+        inFlight = whoami(target, 'user:b'); await holding;
+      }
+      const stopped = terminate(target.extensionId);
+      if (busy) {
+        expect(closeSurface).not.toHaveBeenCalled();
+        fs.writeFileSync(release, ''); await inFlight;
+      }
       expect(closeSurface).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+      cleanup.resolve();
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
       resume.resolve();
       await stopped;
     } finally {
+      cleanup.resolve();
       resume.resolve();
       await stopAllExtensionPrograms();
       close.mockRestore();
@@ -625,16 +645,32 @@ describe("an extension's own pages call its programs (#6635)", () => {
     const seen = JSON.parse((result.content[0] as { text: string }).text);
     expect(seen.pid).toBe(agent.pid);
     // The page's own: never an agent id, and no session of it either (an App names agents by user:<uuid>).
-    expect(seen.meta).toEqual({ 'gugu/caller': 'app', 'gugu/sessionId': 'task-1' });
+    expect(seen.meta).toEqual({ 'gugu/caller': 'app', 'gugu/sessionId': 'task-1', 'gugu/call': expect.any(String) });
     expect(seen.args).toEqual({ _meta: { 'gugu/agent': 'user:forged' } });
   }, 30_000);
+
+  it('hands a person page call a task binding without assigning it agent membership', async () => {
+    extensionPrograms.setSource(() => [{ ...page, onGuguNode: true }]);
+    const original = programSurfaces.attachProgramSurface;
+    const handed = vi.fn();
+    const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockImplementation((...args) => {
+      const surface = original(...args);
+      const hand = surface.hand.bind(surface);
+      surface.hand = (...input) => { handed(...input); return hand(...input); };
+      return surface;
+    });
+    try {
+      await fromPage('whoami');
+      expect(handed).toHaveBeenCalledWith(expect.any(String), null, [], [], 'task-1', 'person');
+    } finally { attached.mockRestore(); }
+  });
 
   // owner 10-16: a page's program may run on another machine than the page; it is told its session's working copy where
   // it runs, as an agent's call is. Mutation: a page stamp without `gugu/workspaceRoot` fails here.
   it("tells the program the page's session and its working copy on this machine", async () => {
     const result = await extensionPrograms.callFromPage('page-ext', { name: 'whoami', from: { sessionId: 'task-f' } });
     expect(JSON.parse((result.content[0] as { text: string }).text).meta).toEqual({
-      'gugu/caller': 'app', 'gugu/sessionId': 'task-f', 'gugu/workspaceRoot': '/work/f',
+      'gugu/caller': 'app', 'gugu/sessionId': 'task-f', 'gugu/workspaceRoot': '/work/f', 'gugu/call': expect.any(String),
     });
   }, 30_000);
 

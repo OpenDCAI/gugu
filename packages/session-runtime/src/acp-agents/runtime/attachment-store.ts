@@ -7,6 +7,7 @@ export interface StoredAttachment {
 
 export interface AttachmentStore {
   put(input: {
+    uploadId?: string;
     data?: Uint8Array;
     name?: string;
     mimeType: AttachmentMimeType;
