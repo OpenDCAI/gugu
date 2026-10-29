@@ -812,6 +812,13 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "pins": {
+      "pin": "Pin {{name}} to group",
+      "unpin": "Unpin {{name}}",
+      "emptyHint": "Choose “Open topic” on any message.",
+      "loadFailed": "Could not load pinned topics.",
+      "saveFailed": "Could not save pinned topics."
+    },
     "phoneTabs": {
       "group": "Group",
       "label": "Group and topics"
