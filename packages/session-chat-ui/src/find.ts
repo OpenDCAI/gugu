@@ -209,7 +209,7 @@ export function createChatFind(deps: {
     const { committedTurns, activeTurnSnapshot: live } = state.transcript.state;
     const ctx = (active: boolean) => ({ ...segmentCtxFor(deps.context, state, caches, active), revealAllFolds: true });
     const head = flattenTier(committedTurns, ctx(false), SEGMENTERS, UNIT_REGISTRY);
-    const dayKey = trailingDayKey(committedTurns);
+    const dayKey = trailingDayKey(committedTurns, undefined, ctx(false).latestTurnId);
     const tail = live ? flattenTier([live], ctx(true), SEGMENTERS, UNIT_REGISTRY, head.at(-1)?.kind, dayKey) : [];
     const units = [...head, ...tail];
     const needle = query.toLowerCase();

@@ -114,6 +114,10 @@
     "how": "subject-scoped",
     "why": "Pending requests belong to this viewport and carry their chatId; the returned pending flag checks the current chat before the effect clears a previous target."
   },
+  "apps/desktop/src/hooks/useMessageQuote.ts::useMessageQuote": {
+    "how": "subject-scoped",
+    "why": "引用与 chatId 一起存储；渲染时只返回当前聊天的引用。切线后的显式清空即使当前读数已是空，也清除旧主体存储；选区取消只接受该引用自己的 selectionId。"
+  },
   "apps/desktop/src/hooks/useAgentDmSession.ts::useAgentDmSession": {
     "how": "derived",
     "why": "Its only own state is a retry counter; which session the agent DM draws is computed on the spot from useSessionpageAgentProjection (subject-scoped, answers \"not yet known\" for another agent), the session directory row and the device list, all read for the current agentUserId."
