@@ -338,14 +338,14 @@ describe('ChatView.setModel', () => {
 
 
 it('stops a pinned instruction before an independently sent reply at the unread anchor', async () => {
-  const ctx = createChatContext({ layout: { agentConversation: true, preset: 'double' } });
+  const ctx = createChatContext({ layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
   const state = createChatState(ctx);
   const sent = Array.from({ length: 10 }, (_, i): ChatMessage => ({
     kind: 'message', id: `call${i}:sent:message${i}`, seq: i + 1, role: 'assistant', text: `H${i + 1}`,
   }));
   state.transcript.history.seed([{
     id: 'new-private-chat', seq: 0, initiator: 'user',
-    items: [{ kind: 'message', id: 'instruction', seq: 0, role: 'user', text: '请连续发送十条独立消息,从 H1 到 H10。' }, ...sent],
+    items: [{ kind: 'message', id: 'instruction', seq: 0, role: 'user', text: '请连续发送十条独立消息,从 H1 到 H10。' }, ...sent] as TranscriptTurn['items'],
     outcome: { kind: 'done', reason: 'end_turn' },
   }]);
   const host = document.body.appendChild(document.createElement('div'));
