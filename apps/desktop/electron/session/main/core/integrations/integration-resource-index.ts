@@ -1,6 +1,6 @@
 import { integrationPluginRegistry } from '@gugu/session-plugins/integrations'
 import { providerAccountRegistry } from '../provider-accounts/provider-account-registry-instance'
-import { connectedCliSkills } from './cli/cli-integrations'
+import { cliMethodOf, connectedCliSkills } from './cli/cli-integrations'
 import { integrationGivesSessionTools } from './session-integrations'
 import { log } from '@main/lib/logger'
 
@@ -21,8 +21,9 @@ export async function configuredIntegrationIndex() {
     const use = taskSkills.length
       ? { note: `${plugin.metadata.name}已连接，要用就派任务`, delegate: { tool: 'session_spawn' }, task_skills: taskSkills }
       : undefined
-    // Neither tools nor task skills: connected for issue links only, nothing the assistant can call.
-    const note = !use && !integrationGivesSessionTools(provider) ? '只用来关联 issue，助理不能直接用' : undefined
+    // Neither tools nor a CLI: connected for issue links only, nothing the assistant can call.
+    // A CLI whose skills cannot be read right now is still a CLI, not an issue link.
+    const note = !use && !cliMethodOf(provider) && !integrationGivesSessionTools(provider) ? '只用来关联 issue，助理不能直接用' : undefined
     return accounts.map(account => ({
       id: `${provider}:${account.accountId}`, name: plugin.metadata.name,
       modifiedAt: new Date(account.updatedAt).toISOString(), isDefault: account.isDefault,
