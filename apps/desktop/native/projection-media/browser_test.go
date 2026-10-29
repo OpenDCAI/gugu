@@ -86,7 +86,14 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 	if err = cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { cancel(); _ = cmd.Wait() }()
+	browserClosed := make(chan struct{})
+	go func() {
+		if waitErr := cmd.Wait(); ctx.Err() == nil {
+			failed(fmt.Errorf("headless Chromium exited: %v: %s", waitErr, diagnostics.text()))
+		}
+		close(browserClosed)
+	}()
+	defer func() { cancel(); <-browserClosed }()
 	if err = source.Ready(ctx); err != nil {
 		t.Fatalf("browser media readiness: %v: %s", err, diagnostics.text())
 	}
@@ -109,7 +116,7 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 			case <-ticker.C:
 				if err = encoder.WriteFrame(ctx, frame); err != nil {
 					ticker.Stop()
-					t.Fatal(err)
+					t.Fatalf("encoder: %v; Chromium: %s", err, diagnostics.text())
 				}
 			case pixel := <-pixels:
 				// Canvas reports RGB while the source buffer is BGRA.
@@ -131,12 +138,14 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 const projectionBrowserFixture = `<!doctype html><video autoplay muted playsinline></video><canvas width="128" height="96"></canvas>
 <script>
 (async () => {
+  const report = error => fetch('/error', {method:'POST', body:JSON.stringify(String(error))});
+  window.addEventListener('unhandledrejection', event => report(event.reason));
   const video = document.querySelector('video'), canvas = document.querySelector('canvas');
   const draw = canvas.getContext('2d', {willReadFrequently: true});
   const peer = new RTCPeerConnection({iceServers: []});
   window.peer = peer;
   peer.ondatachannel = ({channel}) => { window.control = channel; channel.onmessage = () => {}; };
-  peer.ontrack = async ({track}) => {
+  peer.ontrack = ({track}) => { (async () => {
     video.srcObject = new MediaStream([track]);
     await video.play();
     const frame = () => {
@@ -145,7 +154,7 @@ const projectionBrowserFixture = `<!doctype html><video autoplay muted playsinli
       video.requestVideoFrameCallback(frame);
     };
     video.requestVideoFrameCallback(frame);
-  };
+  })().catch(report); };
   await peer.setRemoteDescription(await (await fetch('/offer')).json());
   await peer.setLocalDescription(await peer.createAnswer());
   if (peer.iceGatheringState !== 'complete') await new Promise(resolve => peer.addEventListener('icegatheringstatechange', () => { if(peer.iceGatheringState === 'complete') resolve(); }));

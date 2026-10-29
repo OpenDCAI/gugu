@@ -69,7 +69,7 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 		"-pix_fmt", "yuv420p", "-profile:v", "baseline", "-level:v", "3.1",
 		"-b:v", strconv.Itoa(config.Bitrate), "-maxrate", strconv.Itoa(config.Bitrate), "-bufsize", strconv.Itoa(config.Bitrate),
 		"-bf", "0", "-g", strconv.Itoa(config.FPS), "-keyint_min", strconv.Itoa(config.FPS),
-		"-x264-params", "repeat-headers=1:scenecut=0", "-vsync", "0",
+		"-x264-params", "repeat-headers=1:scenecut=0", "-fps_mode", "passthrough",
 		"-f", "rtp", "-payload_type", "96", "-rtpflags", "skip_rtcp",
 		fmt.Sprintf("rtp://127.0.0.1:%d?pkt_size=1200", address.Port),
 	}
@@ -157,6 +157,9 @@ func (e *Encoder) WriteFrame(ctx context.Context, bgra []byte) error {
 	defer e.write.Unlock()
 	select {
 	case <-e.done:
+		if e.err != nil {
+			return fmt.Errorf("%w: %v", ErrClosed, e.err)
+		}
 		return ErrClosed
 	default:
 	}
