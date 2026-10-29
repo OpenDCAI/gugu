@@ -10,7 +10,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('./service', () => ({
-  nativeRecord: vi.fn(), nativeToolImage: vi.fn(),
+  nativeRecord: vi.fn(), nativeToolImage: vi.fn(), nativeAttachment: vi.fn(),
   subscribe: (...args: unknown[]) => state.subscribe(...args),
   unsubscribe: (...args: unknown[]) => state.unsubscribe(...args),
   snapshot: (...args: unknown[]) => state.snapshot(...args),
@@ -237,4 +237,3 @@ describe('MessagePreview 宿主', () => {
     expect(opened).toEqual([]);
   });
 });
-

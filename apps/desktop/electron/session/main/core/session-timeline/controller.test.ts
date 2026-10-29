@@ -22,7 +22,7 @@ vi.mock('./create-session', () => ({
   createSession: async () => ({ ok: true, value: { conversationId: 'c-new', projectId: 'p', title: 'hi' } }),
 }));
 vi.mock('./service', () => ({
-  nativeRecord: vi.fn(), nativeToolImage: vi.fn(),
+  nativeRecord: vi.fn(), nativeToolImage: vi.fn(), nativeAttachment: vi.fn(),
   snapshot: async () => ({ ok: true, value: { cursor: { epoch: 'e', seq: 1 }, turns: [turnWith(HUGE)], settlements: [], hasOlder: false } }),
   subscribe: async (input: { subscriptionId: string }, emit: (event: unknown) => void) => {
     state.pushes.set(input.subscriptionId, emit);
