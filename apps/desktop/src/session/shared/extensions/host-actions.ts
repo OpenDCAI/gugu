@@ -55,6 +55,8 @@ export type ExtensionHostAction =
   /** A link's or a banner's click (no page asked): the App in a chat's panel, or — naming no chat — on its own page. */
   | { kind: 'openApp'; extensionId: string; tab?: string; chatId?: string }
   | { kind: 'openLinkTarget'; target: GuguLinkTarget }
+  /** An install could not give the chat it was asked for (main's own, no page asks it): the window says so, with the App's page. */
+  | { kind: 'notGivenAt'; extensionId: string; chat: { id: string; name: string } }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
   | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string }
   /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */

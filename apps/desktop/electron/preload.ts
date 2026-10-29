@@ -119,7 +119,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version'),
   getFeedbackLogTail: (): Promise<unknown> => ipcRenderer.invoke('feedback:log-tail'),
   getAgentCreationTools: (): Promise<unknown> => ipcRenderer.invoke('agent-creation-tools:list'),
-  openAgentRuntime: (agentUserId: string): Promise<unknown> => ipcRenderer.invoke('agent-runtime:open', agentUserId),
   writeClipboardText: (value: string): Promise<boolean> => ipcRenderer.invoke('clipboard:write-text', value),
   showNotification: (payload: { title: string; body?: string; chatId?: string | null; silent?: boolean }): Promise<unknown> => {
     return ipcRenderer.invoke('notifications:show', payload)

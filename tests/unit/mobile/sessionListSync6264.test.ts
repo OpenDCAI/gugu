@@ -228,6 +228,15 @@ describe('sessionListFromDigest(没读到那台机器此刻的列表时退回心
     expect(result.sessions[1]!.isPinned).toBe(true)
   })
 
+  it('#609 摘要里没名字的(任务工作区、workspace)不是项目:会话照列,项目不列 —— 手机把它们列进「任务」,❌ 一格没名字的项目', () => {
+    const result = sessionListFromDigest([
+      { conversationId: 'c1', projectId: 'tw', projectName: '', title: 't', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+      { conversationId: 'c2', projectId: 'p1', projectName: 'repo', title: 'u', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+    ])
+    expect(result.projects).toEqual([{ id: 'p1', name: 'repo', path: '' }])
+    expect(result.sessions.map((s) => s.projectId)).toEqual(['tw', 'p1'])
+  })
+
   it('机器在线(还在读 / 一时连不上):照宿主自己报的能不能打开', () => {
     const result = sessionListFromDigest([
       { conversationId: 'c1', projectId: 'p1', projectName: 'repo', title: 't', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },

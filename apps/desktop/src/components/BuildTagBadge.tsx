@@ -25,16 +25,17 @@ const badgeStyle: CSSProperties = {
   zIndex: 2147483647,
   maxWidth: 'min(45vw, 360px)',
   padding: '2px 8px',
-  border: '1px solid #7f0e12',
+  border: '1px solid var(--danger-solid)',
   borderRadius: 'var(--radius-document)',
-  background: '#d81f26',
-  color: 'var(--color-white)',
+  // 实底危险角标:--danger-solid 那一对(红底白字 6.47);❌ 再搬一份角标专用红。
+  background: 'var(--danger-solid)',
+  color: 'var(--danger-solid-fg)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 'var(--font-caption)',
   fontWeight: 700,
   lineHeight: 1.2,
   letterSpacing: '.02em',
-  boxShadow: '0 2px 10px rgba(216, 31, 38, .45)',
+  boxShadow: 'var(--shadow-lift)',
   userSelect: 'none',
 }
 

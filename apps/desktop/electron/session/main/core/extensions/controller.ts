@@ -132,7 +132,7 @@ export const extensionsController = createRPCController({
     try { return { success: true as const, data: await switchExtensionVariant(id, name, consent) }; }
     catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
   },
-  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
+  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').OpenTarget }) =>
     (await import('./gugu-links')).openLink(args.target),
   resourceLink: async (target: Exclude<import('@gugu/core/shared/ui/guguLink').GuguLinkTarget, { kind: 'server-login' }>) =>
     (await import('./gugu-links')).linkTo(target),

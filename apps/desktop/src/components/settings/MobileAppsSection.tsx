@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { followLink } from '../../lib/guguLinks'
 import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
@@ -69,17 +69,21 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
   const hasMore = pages * MARKET_PAGE_SIZE < rows.length
 
-  useEffect(() => {
-    void phoneApps.ready().catch((error: unknown) => {
+  const [unreadable, setUnreadable] = useState(false)
+  const read = useCallback((run: () => Promise<void>) => {
+    void run().then(() => setUnreadable(phoneApps.unreadable() !== null), (error: unknown) => {
       log.error({ error: String(error) }, 'Phone Apps unreadable')
       setFailed({ title: translate('extensions.loadFailed'), cause: messageForUser(error) })
     })
+  }, [translate])
+  useEffect(() => {
+    read(phoneApps.ready)
     const off = phoneApps.market.onRefreshed((result) => {
       if (result.outcome === 'changed') void client.invalidateQueries({ queryKey: MARKET_KEY })
     })
     void phoneApps.market.refresh()
     return off
-  }, [client, translate])
+  }, [client, read])
 
   useEffect(() => {
     const node = sentinel.current
@@ -144,6 +148,12 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
         { value: 'all', label: translate('extensions.allApps'), testId: 'phone-apps-all-tab' },
         { value: 'installed', label: translate('extensions.tabInstalled'), testId: 'phone-apps-installed-tab' },
       ]} /></div>
+      {unreadable ? (
+        <SettingsNote tone="danger" role="alert" data-testid="phone-apps-unreadable">
+          {translate('extensions.loadFailed')}
+          <Button onClick={() => read(phoneApps.reload)}>{translate('extensions.retry')}</Button>
+        </SettingsNote>
+      ) : null}
       {tab === 'installed' ? <AppsSection /> : (
         <div className={`${skin} mk phone-app-market`} data-testid="phone-app-market">
           <SearchField value={query} placeholder={translate('extensions.searchPlaceholder')} onChange={(event) => { setQuery(event.target.value); setPages(1) }} />

@@ -33,7 +33,7 @@
 .product-tour-feature-dots button { display: block; width: 8px; height: 8px; border-radius: 99px; background: var(--border-strong); }
 .product-tour-feature-dots button[aria-current="step"] { width: 22px; background: var(--fg); }
 .product-tour-feature .product-tour-actions { flex-shrink: 0; margin-top: 0; padding: 10px 20px; border-top: 1px solid var(--border); }
-.product-tour-error { color: var(--danger); font-size: var(--font-body); }
+.product-tour-error { color: var(--danger-fg); font-size: var(--font-body); }
 @media (max-height: 660px) {
   .product-tour-feature-viewport { padding: 6px 12px; }
   .product-tour-feature { max-height: calc(100dvh - 56px); }

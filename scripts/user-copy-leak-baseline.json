@@ -97,7 +97,7 @@
   {
     "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/src/components/chat/AgentSessionpagePresentation.tsx",
-    "count": 2
+    "count": 1
   },
   {
     "rule": "copy-leaks-raw-error-field",

@@ -59,7 +59,7 @@ export type ExtensionHostWindowChannel = {
   /** Members' faces by id (`lib/memberFaces.ts`). */
   drawMemberFaces: (people: readonly { id: string; avatar: string | null }[]) => Promise<Record<string, string>>;
   /** #7158 The project the window's task list has another computer's session under, or null (`remoteHostsStore.listedProject`). */
-  listedSession: (sessionId: string) => Promise<string | null>;
+  listedSession: (sessionId: string, hint?: { deviceId?: string; projectId?: string }) => Promise<string | null>;
   /** An action no page asked for (a link's or a banner's click), done by the window that shows chats and Apps. */
   act: (command: ExtensionHostActionCommand) => Promise<ExtensionHostActionResult>;
   isHostWindowFullScreen: () => boolean;
@@ -194,8 +194,8 @@ export function drawMemberFaces(people: readonly { id: string; avatar: string | 
 }
 
 /** The project the task list has another computer's session under, or null, asked of the window (`gugu.showSession`). */
-export function listedSessionProject(sessionId: string): Promise<string | null> {
-  return Promise.resolve().then(() => requireHostWindow().listedSession(sessionId));
+export function listedSessionProject(sessionId: string, hint?: { deviceId?: string; projectId?: string }): Promise<string | null> {
+  return Promise.resolve().then(() => requireHostWindow().listedSession(sessionId, hint));
 }
 
 /** `gugu.dispatch` naming no target: the window that draws the page lets the person pick one (null: they cancelled). */

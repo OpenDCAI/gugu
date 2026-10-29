@@ -9,7 +9,6 @@ import type {AssistantWorkTask} from '@gugu/core/cloud/assistantWork'
 vi.mock('react-i18next',async importOriginal => ({ ...(await importOriginal<typeof import('react-i18next')>()),useTranslation: () => ({ t: (key: string) => key,i18n: { language: 'en-US' } }) }))
 vi.mock('@/lib/sessionPublication',() => ({ getRendererSession: () => ({ user: { id: 'owner' } }),getRendererAccessToken: () => null }))
 vi.mock('@/session/shared/remote-sessions/session-directory',() => ({ useDirectoryDevices: () => [] }))
-vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-task-directory',() => ({ assistantTaskDeviceLabel: () => 'home' }))
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store',() => ({ remoteHostsStore: { device: () => null } }))
 vi.mock('@renderer/lib/components/agent-status-indicator',() => ({ AgentStatusIndicator: () => null }))
 vi.mock('@renderer/lib/hooks/use-toast',() => ({ useToast: () => ({ toast: vi.fn() }) }))

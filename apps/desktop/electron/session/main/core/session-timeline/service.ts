@@ -196,22 +196,29 @@ function readSessionRows(): Array<{
   return db
     .select({
       session: sessions,
-      project: { id: projects.id, name: projects.name, path: projects.path },
+      project: { id: projects.id, name: projects.name, path: projects.path, kind: projects.kind },
     })
     .from(sessions)
     .innerJoin(projects, eq(sessions.projectId, projects.id))
     // 归档的会话不上这张面 —— 与 `getSessions()` 同一条口径:归属键是**会话自己**那一列(spec session-graph)。
     .where(isNull(sessions.archivedAt))
-    .all();
+    .all()
+    .map(({ session, project }) => ({ session, project: projectSummary(project) }));
 }
 
 function readLocalProjects(): SessionpageProjectSummary[] {
   return db
-    .select({ id: projects.id, name: projects.name, path: projects.path })
+    .select({ id: projects.id, name: projects.name, path: projects.path, kind: projects.kind })
     .from(projects)
     .where(eq(projects.workspaceProvider, 'local'))
     .orderBy(desc(projects.updatedAt))
-    .all();
+    .all()
+    .map(projectSummary);
+}
+
+/** #609 workspace 带上 kind,手机据此把它的会话列进「任务」;项目照旧只有 id / name / path。 */
+function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind: 'project' | 'workspace' }): SessionpageProjectSummary {
+  return kind === 'workspace' ? { ...project, kind } : project;
 }
 
 export function readSessionRow(conversationId: string): SessionRow | null {

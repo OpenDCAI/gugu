@@ -130,7 +130,6 @@ const projects = (chatId: string): DeviceProject[] => [
     rootPath: '/srv/repo',
     createdAt: '2026-10-05T09:30:00.000Z',
     chatId,
-    groupRepresentative: true,
     folders: [
       { workspaceId: 'ws-root', kind: 'root', path: '/srv/repo', attachedAt: null },
       { workspaceId: 'ws-wt', kind: 'attached', path: '/srv/repo-wt', attachedAt: '2026-10-06T00:00:00.000Z' },
@@ -142,7 +141,6 @@ const projects = (chatId: string): DeviceProject[] => [
     rootPath: '/home/u/.gugu/task-home',
     createdAt: '2026-10-01T08:00:00.000Z',
     chatId: null,
-    groupRepresentative: false,
     folders: [{ workspaceId: 'ws-home', kind: 'root', path: '/home/u/.gugu/task-home', attachedAt: null }],
   },
 ]

@@ -151,7 +151,7 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
       </div>
 
       <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {props.error && <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger)' }}>{props.error}</span>}
+        {props.error && <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger-fg)' }}>{props.error}</span>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', flex: 1 }}>{props.picked}</span>
           <Button size="sm" onClick={props.onClose}>

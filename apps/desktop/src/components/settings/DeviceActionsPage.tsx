@@ -38,6 +38,7 @@ import {
   Mail,
   MessageCircle,
   Monitor,
+  Pencil,
   ScanSearch,
   Settings,
   SquareTerminal,
@@ -47,6 +48,7 @@ import {
 } from '@/lib/icons'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
+import { IconButton } from '../ui/IconButton'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow, Toggle } from './SettingsPrimitives'
 import { useDeviceActionGroupText } from './deviceActionGroupText'
 import { reportAssistantAppChange } from '../assistant/assistant-app-client'
@@ -55,6 +57,8 @@ import { cachedDevicesAccount } from '../../store/devicesCache'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { useSettingsDetail } from './SettingsDetailNavigation'
 import { DeviceMachineConfigurations, type DeviceConfigurationActions } from '../devices/DeviceMachineConfigurations'
+import { DeviceRenameField } from '../devices/DeviceRenameField'
+import { useDeviceRename } from '../../hooks/useDeviceRename'
 
 async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
   const ipc = desktopIpc()
@@ -125,10 +129,23 @@ export function DeviceActionsPage({ device, isThisDevice, onBack, embedded = fal
   const selected = configurations?.find(version => version.device_id === selectedVersionId) ?? device
   const selectedIsThisDevice = selected.device_id === device.device_id ? isThisDevice : selected.is_current_device === true
   const versions = <DeviceMachineConfigurations devices={configurations} actions={configurationActions} selectedDeviceId={selected.device_id} onSelect={version => selectVersion(version.device_id)} />
+  const deviceRename = useDeviceRename()
   if (selectedIsThisDevice && ipc) return <ThisDeviceActions onBack={onBack} panelNavigation={panelNavigation}>{versions}</ThisDeviceActions>
+  const renaming = deviceRename.editingId === device.device_id
+  const renameFailed = deviceRename.failedFor(device.device_id)
   return (
     <SettingsPage data-testid="settings-device-actions">
-      {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`} title={t('devices.deviceActions.otherTitle', { name: device.label })} backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
+      {!embedded && <PageHeader panelNavigation={panelNavigation} navigationKey={`device:${device.device_id}`}
+        title={renaming
+          ? <DeviceRenameField label={device.label} onSave={(next) => void deviceRename.save(device, next)} onCancel={deviceRename.cancel} />
+          : t('devices.deviceActions.otherTitle', { name: device.label })}
+        trailing={renaming ? undefined : (
+          <IconButton size="sm" aria-label={t('devices.menu.rename')} title={t('devices.menu.rename')} data-testid="settings-device-actions-rename" onClick={() => deviceRename.start(device)}>
+            <Pencil />
+          </IconButton>
+        )}
+        subtitle={renameFailed ? <span className="text-[var(--danger)]">{renameFailed}</span> : undefined}
+        backLabel={t('devices.deviceActions.back')} onBack={onBack} />}
       {versions}
       <OtherDeviceActions device={selected} compact={embedded} machineOnline={device.is_online || configurations?.some(version => version.is_online) === true} />
     </SettingsPage>
@@ -352,7 +369,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
         testId="settings-device-action-detail-back"
         trailing={group.connected
           ? (
-              <Button variant="secondary" size="sm" className="text-[var(--danger)]" onClick={() => void disconnect()} data-testid={`settings-device-action-disconnect-${group.id}`}>
+              <Button variant="secondary" size="sm" className="text-[var(--danger-fg)]" onClick={() => void disconnect()} data-testid={`settings-device-action-disconnect-${group.id}`}>
                 {t('devices.deviceActions.disconnect')}
               </Button>
             )
@@ -375,7 +392,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel, panelNavigatio
           </Button>
         )}
         {problem && (
-          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger)]" data-testid="settings-device-action-connect-failed" role="alert">
+          <div className="mt-1 flex flex-col items-center gap-1 text-[var(--danger-fg)]" data-testid="settings-device-action-connect-failed" role="alert">
             <div>{failure ? t('devices.deviceActions.connectFailed', { message: problem }) : problem}</div>
             <div className="flex items-center gap-1">
               {settingsUrl && (

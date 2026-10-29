@@ -7,6 +7,10 @@ describe('remote invoke policy', () => {
     expect(remoteInvokePolicy('sessions.reportSessionsOnScreen')).toBe(false);
     expect(remoteInvokePolicy('sessions.getSessions')).toBe(true);
   });
+  it('#609 answers where its task workspace lives: another desktop opens a no-folder task there', () => {
+    expect(remoteInvokePolicy('app.getSessionHomeDir')).toBe(true);
+    expect(remoteInvokePolicy('app.openExternal')).toBe(false);
+  });
   it('allows only the two recovery operations with a caller-bound owner; clear is an explicit write grant', () => {
     const policy = remoteInvokePolicyForCaller('owner');
     for (const name of ['assistant_work_list', 'assistant_work_clear']) {

@@ -19,7 +19,7 @@
 .ta-phone-hero > .ta-chip { grid-column: 2; justify-self: start; }
 .ta-phone-hero > .ta-chip { min-height: var(--control-h-touch); margin-top: 4px; }
 
-.ta-phone-error { margin: 0; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--danger); overflow-wrap: anywhere; }
+.ta-phone-error { margin: 0; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--danger-fg); overflow-wrap: anywhere; }
 
 /* 无法在当前端连接时显示说明，与可点击按钮区分。 */
 .ta-phone-connect-note {

@@ -11,7 +11,7 @@
   text-align: center;
 }
 
-.document-preview-status-error { flex-direction: column; color: var(--danger); }
+.document-preview-status-error { flex-direction: column; color: var(--danger-fg); }
 
 .document-preview-office {
   min-height: 100%;
@@ -80,7 +80,7 @@
   max-width: none;
   border: 1px solid var(--border-subtle);
   /* PDF 的页面是**被渲染的产品内容**(白纸),不是产品的一个面 ⇒ 这个白不受 @@@one-knob 管。 */
-  background: white;
+  background: var(--paper);
   /* @@@shadow-lift (Refs #6104) — 页面不是浮层,投影去掉;它和页边那条 hairline 从前叠在同一条边上。 */
 }
 

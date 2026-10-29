@@ -51,8 +51,8 @@ const buttonVariants = cva(
           pressedSurfaceState,
         ),
         danger: cn(
-          // 白字画在饱和红上(--color-white 的豁免,见 tokens.css);❌ --primary-fg —— #7333 起它是表面色,暗色下是深灰。
-          'bg-[var(--danger)] text-[var(--color-white)]',
+          // 实底危险按钮那一对(tokens.css --danger-solid):白字 6.47;❌ --danger 当底(白字 3.76),❌ --primary-fg(暗色下是深灰)。
+          'bg-[var(--danger-solid)] text-[var(--danger-solid-fg)]',
           '[&:hover:not([data-disabled])]:opacity-[0.88]',
           pressedSolidState,
         ),

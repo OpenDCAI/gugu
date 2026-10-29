@@ -135,6 +135,9 @@ async function readFirstStdinLine(): Promise<string> {
 export const LOGIN_EXIT_TUNNEL_CLOSED = 3
 
 export async function runServerLogin(out: Out = defaultOut, args: readonly string[] = []): Promise<number> {
+  // #6264 人给这台机器的名字(桌面经 SSH 带来的别名,或手敲的 `--name`):两种登法都按它命名。
+  const nameAt = args.indexOf('--name')
+  const name = nameAt >= 0 ? args[nameAt + 1]?.trim() || null : null
   if (args.includes('--grant-stdin')) {
     const deviceCode = await readFirstStdinLine()
     // device_code 是 base64url;形状不对就当场说,❌ 拿去 poll 换一个含糊的 invalid_request。
@@ -143,9 +146,6 @@ export async function runServerLogin(out: Out = defaultOut, args: readonly strin
       out('标准输入里没有有效的登录凭证。')
       return 1
     }
-    // #6264 桌面带来的名字(人填的 SSH 别名 / 主机):这台机器在设备列表里默认就叫它。
-    const nameAt = args.indexOf('--name')
-    const name = nameAt >= 0 ? args[nameAt + 1]?.trim() || null : null
     return pollUntilDone(out, deviceCode, 1000, Date.now() + 5 * 60 * 1000, true, await machineIdOrNull(), name)
   }
   // 链接 + 短码是远程隧道的入口;暂不开放时说清该怎么加这台机器,❌ 发一条谁也用不上的登录请求。
@@ -174,7 +174,7 @@ export async function runServerLogin(out: Out = defaultOut, args: readonly strin
   out('')
   out('等待确认…')
 
-  return pollUntilDone(out, start.device_code, Math.max(1, start.interval) * 1000, Date.now() + start.expires_in * 1000, false, machineId)
+  return pollUntilDone(out, start.device_code, Math.max(1, start.interval) * 1000, Date.now() + start.expires_in * 1000, false, machineId, name)
 }
 
 async function pollUntilDone(
@@ -208,13 +208,13 @@ async function pollUntilDone(
       // #6264 远程 SSH(桌面经 SSH 递来的凭证)/ 远程隧道(一行命令 + 确认页):最近一次登录说了算。
       // 名字随它一起记:账号进程第一次心跳据此报名字(core/cloud/serverConnectVia.ts serverDeviceLabel)。
       writeServerConnectVia(accountDataDir(userId), fromGrant ? 'ssh' : 'tunnel', { name })
+      const deviceId = fromGrant || name ? await deviceIdForAccount(userId, tokens.accessToken) : null
+      // 这一行早就有了(重装 / 重新登录)、名字还是库取的 `Linux 2`:换成人给的名字。改不成不挡登录。
+      if (deviceId && name) {
+        const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${tokens.accessToken}` } })
+        await adoptDeviceName(client as unknown as DeviceLabelClient, deviceId, name).catch(() => false)
+      }
       if (fromGrant) {
-        const deviceId = await deviceIdForAccount(userId, tokens.accessToken)
-        // 这一行早就有了(重装 / 重新登录)、名字还是库取的 `Linux 2`:换成人给的名字。改不成不挡登录。
-        if (deviceId && name) {
-          const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${tokens.accessToken}` } })
-          await adoptDeviceName(client as unknown as DeviceLabelClient, deviceId, name).catch(() => false)
-        }
         out(
           `${LOGIN_RESULT_MARK}${JSON.stringify({
             userId,

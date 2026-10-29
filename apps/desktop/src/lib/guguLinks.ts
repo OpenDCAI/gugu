@@ -1,5 +1,5 @@
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
-import { parseGuguLink, type GuguLinkTarget, type LinkPlace } from '@gugu/core/shared/ui/guguLink'
+import { parseGuguLink, type GuguLinkTarget, type LinkPlace, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { platform } from '../platform'
 import { notify } from './notices'
@@ -24,13 +24,13 @@ export function openLinkTarget(target: GuguLinkTarget | SenderChatTarget, source
 }
 
 /** A click is parsed once here; main receives the target, not a URL to parse a second time. */
-export function openLink(raw: string | GuguLinkTarget): Promise<boolean> | null {
+export function openLink(raw: string | OpenTarget): Promise<boolean> | null {
   const target = typeof raw === 'string' ? parseGuguLink(raw, { supabaseUrl: readMobileShell() ? getSupabaseUrl() : undefined }) : raw
   if (!target) return null
   return openTarget(target)
 }
 
-export async function openTarget(target: GuguLinkTarget): Promise<boolean> {
+export async function openTarget(target: OpenTarget): Promise<boolean> {
   const outcome = platform.kind === 'electron'
     ? await (await import('../session/renderer/lib/ipc')).rpc.extensions.openLink({ target })
     : await (await import('../components/appSlot/phoneAppHost')).openPhoneLink(target)
@@ -40,7 +40,7 @@ export async function openTarget(target: GuguLinkTarget): Promise<boolean> {
 }
 
 /** DOM callers claim synchronously; the one promise reports a failure through the existing notice host. */
-export function followLink(raw: string | GuguLinkTarget): boolean {
+export function followLink(raw: string | OpenTarget): boolean {
   const opened = openLink(raw)
   if (!opened) return false
   void opened.catch((error: unknown) => notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }))

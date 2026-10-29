@@ -40,6 +40,7 @@ import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { cn } from '../../lib/cn'
 import { AddServerPanel, type AddServerMethod, type AddedServer } from './AddServerPanel'
 import { InlineAction } from './addServer/InlineAction'
+import { supersededBy } from '../../lib/deviceSuperseded'
 import { consumeAddServerIntent } from '../../lib/addServerIntent'
 import { consumeDeviceActionsIntent } from '../../lib/deviceActionsIntent'
 import { DeviceRemoveDialog } from './DeviceRemoveDialog'
@@ -50,6 +51,8 @@ import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { withoutAssistantHome } from '../../lib/assistantHome'
 import { deviceMachineFor, deviceMachines, useDeviceMachineSections } from '../../lib/deviceMachines'
 import { DeviceMachineArchive } from '../devices/DeviceMachineArchive'
+import { DeviceRenameField } from '../devices/DeviceRenameField'
+import { useDeviceRename } from '../../hooks/useDeviceRename'
 
 // #1749 设备管理 → #6264 做成能上线的「设置 → 设备」:
 //  · 每行:名字、是台什么机器(本机 / 电脑 / 服务器)、系统与架构、咕咕版本 + 升级状态、在线或「上次在线」、
@@ -92,11 +95,11 @@ export function DevicesSection({
   const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? null
   const machines = useMemo(() => deviceMachines(withoutAssistantHome(allDevices, cloudDeviceId)), [allDevices, cloudDeviceId])
   const devices = useMemo(() => machines.map(machine => machine.device), [machines])
+  // A reinstall or a new data directory leaves the old row behind: the online row that may have replaced it (a hint only).
+  const replaced = useMemo(() => supersededBy(devices), [devices])
   const { addresses, forget } = useSshMachines()
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draftLabel, setDraftLabel] = useState('')
-  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+  const deviceRename = useDeviceRename()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
   const canAddServer = desktopIpc() !== null
@@ -144,24 +147,6 @@ export function DevicesSection({
     { value: 'online' as const, label: t('devices.filter.online', { n: onlineCount }) },
     { value: 'offline' as const, label: t('devices.filter.offline', { n: devices.length - onlineCount }) },
   ], [t, devices.length, onlineCount])
-
-  const startRename = useCallback((device: Device) => {
-    setRowError(null)
-    setEditingId(device.device_id)
-    setDraftLabel(device.label)
-  }, [])
-
-  const commitRename = useCallback(async (device: Device) => {
-    const next = draftLabel.trim()
-    if (!next || next === device.label) { setEditingId(null); return }
-    try {
-      await rename(device.device_id, next)
-      setEditingId(null)
-    } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'rename device failed')
-      setRowError({ id: device.device_id, message: messageForUser(err) })
-    }
-  }, [draftLabel, rename])
 
   const loadAgents = useCallback(async (device: Device) => {
     setAgents({ agents: [], loading: true, cascadeChecked: false })
@@ -216,6 +201,7 @@ export function DevicesSection({
           device={dialog.device}
           removesVersion={(deviceMachineFor(machines, dialog.device.device_id)?.configurations.length ?? 1) > 1}
           model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
+          replacedBy={replaced.get(dialog.device.device_id) ?? null}
           agents={agents}
           onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
           removing={dialog.removing}
@@ -254,15 +240,14 @@ export function DevicesSection({
       device={device}
       configurationCount={deviceMachineFor(machines, device.device_id)!.configurations.length}
       model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
-      editing={editingId === device.device_id}
-      draftLabel={draftLabel}
-      renameFailed={rowError?.id === device.device_id ? rowError.message : ''}
-      onDraftChange={setDraftLabel}
-      onStartRename={() => startRename(device)}
-      onCommitRename={() => void commitRename(device)}
-      onCancelRename={() => setEditingId(null)}
+      editing={deviceRename.editingId === device.device_id}
+      renameFailed={deviceRename.failedFor(device.device_id)}
+      onStartRename={() => deviceRename.start(device)}
+      onCommitRename={(next) => void deviceRename.save(device, next)}
+      onCancelRename={deviceRename.cancel}
       onCopyAddress={(address) => void copyAddress(address)}
       onRemove={() => openRemove(device)}
+      replacedBy={replaced.get(device.device_id) ?? null}
       onUninstall={() => openUninstall(device)}
       onOpenActions={() => setActionsFor(device.device_id)}
       signIn={signIns.get(device.device_id) ?? null}
@@ -490,19 +475,44 @@ function useNameWhenAppears(devices: readonly Device[], rename: (deviceId: strin
   }, [])
 }
 
+/**
+ * 「可能已被「B」顶替」(owner 10-28): the row that may have replaced this one, and its removal (the usual confirmation).
+ * Why it says so is on hover — and a press opens it under the line, for a phone, which has no hover.
+ */
+function ReplacedHint({ by, onRemove }: { by: Device; onRemove: () => void }) {
+  const { t } = useTranslation('settings')
+  const [open, setOpen] = useState(false)
+  const why = t('devices.replaced.why', { name: by.label })
+  return (
+    <div className="mt-[3px] text-[length:var(--font-caption)] text-[var(--muted-fg)]" data-testid="settings-device-replaced">
+      <Button
+        variant="ghost"
+        title={why}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline h-auto min-h-0 max-[719px]:min-h-0 border-0 p-0 align-baseline text-left text-[length:inherit] leading-[inherit] font-[inherit] text-[var(--muted-fg)] underline decoration-dotted underline-offset-2 [&:hover:not([data-disabled])]:bg-transparent"
+        data-testid="settings-device-replaced-hint"
+      >
+        {t('devices.replaced.hint', { name: by.label })}
+      </Button>
+      {' '}<InlineAction onClick={onRemove} testId="settings-device-replaced-remove">{t('devices.replaced.remove')}</InlineAction>
+      {open && <div className="mt-[3px] leading-[1.5]" data-testid="settings-device-replaced-why">{why}</div>}
+    </div>
+  )
+}
+
 function DeviceRow({
   device,
   model,
   configurationCount,
   editing,
-  draftLabel,
   renameFailed,
-  onDraftChange,
   onStartRename,
   onCommitRename,
   onCancelRename,
   onCopyAddress,
   onRemove,
+  replacedBy,
   onUninstall,
   onOpenActions,
   signIn,
@@ -517,14 +527,14 @@ function DeviceRow({
   model: DeviceRowModel
   configurationCount: number
   editing: boolean
-  draftLabel: string
   renameFailed: string
-  onDraftChange: (value: string) => void
   onStartRename: () => void
-  onCommitRename: () => void
+  onCommitRename: (next: string) => void
   onCancelRename: () => void
   onCopyAddress: (address: string) => void
   onRemove: () => void
+  /** The online row this one may have been replaced by (lib/deviceSuperseded): said, with a way to remove it. */
+  replacedBy: Device | null
   onUninstall: () => void
   /** #7199 这台设备能做的事(能被助理调用的动作)。 */
   onOpenActions: () => void
@@ -581,22 +591,7 @@ function DeviceRow({
     >
       <div className="min-w-0 flex-1">
         {editing ? (
-          <div className="flex items-center gap-[6px]">
-            <input
-              autoFocus
-              value={draftLabel}
-              onChange={(e) => onDraftChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onCommitRename()
-                if (e.key === 'Escape') onCancelRename()
-              }}
-              aria-label={t('devices.menu.rename')}
-              // @@@ui-ruler 与同一行的 Button size="sm" 同高:两者都取 --control-h-sm(28)。
-              className="box-border min-h-[var(--control-h-sm)] min-w-0 flex-1 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--bg)] px-2 text-[length:var(--font-body)] text-[var(--fg)]"
-            />
-            <Button size="sm" variant="primary" onClick={onCommitRename}>{t('devices.save')}</Button>
-            <Button size="sm" onClick={onCancelRename}>{t('devices.cancel')}</Button>
-          </div>
+          <DeviceRenameField label={device.label} onSave={onCommitRename} onCancel={onCancelRename} />
         ) : (
           <div className="flex min-w-0 items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
@@ -620,7 +615,7 @@ function DeviceRow({
         )}
 
         <div className="mt-[3px] overflow-hidden">
-        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--faint-fg)]">
+        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--muted-fg)]">
           <span className="inline-flex items-center gap-[5px] pl-4">
             {/* 状态点:在线 = connected = live 蓝(design.md 唯一的 accent);离线退成墨色最淡一档。 */}
             <span
@@ -628,7 +623,7 @@ function DeviceRow({
               className={cn('size-[7px] shrink-0 rounded-[var(--radius-circle)]', device.is_online ? 'bg-live' : 'bg-[var(--faint-fg)]')}
             />
             {link === 'signInRequired' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-ssh-sign-in">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-ssh-sign-in">
                 {t('devices.loginState.sshSignIn')}
                 {onSshSignIn && <>{' '}<InlineAction onClick={onSshSignIn} testId="settings-device-ssh-sign-in-action">{t('devices.loginState.sshSignInAction')}</InlineAction></>}
               </span>
@@ -640,14 +635,14 @@ function DeviceRow({
                   : t('devices.loginState.updating')}
               </span>
             ) : link === 'outdated' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-outdated">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-outdated">
                 {t('devices.loginState.updateFailed')}
                 {onRetryUpdate && <>{' '}<InlineAction onClick={onRetryUpdate} testId="settings-device-update-retry">{t('devices.loginState.retryUpdate')}</InlineAction></>}
               </span>
             ) : link === 'unreachable' ? (
               t('devices.loginState.reconnecting')
             ) : failedUpdate !== null ? (
-              <span className={retrying ? undefined : 'text-[var(--danger)]'} data-testid="settings-device-match-failed">
+              <span className={retrying ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
                 {retrying ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
                 {!retrying && onRetryVersionMatch && (
                   <>{' '}<InlineAction
@@ -664,7 +659,7 @@ function DeviceRow({
             ) : device.is_online ? (
               t('devices.online')
             ) : signedOutText ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-signed-out">{signedOutText}</span>
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-signed-out">{signedOutText}</span>
             ) : (
               <span title={model.kind === 'server' ? t('devices.loginState.offlineHint') : undefined}>
                 {lastSeen ? t('devices.lastSeen', { time: lastSeen }) : t('devices.offline')}
@@ -698,8 +693,9 @@ function DeviceRow({
           )}
         </div>
         </div>
+        {replacedBy && <ReplacedHint by={replacedBy} onRemove={onRemove} />}
         {renameFailed && (
-          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{renameFailed}</div>
+          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger-fg)]">{renameFailed}</div>
         )}
       </div>
 

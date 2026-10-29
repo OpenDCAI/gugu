@@ -3,14 +3,20 @@ import { ipcMain } from 'electron'
 import { ASSISTANT_HOME_CHANNELS, type PrepareLocalHomeInput } from '../src/lib/assistantHomeIpc'
 import { prepareLocalAssistantHome, wipeLocalAssistantHome } from './assistant-home-prepare'
 import { createAssistantSetupPreparation } from './assistant-setup-preparation'
-import { discardAssistantPreparation, prepareAssistantRuntime } from './assistant-runtime-prepare'
 import { createLogger } from './lib/logger'
 
 export function installAssistantHome(): void {
   const owners = new Map<string, Electron.WebContents>()
   const watched = new WeakSet<Electron.WebContents>()
   const log = createLogger('assistant-setup-preparation')
-  const preparation = createAssistantSetupPreparation({ prepare: prepareAssistantRuntime, cleanup: discardAssistantPreparation, install: prepareLocalAssistantHome,
+  // ❌ 顶层 import assistant-runtime-prepare:它带进会话页主进程图(dependency-managers 等),那些模块顶层就按
+  // GUGU_HOME 算路径,而 main.ts 静态加载本文件时 GUGU_HOME 还没定(@@@4865)⇒ 隔离实例与非 production tier 上
+  // 装完的 agent「找不到程序」。
+  const runtime = () => import('./assistant-runtime-prepare')
+  const preparation = createAssistantSetupPreparation({
+    prepare: async (id, signal) => (await runtime()).prepareAssistantRuntime(id, signal),
+    cleanup: async (id) => (await runtime()).discardAssistantPreparation(id),
+    install: prepareLocalAssistantHome,
     changed: (id, state) => { const owner = owners.get(id); if (owner && !owner.isDestroyed()) owner.send(ASSISTANT_HOME_CHANNELS.preparationChanged, { id, ...state }) } })
   const owned = (event: Electron.IpcMainInvokeEvent, id: string) => {
     if (owners.get(id) !== event.sender) throw new Error('This assistant preparation belongs to another window')

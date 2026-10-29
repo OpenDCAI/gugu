@@ -19,8 +19,9 @@
 //     所以这一格不显 —— ❌ 不拿 desired_status 这类 agent 字段冒充人的在线。
 import { ArchivedAgentLabel } from './ArchivedAgentLabel'
 import { GroupNameInlineEdit } from './GroupNameInlineEdit'
-import { TopicMemberInviteButton, type TopicMemberInvitation } from './TopicMemberInviteButton'
 import { Button } from '../ui/Button'
+import { Hint } from '../ui/Tooltip'
+import { SectionLabel } from '../ui/SectionLabel'
 import { SearchField } from '../ui/SearchField'
 import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
@@ -79,11 +80,14 @@ const metaCellStyle = {
 // @@@ui-ruler 其余结构性 style 一并提到模块作用域(同 ChatListPanel 的 *_STYLE 常量):
 // 既避免每次渲染重建对象,也让 JSX 里不再残留内联几何块这条债务痕迹。
 // 依赖 props/state 的那一档提成纯函数,保持同一条纪律。
+// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。主人点它照旧翻档。
 const listenModeToggleStyle = (editable: boolean): React.CSSProperties => ({
-  padding: '2px 8px', minHeight: 0, flexShrink: 0,
-  fontSize: 'var(--font-caption)', lineHeight: 1.2,
+  padding: 0, minHeight: 0, height: 'auto', flexShrink: 0, fontWeight: 400,
+  fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--text-tertiary)',
   cursor: editable ? 'pointer' : 'default',
 })
+// 「我的 agent」与「其他人的 agent」两组同级:后一组顶上一条分隔线,折叠的那组底下也一眼看得出边界。
+const OTHER_AGENTS_GROUP_STYLE: React.CSSProperties = { borderTop: '1px solid var(--border-subtle)', marginTop: 4 }
 const MEMBER_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 14px' }
 // @@@6418 群里的行可以点开资料卡;行尾的 ⋯ 管理钮靠 group-hover 显形。
 const MEMBER_ROW_INTERACTIVE_STYLE: React.CSSProperties = { ...MEMBER_ROW_STYLE, cursor: 'pointer' }
@@ -107,9 +111,9 @@ const MEMBER_LIST_TITLE_STYLE: React.CSSProperties = { fontSize: 'var(--font-tit
 // 话题改名那一格:占满标题与右侧动作之间的余量。与本文件其余样式同形走常量 ——
 // ❌ 不就地写内联样式块(check-ui-visual-spec 的那条棘轮是纯文本计数,连注释里的字面量都算)。
 const TOPIC_NAME_EDIT_STYLE: React.CSSProperties = { flex: 1, minWidth: 0 }
-const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 // 档位没改成的原因:写在那一行的档位钮下面。
-const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
 
 /**
@@ -128,22 +132,25 @@ function ListenModeToggle({
   onChange?: (mode: ListenMode) => void
   busy?: boolean
 }) {
-  const { t: tContacts } = useTranslation('contacts')
+  const { t } = useTranslation('messaging')
   const editable = !!onChange
   const next: ListenMode = value === 'passive' ? 'active' : 'passive'
+  const mode = value === 'passive' ? 'mentions' : 'all'
   return (
-    <Button
-      variant="option"
-      size="sm"
-      data-listen-mode-toggle={value}
-      aria-pressed={value === 'active'}
-      disabled={editable ? busy : undefined}
-      // 群里整行可点(打开资料卡);档位钮自己的点击不能再冒泡成「打开资料卡」。
-      onClick={editable ? (event) => { event.stopPropagation(); onChange?.(next) } : undefined}
-      style={listenModeToggleStyle(editable)}
-    >
-      {value === 'passive' ? tContacts('profile.listenModes.passive') : tContacts('profile.listenModes.proactive')}
-    </Button>
+    <Hint label={t(`group.memberList.listen.${mode}Hint`)} side="top">
+      <Button
+        variant="ghost"
+        size="sm"
+        data-listen-mode-toggle={value}
+        aria-pressed={value === 'active'}
+        disabled={editable ? busy : undefined}
+        // 群里整行可点(打开资料卡);档位钮自己的点击不能再冒泡成「打开资料卡」。
+        onClick={editable ? (event) => { event.stopPropagation(); onChange?.(next) } : undefined}
+        style={listenModeToggleStyle(editable)}
+      >
+        {t(`group.memberList.listen.${mode}`)}
+      </Button>
+    </Hint>
   )
 }
 
@@ -235,7 +242,6 @@ export type MemberListPanelProps = {
    * 群不走这里:群名在设置抽屉里改(GroupMembersSection),❌ 不做第二个入口。
    */
   chatName?: string | null
-  topicInvitation?: TopicMemberInvitation
   /** @@@6418 群:名册被这里改动(邀请/移出/改角色/审批)后通知外层重读它自己的那份快照。 */
   snapshot: GroupCollabSnapshot | null
   error?: UseGroupCollabLoaderResult['error']
@@ -244,7 +250,7 @@ export type MemberListPanelProps = {
   onWhisper?: (target: MemberProfileChatTarget) => void
 }
 
-export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitation, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
+export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tContacts } = useTranslation('contacts')
   const { user } = useAuth()
@@ -279,7 +285,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
 
   // @@@6418 搜索:名字、主人、引擎、模型、设备,与行上看得见的字一致(看不见的字段不参与匹配)。
   const [query, setQuery] = useState('')
-  const [myAgentsExpanded, setMyAgentsExpanded] = useState(false)
+  const [myAgentsExpanded, setMyAgentsExpanded] = useState(true)
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
 
@@ -317,10 +323,11 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
     return agentLocationText(resolveAgentLocation(identity?.device_id, devices), t)
   }, [devices, t])
 
-  const roleLabel = useCallback((role: GroupMemberRole): string => (
+  // 普通成员不写「成员」(人人都是);只有群主、管理员这类特殊角色才标。
+  const roleLabel = useCallback((role: GroupMemberRole): string | null => (
     role === 'owner'
       ? tContacts('profile.roles.owner')
-      : role === 'admin' ? tContacts('profile.roles.admin') : tContacts('profile.roles.member')
+      : role === 'admin' ? tContacts('profile.roles.admin') : null
   ), [tContacts])
 
   const needle = query.trim().toLowerCase()
@@ -371,7 +378,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
         selected={group.activeMemberId === agent.id}
         metaCells={(
           <>
-            <span data-agent-meta="owner" style={metaCellStyle}><AgentOwnerLabel ownerUserId={identity?.owner_user_id} ownerDisplayName={identity ? agentOwnerDisplayName(identity, identities) : null} /></span>
+            {/* 自己的 agent 已在「我的 agent」组里,不再写一遍主人。 */}
+            {identity?.owner_user_id === user?.id ? null : <span data-agent-meta="owner" style={metaCellStyle}><AgentOwnerLabel ownerUserId={identity?.owner_user_id} ownerDisplayName={identity ? agentOwnerDisplayName(identity, identities) : null} /></span>}
             {/* 取不到就整格不渲染 —— 空得看得出来,❌ 没有「未知引擎」这种占位。 */}
             {engine ? <span data-agent-meta="engine" style={metaCellStyle}>{engine}</span> : null}
             {agent.model_source ? <span data-agent-meta="model" style={metaCellStyle}>{agent.model_source}</span> : null}
@@ -420,15 +428,6 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
           ) : t('group.memberList.title'),
           <>
             {searchButton}
-            {chatKind === 'topic' && topicInvitation && user ? (
-              <TopicMemberInviteButton
-                key={chatId}
-                invitation={topicInvitation}
-                participantIds={unified.map((member) => member.id)}
-                currentUserId={user.id}
-                onInvited={load}
-              />
-            ) : null}
             {group.headerActions}
           </>,
         )}</HeaderSearch>
@@ -501,22 +500,27 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
             </div>
             <div data-member-section-rows="agent">
               {myAgents.length > 0 ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                    data-member-group="mine"
+                <div data-member-group="mine">
+                  <SectionLabel
+                    interactive
+                    role="button"
+                    tabIndex={0}
                     aria-expanded={myAgentsOpen}
+                    leading={<ChevronRight aria-hidden="true" style={myAgentsChevronStyle(myAgentsOpen)} />}
                     onClick={() => setMyAgentsOpen((open) => !open)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setMyAgentsOpen((open) => !open) } }}
                   >
-                    <ChevronRight aria-hidden="true" style={myAgentsChevronStyle(myAgentsOpen)} />
-                    <span>{t('group.memberList.myAgents', { count: myAgents.length })}</span>
-                  </Button>
+                    {t('group.memberList.myAgents', { count: myAgents.length })}
+                  </SectionLabel>
                   {myAgentsOpen ? myAgents.map(renderAgentRow) : null}
-                </>
+                </div>
               ) : null}
-              {otherAgents.map(renderAgentRow)}
+              {otherAgents.length > 0 ? (
+                <div data-member-group="others" style={myAgents.length > 0 ? OTHER_AGENTS_GROUP_STYLE : undefined}>
+                  {myAgents.length > 0 ? <SectionLabel leading={<span aria-hidden="true" style={myAgentsChevronStyle(false)} />}>{t('group.memberList.otherAgents', { count: otherAgents.length })}</SectionLabel> : null}
+                  {otherAgents.map(renderAgentRow)}
+                </div>
+              ) : null}
             </div>
           </section>
           )}

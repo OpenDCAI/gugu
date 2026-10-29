@@ -29,6 +29,8 @@ export type InstallMethodDetector = {
   invalidate(): void;
   /** Locate the binary files owned by a declared package-manager target. */
   locateTarget?(target: InstallTarget, binaryNames: string[]): Promise<string[]>;
+  /** Where `locateTarget` looks for this target —— 装完却找不到时,日志要能说出找过哪儿。 */
+  targetSearchDirs?(target: InstallTarget): string[];
 };
 
 /**
@@ -192,6 +194,12 @@ export function createInstallMethodDetector(
       brewCellarCache = undefined;
       brewPrefixCache = undefined;
       npmRootCache = undefined;
+    },
+
+    targetSearchDirs(target: InstallTarget): string[] {
+      return target.kind === 'mise'
+        ? [...(options.ownedMiseBinDirs ?? [])]
+        : [...(options.ownedNpmRoots ?? []), 'npm root -g'];
     },
 
     async locateTarget(target: InstallTarget, binaryNames: string[]): Promise<string[]> {

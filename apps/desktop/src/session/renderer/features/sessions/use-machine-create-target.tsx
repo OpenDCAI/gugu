@@ -16,7 +16,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { ComposerRemoteProjectPicker } from './composer-context-tray';
 import { ImplicitSessionHomeProjectError } from './implicit-session-home-project';
-import { isImplicitSessionHomeProject } from './session-home-project-constants';
+import { isWorkspaceProject } from './session-home-project-constants';
 
 type Translate = ReturnType<typeof useSessionMessages>['translate'];
 
@@ -64,7 +64,7 @@ export type MachineCreateTarget = {
 
 /**
  * 那台机器上的这个文件夹对应的项目 id:已是项目就用它;还不是就在那台机器上把它加成项目;
- * 没选文件夹 = 那台机器的主目录项目「~」。
+ * 没选文件夹 = 那台机器的任务工作区(#609,会话列在「任务」里)。
  */
 export function resolveMachineProject(target: MachineCreateTarget): Promise<string> {
   if (target.projectId) return Promise.resolve(target.projectId);
@@ -72,7 +72,7 @@ export function resolveMachineProject(target: MachineCreateTarget): Promise<stri
   if (existing) return Promise.resolve(existing.id);
   return target.projectPath
     ? remoteHostsStore.ensureProject(target.deviceId, target.projectPath)
-    : remoteHostsStore.ensureHomeProject(target.deviceId);
+    : remoteHostsStore.ensureTaskWorkspace(target.deviceId);
 }
 
 export type MachineCreateContext = {
@@ -204,7 +204,7 @@ export function machineComposerProps(
 
 function machineProjects(deviceId: string): { id: string; name: string; path: string }[] {
   return [...getProjectManagerStore().projects.values()]
-    .filter((project) => project.data && !isImplicitSessionHomeProject(project) && machineRegistry.machineOf(project.id) === deviceId)
+    .filter((project) => project.data && !isWorkspaceProject(project) && machineRegistry.machineOf(project.id) === deviceId)
     .map((project) => ({ id: project.id, name: project.name ?? '', path: project.data?.path ?? '' }));
 }
 
@@ -220,7 +220,6 @@ export const MachineProjectPicker = observer(function MachineProjectPicker({
   return (
     <ComposerRemoteProjectPicker
       selectedPath={target.projectPath}
-      homePath={remoteHostsStore.homeDir(target.deviceId)}
       projects={machineProjects(target.deviceId)}
       recentPaths={remoteHostsStore.recentFolders(target.deviceId)}
       loading={false}

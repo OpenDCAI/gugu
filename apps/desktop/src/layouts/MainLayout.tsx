@@ -108,7 +108,7 @@ import { PlatformError } from '../platform/errors'
 import { CameraPermissionSheet } from '../components/CameraPermissionSheet'
 import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
-import { followLink } from '../lib/guguLinks'
+import { followLink, openLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
@@ -996,15 +996,6 @@ function InnerLayout({
     void refreshChats()
   }
 
-  const handleOpenSessionpageAgent = useCallback(async (agentUserId: string): Promise<void> => {
-    const api = (window as unknown as {
-      electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
-    }).electronAPI
-    if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
-    await api.invoke('sessionpage:open-agent-session', agentUserId)
-    setActiveTab('tasks')
-  }, [t])
-
   const handleOpenSessionpageAgentFile = useCallback(async (
     agentUserId: string,
     path: string,
@@ -1013,8 +1004,9 @@ function InnerLayout({
       electronAPI?: { invoke?: (channel: string, ...args: unknown[]) => Promise<unknown> }
     }).electronAPI
     if (!api?.invoke) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+    // The session opens the one way; then its file there.
+    if (!(await openLink({ kind: 'session', agentId: agentUserId }))) throw new Error(t('shell.errors.taskBridgeUnavailable'))
     await api.invoke('sessionpage:open-agent-file', agentUserId, path)
-    setActiveTab('tasks')
   }, [t])
 
   useEffect(() => {
@@ -1293,7 +1285,6 @@ function InnerLayout({
                         openNonce={chatOpenNonce}
                         onBack={mobile ? backFromPhoneChat : undefined}
                         onOpenUserChat={handleOpenProfileChat}
-                        onOpenSessionpageAgent={!mobile && sessionHostAvailable ? handleOpenSessionpageAgent : undefined}
                         onOpenSessionpageAgentFile={!mobile && sessionHostAvailable ? handleOpenSessionpageAgentFile : undefined}
                       />
                     </div>
@@ -1483,7 +1474,7 @@ function InnerLayout({
           挂最后 ht=1、点最小化窗口收起。❌ 别把它移回上面去。 */}
       <WindowControls activeTab={activeTab} mobile={mobile} activeChatId={activeChatId} chats={chats} sessionHostAvailable={sessionHostAvailable} onSelectTab={selectTab} onOpenChat={(chatId) => { if (!chatId || !openChatBlock(chatId)) setActiveChatId(chatId) }} onNewAgent={openAgentCreateDraftFromContacts} onOpenSettings={openSettingsSection} />
       {/* #7199 「助理」App 在壳这一侧的那一半:发布云电脑 / 个人助理,把壳的组件画进 App 留的格子(lib/assistantShellBridge.ts)。 */}
-      <AssistantTaskChatOpener visible={mobile ? activeTab === 'assistant' : activeTab === 'tasks'} onOpenUserChat={handleOpenProfileChat} onOpenSessionpageAgent={handleOpenSessionpageAgent} onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile} />
+      <AssistantTaskChatOpener visible={mobile ? activeTab === 'assistant' : activeTab === 'tasks'} onOpenUserChat={handleOpenProfileChat} onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile} />
       <FeedbackHost />
       {/* #7350 关闭咕咕只有一份确认:设置、通讯录、agent 设置都只发一声(lib/assistantClose),这里按它住哪画。 */}
       <AssistantCloseHost />
@@ -1491,7 +1482,7 @@ function InnerLayout({
         <AssistantShellHost
           visible={activeTab === 'tasks'}
           onOpenUserChat={handleOpenProfileChat}
-          onOpenSessionpageAgent={handleOpenSessionpageAgent}
+         
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}
@@ -1499,7 +1490,7 @@ function InnerLayout({
       {!mobile && sessionHostAvailable && (
         <ChatSlotHost
           onOpenUserChat={handleOpenProfileChat}
-          onOpenSessionpageAgent={handleOpenSessionpageAgent}
+         
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}

@@ -11,6 +11,7 @@ import { ChannelAgentPicker } from './ChannelAgentPicker'
 import { useOwnedAgents } from './channelAgents'
 import { platform } from '../../../platform'
 import { ChannelBrandIcon } from './ChannelBrandIcon'
+import { qrColors } from '../../../lib/qrColors'
 
 const body = 'text-[length:var(--font-body)] leading-[1.5]'
 
@@ -27,7 +28,7 @@ function QrImage({ text, alt }: { text: string; alt: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    void QRCode.toDataURL(text, { width: 200, margin: 1, color: { dark: '#111111', light: '#ffffff' } }).then((url) => {
+    void QRCode.toDataURL(text, { width: 200, margin: 1, color: qrColors() }).then((url) => {
       if (!cancelled) setDataUrl(url)
     })
     return () => {
@@ -52,7 +53,7 @@ function VerifyForm({ wrong, onSubmit }: { wrong: boolean; onSubmit: (code: stri
   return (
     <form className="flex w-full flex-col items-center gap-3" onSubmit={submit}>
       <div className={`${body} text-center text-[var(--fg)]`}>{t('channels.dialog.verifyTitle')}</div>
-      {wrong ? <div className={`${body} text-[var(--danger)]`}>{t('channels.dialog.verifyWrong')}</div> : null}
+      {wrong ? <div className={`${body} text-[var(--danger-fg)]`}>{t('channels.dialog.verifyWrong')}</div> : null}
       <div className="flex gap-2">
         <input
           autoFocus

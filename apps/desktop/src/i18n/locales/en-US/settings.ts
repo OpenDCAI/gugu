@@ -728,6 +728,13 @@ export default {
       "title": "Remove \"{{name}}\"?"
     },
     "renameFailed": "Could not rename it. Try again later.",
+    "replaced": {
+      "hint": "May have been replaced by “{{name}}”",
+      "why": "It has the same host name and kind as “{{name}}”, which is online, while this one is offline and appeared before it. That is what a reinstall or a new data directory leaves behind: the old row does not go away on its own. Two machines can also share a name; remove it only if it is the same one.",
+      "remove": "Remove",
+      "confirm": "This one may have been replaced by “{{name}}”.",
+      "cascade": "The projects the account keeps for it, and the records of files kept only on it, are removed with it."
+    },
     "retry": "Retry",
     "runsAsRoot": "Runs as administrator",
     "runsAsRootHint": "Runs as root; agents can change any file on the machine.",

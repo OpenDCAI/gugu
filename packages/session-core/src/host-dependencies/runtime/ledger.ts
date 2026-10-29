@@ -121,5 +121,6 @@ export function createLedgerBackedDetector(
       const detector = current();
       return detector.locateTarget ? detector.locateTarget(target, binaryNames) : Promise.resolve([]);
     },
+    targetSearchDirs: (target) => current().targetSearchDirs?.(target) ?? [],
   };
 }
