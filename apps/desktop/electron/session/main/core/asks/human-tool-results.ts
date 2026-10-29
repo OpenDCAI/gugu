@@ -6,7 +6,7 @@ import { log } from '@main/lib/logger';
 import { encodeResult, withPictures } from '../../../../mcp/sessionpage-tool-result';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 
-export type HumanToolKind = 'browser_request_takeover' | 'browser_request_login' | `app_${string}`;
+export type HumanToolKind = `app_${string}`;
 type HumanToolPicture = { label: string; mime_type: string; file_path: string };
 export type HumanToolRecord = {
   id: string;
@@ -33,9 +33,10 @@ export function readHumanToolRecords(sessionId: string): HumanToolRecord[] {
   const data = JSON.parse(raw) as { version: number; items: HumanToolRecord[] };
   if (data.version !== 1 || !Array.isArray(data.items) || data.items.some(item =>
     item.sessionId !== sessionId || !['waiting', 'finished'].includes(item.state)
-    || !/^(browser_request_(takeover|login)|app_[a-z][a-z_]*)$/.test(item.tool)
+    || typeof item.tool !== 'string' || !/^[a-z][a-z_]*$/.test(item.tool)
     || !item.id || !item.requestId || !item.messageId)) throw new Error('Invalid human tool result records');
-  return data.items;
+  // Retired tools are not replayed and must not block outcomes for the remaining App tools.
+  return data.items.filter(item => /^app_[a-z][a-z_]*$/.test(item.tool));
 }
 function write(sessionId: string, items: HumanToolRecord[]): void {
   const target = file(sessionId);
@@ -107,7 +108,7 @@ export function deliverHumanToolResult(record: HumanToolRecord, projectId?: stri
       ...(record.pictures ? { pictures: record.pictures } : {}) }).replaceAll('<', '\\u003c');
     const pictures = record.pictures?.map(picture => stringifyMention({ kind: 'file', label: picture.label, target: picture.file_path })).join('\n');
     await sendMessage({ sessionId: record.sessionId, projectId: project, clientMessageId: record.messageId,
-      kind: 'session-direct', text: `<gugu_human_tool_result>\n${payload}\n</gugu_human_tool_result>\nThis is the actual outcome of the original human request. Pending was not approval. Continue only the corresponding work; browser work requires a fresh snapshot.${pictures ? `\nRead the attached local pictures to inspect the result:\n${pictures}` : ''}`,
+      kind: 'session-direct', text: `<gugu_human_tool_result>\n${payload}\n</gugu_human_tool_result>\nThis is the actual outcome of the original human request. Pending was not approval. Continue only the corresponding work.${pictures ? `\nRead the attached local pictures to inspect the result:\n${pictures}` : ''}`,
     });
     write(record.sessionId, readHumanToolRecords(record.sessionId).filter(item => item.id !== record.id));
   })();

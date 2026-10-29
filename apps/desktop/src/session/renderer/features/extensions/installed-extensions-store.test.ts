@@ -83,24 +83,19 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
     expect(store.residentTabContributions.map((entry) => entry.extensionId)).toEqual(['vote', 'grid', 'plain', 'board']);
   });
 
-  // owner 10-28: Browser Use's per-task browser is the host's page (`hostPage: 'browser'`); its tab is named for the App,
-  // as the settings page is.
-  it('a host browser page is the host’s, one per task, and named for the App', async () => {
-    const browserUse = {
-      id: 'browser-use', name: 'Browser Use', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
-      contributes: {
-        tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }, { name: 'browser', title: 'Browser', hostPage: 'browser', perSession: true }],
-        mcpServers: [{ name: 'browser-use', host: 'browser-use' }],
-      },
+  it('keeps an App-owned per-task HTML page separate from its settings page', async () => {
+    const appWithPages = {
+      id: 'tool', name: 'Tool', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      contributes: { tabs: [
+        { name: 'settings', title: 'Settings', hostPage: 'settings' },
+        { name: 'view', title: 'View', entry: 'view.html', perSession: true },
+      ] },
     };
-    const store = storeListing([browserUse]);
+    const store = storeListing([appWithPages]);
     await store.load();
-    const browser = store.allTabContributions.find((entry) => entry.kind === 'browser-use.browser');
-    expect(browser).toMatchObject({ title: 'Browser Use', hostBrowser: true, hostSettings: false, perSession: true });
-    expect(store.tabTitle('browser-use.browser')).toBe('Browser Use');
-    expect(store.allTabContributions.find((entry) => entry.kind === 'browser-use.settings')).toMatchObject({ hostSettings: true, hostBrowser: false });
-    // One per task: never the App's page of its own.
-    expect(store.mainTabOf('browser-use')?.kind).toBe('browser-use.settings');
+    expect(store.allTabContributions.find(entry => entry.kind === 'tool.view')).toMatchObject({ hostSettings: false, perSession: true });
+    expect(store.allTabContributions.find(entry => entry.kind === 'tool.settings')).toMatchObject({ hostSettings: true });
+    expect(store.mainTabOf('tool')?.kind).toBe('tool.settings');
   });
 
   // owner 10-20「没有 enable 的 app,在任务页的新建 tab 里面就不要显示了吧,灰掉也占位置」: the「+」menu, an empty pane
