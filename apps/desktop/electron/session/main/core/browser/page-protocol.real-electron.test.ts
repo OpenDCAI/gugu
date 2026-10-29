@@ -57,7 +57,7 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
     result = JSON.parse(line!.slice('PAGE_PROTOCOL_RESULT='.length));
   }, 40_000);
   afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
-  it.each(['same-iframe-click', 'cross-iframe-click', 'html-drag', 'surface failed', 'the page debugger is already in use'])('%s', name => {
+  it.each(['same-iframe-click', 'cross-iframe-click', 'html-drag', 'surface failed', 'the page debugger is already in use', 'http-only-cookie-events', 'navigation-schemes', 'drag-files'])('%s', name => {
     expect(result.cases[name], JSON.stringify(result.cases[name])).toEqual({ passed: true });
   });
 });

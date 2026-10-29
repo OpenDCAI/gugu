@@ -1,4 +1,6 @@
 import type { WebContents } from 'electron';
+import { isSupportedBrowserNavigationUrl } from './browser-navigation';
+import { pageNetworkEvent } from './page-network-events';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -92,7 +94,8 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       };
       remove(params.sessionId);
     }
-    for (const listener of messages) listener(method, params, sessionId);
+    const visible = pageNetworkEvent(method, params);
+    for (const listener of messages) listener(method, visible, sessionId);
   }
   const onDetach = (_event: unknown, reason: string) => close(`debugger detached: ${reason}`);
   const onDestroyed = () => close('the browser tab was closed');
@@ -133,6 +136,12 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
         || method === 'Target.detachFromTarget' && typeof params.sessionId === 'string' && children.has(params.sessionId);
       if ((!PAGE_METHODS.has(method) && !targetCommand) || method.startsWith('Target.') && Object.hasOwn(params, 'targetId')) {
         throw new Error(`page protocol: ${method} is not available (this connection drives one tab)`);
+      }
+      if (method === 'Page.navigate' && (typeof params.url !== 'string' || !isSupportedBrowserNavigationUrl(params.url))) {
+        throw new Error('page protocol: unsupported navigation URL');
+      }
+      if (method === 'Input.dispatchDragEvent' && [params.files, (params.data as { files?: unknown } | undefined)?.files].some(files => Array.isArray(files) && files.length > 0)) {
+        throw new Error('page protocol: dragging local files is not available');
       }
       await bounded(ready, signal);
       assertLive();

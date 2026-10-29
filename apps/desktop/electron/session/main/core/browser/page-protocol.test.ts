@@ -68,6 +68,73 @@ describe('host-selected page protocol lease', () => {
     lease.close();
   });
 
+  it.each(['chrome://gpu', 'devtools://devtools/bundled/inspector.html', 'file:///private/fixture', 'javascript:alert(1)', 'data:text/html,secret'])('rejects CDP navigation to %s before touching the debugger', async url => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    await expect(lease.send('Page.navigate', { url })).rejects.toThrow('navigation');
+    expect(current.debuggerApi.attach).not.toHaveBeenCalled();
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it.each(['https://example.test/path', 'http://127.0.0.1:1234/', 'about:blank'])('preserves supported CDP navigation to %s', async url => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    await lease.send('Page.navigate', { url });
+    expect(current.debuggerApi.sendCommand).toHaveBeenCalledWith('Page.navigate', { url }, undefined);
+    lease.close();
+  });
+
+  it.each([{ data: { files: ['/private/fixture'] } }, { files: ['/private/fixture'] }])('rejects local files in drag payload %j before native dispatch', async params => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    await expect(lease.send('Input.dispatchDragEvent', params)).rejects.toThrow('files');
+    expect(current.debuggerApi.attach).not.toHaveBeenCalled();
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it('preserves ordinary text drag data and empty file lists', async () => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    const params = { type: 'drop', x: 1, y: 2, data: { files: [], dragOperationsMask: 1, items: [{ mimeType: 'text/plain', data: 'safe' }] } };
+    await lease.send('Input.dispatchDragEvent', params);
+    expect(current.debuggerApi.sendCommand).toHaveBeenCalledWith('Input.dispatchDragEvent', params, undefined);
+    lease.close();
+  });
+
+  it('removes cookies from nested network headers and associated cookie metadata without mutating native events', async () => {
+    const current = page(), lease = createPageProtocol(current.contents), heard = vi.fn();
+    lease.onMessage(heard);
+    await lease.send('Network.enable');
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    heard.mockClear();
+    const params = { requestId: 'request', request: { headers: { cOoKiE: 'secret=hidden', Accept: 'text/html' }, url: 'https://example.test/' },
+      associatedCookies: [{ cookie: { name: 'secret', value: 'hidden', httpOnly: true } }] };
+    current.debuggerApi.emit('message', {}, 'Network.requestWillBeSentExtraInfo', params, 'child');
+    expect(heard).toHaveBeenCalledWith('Network.requestWillBeSentExtraInfo', {
+      requestId: 'request', request: { headers: { Accept: 'text/html' }, url: 'https://example.test/' },
+    }, 'child');
+    expect(params.request.headers.cOoKiE).toBe('secret=hidden');
+    expect(params.associatedCookies).toHaveLength(1);
+    lease.close();
+  });
+
+  it('removes response cookie headers, raw header lines and blocked/exempted cookie details', async () => {
+    const current = page(), lease = createPageProtocol(current.contents), heard = vi.fn();
+    lease.onMessage(heard);
+    await lease.send('Network.enable');
+    const params = { requestId: 'response', headers: { 'Set-Cookie': 'secret=hidden; HttpOnly', ETag: 'safe' },
+      response: { headers: { 'set-cookie': 'secret=hidden', 'Content-Type': 'text/html' } },
+      headersText: 'HTTP/1.1 200 OK\r\nSet-Cookie: secret=hidden;\r\n HttpOnly\r\nX-Public: safe\r\n',
+      blockedCookies: [{ cookieLine: 'secret=hidden' }], exemptedCookies: [{ cookie: { value: 'hidden' } }] };
+    current.debuggerApi.emit('message', {}, 'Network.responseReceivedExtraInfo', params);
+    expect(heard).toHaveBeenCalledOnce();
+    const delivered = heard.mock.calls[0]![1];
+    expect(JSON.stringify(delivered)).not.toMatch(/secret|hidden|HttpOnly|cookie/i);
+    expect(delivered).toMatchObject({ requestId: 'response', headers: { ETag: 'safe' }, response: { headers: { 'Content-Type': 'text/html' } } });
+    expect(delivered.headersText).toContain('HTTP/1.1 200 OK');
+    expect(delivered.headersText).toContain('X-Public: safe');
+    expect(params.headers['Set-Cookie']).toContain('hidden');
+    lease.close();
+  });
+
   it('delivers native attachment events before the first command without dropping synchronous events', async () => {
     const current = page(), heard = vi.fn();
     const attach = current.debuggerApi.attach.getMockImplementation()!;

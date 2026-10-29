@@ -2,10 +2,12 @@ import { app, BrowserWindow, WebContentsView } from 'electron';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { BrowserPageRuntime } from '../browser-page-runtime';
 import { createPaneTransport, agentCursorArrived, agentBrowserToolStarting, agentBrowserToolFinished } from '../agent-browser';
 import { createBrowserAppProgram } from '../../../../../browser-agent-mcp';
+import { createPageProtocol } from '../page-protocol';
 
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 const commands: string[] = [];
@@ -21,8 +23,11 @@ async function run() {
   await app.whenReady();
   assert.equal(app.getPath('userData'), process.env.GUGU_USER_DATA_DIR);
   let port = 0;
+  let receivedPrivateCookie = false;
   const server = createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html');
+    if (request.url === '/cookie-set') response.setHeader('Set-Cookie', 'page_secret=private-page-value; HttpOnly; Path=/');
+    if (request.url === '/cookie-check') receivedPrivateCookie = request.headers.cookie?.includes('page_secret=private-page-value') === true;
     response.end(request.url?.startsWith('/frame')
       ? '<!doctype html><button id="inside" onclick="document.body.dataset.clicked=\'yes\'">Inside frame</button>'
       : `<!doctype html><title>Scoped browser protocol</title>
@@ -105,6 +110,51 @@ async function run() {
       assert.ok(error.includes(cause), error);
       assert.equal(failureView.webContents.debugger.isAttached(), cause !== 'surface failed');
     } finally { clearTimeout(timer); transport.close(); failurePage.close(); }
+  });
+  await check('http-only-cookie-events', async () => {
+    const lease = createPageProtocol(contents);
+    const visible: unknown[] = [];
+    let privateRequest = false, privateResponse = false;
+    const observeNative = (_event: unknown, method: string, params: unknown) => {
+      const raw = JSON.stringify(params);
+      if (method === 'Network.requestWillBeSentExtraInfo' && raw.includes('private-page-value')) privateRequest = true;
+      if (method === 'Network.responseReceivedExtraInfo' && raw.includes('private-page-value')) privateResponse = true;
+    };
+    contents.debugger.on('message', observeNative);
+    lease.onMessage((method, params) => { if (method.startsWith('Network.')) visible.push(params); });
+    try {
+      await lease.send('Network.enable');
+      for (const route of ['/cookie-set', '/cookie-check']) {
+        const loaded = new Promise<void>(resolve => contents.once('did-finish-load', () => resolve()));
+        await lease.send('Page.navigate', { url: `http://127.0.0.1:${port}${route}` });
+        await loaded;
+      }
+      assert.equal(await contents.executeJavaScript('document.cookie'), '');
+      assert.ok(receivedPrivateCookie && privateRequest && privateResponse, 'fixture must actually receive and expose HttpOnly cookie events');
+      assert.ok(visible.length > 0);
+      assert.ok(!JSON.stringify(visible).includes('private-page-value'), 'the App must not receive the raw cookie value');
+    } finally { lease.close(); contents.debugger.removeListener('message', observeNative); }
+  });
+  await check('navigation-schemes', async () => {
+    const lease = createPageProtocol(contents);
+    const before = commands.length;
+    try {
+      for (const url of ['chrome://gpu', 'devtools://devtools/bundled/inspector.html']) {
+        await assert.rejects(lease.send('Page.navigate', { url }), /unsupported navigation/);
+      }
+      assert.equal(commands.length, before, 'unsupported navigation must never reach the native debugger');
+    } finally { lease.close(); }
+  });
+  await check('drag-files', async () => {
+    const lease = createPageProtocol(contents);
+    const file = path.join(process.env.GUGU_HOME!, 'owned-file.txt');
+    writeFileSync(file, 'owned native drag fixture');
+    const before = commands.length;
+    try {
+      await assert.rejects(lease.send('Input.dispatchDragEvent', { type: 'dragEnter', x: 1, y: 1,
+        data: { files: [file], items: [], dragOperationsMask: 1 } }), /local files/);
+      assert.equal(commands.length, before, 'local file drag must never reach the native debugger');
+    } finally { lease.close(); }
   });
   process.stdout.write('PAGE_PROTOCOL_RESULT=' + JSON.stringify({ cases, commands }) + '\n');
   runtime.close(); window.destroy(); server.closeAllConnections(); server.close();
