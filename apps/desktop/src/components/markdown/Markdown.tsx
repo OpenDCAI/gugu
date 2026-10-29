@@ -26,6 +26,8 @@ import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { displayAgentReferences, isMentionMarkerUrl } from '../../lib/mentionMdast'
 import { markdownCodeHighlighter } from './codeHighlight'
 import { PlatformCodeBlock } from './PlatformCodeBlock'
+import { PlatformTable } from './PlatformTable'
+import { useMobileShell } from '@/hooks/useMobileShell'
 import { FILE_PILL_CLASS, hookFilePillCopy, rehypeGroupFilePills } from './filePills'
 import { GroupFileName } from './GroupFileName'
 import { revealMarkdownAnchor } from './revealAnchor'
@@ -124,10 +126,13 @@ export const Markdown = memo(function Markdown({
 
   const plugins = pluginsFor({ trust, hardBreaks, frontmatter })
   const source = useMemo(() => normalizeMarkdownSource(displayAgentReferences(content)), [content])
+  const mobile = useMobileShell()
+  const phoneTable = mobile && trust === 'document'
   const copyCode = trust === 'document' || codeCopy
   const components = useMemo(
     () => ({
       ...(copyCode ? { code: PlatformCodeBlock } : {}),
+      ...(phoneTable ? { table: PlatformTable } : {}),
       a: ({ href, children, node: _node, ...rest }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {
         // Only this render's nonce is a mention; any other `#ggm-*` (forged, stale) renders as plain text.
         if (mentionMarker && href === mentionMarker) return <span data-mention="true">{children}</span>
@@ -190,14 +195,14 @@ export const Markdown = memo(function Markdown({
           }
         : {}),
     }),
-    [mentionMarker, hasImageRenderer, copyCode]
+    [mentionMarker, hasImageRenderer, copyCode, phoneTable]
   )
 
   if (!content) return null
   return (
     <DensityContext.Provider value={density}>
       <Streamdown
-        key={`${trust}|${hardBreaks}|${frontmatter}|${mentionMarker ?? ''}|${hasImageRenderer}|${copyCode}`}
+        key={`${trust}|${hardBreaks}|${frontmatter}|${mentionMarker ?? ''}|${hasImageRenderer}|${copyCode}|${phoneTable}`}
         mode="static"
         parseIncompleteMarkdown={false}
         lineNumbers={false}
