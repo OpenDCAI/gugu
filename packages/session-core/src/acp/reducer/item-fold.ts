@@ -831,7 +831,7 @@ function foldItemContent(
         ...(event.effectiveValue !== undefined ? { effectiveValue: event.effectiveValue } : {}),
         ...(event.previousValue !== undefined ? { previousValue: event.previousValue } : {}),
         ...(event.title !== undefined ? { title: event.title } : {}),
-        at: stampAt ?? at,
+        ...(stampAt !== undefined ? { at: stampAt } : {}),
       };
       return normalizeToolStructure([...base, row], turnId);
     }

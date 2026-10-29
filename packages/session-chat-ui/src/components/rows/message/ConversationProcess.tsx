@@ -2,7 +2,6 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { useChatTranslator } from '@session-chat/localization';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
-import { useChatName } from '@session-chat/lib/chat-name';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import type { ChatMessage } from '@session-chat/model';
 import { GridLoader } from '@session-chat/components/primitives/GridLoader';
@@ -19,7 +18,6 @@ export function ConversationProcess(props: {
   const translate = useChatTranslator();
   const commands = useCommands();
   const clock = () => commands().conversationClock?.() ?? Date.now();
-  const chatName = useChatName();
   const [now, setNow] = createSignal(clock());
   const ticking = createMemo(() => !!props.process.live && props.process.startedAt !== undefined);
   createEffect(() => {
@@ -43,17 +41,8 @@ export function ConversationProcess(props: {
   const notice = () => commands().conversationProcessNotice?.(props.process.id);
   const label = () => notice()?.text ?? `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
-  // 不是主人手打起的这一轮:写清在干什么(管家 10-28)。群名只在恰好一个、宿主认得时写;几条合成一轮或认不出就不写名字。
-  const doing = () => {
-    const trigger = props.process.trigger;
-    if (!trigger) return null;
-    if (trigger.kind === 'schedule') return translate('transcript.processForSchedule');
-    if (trigger.kind === 'agent') return translate('transcript.processForBackground');
-    const name = trigger.chatIds?.length === 1 ? chatName(trigger.chatIds[0]) : null;
-    return name ? translate('transcript.processForGroupNamed', { name }) : translate('transcript.processForDelivery');
-  };
   const collapsible = () => props.collapsible !== false && !props.process.empty;
-  const liveLabel = () => [translate('transcript.thinkingLive'), doing(), summary()].filter(Boolean).join(' · ');
+  const liveLabel = () => [translate('transcript.thinkingLive'), summary()].filter(Boolean).join(' · ');
   return <button type="button" class={conversationProcessButton} data-conversation-process={props.process.id}
     disabled={!collapsible()} data-collapse-id={collapsible() ? props.process.id : undefined} data-collapse-anchor={props.anchorId}
     aria-expanded={collapsible() ? props.expanded : undefined} aria-label={label()} title={label()}>

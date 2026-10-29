@@ -48,17 +48,51 @@ export function terminalEntityId(scope: string, terminalId: string): string {
   return JSON.stringify([scope, terminalId]);
 }
 
-/** Store only referenced presentation, through the existing whole-turn writer. */
-export function withReferencedTerminals(turn: TranscriptTurn, available: readonly TerminalState[], limit = TERMINAL_OUTPUT_BYTE_LIMIT): TranscriptTurn {
-  const ids = new Set<string>();
+/** Terminal ids a turn's items reference. Turns are immutable, so the walk is done once per turn object. */
+const referencedIds = new WeakMap<TranscriptTurn, readonly string[]>();
+function referencedTerminalIds(turn: TranscriptTurn): readonly string[] {
+  let ids = referencedIds.get(turn);
+  if (ids) return ids;
+  const found = new Set<string>();
   const visit = (items: readonly TranscriptItem[]) => {
     for (const item of items) {
-      if ('terminalId' in item && item.terminalId) ids.add(item.terminalId);
+      if ('terminalId' in item && item.terminalId) found.add(item.terminalId);
       if ('children' in item && item.children) visit(item.children);
     }
   };
   visit(turn.items);
-  const byId = new Map([...(turn.terminals ?? []), ...available].map(terminal => [terminal.terminalId, terminal]));
+  referencedIds.set(turn, (ids = [...found]));
+  return ids;
+}
+
+const availableIndex = new WeakMap<readonly TerminalState[], ReadonlyMap<string, TerminalState>>();
+function indexAvailable(available: readonly TerminalState[]): ReadonlyMap<string, TerminalState> {
+  let index = availableIndex.get(available);
+  if (!index) availableIndex.set(available, (index = new Map(available.map(terminal => [terminal.terminalId, terminal]))));
+  return index;
+}
+
+/**
+ * The live terminal objects a turn's stored snapshots were last computed from (#994). The runtime hands out the same
+ * object for a terminal until it changes, so a turn whose referenced terminals are all the same objects is unchanged:
+ * it is returned as is, without re-encoding output or comparing it.
+ */
+const computedFrom = new WeakMap<TranscriptTurn, ReadonlyMap<string, TerminalState>>();
+
+/** Store only referenced presentation, through the existing whole-turn writer. */
+export function withReferencedTerminals(turn: TranscriptTurn, available: readonly TerminalState[], limit = TERMINAL_OUTPUT_BYTE_LIMIT): TranscriptTurn {
+  const ids = referencedTerminalIds(turn);
+  if (ids.length === 0 && !turn.terminals?.length) return turn;
+  const live = indexAvailable(available);
+  const sources = computedFrom.get(turn);
+  if (sources && ids.every(id => live.get(id) === sources.get(id))) return turn;
+  const next = snapshotReferenced(turn, ids, live, limit);
+  computedFrom.set(next, new Map(ids.flatMap(id => (live.has(id) ? [[id, live.get(id)!] as const] : []))));
+  return next;
+}
+
+function snapshotReferenced(turn: TranscriptTurn, ids: readonly string[], live: ReadonlyMap<string, TerminalState>, limit: number): TranscriptTurn {
+  const byId = new Map<string, TerminalState>([...(turn.terminals ?? []).map(terminal => [terminal.terminalId, terminal] as const), ...live]);
   let remaining = limit;
   const terminals = [...ids].reverse().flatMap(id => {
     const terminal = byId.get(id);

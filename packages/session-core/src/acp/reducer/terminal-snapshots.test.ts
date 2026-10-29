@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AcpTranscriptParser } from './parser';
 import { terminalEntityId, withReferencedTerminals, type TerminalState } from '../models/terminals';
 
@@ -51,5 +51,29 @@ describe('referenced terminal history', () => {
       ['t', 'CD', true], ['u', 'EFGH', false],
     ]);
     expect(saved.terminals!.reduce((sum, t) => sum + new TextEncoder().encode(t.output).length, 0)).toBe(6);
+  });
+
+  it('leaves turns whose referenced terminals did not change untouched, without encoding their output again (#994)', () => {
+    const parser = new AcpTranscriptParser({ sessionId: 'long' });
+    for (let index = 0; index < 200; index++) {
+      parser.pushEvent({ kind: 'tool_update', toolCallId: `c${index}`, title: 'echo', toolKind: 'execute',
+        contentBlocks: [{ type: 'terminal', terminalId: `t${index}` }], status: 'completed' }, index * 2 + 1);
+      parser.endTurn(index * 2 + 2);
+    }
+    const terminals = Array.from({ length: 200 }, (_, index) => terminal(`t${index}`, `out ${index}`));
+    parser.pushEvent({ kind: 'terminal_snapshots', terminals });
+    const before = parser.history;
+    expect(before).toHaveLength(200);
+    const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+    try {
+      // The runtime hands out the same object for every terminal that did not change; only the last one grew.
+      parser.pushEvent({ kind: 'terminal_snapshots', terminals: [...terminals.slice(0, 199), terminal('t199', 'out 199 more')] });
+      expect(parser.history.slice(0, 199).every((turn, index) => turn === before[index])).toBe(true);
+      expect(parser.history[199]).not.toBe(before[199]);
+      expect(parser.history[199].terminals?.[0].output).toBe('out 199 more');
+      expect(encode).toHaveBeenCalledTimes(1);
+    } finally {
+      encode.mockRestore();
+    }
   });
 });
