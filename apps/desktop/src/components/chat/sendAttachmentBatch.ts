@@ -30,7 +30,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
             setAttachmentUploadProgress(timings[index].clientId, { loaded: 0, total: file.size, attempt })
             return prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
             { ...scope, request_id: timings[index].clientId }, plan => { capDeadline(plan.expires_at); progress() }, attempt > 1,
-            transfer => { progress(transfer.loaded); setAttachmentUploadProgress(timings[index].clientId, { ...transfer, attempt }) })
+            transfer => { progress(transfer.loaded, transfer.total); setAttachmentUploadProgress(timings[index].clientId, { ...transfer, attempt }) })
           },
           undefined, { timeoutMs: attachmentUploadTimeoutMs(file.size) }))
         settle[index].resolve(prepared)

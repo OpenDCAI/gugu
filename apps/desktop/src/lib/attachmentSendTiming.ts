@@ -31,22 +31,23 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
   const submitted = performance.now()
   return {
     clientId,
-    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal, capDeadline: (expiresAt: string | undefined) => void, progress: (sent?: number) => void) => Promise<T>, parent?: AbortSignal, options?: { timeoutMs?: number | null; logResult?: (result: T) => boolean }): Promise<T> {
+    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal, capDeadline: (expiresAt: string | undefined) => void, progress: (sent?: number, total?: number) => void) => Promise<T>, parent?: AbortSignal, options?: { timeoutMs?: number | null; logResult?: (result: T) => boolean }): Promise<T> {
       const started = performance.now(), controller = new AbortController()
       const signal = parent ? linkedAttachmentSignal([parent, controller.signal]) : controller.signal
       const fields = { clientId, chatId, stage, attempt }
       const timeoutMs = options?.timeoutMs === undefined ? ATTACHMENT_SEND_DEADLINES[stage] : options.timeoutMs
       let deadline = timeoutMs === null ? Infinity : Date.now() + timeoutMs
-      let lastProgressAt = Date.now(), lastSent = 0
+      let lastProgressAt = Date.now(), lastSent = 0, bytesComplete = false
       let timeout: ReturnType<typeof setTimeout> | undefined
       const arm = () => {
         clearTimeout(timeout)
-        const nextDeadline = Math.min(deadline, stage === 'upload' ? lastProgressAt + ATTACHMENT_UPLOAD_IDLE_MS : Infinity)
+        const nextDeadline = Math.min(deadline, stage === 'upload' && !bytesComplete ? lastProgressAt + ATTACHMENT_UPLOAD_IDLE_MS : Infinity)
         if (Number.isFinite(nextDeadline)) timeout = setTimeout(() => controller.abort(new AttachmentStageTimeout(stage)), Math.max(0, nextDeadline - Date.now()))
       }
-      const progress = (sent?: number) => {
+      const progress = (sent?: number, total?: number) => {
         if (signal.aborted || sent !== undefined && (!Number.isFinite(sent) || sent <= lastSent)) return
         if (sent !== undefined) lastSent = sent
+        if (sent !== undefined && total !== undefined && total > 0 && sent >= total) bytesComplete = true
         lastProgressAt = Date.now(); arm()
       }
       const capDeadline = (expiresAt: string | undefined) => {

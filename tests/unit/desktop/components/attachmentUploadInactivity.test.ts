@@ -6,6 +6,20 @@ vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => (
 afterEach(() => vi.useRealTimers())
 
 describe('attachment upload inactivity (#1002)', () => {
+  it('keeps the overall deadline instead of the byte-idle timer once all bytes are sent', async () => {
+    vi.useFakeTimers()
+    let outcome: unknown = 'pending'
+    const done = attachmentSendTiming('message', 'chat').stage('upload', 1,
+      async (_signal, _cap, progress) => {
+        progress(1_048_576, 1_048_576)
+        await new Promise(resolve => setTimeout(resolve, 35_000))
+        return 'committed'
+      }).then(value => { outcome = value }, error => { outcome = error })
+    await vi.advanceTimersByTimeAsync(35_000)
+    await done
+    expect(outcome).toBe('committed')
+  })
+
   it('does not count repeated zero-byte events as progress', async () => {
     vi.useFakeTimers()
     let progress!: (sent: number) => void
