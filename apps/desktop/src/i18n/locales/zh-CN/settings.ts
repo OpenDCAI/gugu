@@ -783,7 +783,7 @@ export default {
     "update": {
       "downloading": "更新中",
       "downloadingHint": "正在下载 {{version}}，空闲时自动切换。",
-      "ready": "有新版本",
+      "ready": "新版本已就绪，等待空闲",
       "readyHint": "{{version}} 已下载，空闲时自动切换。",
       "updateNow": "现在重启更新",
       "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。",
