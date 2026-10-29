@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, type WebContents } from 'electron';
 import { createPageProtocol } from '../page-protocol';
+import { withinDeadline } from './page-protocol-deadline';
 
 type Check = (name: string, body: () => Promise<void>) => Promise<void>;
 
@@ -33,11 +34,11 @@ export async function pageProtocolBoundaryChecks(url: string, check: Check) {
     lease.onMessage((method, params) => { if (method.startsWith('Network.webSocket')) visible.push(params); });
     try {
       await lease.send('Network.enable');
-      await contents.executeJavaScript(`new Promise((resolve, reject) => {
+      await withinDeadline(contents.executeJavaScript(`new Promise((resolve, reject) => {
         const socket = new WebSocket(${JSON.stringify(url.replace('http:', 'ws:') + 'socket')});
         socket.onopen = () => { socket.close(); resolve(true); };
         socket.onerror = () => reject(new Error('fixture WebSocket handshake failed'));
-      })`);
+      })`), 'WebSocket handshake');
       await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(await contents.executeJavaScript('document.cookie'), '');
       assert.ok(privateRawHeaders, 'the native WebSocket requestHeadersText must carry the fake HttpOnly cookie: ' + JSON.stringify(handshake));
@@ -64,9 +65,11 @@ export async function pageProtocolBoundaryChecks(url: string, check: Check) {
     await contents.loadURL(url + 'history-before');
     await contents.loadURL('chrome://gpu');
     await contents.loadURL(url + 'history-after');
+    contents.debugger.attach('1.3');
+    const history = await contents.debugger.sendCommand('Page.getNavigationHistory') as { entries: Array<{ id: number; url: string }> };
+    contents.debugger.detach();
     const lease = createPageProtocol(contents);
     try {
-      const history = await lease.send('Page.getNavigationHistory') as { entries: Array<{ id: number; url: string }> };
       const internal = history.entries.find(entry => entry.url.startsWith('chrome://gpu'));
       const allowed = history.entries.find(entry => entry.url === url + 'history-before');
       assert.ok(internal && allowed, 'fixture must contain both internal and ordinary history entries');
@@ -76,7 +79,7 @@ export async function pageProtocolBoundaryChecks(url: string, check: Check) {
       assert.equal(contents.getURL(), url + 'history-after');
       const loaded = new Promise<void>(resolve => contents.once('did-finish-load', () => resolve()));
       await lease.send('Page.navigateToHistoryEntry', { entryId: allowed.id });
-      await loaded;
+      await withinDeadline(loaded, 'ordinary history navigation');
       assert.equal(contents.getURL(), allowed.url, 'ordinary browser back/forward must still work');
     } finally { lease.close(); }
   }));

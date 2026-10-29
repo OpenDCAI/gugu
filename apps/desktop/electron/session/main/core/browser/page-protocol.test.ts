@@ -3,7 +3,8 @@ import type { WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { createPageProtocol } from './page-protocol';
 
-function page() {
+function page(urls = ['https://example.test/'], activeIndex = urls.length - 1) {
+  const entries = urls.map(url => ({ url }));
   let attached = false;
   const debuggerApi = Object.assign(new EventEmitter(), {
     isAttached: () => attached,
@@ -14,16 +15,87 @@ function page() {
   let destroyed = false;
   const contents = Object.assign(new EventEmitter(), {
     debugger: debuggerApi,
+    getURL: vi.fn(() => entries[activeIndex]?.url ?? ''),
+    navigationHistory: {
+      getAllEntries: vi.fn(() => entries),
+      getActiveIndex: vi.fn(() => activeIndex),
+      removeEntryAtIndex: vi.fn((index: number) => {
+        if (index === activeIndex) return false;
+        entries.splice(index, 1);
+        if (index < activeIndex) activeIndex -= 1;
+        return true;
+      }),
+    },
     isDestroyed: () => destroyed,
     close: vi.fn(), loadURL: vi.fn(), focus: vi.fn(),
   });
   return {
     contents: contents as unknown as WebContents, debuggerApi,
+    entries,
     destroy: () => { destroyed = true; contents.emit('destroyed'); },
   };
 }
 
 describe('host-selected page protocol lease', () => {
+  it('removes forbidden back and forward history before attaching, preserving current and ordinary entries', async () => {
+    const current = page(['file:///private/secret', 'http://example.test/before', 'https://example.test/current', 'chrome://gpu', 'about:blank'], 2);
+    const lease = createPageProtocol(current.contents);
+    const attach = current.debuggerApi.attach.getMockImplementation()!;
+    current.debuggerApi.attach.mockImplementationOnce(() => {
+      expect(current.entries.map(entry => entry.url)).toEqual(['http://example.test/before', 'https://example.test/current', 'about:blank']);
+      attach();
+    });
+    await lease.send('Runtime.evaluate', { expression: 'history.go(-1)' });
+    expect(current.contents.navigationHistory.removeEntryAtIndex).toHaveBeenNthCalledWith(1, 3);
+    expect(current.contents.navigationHistory.removeEntryAtIndex).toHaveBeenNthCalledWith(2, 0);
+    expect(current.contents.navigationHistory.getActiveIndex()).toBe(1);
+    lease.close();
+    expect(current.contents.loadURL).not.toHaveBeenCalled();
+  });
+
+  it.each(['file:///private/secret', 'chrome://gpu'])('refuses a lease on current unsupported URL %s without modifying it', async url => {
+    const current = page(['https://example.test/', url]), lease = createPageProtocol(current.contents);
+    await expect(lease.send('Runtime.evaluate', { expression: 'document.body.innerText' })).rejects.toThrow('navigation');
+    expect(current.debuggerApi.attach).not.toHaveBeenCalled();
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    expect(current.contents.navigationHistory.removeEntryAtIndex).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it('fails closed if a forbidden history entry cannot be removed', async () => {
+    const current = page(['file:///private/secret', 'https://example.test/']), lease = createPageProtocol(current.contents);
+    vi.mocked(current.contents.navigationHistory.removeEntryAtIndex).mockReturnValue(false);
+    await expect(lease.send('Runtime.evaluate')).rejects.toThrow('history');
+    expect(current.debuggerApi.attach).not.toHaveBeenCalled();
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it('does not prune another debugger owner history', async () => {
+    const current = page(['file:///private/secret', 'https://example.test/']);
+    current.debuggerApi.attach();
+    const lease = createPageProtocol(current.contents);
+    await expect(lease.send('Runtime.enable')).rejects.toThrow('already in use');
+    expect(current.contents.navigationHistory.removeEntryAtIndex).not.toHaveBeenCalled();
+    lease.close();
+    expect(current.debuggerApi.detach).not.toHaveBeenCalled();
+  });
+
+  it('closes the lease if the person starts an unsupported main navigation, without closing their page', async () => {
+    const current = page(), lease = createPageProtocol(current.contents), closed = vi.fn();
+    lease.onClose(closed);
+    await lease.send('Runtime.enable');
+    current.contents.emit('did-start-navigation', { url: 'file:///private/secret', isMainFrame: false });
+    expect(closed).not.toHaveBeenCalled();
+    current.contents.emit('did-start-navigation', { url: 'https://example.test/next', isMainFrame: true });
+    expect(closed).not.toHaveBeenCalled();
+    current.contents.emit('did-start-navigation', { url: 'file:///private/secret', isMainFrame: true });
+    await expect(lease.send('Runtime.evaluate')).rejects.toThrow('navigation');
+    expect(closed).toHaveBeenCalledOnce();
+    expect(current.contents.close).not.toHaveBeenCalled();
+    expect(current.contents.listenerCount('did-start-navigation')).toBe(0);
+  });
+
   it('uses only the selected native page after its viewport is ready, preserving navigation and focus', async () => {
     const first = page();
     let ready!: () => void;

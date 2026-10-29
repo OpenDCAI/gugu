@@ -10,6 +10,7 @@ import { createPaneTransport, agentCursorArrived, agentBrowserToolStarting, agen
 import { createBrowserAppProgram } from '../../../../../browser-agent-mcp';
 import { createPageProtocol } from '../page-protocol';
 import { pageProtocolBoundaryChecks } from './page-protocol-boundary-checks';
+import { pageProtocolHistoryChecks } from './page-protocol-history-checks';
 
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 const commands: string[] = [];
@@ -165,6 +166,7 @@ async function run() {
     } finally { lease.close(); }
   });
   await pageProtocolBoundaryChecks(`http://127.0.0.1:${port}/`, check);
+  await pageProtocolHistoryChecks(`http://127.0.0.1:${port}/`, check);
   process.stdout.write('PAGE_PROTOCOL_RESULT=' + JSON.stringify({ cases, commands }) + '\n');
   runtime.close(); window.destroy(); server.closeAllConnections(); server.close();
 }

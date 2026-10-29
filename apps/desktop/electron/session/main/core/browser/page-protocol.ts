@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 import { pageNetworkEvent } from './page-network-events';
+import { pageNavigationAccess } from './page-navigation-access';
 
 type PageEvent = (method: string, params: Record<string, unknown>, sessionId?: string) => void;
 type PageProtocolOptions = {
@@ -32,7 +33,7 @@ const PAGE_METHODS = new Set(`
   Log.enable Log.disable Performance.enable Performance.disable Performance.getMetrics
 `.trim().split(/\s+/));
 
-/** A host-selected page, borrowed without owning its navigation, partition or presentation. */
+/** A host-selected page, borrowed without owning its partition or presentation. */
 export interface PageProtocol {
   readonly attached: boolean;
   send(method: string, params?: Record<string, unknown>, sessionId?: string, signal?: AbortSignal): Promise<unknown>;
@@ -55,10 +56,12 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
   let attached = false;
   let closed: string | undefined;
   let attaching: Promise<void> | undefined;
+  const navigation = pageNavigationAccess(contents, reason => close(reason));
 
   const assertLive = () => {
     if (closed || contents.isDestroyed()) throw new Error(closed ?? 'the browser tab was closed');
     options.signal?.throwIfAborted();
+    navigation.assertCurrent();
   };
   const bounded = <T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> => new Promise((resolve, reject) => {
     const signals = [lifetime.signal, ...(signal ? [signal] : [])];
@@ -76,6 +79,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
     attaching ??= bounded(ready).then(() => {
       assertLive();
       if (debuggerApi.isAttached()) throw new Error('the page debugger is already in use');
+      navigation.prepare();
       // Native attach can emit synchronously, before the first command is sent.
       attached = true;
       try { debuggerApi.attach('1.3'); }
@@ -105,6 +109,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
     if (closed) return;
     closed = reason;
     lifetime.abort(new Error(reason));
+    navigation.dispose();
     options.signal?.removeEventListener('abort', onAbort);
     debuggerApi.removeListener('message', onMessage);
     debuggerApi.removeListener('detach', onDetach);

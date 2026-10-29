@@ -59,7 +59,10 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
   afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
   it.each(['same-iframe-click', 'cross-iframe-click', 'html-drag', 'surface failed', 'the page debugger is already in use',
     'http-only-cookie-events', 'navigation-schemes', 'drag-files', 'websocket-cookie-events',
-    'navigation-control-file', 'navigation-control-chrome', 'navigation-control-devtools', 'navigation-history-policy'])('%s', name => {
+    'navigation-control-file', 'navigation-control-chrome', 'navigation-control-devtools', 'navigation-history-policy',
+    'history-file-script', 'history-file-alt-left', 'history-file-mouse-back',
+    'history-chrome-script', 'history-chrome-alt-left', 'history-chrome-mouse-back',
+    'history-file-current', 'history-file-owner-navigation'])('%s', name => {
     expect(result.cases[name], JSON.stringify(result.cases[name])).toEqual({ passed: true });
   });
 });

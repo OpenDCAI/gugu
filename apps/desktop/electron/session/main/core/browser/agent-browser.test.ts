@@ -84,6 +84,8 @@ function fakeGuest(id = 7) {
   const wc = Object.assign(new EventEmitter(), {
     id,
     debugger: dbg,
+    getURL: () => 'https://a.test/',
+    navigationHistory: { getAllEntries: () => [], getActiveIndex: () => -1, removeEntryAtIndex: vi.fn() },
     hostWebContents: null,
     destroyed: false,
     isDestroyed() {
