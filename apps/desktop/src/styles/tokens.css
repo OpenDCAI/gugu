@@ -450,7 +450,10 @@
   /* @@@shadow-layers-7333 — 视觉规范:浮层不是一团大投影,而是「半像素轮廓 + 近影 + 宽而弱的环境影」组合。
      三档各管一类:--shadow-lift 菜单/popover/tooltip/toast;--shadow-dialog 较大的 Sheet/Dialog 外壳;
      --shadow-composer 主输入入口。非浮层照旧不给阴影(靠表面分层)。半像素轮廓画在阴影里,不另加 border。 */
-  --shadow-lift: 0 0 0 0.5px rgb(255 255 255 / 0.16), 0 8px 28px rgb(0 0 0 / 0.36);
+  /* 两套取值各起一个名字:会话页的 .emlight / .emdark 作用域(看图面板、Monaco 取色探针)要能拿到**它那一套**,不跟宿主主题走。 */
+  --shadow-lift-dark: 0 0 0 0.5px rgb(255 255 255 / 0.16), 0 8px 28px rgb(0 0 0 / 0.36);
+  --shadow-lift-light: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 3px 7.5px rgb(0 0 0 / 0.04), 0 0 20px rgb(0 0 0 / 0.05);
+  --shadow-lift: var(--shadow-lift-dark);
   --shadow-dialog: 0 0 0 0.5px rgb(255 255 255 / 0.14), 0 16px 48px rgb(0 0 0 / 0.5);
   --shadow-composer: inset 0 0 0 1px rgb(255 255 255 / 0.08);
 
@@ -664,7 +667,9 @@
      ❌ 它不是品牌色(品牌走 --primary = 墨),❌ 不做装饰,❌ 不再开第二个蓝。
      浅色 = blue-500(#3b82f6 实算 oklch 0.623 0.188 259.8),暗色提一档到 blue-400
      (#60a5fa → 0.714 0.143 254.6),这样在深底上仍然读得出「它在动」。 */
-  --live: oklch(0.714 0.143 255);
+  --live-dark: oklch(0.714 0.143 255);
+  --live-light: oklch(0.623 0.188 260); /* blue-500 #3b82f6 —— 浅底上用满饱和这一档 */
+  --live: var(--live-dark);
   --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
   /* 选中文字的底:半透明蓝,只叠底、不改字色 —— 页面、反色的用户气泡、代码高亮上原来的字色都还读得出。 */
   --text-selection: color-mix(in oklab, var(--live) 32%, transparent);
@@ -740,8 +745,14 @@
 
 /* ── theme batch C1:终端的 16 个 ANSI 基础色 ───────────────────────────────────────────────
    从 session/renderer/index.css 的 .emdark / .emlight 原样搬来(owner 10-28 批的 token 方案:颜色只在 tokens.css 里写)。
-   这是终端内容的调色板(VS Code Dark+ / Light+),不是界面角色;pty.ts 的 readXtermCssVars 从计算样式读它们。 */
-:root {
+   这是终端内容的调色板(VS Code Dark+ / Light+),不是界面角色;pty.ts 的 readXtermCssVars 从计算样式读它们。
+   选择器仍是会话页自己的 .emdark / .emlight,❌ 换成 :root / [data-theme]:这两个类也会被单独挂上
+   (浏览器面板固定 .emlight,Monaco 用带类的探针读两套颜色),作用域里的值必须是它那一套,不跟宿主走。
+   live / shadow-lift 同理:引用上面按主题命名的那一份。 */
+.emdark {
+  --live: var(--live-dark);
+  --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
+  --shadow-lift: var(--shadow-lift-dark);
   /* 16 个基础色(ANSI 0–15)= VS Code Dark+ 的默认终端色(microsoft/vscode
      terminalColorRegistry.ts)。黑 #000000 在深底上本身读不出来,由 pty.ts 的
      TERMINAL_MINIMUM_CONTRAST_RATIO 调亮 —— 与 VS Code 同一组合(#5655)。 */
@@ -762,7 +773,10 @@
   --xterm-ansi-bright-cyan: #29b8db;
   --xterm-ansi-bright-white: #e5e5e5;
 }
-[data-theme='light'] {
+.emlight {
+  --live: var(--live-light);
+  --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
+  --shadow-lift: var(--shadow-lift-light);
   /* 16 个基础色(ANSI 0–15)= VS Code Light+ 的默认终端色(microsoft/vscode
      terminalColorRegistry.ts),是跟浅底成套挑过的一组。❌ 不给就回落到 xterm 为黑底
      设计的内置色板,白/亮白/亮黄在白底上读不出来(#5655)。个别亮色低于正文对比度,
@@ -821,7 +835,7 @@
   --color-switch-off: rgba(0,0,0,0.15);
   /* @@@shadow-lift —— 浅色侧**只**重定义这一档,上面那一排别名跟着它走,
      ❌ 不在这里再抄一份深浅。 */
-  --shadow-lift: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 3px 7.5px rgb(0 0 0 / 0.04), 0 0 20px rgb(0 0 0 / 0.05);
+  --shadow-lift: var(--shadow-lift-light);
   --shadow-dialog: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 10px 40px rgb(0 0 0 / 0.086), 0 30px 90px rgb(0 0 0 / 0.063);
   /* composer:1px 轮廓 + 近影 + 宽环境影(--elevation-composer)。 */
   --shadow-composer: 0 0 0 1px rgb(0 0 0 / 0.04), 0 2px 8px rgb(0 0 0 / 0.04), 0 4px 80px 8px rgb(0 0 0 / 0.024);
@@ -877,7 +891,7 @@
   --border-spinner-on-dark: color-mix(in oklab, var(--fg) 40%, transparent);
 
   /* @@@canonical-tokens 浅色覆盖 —— #7333 亮色:#fff 内容 / #f9f9f9 底层 / #1a1c1f 前景。 */
-  --live: oklch(0.623 0.188 260); /* blue-500 #3b82f6 —— 浅底上用满饱和这一档 */
+  --live: var(--live-light);
   --bg:       #ffffff; /* 内容表面 */
   --page:     #f9f9f9; /* 窗口底层:rail、会话列表(gray-fixed-50) */
   --card:     #ffffff;

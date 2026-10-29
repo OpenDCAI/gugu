@@ -702,7 +702,7 @@
     --jade-12: color(display-p3 0.142 0.229 0.194);
 
     /* ── Semantic tokens ─────────────────────────────────────── */
-    --background: var(--bg);
+    --background: var(--color-white); /* 会话页浅色作用域的底就是白;❌ var(--bg):.emlight 也会在深色宿主里单独挂上 */
     --background-1: var(--neutral-2);
     --background-2: var(--neutral-3);
     --background-3: var(--neutral-4);
@@ -1572,9 +1572,9 @@
     background: linear-gradient(
       120deg,
       transparent 0%,
-      color-mix(in srgb, var(--bg) 28%, transparent) 30%,
-      color-mix(in srgb, var(--bg) 75%, transparent) 50%,
-      color-mix(in srgb, var(--bg) 28%, transparent) 70%,
+      color-mix(in srgb, var(--background) 28%, transparent) 30%,
+      color-mix(in srgb, var(--background) 75%, transparent) 50%,
+      color-mix(in srgb, var(--background) 28%, transparent) 70%,
       transparent 100%
     );
     transform: skewX(-15deg) translateX(-150%);
