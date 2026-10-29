@@ -1535,11 +1535,13 @@ describe('app_install { market }', () => {
     expect(requestInstallConsent).toHaveBeenCalledTimes(1);
   });
 
-  it('takes exactly one of a folder or a market App', async () => {
+  it('takes exactly one of a folder, a market App or an installed App', async () => {
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/x', market: 'reader' }, quietly))
-      .rejects.toThrow(/exactly one of source_dir, source_message_id or market/);
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
+    await expect(runExtensionAgentAction({ action: 'install', market: 'reader', app: 'reader', chat_id: 'chat-1' }, quietly))
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
     await expect(runExtensionAgentAction({ action: 'install' }, quietly))
-      .rejects.toThrow(/exactly one of source_dir, source_message_id or market/);
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
   });
 
   it('a group App from the market: the call that sends it into the chat names the market, never a folder', async () => {
