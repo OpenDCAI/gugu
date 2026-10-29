@@ -65,7 +65,7 @@ import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
 import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
-import { unitReservedHeight } from './core/units';
+import { unitContainsItem, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
@@ -1116,7 +1116,7 @@ export function ChatRoot(props: ChatRootProps) {
     const active = untrack(activeUnits);
     const base = committedUnitsArr.length;
     for (let i = 0; i < active.length; i++) {
-      if (active[i]?.itemId === id) return base + i;
+      if (unitContainsItem(active[i], id)) return base + i;
     }
     return -1;
   }
@@ -1607,7 +1607,7 @@ export function ChatRoot(props: ChatRootProps) {
     const us = units();
     let unitIdx = -1;
     for (let i = 0; i < us.length; i++) {
-      if (us.at(i)?.itemId === id) {
+      if (unitContainsItem(us.at(i), id)) {
         unitIdx = i;
         break;
       }
@@ -1616,7 +1616,7 @@ export function ChatRoot(props: ChatRootProps) {
 
     let itemTotalH = 0;
     for (let i = unitIdx; i < us.length; i++) {
-      if (us.at(i)?.itemId !== id) break;
+      if (!unitContainsItem(us.at(i), id)) break;
       itemTotalH += virt.size(i);
     }
 
@@ -1642,6 +1642,14 @@ export function ChatRoot(props: ChatRootProps) {
     };
 
     const t0 = computeTarget();
+    if (us.at(idx)?.children) requestAnimationFrame(() => {
+      const step = Array.from(el.querySelectorAll<HTMLElement>('[data-process-step]')).find(node => node.dataset.itemId === id);
+      const viewport = step?.closest<HTMLElement>('[data-slot="conversation-process-steps"]');
+      if (step && viewport) {
+        viewport.scrollTop += step.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+        viewport.dispatchEvent(new Event('scroll'));
+      }
+    });
 
     // Keep the requested reading edge anchored. End alignment follows the
     // measured composer height when its draft or attachments resize the slot.

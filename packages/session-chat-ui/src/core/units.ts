@@ -83,6 +83,8 @@ export type RenderUnit<D = unknown> = {
   chrome?: GroupChrome;
   /** Agent conversation block ownership; process steps and reply keep one chronological owner. */
   conversationProcessOwner?: string;
+  /** Nested measured rows owned by a bounded native viewport. */
+  children?: readonly RenderUnit[];
   /** The fold toggles this unit is emitted behind, outermost first (set only under `revealAllFolds`). */
   folds?: readonly FoldGate[];
 };
@@ -301,4 +303,9 @@ export function stampGroupRoles(units: RenderUnit[]): void {
     else if (i === units.length - 1) units[i].groupRole = 'last';
     else units[i].groupRole = 'middle';
   }
+}
+
+/** Source-item lookup includes rows inside a native process viewport. */
+export function unitContainsItem(unit: RenderUnit | undefined, id: string): boolean {
+  return !!unit && (unit.itemId === id || !!unit.children?.some(child => unitContainsItem(child, id)));
 }
