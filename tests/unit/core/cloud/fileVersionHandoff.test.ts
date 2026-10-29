@@ -54,6 +54,20 @@ describe('handing a next version to the machine that keeps the file', () => {
     // The committed plaintext digest is bound the same way.
     await expect(openHandoff(s.endpoint, { ...pending(s), sha256: 'ab'.repeat(32) })).rejects.toThrow(/authentication failed/)
   })
+  test('a new file has a chat instead of a base revision; the same host decrypts it as v1', async () => {
+    const s = server(), { expectedVersion: _base, ...file } = request
+    await handOffNextVersion(s.endpoint, { ...file, chatId: 'chat' })
+    expect(s.calls[0]![1]).toMatchObject({ item_id: ITEM, chat_id: 'chat', as: 'agent-b' })
+    expect(s.calls[0]![1]).not.toHaveProperty('expected_version')
+    expect(Buffer.from(await openHandoff(s.endpoint, { ...pending(s), base_version: null }))).toEqual(Buffer.from(copy))
+    await expect(openHandoff(s.endpoint, { ...pending(s), base_version: 1 })).rejects.toThrow(/authentication failed/)
+  })
+  test('a new file on an offline host is refused without uploading or waiting for it', async () => {
+    const s = server({ request: { status: 'host_offline', host_label: 'Studio Mac' } }), { expectedVersion: _base, ...file } = request
+    expect(await handOffNextVersion(s.endpoint, { ...file, chatId: 'chat' })).toMatchObject({ status: 'host_offline', host_label: 'Studio Mac' })
+    expect(s.calls.map(([route]) => route)).toEqual(['file-handoff-request'])
+    expect(s.stored()).toBeNull()
+  })
   test('refused at once (host offline) or of an older version: nothing is uploaded', async () => {
     for (const answer of [{ status: 'host_offline', host_label: 'Studio Mac' }, { status: 'conflict', current_version: 4 }]) {
       const s = server({ request: answer })

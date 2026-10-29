@@ -96,6 +96,29 @@ describe('message_send_file in a project chat that keeps files on its machine', 
     expect(uploads).toEqual([])
   })
 
+  test('a new file handed to the host returns its pinned v1 receipt through the same publisher', async () => {
+    const publish = vi.fn(async (_chat: string, _file: unknown, _actor: string, message: Record<string, unknown>, _next?: unknown) =>
+      ({ message: { id: message.message_id, chat_id: CHAT, file_item_id: ITEM, file_version: 1 } }))
+    const { send, uploads } = setup({ publish })
+    expect(JSON.parse(await send({ file_path: pdf }))).toMatchObject({ status: 'sent', file: `gugu-file://${ITEM}?v=1`, version: 1 })
+    expect(publish.mock.calls[0]![4]).toBeUndefined()
+    expect(uploads).toEqual([])
+  })
+
+  test.each([
+    ['host_offline', 'is offline', '它现在离线'],
+    ['timeout', 'did not take the file in time', '它没有及时收下文件'],
+  ])('a new file refused by the host (%s) names the machine and keeps the file_path retry advice', async (status, en, zh) => {
+    const { NextVersionHandoffRefused } = await import('@gugu/core/cloud/fileVersionHandoff')
+    const { send, uploads } = setup({ publish: vi.fn(async () => { throw new NextVersionHandoffRefused({ status: status as 'timeout', host_label: 'Studio Mac', host_account_id: 'owner-1' }) }) })
+    const error = await send({ file_path: pdf }).catch((e: Error) => e) as Error
+    expect(error.message).toContain(`"Studio Mac" (Ming's computer) keeps this project chat's files and ${en}. Your copy is still at ${pdf}.`)
+    expect(error.message).toContain('Send it again with the same file_path once that computer is online.')
+    expect(error.message).toContain(`「Studio Mac」（Ming 的电脑）上，${zh}`)
+    expect(error.message).not.toMatch(/undefined|gugu-file|new version|新版本|Settings|handoff/i)
+    expect(uploads).toEqual([])
+  })
+
   test('someone stored a newer version on the host first: nothing was sent, and what to do', async () => {
     const { send } = setup({ publish: vi.fn(async () => { throw new Error('File revision conflict') }) })
     const error = await send({ file: `gugu-file://${ITEM}?v=2`, file_path: pdf }).catch((e: Error) => e) as Error

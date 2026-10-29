@@ -2129,6 +2129,14 @@ async function keptOnHostRefusal(deps, chatId, fileName) {
  */
 async function handoffRefusal(deps, chatId, args, outcome) {
   const fileName = resolveUploadName(args), machine = await hostMachineOf(deps, chatId, outcome)
+  if (!args.file) {
+    const why = outcome.status === 'host_offline'
+      ? { en: 'is offline', zh: '现在离线' }
+      : { en: 'did not take the file in time', zh: '没有及时收下文件' }
+    return `message_send_file: ${fileName} was not sent, and nothing was changed: ${machine.en} keeps this project chat's files and ${why.en}. Your copy is still at ${args.file_path}. `
+      + `Send it again with the same file_path once that computer is online.\n`
+      + `${fileName} 没有发出去，什么都没改：这个项目群的文件存在${machine.zh}上，它${why.zh}。副本还在 ${args.file_path}。等那台电脑上线以后用同一个 file_path 再发一次。`
+  }
   const why = outcome.status === 'host_offline'
     ? { en: `${machine.en} keeps this project chat's files and is offline`, zh: `这个项目群的文件存在${machine.zh}上，它现在离线` }
     : { en: `${machine.en} keeps this project chat's files and did not take the new version in time`, zh: `这个项目群的文件存在${machine.zh}上，它没有及时收下新版本` }

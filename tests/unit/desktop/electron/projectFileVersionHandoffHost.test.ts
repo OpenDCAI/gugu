@@ -48,4 +48,10 @@ describe('next versions handed to this host', () => {
     await h.drain()
     expect(h.publish).not.toHaveBeenCalled()
   })
+  test('a new file with no base revision uses the same publisher and is drained once', async () => {
+    const h = host([{ ...row('new'), base_version: null }])
+    await h.drain(); await h.drain()
+    expect(h.publish).toHaveBeenCalledOnce()
+    expect(h.publish.mock.calls[0]).toMatchObject({ 0: 'chat', 3: 'owner', 5: { handoff: 'new' } })
+  })
 })

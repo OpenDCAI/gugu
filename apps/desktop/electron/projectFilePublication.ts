@@ -16,7 +16,7 @@ export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
 export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string; data?: ArrayBuffer }
 /** The file this publication is the next version of, and the version it started from (`file_device_publish`'s `p_expected`). */
 export type ProjectFileNextVersion = { itemId: string; expectedVersion: number }
-/** `handoff`: a member's copy handed to this host (#791), written as their next version under their name and message. */
+/** `handoff`: a member's copy handed to this host, published under their name and message. */
 export type ProjectFilePublishOptions = { message?: ProjectFileMessage; next?: ProjectFileNextVersion; handoff?: string }
 type Publisher = NonNullable<FilesPlatform['publishFile']>
 type AppUpload = Parameters<Publisher>[1]
@@ -27,21 +27,26 @@ export function createProjectFilePublisher(deps: {
   rpc: Rpc; env?: NodeJS.ProcessEnv; endpoint?(): Promise<AttachmentsEndpoint>
 }) {
   /**
-   * #791: the next version of a file a project chat keeps on another machine is handed to that machine, which writes it
-   * as this actor's edit and message. Null when the chat keeps no files on a host (the ordinary upload decides). A copy
+   * A new file message or next version is handed to the machine that keeps the chat's files, which publishes it
+   * as this actor's file and message. Null when the ordinary upload decides. A copy
    * of an older version throws `File revision conflict`; the host offline or not in time, `NextVersionHandoffRefused`.
    */
-  const handOff = async (chatId: string, file: SelectedProjectFile, actor: string, next: ProjectFileNextVersion, message?: ProjectFileMessage) => {
-    if (!deps.endpoint || !await deps.rpc('file_project_policy_for', { p_chat: chatId, p_as: actor })) return null
+  const handOff = async (chatId: string, file: SelectedProjectFile, actor: string, next?: ProjectFileNextVersion, message?: ProjectFileMessage) => {
+    if (!deps.endpoint) return null
+    const policy = await deps.rpc('file_project_policy_for', { p_chat: chatId, p_as: actor }) as { proactive_upload: boolean } | null
+    if (!policy || (!next && policy.proactive_upload)) return null
     const bytes = file.data ? new Uint8Array(file.data) : new Uint8Array(await readFile(file.path))
-    const outcome = await handOffNextVersion(await deps.endpoint(), { itemId: next.itemId, expectedVersion: next.expectedVersion,
+    const itemId = next?.itemId ?? randomUUID()
+    const outcome = await handOffNextVersion(await deps.endpoint(), { itemId, ...(next ? { expectedVersion: next.expectedVersion } : { chatId }),
       fileName: file.name.split('/').at(-1)!, contentType: file.contentType, bytes, as: actor,
-      ...(message ? { message: { message_id: message.message_id, to_user_ids: message.to_user_ids ?? [], thread_root_id: message.thread_root_id ?? null } } : {}) })
+      ...(message ? { message: { message_id: message.message_id, caption: message.caption, to_user_ids: message.to_user_ids ?? [],
+        reply_to_message_id: message.reply_to_message_id, thread_root_id: message.thread_root_id ?? null,
+        is_thread_root: message.is_thread_root, via_app: message.via_app } } : {}) })
     if (outcome.status === 'conflict') throw new Error('File revision conflict')
     if (outcome.status !== 'published') throw new NextVersionHandoffRefused(outcome)
-    const result = await deps.rpc('workspace_get_as', { p_item_id: next.itemId, p_as_user_id: actor })
+    const result = await deps.rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
     const row = (Array.isArray(result) ? result[0] : result) as NonNullable<Awaited<ReturnType<Publisher>>>
-    return { ...row, message: { id: outcome.message_id, chat_id: chatId, file_item_id: next.itemId, file_version: outcome.version } }
+    return { ...row, message: { id: outcome.message_id, chat_id: chatId, file_item_id: itemId, file_version: outcome.version } }
   }
   const binding = async (chatId: string, actor: string) => {
     const identity = await deps.identity()
@@ -57,10 +62,11 @@ export function createProjectFilePublisher(deps: {
     let bound: Awaited<ReturnType<typeof binding>>
     try { bound = await binding(chatId, actor) } catch (error) {
       // This machine has the project, but another one keeps its files.
-      if (!next || handoff || !/Only the bound file host/.test(String(error))) throw error
+      if ((!next && (!message || parentId)) || handoff || !/Only the bound file host/.test(String(error))) throw error
       bound = null
     }
-    if (!bound) return next && !handoff ? handOff(chatId, file, actor, next, message) : null
+    // New handoffs here are root-level file messages; App folder creation keeps its existing publisher contract.
+    if (!bound) return (next || (message && !parentId)) && !handoff ? handOff(chatId, file, actor, next, message) : null
     const { identity, project, policy } = bound
     if (policy.proactive_upload && !store && !handoff) return null
     const root = await deps.root(project.projectId)

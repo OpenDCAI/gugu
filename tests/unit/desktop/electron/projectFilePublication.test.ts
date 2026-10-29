@@ -271,12 +271,45 @@ describe('a next version from another machine', () => {
     expect(await f.publish('group', file, null, 'agent', undefined, { next })).toMatchObject({ message: { file_version: 2 } })
     expect(handoff.calls).toHaveLength(1)
   })
-  it('a chat that keeps no files on a host, or a new file: not handed over (the ordinary upload decides)', async () => {
+  it('a chat without a host, or a new App file without a message: not handed over', async () => {
     const plain = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null,
       rpc: fixture(false, null).rpc, env: { GUGU_HOME: join(home, 'elsewhere') }, endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
     expect(await plain('group', file, null, 'agent', undefined, { next })).toBeNull()
     await expect(fixture(false, elsewhere).publish('group', file, null, 'agent')).rejects.toThrow('Only the bound file host')
     expect(handoff.calls).toEqual([])
+  })
+  it.each([false, true])('a new file message is handed to its host as v1, with a local project binding: %s', async bound => {
+    const f = fixture(false, elsewhere), original = f.rpc.getMockImplementation()!
+    f.rpc.mockImplementation(async (name, args) => name === 'workspace_get_as' ? [{ ...row, id: args.p_item_id, created_by: 'agent' }] : original(name, args))
+    const publish = bound ? f.publish : createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }),
+      root: async () => null, rpc: f.rpc, env, endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
+    handoff.outcome = { status: 'published', version: 1, message_id: 'm2' }
+    const sent = await publish('group', { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }, null,
+      'agent', f.store, { message: { ...message, reply_to_message_id: 'reply', is_thread_root: true } })
+    const [, request] = handoff.calls[0] as [unknown, Record<string, unknown>]
+    expect(request).toMatchObject({ itemId: expect.stringMatching(/^[0-9a-f-]{36}$/), chatId: 'group', as: 'agent', fileName: file.name,
+      message: { message_id: 'm2', to_user_ids: ['u1'], reply_to_message_id: 'reply', is_thread_root: true } })
+    expect(request).not.toHaveProperty('expectedVersion')
+    expect(Buffer.from(request.bytes as Uint8Array)).toEqual(Buffer.from(data))
+    expect(sent).toMatchObject({ id: request.itemId, version: 1, created_by: 'agent', message: { id: 'm2', file_item_id: request.itemId, file_version: 1 } })
+    expect(handoff.calls).toHaveLength(1)
+    expect(f.store).not.toHaveBeenCalled()
+    expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
+    expect(await readFile(join(root, file.name))).toEqual(Buffer.from(data))
+  })
+  it('keeps proactive new uploads and folder creation on their existing paths', async () => {
+    const proactive = fixture(true, elsewhere)
+    expect(await proactive.publish('group', file, null, 'agent', undefined, { message })).toBeNull()
+    await expect(fixture(false, elsewhere).publish('group', file, 'folder', 'agent', undefined, { message })).rejects.toThrow('Only the bound file host')
+    expect(handoff.calls).toEqual([])
+  })
+  it('a new file for an offline host gets the named refusal without publishing a local row', async () => {
+    const f = fixture(false, elsewhere)
+    handoff.outcome = { status: 'host_offline', host_label: 'Studio Mac', host_account_id: 'owner' }
+    await expect(f.publish('group', file, null, 'agent', undefined, { message }))
+      .rejects.toMatchObject({ name: 'NextVersionHandoffRefused', outcome: handoff.outcome })
+    expect(f.rpc.mock.calls.every(([name]) => name === 'file_project_policy_for')).toBe(true)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
   })
   it('a copy of an older version is the ordinary conflict; the host offline or not in time is said as such', async () => {
     handoff.outcome = { status: 'conflict', current_version: 3 }
