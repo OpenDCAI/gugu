@@ -87,8 +87,12 @@ export type PlatformConnectionCheck =
 /** provider → accountId → 平台说它能用(false = 存着,但对方不认了,要重连)。 */
 type Snapshot = Map<string, Map<string, boolean>>;
 
-/** #649 的 key 传不上之后,隔这么久再试(❌ 每开一条会话就打一次平台)。 */
-const MIGRATION_RETRY_MS = 5 * 60_000;
+/**
+ * #649 的 key 传不上之后,隔多久再试:从 5 分钟起每次翻倍,最多 1 小时(❌ 每开一条会话就打一次平台)。
+ * 封顶 1 小时:原因一消失(平台恢复、高德额度重置、对这个人开放),一小时内就搬上去;一直不成的设备每小时最多打一次 PUT。
+ */
+const MIGRATION_RETRY_FIRST_MS = 5 * 60_000;
+const MIGRATION_RETRY_MAX_MS = 60 * 60_000;
 /** 资源库、面板这类「看一眼」的读:这么久之内问过就不再问。开会话前总是现问。 */
 const DEFAULT_MAX_AGE_MS = 30_000;
 /** 没问到之后,「看一眼」的读这么久之内不再等平台(❌ 每次开资源库都卡一个超时)。 */
@@ -121,7 +125,7 @@ function failureOf(error: unknown): { code: string; status: number; message: str
 }
 
 function notOpen(name: string): string {
-  return `${name} is not open to you yet.`;
+  return `Gugu hasn't opened the ${name} connection to you yet.`;
 }
 
 /** 平台的出错码 → 界面已有的那几类说法;报错里出现的凭据一律打码(哪怕平台本不该带它)。 */
@@ -140,7 +144,7 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
     case 'unknown_provider':
       return { success: false, error: `The Gugu platform does not offer ${name} yet.`, errorType: 'generic' };
     case 'request_timeout':
-      return { success: false, error: `${name} didn't answer in time; try again shortly.`, errorType: 'timed_out' };
+      return { success: false, error: "Your request didn't reach Gugu in time; try again.", errorType: 'timed_out' };
     case 'rate_limited':
     case 'too_many_streams':
       return { success: false, error: `Too many requests to ${name} right now; try again shortly.`, errorType: 'rate_limited' };
@@ -163,6 +167,8 @@ export class PlatformCredentialService {
   /** 改本机镜像的事(问平台、连接、断开)一件接一件:❌ 让一次晚到的「没连」答复抹掉刚连上的那一行。 */
   private queue: Promise<unknown> = Promise.resolve();
   private readonly migrationRetryAt = new Map<string, number>();
+  /** 连着失败了几次(决定下一次隔多久);成功、作废、明确连上 / 断开都清零。 */
+  private readonly migrationFailures = new Map<string, number>();
 
   constructor(private readonly deps: PlatformCredentialDeps) {}
 
@@ -325,8 +331,9 @@ export class PlatformCredentialService {
    *  · 平台已存着一份(连着的、要重连的都算)→ ❌ 覆盖,本机这份作废,照平台的显示;
    *  · 这个人断开过 → 本机这份作废,不传(#649 没记过它是什么时候存的,就当它早于那次断开);
    *  · 平台在两步之间才知道的(409 already_connected / disconnected_after)→ 一样作废,❌ 再试;
-   *  · 对方不认这把 key(422)/ 格式不对(400)→ 删掉、❌ 再试,连接页请他重新填。
-   * 只有网络不通、平台 5xx(以及超时、限流、登录这类与 key 无关的)才留着 key、过一阵再试。
+   *  · 平台说对方不认这把 key(422 auth_failed)/ 字段不对(400 invalid_fields)→ 删掉、❌ 再试,连接页请他重新填。
+   *    只认平台自己的这两个码:代理、网关回的 400 / 422 说明不了 key,留着。
+   * 别的(网络、5xx、401 / 403 / 404 / 408 / 429、没有平台码的 400 / 422、平台没列这一家)都留着 key、退避再试。
    */
   private async moveLocalKeys(
     client: PlatformIntegrationsClient,
@@ -348,23 +355,28 @@ export class PlatformCredentialService {
         continue;
       }
       if ((this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
+      // 平台没列这一家:它现在收不了,❌ 传。
+      if (!listed) {
+        this.backOff(provider.id, { code: 'not_listed', status: 0 });
+        continue;
+      }
       try {
         await client.saveCredential(provider.id, fields, { migration: { savedAt: null } });
       } catch (error) {
         const failure = failureOf(error);
         if (failure.code === 'already_connected') {
-          this.migrationRetryAt.delete(provider.id);
+          this.clearBackOff(provider.id);
           known.set(row.accountId, true);
           await this.keepOnPlatformOnly(provider.id, row);
           continue;
         }
         if (failure.code === 'disconnected_after') {
-          this.migrationRetryAt.delete(provider.id);
+          this.clearBackOff(provider.id);
           await this.dropDisconnected(provider.id, row);
           continue;
         }
-        if (failure.status === 400 || failure.status === 422) {
-          this.migrationRetryAt.delete(provider.id);
+        if ((failure.status === 400 && failure.code === 'invalid_fields') || (failure.status === 422 && failure.code === 'auth_failed')) {
+          this.clearBackOff(provider.id);
           await this.markKeyRejected(provider.id, row);
           this.deps.log.warn('A credential saved on this device was rejected on its way to the Gugu platform; it was dropped', {
             provider: provider.id,
@@ -373,19 +385,33 @@ export class PlatformCredentialService {
           });
           continue;
         }
-        this.migrationRetryAt.set(provider.id, this.now() + MIGRATION_RETRY_MS);
-        this.deps.log.warn('A credential saved on this device could not be moved to the Gugu platform yet; it stays here and is retried later', {
-          provider: provider.id,
-          code: failure.code,
-          status: failure.status,
-        });
+        this.backOff(provider.id, failure);
         continue;
       }
-      this.migrationRetryAt.delete(provider.id);
+      this.clearBackOff(provider.id);
       known.set(DEFAULT_INTEGRATION_ACCOUNT_ID, true);
       await this.keepOnPlatformOnly(provider.id, row);
       this.deps.log.info('A credential saved on this device moved to the Gugu platform', { provider: provider.id });
     }
+  }
+
+  /** 这把 key 这次没搬成、还留着:下一次隔得更久一点(封顶 1 小时)。 */
+  private backOff(providerId: string, failure: { code: string; status: number }): void {
+    const failures = (this.migrationFailures.get(providerId) ?? 0) + 1;
+    this.migrationFailures.set(providerId, failures);
+    const wait = Math.min(MIGRATION_RETRY_FIRST_MS * 2 ** (failures - 1), MIGRATION_RETRY_MAX_MS);
+    this.migrationRetryAt.set(providerId, this.now() + wait);
+    this.deps.log.warn('A credential saved on this device could not be moved to the Gugu platform yet; it stays here and is retried later', {
+      provider: providerId,
+      code: failure.code,
+      status: failure.status,
+      retryInMinutes: wait / 60_000,
+    });
+  }
+
+  private clearBackOff(providerId: string): void {
+    this.migrationRetryAt.delete(providerId);
+    this.migrationFailures.delete(providerId);
   }
 
   /** 先标成「被拒了」,再删 key:哪一步失败,都不会留下一把还会被反复上传的 key 却没有标记。 */
@@ -555,7 +581,7 @@ export class PlatformCredentialService {
         await this.deps.accounts.upsertAccount({ providerId: integrationId, accountId: row.accountId, meta: platformMeta(row) });
       }
       this.snapshot?.set(integrationId, new Map([[DEFAULT_INTEGRATION_ACCOUNT_ID, true]]));
-      this.migrationRetryAt.delete(integrationId);
+      this.clearBackOff(integrationId);
       return { success: true };
     });
   }
@@ -578,7 +604,7 @@ export class PlatformCredentialService {
       }
       await this.deps.accounts.removeAllAccounts(integrationId);
       this.snapshot?.set(integrationId, new Map());
-      this.migrationRetryAt.delete(integrationId);
+      this.clearBackOff(integrationId);
       return { success: true };
     });
   }

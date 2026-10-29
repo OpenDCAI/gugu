@@ -95,7 +95,7 @@ export class PlatformForwarderBusyError extends Error {
         ? `Too many ${provider} calls are open at once on the Gugu platform; ${when}.`
         : reason === 'rate_limited'
           ? `${provider} calls are being rate-limited by the Gugu platform; ${when}.`
-          : `The Gugu platform timed out forwarding this ${provider} call; ${when}.`,
+          : `This ${provider} call didn't reach the Gugu platform in time; ${when}.`,
     )
     this.name = 'PlatformForwarderBusyError'
   }
