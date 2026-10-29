@@ -40,6 +40,24 @@ describe('MessageBubble touch menu', () => {
     expect(event.defaultPrevented).toBe(false)
     expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
   })
+  it('opens the existing reaction picker directly from selected phone text', async () => {
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await act(async () => {
+      selectMessageText('hello')
+      document.dispatchEvent(new Event('selectionchange'))
+      document.dispatchEvent(new Event('touchend'))
+    })
+    const react = document.querySelector<HTMLElement>('[data-testid="message-selection-react"]')
+    expect(react?.textContent).toBe('表情回应')
+    await clickElement(react!)
+    await act(async () => { await vi.dynamicImportSettled() })
+    const picker = document.querySelector('[role="toolbar"][aria-label="快速回应"]')!
+    expect(picker).not.toBeNull()
+    const heart = [...picker.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '❤️')!
+    await clickElement(heart)
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
+  })
   it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
     await renderMessage(undefined, true)
     await longPress()

@@ -19,3 +19,12 @@ it('retains deletion for received messages and does not invent missing capabilit
   expect(items.map(item => item.key)).toEqual(['delete'])
   expect(items[0].disabled).toBeUndefined()
 })
+it('offers the existing reaction picker from a selected message and respects retraction', () => {
+  const onShowReactions = vi.fn()
+  const target = { isRetracted: false, content: 'Beta', onShowReactions }
+  const action = messageSelectionActionItems(target, t).find(item => item.key === 'react')
+  expect(action?.label).toBe('message.actions.react')
+  action!.onSelect!()
+  expect(onShowReactions).toHaveBeenCalledOnce()
+  expect(messageSelectionActionItems({ ...target, isRetracted: true }, t).find(item => item.key === 'react')?.disabled).toBe(true)
+})

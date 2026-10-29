@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { observeMessageTextSelection, type MessageTextSelection } from '../lib/messageTextSelection'
-import { clearNativeMessageSelection, hasNativeMessageSelection, publishNativeMessageSelection } from '../platform/capacitorMessageSelection'
+import type { MessageTextSelection } from '../lib/messageTextSelection'
+import { bindMessageTextSelection, type SelectionAction } from '../lib/bindMessageTextSelection'
+import { hasNativeMessageSelection } from '../platform/capacitorMessageSelection'
 
-export interface SelectionAction {
-  key: string
-  label: string
-  disabled?: boolean
-  danger?: boolean
-  onSelect?: () => void
-}
+export type { SelectionAction } from '../lib/bindMessageTextSelection'
 interface Options {
   enabled: boolean
   onQuote: (text: string, selectionId: string) => void
@@ -25,18 +20,12 @@ export function useMessageTextSelection(options: Options) {
   const native = hasNativeMessageSelection()
   useEffect(() => {
     if (!root || !options.enabled) return
-    let contextId: string | null = null
-    return observeMessageTextSelection(root, {
+    return bindMessageTextSelection(root, {
       enabled: true,
       onQuote: (text, id) => latest.current.onQuote(text, id),
       onClearQuote: id => latest.current.onClearQuote(id),
-      onContext: next => {
-        if (native) {
-          if (next) publishNativeMessageSelection(next.selectionId, latest.current.actions(next.text))
-          else if (contextId) clearNativeMessageSelection(contextId)
-        } else setSelection(next)
-        contextId = next?.selectionId ?? null
-      },
+      actions: text => latest.current.actions(text),
+      onContext: setSelection,
     })
   }, [root, options.enabled, native])
   return { ref: options.enabled ? setRoot : undefined, selection: options.enabled && !native ? selection : null, root, actions: selection ? options.actions(selection.text) : [] }

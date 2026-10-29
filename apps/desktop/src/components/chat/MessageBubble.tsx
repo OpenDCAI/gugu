@@ -305,7 +305,7 @@ export const MessageBubble = memo(function MessageBubble({
     enabled: compactMobile && msg.content_type === 'text' && !msg.retracted_at,
     onQuote: (content, selectionId) => onQuote({ ...msg, content }, { originalContent: msg.content, selectionId }),
     onClearQuote: selectionId => onQuote(msg, { originalContent: msg.content, selectionId, clear: true }),
-    actions: text => messageSelectionActionItems(messageActions(() => {}, text), t),
+    actions: text => messageSelectionActionItems({ ...messageActions(() => {}, text), onShowReactions: openEmojiPickerFromButton }, t),
   })
   const nativeTextTarget = (target: EventTarget | null) => compactMobile && target instanceof Node && !!textSelection.root?.contains(target)
 
@@ -586,7 +586,7 @@ export const MessageBubble = memo(function MessageBubble({
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
       {showEmojiPicker && (
         <DeferredEmojiQuickPicker
-          anchor={reactButtonRef}
+          anchor={compactMobile ? bubbleRef : reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
         />

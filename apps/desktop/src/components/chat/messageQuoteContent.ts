@@ -22,12 +22,13 @@ export function parseQuotedContent(content: string): { senderName: string; quote
 export function partialQuotedContent(msg: Pick<MessageItem, 'content' | 'reply_to_message_id' | 'reply_to_content'>) {
   if (!msg.reply_to_message_id) return null
   const parsed = parseQuotedContent(msg.content ?? '')
-  return parsed && parsed.quoteText !== msg.reply_to_content ? parsed : null
+  return parsed?.replyText && parsed.quoteText !== msg.reply_to_content ? parsed : null
 }
 
 export function contentWithQuote(typed: string, quote?: { messageId?: string; senderName: string; content: string; originalContent?: string | null } | null) {
   if (!typed || !quote) return typed
   const partial = quote.originalContent != null && quote.content !== quote.originalContent
   if (quote.messageId && !partial) return typed
-  return `> [${quote.senderName}]: ${quote.content.split('\n').join('\n> ')}\n${typed}`
+  // A blank line ends the quoted block even when the reply itself begins with Markdown `> `.
+  return `> [${quote.senderName}]: ${quote.content.split('\n').join('\n> ')}\n\n${typed}`
 }

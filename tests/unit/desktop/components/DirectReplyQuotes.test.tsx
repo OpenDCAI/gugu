@@ -5,6 +5,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { MessageList,type MessageListRowProps } from '../../../../apps/desktop/src/components/chat/MessageList'
 import { quoteSummary } from '../../../../apps/desktop/src/components/chat/quoteSummary'
+import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity',()=>({useAgentHarnessIdentity:()=> 'codex'}))
 let h:ReturnType<typeof createReactHarness>
 const noop=()=>{}
@@ -78,4 +79,18 @@ it('retains old inline quotes without a structural reply ID',async()=>{
  expect(h.container.textContent).toContain('Legacy quoted text')
  expect(h.container.textContent).toContain('Legacy answer.')
  expect(quoted('legacy')).toBeNull()
+})
+it.each([false,true])('keeps reply text visible for an ambiguous older quote beginning with > (mobile=%s)',async mobile=>{
+ const reply={...msg('answer','agent',3,'old'),content:'> [测试用户]: Beta\n> Answer',reply_to_content:'Alpha Beta'}
+ await render([msg('old','user-1',1),msg('new','user-1',2),reply],mobile)
+ const body=h.container.querySelector('[data-msg-id="answer"] [data-testid="message-bubble-action-target"] .gg-md')
+ expect(body?.textContent).toContain('Answer')
+})
+it.each([false,true])('keeps the task-card quote header for an ordinary card reply (mobile=%s)',async mobile=>{
+ const content=serializeComposerCard({v:1,type:'task',text:'Original task',agentUserId:'agent',agentName:'Ada',sessionId:'s',projectId:'p',deviceId:'d',machineLabel:'Mac'})
+ const source={...msg('old','user-1',1),content_type:'card' as const,content}
+ const reply={...msg('answer','agent',3,'old'),content:'看看',reply_to_content:content}
+ await render([source,msg('new','user-1',2),reply],mobile,true)
+ expect(quoted('answer')?.textContent).toContain('新任务')
+ expect(quoted('answer')?.textContent).toContain('Original task')
 })

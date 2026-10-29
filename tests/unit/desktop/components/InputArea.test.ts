@@ -80,7 +80,7 @@ describe('ChatMessageComposer', () => {
     await flush()
     await typeInComposer('Please explain this part.')
     await clickSend()
-    expect(onSend).toHaveBeenCalledWith('> [Ada]: Beta paragraph\n> \n> First item\nPlease explain this part.', expect.objectContaining({ replyToMessageId: 'source-1' }))
+    expect(onSend).toHaveBeenCalledWith('> [Ada]: Beta paragraph\n> \n> First item\n\nPlease explain this part.', expect.objectContaining({ replyToMessageId: 'source-1' }))
   })
   it('keeps touch Enter for a new line and sends only through the visible control', async () => {
     mobileShellState.enabled = true
