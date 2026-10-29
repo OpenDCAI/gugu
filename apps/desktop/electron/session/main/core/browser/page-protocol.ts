@@ -93,6 +93,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
 
   function onMessage(_event: unknown, method: string, params: Record<string, unknown>, sessionId?: string) {
     if (closed || !attached || (sessionId && !children.has(sessionId))) return;
+    if (method === 'Page.frameStartedNavigating' && typeof params.url === 'string' && !isSupportedBrowserNavigationUrl(params.url)) return;
     try { assertLive(); }
     catch (error) { close(error instanceof Error ? error.message : String(error)); return; }
     if (method === 'Target.attachedToTarget' && typeof params.sessionId === 'string') children.set(params.sessionId, sessionId);

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, WebContentsView } from 'electron';
+import '../../../../../page-navigation-bootstrap';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';

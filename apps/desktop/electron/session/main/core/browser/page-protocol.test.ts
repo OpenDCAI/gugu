@@ -59,6 +59,8 @@ describe('host-selected page protocol lease', () => {
     await expect(lease.send('Runtime.evaluate')).rejects.toThrow('navigation');
     expect(closed).toHaveBeenCalledOnce();
     expect(current.contents.close).not.toHaveBeenCalled();
+    expect(current.contents.listenerCount('did-start-navigation')).toBe(1);
+    current.destroy();
     expect(current.contents.listenerCount('did-start-navigation')).toBe(0);
   });
 

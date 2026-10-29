@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import { vi } from 'vitest';
+import { trackPageNavigation } from '../page-navigation-tracker';
 
 export function page(urls = ['https://example.test/'], activeIndex = urls.length - 1) {
   const entries = urls.map(url => ({ url }));
@@ -28,6 +29,7 @@ export function page(urls = ['https://example.test/'], activeIndex = urls.length
     isDestroyed: () => destroyed,
     close: vi.fn(), loadURL: vi.fn(), focus: vi.fn(),
   });
+  trackPageNavigation(contents as unknown as WebContents);
   return { contents: contents as unknown as WebContents, debuggerApi, entries,
     destroy: () => { destroyed = true; contents.emit('destroyed'); } };
 }

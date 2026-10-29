@@ -222,7 +222,7 @@ describe('#7323 reconnect resolves a persisted browser identity', () => {
     vi.mocked(openAgentBrowserPane).mockResolvedValueOnce('original');
     const transport = await openAgentBrowserTransport('reconnect');
     expect(openAgentBrowserPane).toHaveBeenLastCalledWith({ projectId: 'p', sessionId: 'reconnect' }, undefined, undefined, 'original');
-    expect(original.wc.listenerCount('destroyed')).toBe(1);
+    expect(original.wc.listenerCount('destroyed')).toBe(2); // Lease plus the page-lifetime navigation observer.
     expect(other.wc.listenerCount('destroyed')).toBe(0);
     transport.close();
     // The user may be viewing another tab when this transport is lost; reconnect still belongs to the original tab.

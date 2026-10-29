@@ -1,8 +1,10 @@
 import type { WebContents, WebContentsDidStartNavigationEventParams } from 'electron';
 import { isSupportedBrowserNavigationUrl } from './browser-navigation';
+import { trackPageNavigation } from './page-navigation-tracker';
 
 /** Prune native history so page scripts and native back inputs share the CDP URL boundary. */
 export function pageNavigationAccess(contents: WebContents, revoke: (reason: string) => void) {
+  const tracked = trackPageNavigation(contents);
   const reason = 'page protocol: unsupported navigation URL';
   const assertCurrent = () => {
     // A new native view has no committed URL yet; it cannot expose an unsupported document.
@@ -17,19 +19,26 @@ export function pageNavigationAccess(contents: WebContents, revoke: (reason: str
   const onCommitted = (_event: unknown, url: string) => {
     if (!isSupportedBrowserNavigationUrl(url)) revoke(reason);
   };
+  const onRedirect = (_event: unknown, url: string, _inPlace: boolean, main: boolean) => {
+    if (main && !isSupportedBrowserNavigationUrl(url)) revoke(reason);
+  };
   contents.on('did-start-navigation', onNavigation);
   contents.on('did-navigate', onCommitted);
+  contents.on('did-redirect-navigation', onRedirect);
   return {
     assertCurrent,
     waitForIdle(signal: AbortSignal): Promise<void> {
-      if (!contents.isLoading()) return Promise.resolve();
+      if (!tracked.unsafeLoading()) return Promise.resolve();
       return new Promise((resolve, reject) => {
         const cleanup = () => {
           clearTimeout(timer);
           contents.removeListener('did-stop-loading', stopped);
+          contents.removeListener('did-start-navigation', stopped);
+          contents.removeListener('did-redirect-navigation', stopped);
+          contents.removeListener('did-navigate', stopped);
           signal.removeEventListener('abort', aborted);
         };
-        const stopped = () => { if (!contents.isLoading()) { cleanup(); resolve(); } };
+        const stopped = () => { if (!tracked.unsafeLoading()) { cleanup(); resolve(); } };
         const aborted = () => { cleanup(); reject(signal.reason); };
         const timer = setTimeout(() => {
           cleanup();
@@ -38,6 +47,9 @@ export function pageNavigationAccess(contents: WebContents, revoke: (reason: str
           reject(new Error(message));
         }, 10_000);
         contents.on('did-stop-loading', stopped);
+        contents.on('did-start-navigation', stopped);
+        contents.on('did-redirect-navigation', stopped);
+        contents.on('did-navigate', stopped);
         signal.addEventListener('abort', aborted, { once: true });
         if (signal.aborted) aborted(); else stopped();
       });
@@ -58,6 +70,7 @@ export function pageNavigationAccess(contents: WebContents, revoke: (reason: str
     dispose() {
       contents.removeListener('did-start-navigation', onNavigation);
       contents.removeListener('did-navigate', onCommitted);
+      contents.removeListener('did-redirect-navigation', onRedirect);
     },
   };
 }
