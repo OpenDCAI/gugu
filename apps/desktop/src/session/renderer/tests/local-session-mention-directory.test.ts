@@ -5,12 +5,13 @@
  * 点不了、不插进消息,❌ 拿空列表冒充「那台机器上没有」。把远端会话拖进输入框走的是同一份候选。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSessionShellPort } from '@shared/lib/ipc/shell-port';
+import { createSessionShellPort, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 
 const LOCAL = { sessionId: 'local-1', identity: { users: { id: 'agent-local', display_name: 'Claude 3', gugu_number: 103 } }, engine: 'claude' };
 const REMOTE = { sessionId: 'remote-1', identity: { users: { id: 'agent-remote', display_name: 'Codex 8', gugu_number: null } }, engine: 'codex' };
-const directory = vi.fn(() => ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
-const sessionPeers = vi.fn(async (_sessionId?: string) => [LOCAL]);
+const directory = vi.fn((): { peers: SessionShellPeer[]; notRead: { id: string; label: string }[] } =>
+  ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
+const sessionPeers = vi.fn(async (_sessionId?: string): Promise<SessionShellPeer[]> => [LOCAL]);
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ projects: new Map() }) }));
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({ sessionRegistry: { get: () => undefined } }));
