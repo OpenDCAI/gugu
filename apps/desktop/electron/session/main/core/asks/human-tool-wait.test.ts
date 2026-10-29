@@ -13,6 +13,9 @@ vi.mock('@main/core/agent-status/agent-status-writer', () => ({ agentStatusWrite
 vi.mock('../sessions/agent-question-store', () => ({ readAgentQuestionRecords: () => [], rememberAgentQuestion: vi.fn(), settleAgentQuestionRecord: vi.fn() }));
 vi.mock('../session-timeline/service', () => ({ readSessionRow: () => ({ projectId: 'project' }), syncAsked: vi.fn() }));
 vi.mock('../sessions/sendMessage', () => ({ sendMessage: fixture.send }));
+vi.mock('../../../../mcp/gugu-im-server.mjs', () => ({
+  extensionAttachmentOf: async () => ({ message_id: '0c000000-0000-4000-8000-0000000010a2' }),
+}));
 
 import { ask, hostAsks, resetAsks } from './ask';
 import { humanToolPending, restoreHumanToolResults, runHumanTool, stopHumanToolWaits, yieldHumanToolWaits } from './human-tool-wait';
@@ -23,6 +26,7 @@ import { SessionCell } from '../../../../../../../packages/session-runtime/src/a
 import { FakeAcpAgent } from '../../../../../../../packages/session-runtime/src/acp-agents/acp-test-support';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { syncAsked } from '../session-timeline/service';
+import { runAppAction } from '../../../../mcp/app-tool-host';
 
 const drain = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function waiting(sessionId = 'session', source: 'browser-assistance' | 'app-install' = 'browser-assistance') {
@@ -265,6 +269,42 @@ describe('a human request outlives only its steered tool waiter', () => {
     expect(installed).toBe(false); expect(fixture.send).not.toHaveBeenCalled();
     finishInstall(); await drain();
     expect(installed).toBe(true); expect(closed).toHaveBeenCalledWith(entry.request.itemId);
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    expect((fixture.send.mock.calls[0]![0] as { text: string }).text).toContain('"installed":true');
+  });
+
+  it('a cross-device install yields the whole workflow, then installs the approved bytes before reporting completion', async () => {
+    let finishInstall!: () => void;
+    const installed = new Promise<void>(resolve => { finishInstall = resolve; });
+    const finalInstall = vi.fn(async () => { await installed; return { installed: true, outcome: 'confirmed' }; });
+    const caller = new AbortController();
+    const tool = runAppAction({ action: 'install', device: 'other',
+      source_message_id: 'msg:0c000000-0000-4000-8000-0000000010a2' },
+    { kind: 'social', grantKey: 'taskpage:session' } as never,
+    async (action, signal) => runHumanTool<unknown>('session', 'app_install', signal ?? caller.signal, async lifetime => {
+      expect((action as { action: string }).action).toBe('ask_install');
+      return askInstallInSession('session', { sourceDir: '/tmp/app', manifest: { id: 'sample', name: 'Sample' },
+        manifestDigest: 'same-bytes', revokedPermissions: [], given: { first: true } } as never,
+      { name: 'Agent', agentUserId: null }, { timeline: async () => ({ ask, respond: vi.fn() }),
+        idleSeconds: () => 999, window: null, closeWindow: vi.fn(async () => undefined) } as never, lifetime);
+    }, humanToolPending),
+    async action => {
+      const request = action as { action: string; consent?: { kind: string; digest?: string } };
+      if (request.action === 'devices') return [{ device_id: 'other', label: 'Other computer' }];
+      if (request.consent?.kind === 'return') return { outcome: 'ask', asks: true, ask: { manifestDigest: 'same-bytes' } };
+      expect(request.consent).toEqual({ kind: 'given', digest: 'same-bytes' });
+      return finalInstall();
+    }, caller.signal);
+    await vi.waitFor(() => expect(hostAsks.get('session')?.size).toBe(1));
+    const entry = [...hostAsks.get('session')!.values()][0]!;
+    yieldHumanToolWaits('session');
+    expect(await tool).toMatchObject({ state: 'pending', request_id: entry.request.itemId });
+    caller.abort();
+    entry.answered({ optionId: 'install', by: 'desktop', digest: 'same-bytes' });
+    await drain();
+    expect(finalInstall).toHaveBeenCalledTimes(1);
+    expect(fixture.send).not.toHaveBeenCalled();
+    finishInstall(); await drain();
     expect(fixture.send).toHaveBeenCalledTimes(1);
     expect((fixture.send.mock.calls[0]![0] as { text: string }).text).toContain('"installed":true');
   });

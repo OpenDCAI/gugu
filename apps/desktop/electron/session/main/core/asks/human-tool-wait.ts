@@ -58,6 +58,9 @@ export function stopHumanToolWaits(sessionId: string): void {
  */
 export function runHumanTool<T>(sessionId: string, tool: HumanToolKind, signal: AbortSignal | undefined,
   perform: (signal: AbortSignal) => Promise<T>, pending: (requestId: string) => T): Promise<T> {
+  const parent = context.getStore();
+  // Internal steps belong to the complete tool operation, including work after its consent.
+  if (parent?.sessionId === sessionId && !parent.settled) return perform(parent.controller.signal);
   return new Promise<T>((resolve, reject) => {
     const controller = new AbortController();
     const onAbort = () => controller.abort();

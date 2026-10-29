@@ -15,12 +15,29 @@ import { typedFileName } from '../../src/session/shared/extensions/app-runtime-p
 import { claimTakes } from '../../src/session/shared/extensions/file-openers'
 import { FOLDER_PACKAGE_MAX_BYTES } from '../session/main/core/extensions/received-packages'
 import { installAgreedOn, InstallRefusedError } from '../../src/session/shared/extensions/install-agreed-on'
+import { sessionpageSessionOfGrantKey } from '../stable-mcp-persistence'
 
 /**
  * 一次 app_* 调用在宿主这一侧走完:`device` 指另一台机器就整趟交给那一台;否则先读卡片 / 判 chat 与 item,
  * 交给主进程(`run`),装完、打包之后发卡片、造数据文件。
  */
 export async function runAppAction(
+  action: unknown,
+  context: GuguMcpContext,
+  run: (action: unknown, signal?: AbortSignal) => Promise<unknown>,
+  runSession: ((action: unknown, signal?: AbortSignal) => Promise<unknown>) | undefined,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const perform = (lifetime?: AbortSignal) => dispatchAppAction(action, context,
+    ready => run(ready, lifetime), runSession ? ready => runSession(ready, lifetime) : undefined)
+  const sessionId = context.grantKey ? sessionpageSessionOfGrantKey(context.grantKey) : null
+  if (!sessionId) return perform(signal)
+  const { runHumanTool, humanToolPending } = await import('../session/main/core/asks/human-tool-wait')
+  return runHumanTool<unknown>(sessionId, 'app_install', signal, perform, humanToolPending)
+}
+
+/** The original local/remote workflow continues after its caller receives pending. */
+async function dispatchAppAction(
   action: unknown,
   context: GuguMcpContext,
   run: (action: unknown) => Promise<unknown>,
