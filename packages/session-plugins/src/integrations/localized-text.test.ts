@@ -16,7 +16,7 @@ describe('integration copy is { en, zh-CN } everywhere', () => {
 
   it('every registered integration carries both for description, field labels, placeholders, help and prerequisites', () => {
     const plugins = integrationPluginRegistry.getAll();
-    expect(plugins.length).toBe(22);
+    expect(plugins.length).toBe(25);
     for (const plugin of plugins) {
       const texts = [
         plugin.metadata.description,

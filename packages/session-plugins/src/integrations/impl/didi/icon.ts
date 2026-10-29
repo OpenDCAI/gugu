@@ -1,0 +1,16 @@
+import type { PluginIconAsset } from '@gugu/session-shared/plugins';
+
+// 官方品牌标(取自滴滴 MCP 官网 favicon(44×44)),彩色标在明暗两套下都看得清,所以只给一份。
+const png =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAALKADAAQAAAABAAAALAAAAAD8buejAAADiElEQVRYCe1YTUhUURg93zj92P+mH9IoISgqgoqiaFMtFFwEBUYREeiM5EZqE0SBVOAmqEWr/MlctYoShH4QyjZFLYLMoAyCLKgWgRhT6OTtfDOmb3Tm3jfjm0nBC2/unXvOPfe8737vzrsjxhjMpBKaSWbV66zhfK9YGBclhH4cZKw35HsyH/qdaDK9Nl4Yn9EEQQ2mx7P3hWathjWHj9nuaLphanjBdDNl8zO7S9iiEwQ2G+EgomjTEBNxbmhDFLhJ1oBNKBAshJ/UGbZphW1gAhN0cDOvc/KCIETlFmVO2qTcOWwQswkUGnMbLrQjx3yzhh0BmjKsEf7tUJnjwIOEixxiw2pYtxJbWWUDA8UEKxx6g2r4m5UkKJxhg9VWL8APNfzOSjJYjxpZbOUEAdbLPMqUWaUM+tRwj5UEzOVppMLBmTocw36KLLQKCd6GMIJuKykJHvbBmRpFcMgpIHgq5gyKMYjvJC+yDIjzxrag1djTxyJgheqkBHG8J8d2mBjmSi8P4ar5xTPdXasgEEYRLjs4ucPxhLbNrGo/xA0zoDkM/EFborZ9GFQhIidslJywqFRynPWFZ1S3Xeuk4VbzmO2Xo0DmSnADUdmRmZAlUi2buLq3OSrpI/PwDyjFPYXHiYJLmfljSDFbXTR9YKwn10ZEdjHNHvE9e4kPiUY0mLjyxg03mU4Ovu9j8DJyHtB0PY6I66d0spyIMLUijKzuTiWTCZN6XjC6iXRQRFL+vYxKGfte8VqqoI/Sw5s8izWMVIMZcfJrpYL8RvK2O7lJwhD5u9Fi1FOipBrWrlo5SpLmVTZF/7G5w6ub298nrls/2/rStJJXKfXKWVcyqutY+y+Cep52rnsHTDasaK00cpJzXuJ/aLeh2VRPnHc8h71IM87za6u3q8DtDq5Lbbo50xvWxG5BlEt4Ld2gPPe1M6Wq/u0KE+dKnxJeVvKJ1jya7+3OQ3uYaXiB63oFKTtB6kxuw8qPylZ+tvDaqV/zUN5QM8qcfe7STp8SE0c1m9f8G2UPI3CKkO4AQZWvTLvTzNdtfszqpP4i7LWnL9oxHOdE+gTv9UJZtJ/x5tv5DtOONuM6U6bIZm/YOzwia/mAlHPyfbyBzaw3EtaTg7fEiPUR62X9hHUXo/nRS8imPTXD6WbS41SIv5Qhxg9cC74SpqPl2he84Vyd+Bzn76HzKVYI2owz/BeXodRYlDPQ5QAAAABJRU5ErkJggg==';
+
+export const icon: PluginIconAsset = {
+  kind: 'image',
+  alt: '滴滴出行',
+  variants: [
+    {
+      minSize: 0,
+      light: png,
+    },
+  ],
+};

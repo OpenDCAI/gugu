@@ -9,6 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import type { AcpMcpServer } from './acp-engine-utils'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
+import { visibleTools, withheldToolResult } from './session/main/core/integrations/withheld-tools'
 import { createLogger } from './lib/logger'
 
 const log = createLogger('integration-mcp-bridge')
@@ -36,7 +37,12 @@ export type IntegrationEndpoint = { url: string; headers: Record<string, string>
 
 /** 工具从哪来:转发给对方的托管 MCP,或咕咕自己答。 */
 export type IntegrationUpstream =
-  | { kind: 'remote'; endpoint: (signal?: AbortSignal) => Promise<IntegrationEndpoint> }
+  | {
+      kind: 'remote'
+      endpoint: (signal?: AbortSignal) => Promise<IntegrationEndpoint>
+      /** 这家集成自己声明不交给会话的工具:列表里去掉,被点名调用就拒绝(滴滴第一版:下单)。 */
+      withheldTools?: ReadonlySet<string>
+    }
   | { kind: 'local'; tools: LocalIntegrationTools }
 
 export interface IntegrationGrantContext {
@@ -84,13 +90,17 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
         return trackRequest(
           upstream.kind === 'local'
             ? upstream.tools.list(signal).then((tools) => ({ tools }))
-            : withUpstream(upstream, signal, async (client) => ({ tools: (await client.listTools()).tools })),
+            : withUpstream(upstream, signal, async (client) => ({
+                tools: visibleTools((await client.listTools()).tools, upstream.withheldTools),
+              })),
           'tools/list',
         )
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         const { upstream } = getContext()
         const signal = AbortSignal.any([grantSignal, extra.signal])
+        const withheld = upstream.kind === 'remote' ? withheldToolResult(request.params.name, upstream.withheldTools) : null
+        if (withheld) return withheld
         return trackRequest(
           upstream.kind === 'local'
             ? upstream.tools.call(request.params.name, request.params.arguments ?? {}, signal)
