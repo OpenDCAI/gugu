@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { EXTENSION_GUIDE_PROGRAMS } from '../shared/extensions/authoring-guide';
 import { mapProxy } from './json-proxy';
@@ -12,6 +12,11 @@ import { serveTools, toolsOf } from './tools-host';
  * `run(args, { agent })`, the caller only ever from `_meta['gugu/agent']`.
  */
 const AGENT = 'user:0a000000-0000-4000-8000-000000000077';
+function callerStamp(call: unknown) {
+  const { signal, ...stamp } = call as Record<string, unknown>;
+  expect(signal).toBeInstanceOf(AbortSignal);
+  return stamp;
+}
 /** An open JSON file's data, as a program has it (`f.data`): what is assigned into it is copied in, as at run time. */
 const openData = () => mapProxy(new Y.Doc().getMap('root'), () => true) as Record<string, Record<string, true>>;
 const board = openData();
@@ -43,6 +48,26 @@ async function served(exports: Record<string, unknown>) {
 }
 
 describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
+  it('passes real MCP cancellation to the program’s driver signal', async () => {
+    let driverSignal: AbortSignal | undefined;
+    let aborted = false;
+    const client = await served({ wait: {
+      description: 'Wait for cancellation', inputSchema: { type: 'object', properties: {} },
+      run: (_args: unknown, call: { signal: AbortSignal }) => new Promise(resolve => {
+        driverSignal = call.signal;
+        call.signal.addEventListener('abort', () => { aborted = true; resolve('cancelled'); }, { once: true });
+      }),
+    } });
+    const controller = new AbortController();
+    const pending = client.callTool({ name: 'wait', arguments: { signal: 'forged' } }, undefined, { signal: controller.signal });
+    const rejected = expect(pending).rejects.toBeDefined();
+    await vi.waitFor(() => expect(driverSignal).toBeInstanceOf(AbortSignal));
+    expect(driverSignal!.aborted).toBe(false);
+    controller.abort(); await rejected;
+    await vi.waitFor(() => expect(aborted).toBe(true));
+    await client.close();
+  });
+
   it('lists every export as a tool, its own fields as they are — run stays in the program', async () => {
     const client = await served(module);
     const { tools } = await client.listTools();
@@ -89,7 +114,7 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
     await client.callTool({ name: 'where', arguments: {}, _meta: { 'gugu/agent': AGENT, 'gugu/sessionId': 's-77' } });
     await client.callTool({ name: 'where', arguments: {}, _meta: { 'gugu/agent': AGENT, 'gugu/sessionId': '', 'gugu/workspaceRoot': 7 } });
     await client.callTool({ name: 'where', arguments: {} });
-    expect(seen).toStrictEqual([
+    expect(seen.map(callerStamp)).toStrictEqual([
       { agent: AGENT, session: 's-77', workspaceRoot: '/work/s-77' },
       { agent: AGENT, session: 's-77' },
       { agent: AGENT },
@@ -105,7 +130,7 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
     await client.callTool({ name: 'who', arguments: { model: 'forged' }, _meta: { 'gugu/agent': AGENT, 'gugu/model': 'platform:glm-5.3-flash' } });
     await client.callTool({ name: 'who', arguments: {}, _meta: { 'gugu/agent': AGENT, 'gugu/model': '' } });
     await client.callTool({ name: 'who', arguments: {}, _meta: { 'gugu/agent': AGENT } });
-    expect(seen).toStrictEqual([
+    expect(seen.map(callerStamp)).toStrictEqual([
       { agent: AGENT, model: 'platform:glm-5.3-flash' },
       { agent: AGENT },
       { agent: AGENT },
@@ -178,11 +203,11 @@ describe('an App\'s tools module, served as MCP by gugu (F77)', () => {
       client.callTool({ name: 'probe', arguments: {}, _meta: { ...stamp('s-a'), 'gugu/call': 'call-a' } }),
       client.callTool({ name: 'probe', arguments: {}, _meta: { ...stamp('s-b'), 'gugu/call': 'call-b' } }),
     ]);
-    expect([...seen].sort((a, b) => String(a.callId).localeCompare(String(b.callId)))).toStrictEqual([
+    expect([...seen].sort((a, b) => String(a.callId).localeCompare(String(b.callId))).map(item => ({ ...item, call: callerStamp(item.call) }))).toStrictEqual([
       { callId: 'call-a', call: { agent: AGENT, session: 's-a', workspaceRoot: '/work/s-a' } },
       { callId: 'call-b', call: { agent: AGENT, session: 's-b', workspaceRoot: '/work/s-b' } },
     ]);
     await client.callTool({ name: 'probe', arguments: {}, _meta: stamp('s-c') });
-    expect(seen.at(-1)).toStrictEqual({ callId: undefined, call: { agent: AGENT, session: 's-c', workspaceRoot: '/work/s-c' } });
+    expect({ ...seen.at(-1), call: callerStamp(seen.at(-1)!.call) }).toStrictEqual({ callId: undefined, call: { agent: AGENT, session: 's-c', workspaceRoot: '/work/s-c' } });
   });
 });

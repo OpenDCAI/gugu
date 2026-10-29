@@ -11,6 +11,7 @@ import {
 } from '@shared/events/browserEvents';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { acquireBrowserPage } from './browser-page-runtime';
+import { createPageProtocol } from './page-protocol';
 import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
 
 /**
@@ -236,7 +237,7 @@ export async function openAgentBrowserTransport(
   signal?: AbortSignal,
 ): Promise<AgentBrowserTransport> {
   const { browserId, webContents } = await acquireSessionBrowser(sessionId, signal);
-  return createPaneTransport(sessionId, browserId, webContents);
+  return createPaneTransport(sessionId, browserId, webContents, signal);
 }
 
 /** 拆出来便于测:给定一个页签的 webContents,造那条只报这一页的 transport。 */
@@ -244,9 +245,10 @@ export function createPaneTransport(
   sessionId: string,
   browserId: string,
   webContents: WebContents,
+  signal?: AbortSignal,
 ): AgentBrowserTransport {
+  signal?.throwIfAborted();
   boundBrowserBySession.set(sessionId, browserId);
-  const dbg = webContents.debugger;
   const children = new Set<string>();
   let targetInfo: Record<string, unknown> | null = null;
   let closed = false;
@@ -254,6 +256,7 @@ export function createPaneTransport(
   const page = acquireBrowserPage(webContents);
   // Observe rejection immediately, including a connection cancelled before its first request.
   void page?.ready.catch(() => {});
+  const protocol = createPageProtocol(webContents, { signal, ready: page?.ready, capture: page ? params => page.capture(params) : undefined });
 
   const previous = drivenBySession.get(sessionId);
   if (previous?.idleTimer) clearTimeout(previous.idleTimer);
@@ -277,20 +280,17 @@ export function createPaneTransport(
       if (!closed) transport.onmessage?.(message);
     });
 
-  const onMessage = (_event: unknown, method: string, params: Record<string, unknown>, childSessionId?: string) => {
+  const onMessage = (method: string, params: Record<string, unknown>, childSessionId?: string) => {
     if (method === 'Target.attachedToTarget') children.add(String((params as { sessionId?: unknown }).sessionId));
     if (method === 'Target.detachedFromTarget') children.delete(String((params as { sessionId?: unknown }).sessionId));
     emit({ method, params, sessionId: childSessionId || PAGE_SESSION });
   };
-  const onDetach = (_event: unknown, reason: string) => finish(`debugger detached: ${reason}`);
-  const onDestroyed = () => finish('the browser tab was closed');
 
   function finish(reason: string) {
     if (closed) return;
     closed = true;
     page?.dispose();
-    dbg.removeListener('message', onMessage);
-    dbg.removeListener('detach', onDetach);
+    protocol.close(reason);
     if (drivenBySession.get(sessionId) === driven) {
       if (driven.idleTimer) clearTimeout(driven.idleTimer);
       const before = agentBrowserStateOf(browserId);
@@ -302,19 +302,18 @@ export function createPaneTransport(
     transport.onclose?.(reason);
   }
 
-  dbg.on('message', onMessage);
-  dbg.on('detach', onDetach);
-  webContents.once('destroyed', onDestroyed);
+  protocol.onMessage(onMessage);
+  protocol.onClose(finish);
 
   // 文件头第 4 条:Playwright 要的 focus emulation 只在 agent 操作期间真开着。
   let focusEmulationWanted = false;
   let focusEmulationOn = false;
   const applyFocusEmulation = () => {
     const on = focusEmulationWanted && driven.state === 'driving';
-    if (on === focusEmulationOn || closed || webContents.isDestroyed() || !dbg.isAttached()) return;
+    if (on === focusEmulationOn || closed || webContents.isDestroyed() || !protocol.attached) return;
     focusEmulationOn = on;
     log.debug('Agent browser: focus emulation', { browserId, on });
-    dbg.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: on }).catch((error: unknown) => {
+    protocol.send('Emulation.setFocusEmulationEnabled', { enabled: on }).catch((error: unknown) => {
       log.warn('Agent browser: switching focus emulation failed', { browserId, on, error: String(error) });
     });
   };
@@ -331,7 +330,7 @@ export function createPaneTransport(
   let typingUntil = 0;
 
   async function focusedBox(): Promise<number[] | null> {
-    const lookup = dbg.sendCommand('Runtime.evaluate', { expression: FOCUSED_BOX, returnByValue: true }) as Promise<{
+    const lookup = protocol.send('Runtime.evaluate', { expression: FOCUSED_BOX, returnByValue: true }) as Promise<{
       result?: { value?: unknown };
     }>;
     const timeout = new Promise<null>((resolve) => {
@@ -391,8 +390,7 @@ export function createPaneTransport(
           return reply({ protocolVersion: '1.3', product: `Chrome/${process.versions.chrome}`, revision: '', userAgent: webContents.getUserAgent(), jsVersion: process.versions.v8 });
         }
         if (method === 'Target.setAutoAttach') {
-          if (!dbg.isAttached()) dbg.attach('1.3');
-          const info = (await dbg.sendCommand('Target.getTargetInfo')) as { targetInfo: Record<string, unknown> };
+          const info = (await protocol.send('Target.getTargetInfo')) as { targetInfo: Record<string, unknown> };
           targetInfo = info.targetInfo;
           reply({});
           return emit({
@@ -442,7 +440,7 @@ export function createPaneTransport(
         if (method === 'Page.getFrameTree' && cdpSession === PAGE_SESSION) {
           // Playwright installs Runtime context listeners after this response. Keep Runtime.enable behind it,
           // including the metadata lookup, so the existing document's context events cannot overtake the tree.
-          let response = await dbg.sendCommand(method, params);
+          let response = await protocol.send(method, params);
           if (closed || webContents.isDestroyed()) return fail('the browser tab was closed');
           type FrameTreeResult = { frameTree: { frame: { url: string } } };
           const tree = response as FrameTreeResult;
@@ -450,7 +448,7 @@ export function createPaneTransport(
             // Chromium's initial document exists even before any navigation commits (including downloads).
             // Its frame metadata has no URL, while document.URL reports the actual about:blank document.
             // Expose that document so attaching does not depend on a future navigation or change the page.
-            const document = await dbg.sendCommand('Runtime.evaluate', {
+            const document = await protocol.send('Runtime.evaluate', {
               expression: 'document.URL', returnByValue: true, silent: true,
             }) as { result?: { value?: unknown }; exceptionDetails?: unknown };
             if (closed || webContents.isDestroyed()) return fail('the browser tab was closed');
@@ -462,7 +460,7 @@ export function createPaneTransport(
               response = { ...tree, frameTree: { ...tree.frameTree, frame: { ...tree.frameTree.frame, url: documentUrl } } };
             } else {
               // A real navigation committed during the lookup: use its whole frame tree, including loader/origin.
-              response = await dbg.sendCommand('Page.getFrameTree') as FrameTreeResult;
+              response = await protocol.send('Page.getFrameTree') as FrameTreeResult;
               const url = (response as FrameTreeResult).frameTree.frame.url;
               if (!url || url === ':') throw new Error('the browser tab\'s initial document changed before it could be read');
             }
@@ -471,9 +469,7 @@ export function createPaneTransport(
           return;
         }
         if (synthetic) driven.syntheticInputUntil = Number.POSITIVE_INFINITY;
-        result = method === 'Page.captureScreenshot' && cdpSession === PAGE_SESSION && page
-          ? page.capture(params)
-          : dbg.sendCommand(method, params, cdpSession === PAGE_SESSION ? undefined : cdpSession);
+        result = protocol.send(method, params, cdpSession === PAGE_SESSION ? undefined : cdpSession);
       } finally {
         release();
       }
@@ -489,14 +485,7 @@ export function createPaneTransport(
 
   function close() {
     if (closed) return;
-    webContents.removeListener('destroyed', onDestroyed);
-    if (!webContents.isDestroyed() && dbg.isAttached()) {
-      try {
-        dbg.detach();
-      } catch (error) {
-        log.warn('Agent browser: detaching the debugger failed', { browserId, error: String(error) });
-      }
-    }
+    protocol.close('closed by the agent');
     finish('closed by the agent');
   }
 

@@ -121,6 +121,27 @@ beforeEach(() => {
 });
 
 describe('native rendering lifetime', () => {
+  it('ends the page connection on its caller signal without closing or locking the task page', async () => {
+    const { wc, dbg } = fakeGuest();
+    const controller = new AbortController();
+    const transport = createPaneTransport('cancelled-tool', 'kept-page', wc as never, controller.signal);
+    const closed = vi.fn();
+    transport.onclose = closed;
+    transport.send({ id: 1, method: 'Target.setAutoAttach' });
+    await vi.waitFor(() => expect(dbg.attached).toBe(true));
+    controller.abort();
+    expect(closed).toHaveBeenCalledWith('the browser connection was cancelled');
+    expect(wc.destroyed).toBe(false);
+    expect(dbg.detachCalls).toBe(1);
+    const after = dbg.commands.length;
+    transport.send({ id: 2, method: 'Input.insertText', params: { text: 'never' }, sessionId: 'gugu-agent-page' });
+    await new Promise(done => setImmediate(done));
+    expect(dbg.commands).toHaveLength(after);
+    const next = connect('cancelled-tool', 'kept-page', wc);
+    await expect(next.call('Target.setAutoAttach')).resolves.toHaveProperty('result');
+    next.transport.close();
+  });
+
   it('routes page captures through the owning runtime without changing CDP options', async () => {
     const lease = { ready: Promise.resolve(), setActive: vi.fn(), capture: vi.fn(async () => ({ data: 'native-image' })), dispose: vi.fn() };
     vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
@@ -478,24 +499,24 @@ describe('#7274 Playwright 要的 focus emulation 只在 agent 操作期间开�
   it('操作中 Playwright 要开就开;停手几秒后关掉(后台页签不再出帧);再动又开', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { wc, dbg } = fakeGuest(31);
-    dbg.attached = true;
     const { call } = connect('e1', 'be1', wc);
+    await call('Target.setAutoAttach');
     agentBrowserToolStarting('e1');
     const answer = await call('Emulation.setFocusEmulationEnabled', { enabled: true }, 'gugu-agent-page');
     expect(answer.result).toEqual({});
     expect(emulation(dbg)).toEqual([true]);
     agentBrowserToolFinished('e1');
-    vi.advanceTimersByTime(3_100);
+    await vi.advanceTimersByTimeAsync(3_100);
     expect(emulation(dbg)).toEqual([true, false]);
     agentBrowserToolStarting('e1');
-    expect(emulation(dbg)).toEqual([true, false, true]);
+    await vi.waitFor(() => expect(emulation(dbg)).toEqual([true, false, true]));
   });
 
   it('网页销毁后不再碰它的 debugger', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { wc, dbg } = fakeGuest(33);
-    dbg.attached = true;
     const { call } = connect('e3', 'be3', wc);
+    await call('Target.setAutoAttach');
     agentBrowserToolStarting('e3');
     await call('Emulation.setFocusEmulationEnabled', { enabled: true }, 'gugu-agent-page');
     agentBrowserToolFinished('e3');
