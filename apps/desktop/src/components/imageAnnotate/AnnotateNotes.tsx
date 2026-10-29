@@ -15,12 +15,13 @@ export function AnnotateNotes({ markers, selected, hovered, noteFocus, onHover, 
   const { t } = useTranslation('main', { keyPrefix: 'imageAnnotate' })
   const [collapsed, setCollapsed] = useState(false), [opened, setOpened] = useState<string | null>(null)
   const root = useRef<HTMLDivElement>(null)
+  const selectedMarker = markers.some(marker => marker.id === selected) ? selected : null
   useEffect(() => {
-    if (!markers.some(marker => marker.id === selected)) return
+    if (!selectedMarker) return
     setCollapsed(false)
-    if (mobile) setOpened(selected)
-    else root.current?.querySelector<HTMLInputElement>(`[data-marker-note="${selected}"]`)?.focus()
-  }, [selected, mobile, markers.length, noteFocus])
+    if (mobile) setOpened(selectedMarker)
+    else root.current?.querySelector<HTMLInputElement>(`[data-marker-note="${selectedMarker}"]`)?.focus()
+  }, [selectedMarker, mobile, noteFocus])
   if (!markers.length) return null
   const noteField = (marker: Marker, index: number) => <div key={marker.id} className="ia-note-row" data-active={selected === marker.id || hovered === marker.id || undefined}
     onMouseEnter={() => onHover(marker.id)} onMouseLeave={() => onHover(null)}>

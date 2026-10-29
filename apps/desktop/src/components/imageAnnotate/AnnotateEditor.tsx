@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ImageViewerItem } from '@/lib/imageViewer'
 import { messageForUser } from '@/lib/userFacingError'
@@ -57,6 +57,14 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
     catch (failure) { setRenderError(messageForUser(failure)) }
   }, [editor.doc, editor.selected, editor.hovered, editor.scale, editor.cropDraft, colors, editor.vectors])
   const textShape = editor.doc.shapes.find(shape => shape.id === editor.editingText && shape.kind === 'text')
+  const planeVars = {
+    '--ia-width': `${crop.width}px`, '--ia-height': `${crop.height}px`,
+    '--ia-view-x': `${editor.view.x}px`, '--ia-view-y': `${editor.view.y}px`, '--ia-scale': editor.scale,
+    ...(textShape?.kind === 'text' ? {
+      '--ia-text-x': `${textShape.at.x - crop.x}px`, '--ia-text-y': `${textShape.at.y - crop.y}px`,
+      '--ia-text-width': `${Math.max(160 / editor.scale, textShape.size * [...textShape.text].length)}px`, '--ia-text-size': `${textShape.size}px`,
+    } : {}),
+  } as CSSProperties
   const notes = <AnnotateNotes markers={markersOf(editor.history.present)} selected={editor.selected} hovered={editor.hovered} noteFocus={editor.noteFocus}
     onHover={editor.setHovered} onSelect={editor.setSelected} mobile={mobile} disabled={actions.busy}
     onChange={(id, note) => editor.save(editShape(editor.history.present, id, shape => shape.kind === 'marker' ? { ...shape, note } : shape))}
@@ -69,10 +77,10 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
       <div ref={editor.stage} className="ia-stage" data-tool={editor.tool} onPointerDown={editor.onPointerDown} onPointerMove={editor.onPointerMove}
         onPointerUp={editor.onPointerUp} onPointerCancel={editor.onPointerCancel} onPointerLeave={() => editor.setHovered(null)}
         onDoubleClick={() => { if (editor.doc.shapes.some(shape => shape.id === editor.selected && shape.kind === 'text')) editor.setEditingText(editor.selected) }}>
-        <div className="ia-plane" style={{ width: crop.width, height: crop.height, left: `calc(50% + ${editor.view.x}px)`, top: `calc(50% + ${editor.view.y}px)`, transform: `translate(-50%, -50%) scale(${editor.scale})` }}>
+        <div className="ia-plane" style={planeVars}>
           <canvas ref={background} aria-hidden="true" />
           <canvas ref={editor.vectors} aria-label={t('canvas')} />
-          {textShape?.kind === 'text' ? <Field.Root className="ia-text-editor" style={{ left: textShape.at.x - crop.x, top: textShape.at.y - crop.y, width: Math.max(160 / editor.scale, textShape.size * [...textShape.text].length), fontSize: textShape.size }}>
+          {textShape?.kind === 'text' ? <Field.Root className="ia-text-editor">
             <Field.Textarea autoFocus rows={2} aria-label={t('text')} value={textShape.text} disabled={actions.busy}
               onValueChange={value => editor.save(editShape(editor.doc, textShape.id, shape => shape.kind === 'text' ? { ...shape, text: value } : shape))}
               onBlur={editor.finishTextEdit} />

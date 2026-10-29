@@ -19,13 +19,13 @@ export function AnnotateToolbar({ editor }: { editor: ReturnType<typeof useAnnot
     <div className="ia-style-tools">
       <div className="ia-colors" role="group" aria-label={t('color')}>
         {(['danger', 'warn', 'live', 'ok', 'white'] as AnnotateColor[]).map(color => <IconButton key={color} aria-label={t(`colors.${color}`)} aria-pressed={editor.color === color}
-          onClick={() => editor.setStyle({ color })}><span className="ia-color" style={{ background: color === 'white' ? 'var(--color-white)' : `var(--${color})` }} /></IconButton>)}
+          onClick={() => editor.setStyle({ color })}><span className="ia-color" data-color={color} /></IconButton>)}
       </div>
       <div className="ia-widths" role="group" aria-label={t('lineWidth')}>
         {[3, 5, 8].map(width => <Button key={width} size="sm" variant="ghost" aria-pressed={editor.lineWidth === width} onClick={() => editor.setStyle({ lineWidth: width })}>{width}</Button>)}
       </div>
       <IconButton aria-label={t('undo')} title={`${t('undo')} (⌘Z)`} disabled={!editor.history.past.length} onClick={editor.undoEdit}><Undo2 /></IconButton>
-      <IconButton aria-label={t('redo')} title={`${t('redo')} (⇧⌘Z)`} disabled={!editor.history.future.length} onClick={editor.redoEdit}><Undo2 style={{ transform: 'scaleX(-1)' }} /></IconButton>
+      <IconButton aria-label={t('redo')} title={`${t('redo')} (⇧⌘Z)`} disabled={!editor.history.future.length} onClick={editor.redoEdit}><Undo2 className="ia-redo-icon" /></IconButton>
     </div>
   </div>
 }
