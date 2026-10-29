@@ -6,10 +6,13 @@
  *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt, disconnectedAt }] }] }
  *           state:connected · reconnect(存着、但对方不认了 / 换钥后解不开,要重连) · not_connected(没存,时间为空)
  *           disconnectedAt:这个人最近一次断开它的时刻(明确再连一次就清掉),没断开过 = null。state 与 disconnectedAt 每一行都有
- *  · PUT    /integrations/:provider/credential   { fields, migration? } → { connected: true, updatedAt, checkedAt }
+ *  · PUT    /integrations/:provider/credential   { fields, connect: "manual" } | { fields, migration: { savedAt } }
+ *           → { connected: true, updatedAt, checkedAt }
  *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 not_open
- *           `migration: { savedAt }` = 设备上 #649 留下的 key 搬上来:平台已存着 = 409 already_connected(❌ 覆盖);
- *           断开过、且断开晚于 savedAt(或 savedAt 为空)= 409 disconnected_after。没有 migration = 人明确连,照常连、清掉断开记录
+ *           `connect: "manual"` = 人在连接页填的:只有它覆盖已存着的、清掉断开记录。
+ *           `migration` = 设备上 #649 留下的 key 搬上来,只能新建:平台已存着 = 409 already_connected;
+ *           断开过、且断开晚于 savedAt(或 savedAt 为空)= 409 disconnected_after。
+ *           ❌ 发不带标记的 PUT(平台当成 savedAt 为空的搬迁);两个标记一起、connect 不是 "manual" = 400
  *  · DELETE /integrations/:provider/credential   → 204(平台记下断开的时刻)
  *  · POST|GET|DELETE /integrations/:provider/mcp  MCP Streamable HTTP 转发口,凭据由平台挂上;
  *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效);
@@ -44,6 +47,9 @@ export type PlatformIntegrationProvider = {
 
 /** #649 留在设备上的 key 搬上平台时带上:平台据此不覆盖已存着的、不推翻这个人断开过的。savedAt = null:不知道它是什么时候存的。 */
 export type PlatformCredentialMigration = { savedAt: string | null }
+
+/** 每一次 PUT 都说清是谁在存:人在连接页填的(`manual`),或 #649 那把 key 的搬迁。没有第三种。 */
+export type PlatformCredentialSource = { connect: 'manual' } | { migration: PlatformCredentialMigration }
 
 export type PlatformCredentialSaved = { connected: true; updatedAt: string | null; checkedAt: string | null }
 
@@ -122,11 +128,12 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 
 export type PlatformIntegrationsClient = {
   list(signal?: AbortSignal): Promise<PlatformIntegrationProvider[]>
-  /** `migration`:只给 #649 搬上来的 key;人在表单里明确连 ❌ 带。 */
+  /** 连接页:`{ connect: 'manual' }`;#649 搬上来的 key:`{ migration }`。 */
   saveCredential(
     provider: string,
     fields: Record<string, string>,
-    options?: { migration?: PlatformCredentialMigration; signal?: AbortSignal },
+    source: PlatformCredentialSource,
+    signal?: AbortSignal,
   ): Promise<PlatformCredentialSaved>
   deleteCredential(provider: string, signal?: AbortSignal): Promise<void>
   mcpEndpoint(
@@ -219,8 +226,8 @@ export function createPlatformIntegrationsClient(options: {
   }
   return {
     list: async (signal) => parsePlatformIntegrations(json(await request('GET', `${options.baseUrl}/integrations`, undefined, signal), '/integrations')),
-    saveCredential: async (provider, fields, { migration, signal } = {}) => {
-      const body = migration ? { fields, migration: { savedAt: migration.savedAt } } : { fields }
+    saveCredential: async (provider, fields, source, signal) => {
+      const body = 'connect' in source ? { fields, connect: 'manual' } : { fields, migration: { savedAt: source.migration.savedAt } }
       const saved = json(await request('PUT', `${providerPath(provider)}/credential`, body, signal), 'PUT credential') as Record<string, unknown> | null
       if (saved?.connected !== true) throw badResponse('PUT credential')
       return { connected: true, updatedAt: timestamp(saved.updatedAt), checkedAt: timestamp(saved.checkedAt) }

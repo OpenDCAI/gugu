@@ -526,7 +526,7 @@ export class PlatformCredentialService {
       }
       const secrets = provider.fields.flatMap((field) => (field.secret && fields[field.id] ? [fields[field.id]!] : []));
       try {
-        await client.saveCredential(integrationId, fields);
+        await client.saveCredential(integrationId, fields, { connect: 'manual' });
         this.availability = 'present';
       } catch (error) {
         // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open、超时、限流)照实说,❌ 改存本机。
