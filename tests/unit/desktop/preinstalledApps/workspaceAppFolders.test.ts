@@ -74,7 +74,7 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement
 const names = () => [...$('file-list').querySelectorAll('.file .file-name')].map((n) => n.textContent)
 const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLElement
 const open = (id: string) => (row(id).querySelector('.file-open') as HTMLButtonElement).click()
-const more = (id: string) => row(id).querySelector('.row-more') as HTMLButtonElement | null
+const more = (id: string) => ({ click: () => row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
 const menuItem = (text: string) => [...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === text)!
 const crumbs = () => ($('crumbs').hidden ? null : [...$('crumbs').querySelectorAll('.crumb')].map((c) => c.textContent))
 // What the page says, where a person can see it: with the App's own style.css applied (a style element while a test

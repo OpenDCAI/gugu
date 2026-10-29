@@ -22,6 +22,7 @@ const ENTRIES = [
   file('d', 'd.md', 'text/markdown', ago(400), { type: 'text', keep: null, sourceMessageIds: ['m-d'] }),
 ]
 
+let touch = false
 const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
 const gugu = {
   linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
@@ -44,7 +45,6 @@ const gugu = {
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const ids = () => [...$('file-list').querySelectorAll<HTMLElement>('li.file')].map((li) => li.dataset.id)
 const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLElement
-const box = (id: string) => row(id).querySelector<HTMLButtonElement>('.file-pick')!
 const open = (id: string, init: MouseEventInit = {}) => row(id).querySelector('.file-open')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...init }))
 const picked = () => ids().filter((id) => row(id!).classList.contains('picked'))
 const bar = () => $('pick-bar')
@@ -60,7 +60,7 @@ beforeAll(async () => {
   document.body.innerHTML = page.body.innerHTML
   for (const attr of Array.from(page.body.attributes)) document.body.setAttribute(attr.name, attr.value)
   Object.assign(globalThis, { gugu })
-  Object.assign(window, { gugu })
+  Object.assign(window, { gugu, matchMedia: (query: string) => ({ get matches() { return touch && query.includes('pointer: coarse') } }) })
   // @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
   await import('../../../../apps/desktop/preinstalled-apps/workspace/app.js')
   await until('the list drawn', () => ids().length === 4)
@@ -70,16 +70,18 @@ afterAll(() => vi.restoreAllMocks())
 
 beforeEach(() => {
   pressEscape()
+  pressEscape()
+  touch = false
   gugu.files.openWith.mockClear()
 })
 
 describe('picking', () => {
-  test('a box picks; while anything is picked a press picks too, not opens; Escape lets go of all', () => {
+  test('modifier selection highlights the row; a later press toggles, and Escape lets go of all', () => {
     expect(bar().hidden).toBe(true)
-    box('a').click()
+    open('a', { ctrlKey: true })
     expect(picked()).toEqual(['a'])
     expect(bar().querySelector('.pick-count')!.textContent).toBe('已选 1 项')
-    expect($('file-list').classList.contains('picking')).toBe(true)
+    expect(row('a').getAttribute('aria-selected')).toBe('true')
     open('c')
     expect(picked()).toEqual(['a', 'c'])
     expect(gugu.files.openWith).not.toHaveBeenCalled()
@@ -102,18 +104,116 @@ describe('picking', () => {
     expect(gugu.files.openWith).not.toHaveBeenCalled()
   })
 
-  test('a long press (a finger) picks, and the click after it does not open', async () => {
-    const target = row('b').querySelector('.file-open')!
-    target.dispatchEvent(Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' }))
-    await new Promise((done) => setTimeout(done, 600))
-    target.dispatchEvent(Object.assign(new MouseEvent('pointerup', { bubbles: true }), { pointerType: 'touch' }))
+  test('a long press opens the file menu; choosing Select enters selection without opening', async () => {
+    touch = true
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const target = row('b').querySelector('.file-open')!
+      target.dispatchEvent(Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' }))
+      await vi.advanceTimersByTimeAsync(500)
+      target.dispatchEvent(Object.assign(new MouseEvent('pointerup', { bubbles: true }), { pointerType: 'touch' }))
+      open('b')
+      expect(picked()).toEqual([])
+      expect($('menu').hidden).toBe(false)
+      expect($('menu').querySelector('.menu-file')!.textContent).toContain('b.pdf')
+      const select = [...$('menu').querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === '选择')!
+      select.click()
+      expect(picked()).toEqual(['b'])
+      expect($('select-files').getAttribute('aria-pressed')).toBe('true')
+      expect(gugu.files.openWith).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+
+  })
+
+  test('single click still opens; the desktop has no per-row overflow button', () => {
+    open('a')
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }))
+    expect(picked()).toEqual([])
+    expect(document.querySelector('.row-more')).toBe(null)
+  })
+
+  test('the wide header selects all, reports a partial selection, and clears all', () => {
+    const all = $('file-list').querySelector<HTMLButtonElement>('[aria-label="全选"]')!
+    all.click()
+    expect(picked()).toEqual(['a', 'b', 'c', 'd'])
+    expect(all.getAttribute('aria-checked')).toBe('true')
     open('b')
-    expect(picked()).toEqual(['b'])
+    expect(all.getAttribute('aria-checked')).toBe('mixed')
+    all.click()
+    all.click()
+    expect(picked()).toEqual([])
+    expect(all.getAttribute('aria-checked')).toBe('false')
+    expect(bar().parentElement).toBe(document.querySelector('aside.files'))
+  })
+
+  test('mobile Select works before anything is picked and the separate checkbox never opens a file', () => {
+    touch = true
+    $('select-files').click()
+    expect($('select-files').getAttribute('aria-pressed')).toBe('true')
+    const checkbox = row('c').querySelector<HTMLButtonElement>('[role="checkbox"]')!
+    expect(checkbox.nextElementSibling?.className).toBe('file-open')
+    checkbox.click()
+    expect(picked()).toEqual(['c'])
+    expect(gugu.files.openWith).not.toHaveBeenCalled()
+    $('select-files').click()
+    expect(picked()).toEqual([])
+    expect($('select-files').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  test('right-click during selection acts on the selected files, including when another row is under the pointer', async () => {
+    open('a', { ctrlKey: true })
+    open('c')
+    row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 20 }))
+    const actions = [...$('menu').querySelectorAll<HTMLButtonElement>('button')]
+    expect(actions.map((item) => item.textContent)).toEqual(['下载', '设为临时', '一直保留', '在聊天中定位', '取消选择'])
+    actions[0]!.click()
+    await until('batch download called', () => gugu.files.download.mock.calls.length > 0)
+    expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
+  })
+
+  test('Shift+F10 opens the focused row menu; Ctrl+A selects only when the list owns the keys', () => {
+    const target = row('a').querySelector<HTMLButtonElement>('.file-open')!
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true }))
+    expect($('menu').hidden).toBe(false)
+    expect(document.activeElement?.textContent).toBe('打开')
+    pressEscape()
+    expect(document.activeElement).toBe(target)
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
+    expect(picked()).toEqual(['a', 'b', 'c', 'd'])
+    pressEscape()
+    $('filter').dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
+    expect(picked()).toEqual([])
+  })
+
+  test('box selection still uses the rows crossed, without opening them', () => {
+    for (const [index, id] of ['a', 'b', 'c', 'd'].entries()) {
+      vi.spyOn(row(id), 'getBoundingClientRect').mockReturnValue({ left: 0, right: 100, top: index * 30, bottom: index * 30 + 20 } as DOMRect)
+    }
+    const list = $('file-list')
+    list.dispatchEvent(Object.assign(new MouseEvent('pointerdown', { button: 0, clientX: 0, clientY: 0 }), { pointerType: 'mouse' }))
+    list.dispatchEvent(new MouseEvent('pointermove', { clientX: 110, clientY: 55, cancelable: true }))
+    list.dispatchEvent(new MouseEvent('pointerup'))
+    expect(picked()).toEqual(['a', 'b'])
+    expect($('lasso').hidden).toBe(true)
     expect(gugu.files.openWith).not.toHaveBeenCalled()
   })
 
+  test('mobile More and retention reuse the same menu and retain disabled reasons', () => {
+    touch = true
+    row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    const choose = (label: string) => [...$('menu').querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === label)!.click()
+    choose('更多 ›')
+    choose('保留方式 ›')
+    const options = [...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+    expect(options.map((item) => item.disabled)).toEqual([true, true])
+    expect(options[0]!.title).toBe('只有上传这份文件的人能改它保留多久。')
+    choose('‹ 保留方式')
+    choose('‹ 更多')
+    expect($('menu').querySelector('button')!.textContent).toBe('打开')
+  })
+
   test('another kind lets go of what was picked', () => {
-    box('a').click()
+    open('a', { ctrlKey: true })
     $('kinds').querySelector<HTMLButtonElement>('[data-kind="docs"]')!.click()
     expect(bar().hidden).toBe(true)
     $('kinds').querySelector<HTMLButtonElement>('[data-kind="all"]')!.click()
@@ -123,15 +223,15 @@ describe('picking', () => {
 
 describe('what is picked, at once', () => {
   test('downloaded together (one 「save to」 for them all), and said how many', async () => {
-    box('a').click()
-    box('c').click()
+    open('a', { ctrlKey: true })
+    open('c', { ctrlKey: true })
     barButton('下载').click()
     await until('saved', () => banner(), (text) => text === '已保存 2 个文件。')
     expect(gugu.files.download).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'a' }), expect.objectContaining({ id: 'c' })])
   })
 
   test('made temporary: only my own cloud copies asked for; someone else\'s and one without a copy said apart', async () => {
-    for (const id of ['a', 'b', 'c', 'd']) box(id).click()
+    for (const id of ['a', 'b', 'c', 'd']) open(id, { ctrlKey: true })
     const reads = gugu.files.list.mock.calls.length
     barButton('设为临时').click()
     await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
@@ -140,7 +240,7 @@ describe('what is picked, at once', () => {
   })
 
   test('found in the chat one message after another, oldest first: 1/3 ‹ ›', () => {
-    for (const id of ['a', 'b', 'c', 'd']) box(id).click()
+    for (const id of ['a', 'b', 'c', 'd']) open(id, { ctrlKey: true })
     barButton('在聊天中定位').click()
     expect(gugu.showMessage).toHaveBeenLastCalledWith('m-d')
     expect(bar().querySelector('.pick-at')!.textContent).toBe('1/3')
@@ -157,7 +257,7 @@ describe('what is picked, at once', () => {
 
   test('none from the chat: said so, nothing shown', () => {
     gugu.showMessage.mockClear()
-    box('c').click()
+    open('c', { ctrlKey: true })
     barButton('在聊天中定位').click()
     expect(gugu.showMessage).not.toHaveBeenCalled()
     expect(banner()).toBe('选中的文件都不是从聊天里来的。')

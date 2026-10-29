@@ -60,6 +60,7 @@ beforeAll(async () => {
   Object.assign(window, {
     gugu,
     matchMedia: (query: string) => {
+      if (query === '(hover: none) and (pointer: coarse)') return { matches: false }
       expect(query).toBe('(max-width: 640px)') // the same width style.css folds the header at
       return { get matches() { return narrow.matches }, addEventListener: (_: string, fn: () => void) => narrow.listeners.push(fn) }
     },
@@ -136,7 +137,8 @@ describe('workspace App in a narrow pane (F32)', () => {
     const files = document.querySelector('.files')!
     // The kinds, the order and the view under the search, then the filters; 子文件夹: the crumbs between them and the list (hidden at the top), then the
     // list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 7)).toEqual(['files-head', 'files-tools', 'chips', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-head', 'pick-bar', 'files-tools', 'chips', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect($('pick-bar').hidden).toBe(true)
   })
 
   // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.
