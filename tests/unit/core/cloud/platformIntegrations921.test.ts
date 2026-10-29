@@ -204,7 +204,7 @@ describe('a forwarded call that the platform turns down (#921)', () => {
   it.each([
     ['too many calls open at once', 429, 'too_many_streams', '7', /try again in 7 s/],
     ['rate-limited', 429, 'rate_limited', '3', /try again in 3 s/],
-    ['timed out', 408, 'request_timeout', null, /try again shortly/],
+    ['timed out', 408, 'request_timeout', null, /didn't reach the Gugu platform in time; try again shortly/],
   ] as const)('reads %s as temporary: try again later, never reconnect, sign-in or not connected', async (_case, status, code, retryAfter, wording) => {
     const answer = () => new Response(JSON.stringify({ error: code, message: 'busy' }), { status, headers: retryAfter ? { 'retry-after': retryAfter } : {} })
     const error = await callAmapTool(answer).catch((e: unknown) => e)

@@ -38,7 +38,12 @@ function fakePlatform() {
   let disconnections = 0;
   const requests: Array<{ method: string; path: string; authorization: string | null; body: unknown; raw: string }> = [];
   const state = {
-    putFault: null as null | { status: number; code: string },
+    /** The next PUTs answer this; `code: null` = an answer without the platform's error code (a proxy, say). */
+    putFault: null as null | { status: number; code: string | null },
+    /** PUTs never reach the platform (the network drops them); everything else answers. */
+    putDown: false,
+    /** false = `GET /integrations` does not list AMap at all. */
+    listsAmap: true,
     onPut: null as null | (() => void),
     /** absent = this installation has no such service (the gateway's 404); closed = not open to this person (503). */
     mode: 'open' as 'open' | 'absent' | 'closed',
@@ -65,7 +70,7 @@ function fakePlatform() {
       if (state.holdGet) await state.holdGet;
       const amap = saved.get('amap');
       return Response.json({
-        providers: [{
+        providers: state.listsAmap ? [{
           provider: 'amap',
           // Every provider in the table is listed: `not_connected` with no times = nothing stored.
           accounts: [{
@@ -74,13 +79,17 @@ function fakePlatform() {
               : { accountId: 'default', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null }),
             disconnectedAt: disconnected.get('amap') ?? null,
           }],
-        }],
+        }] : [],
       });
     }
     const credential = /^\/integrations\/([^/]+)\/credential$/.exec(path);
     if (credential && method === 'PUT') {
       state.onPut?.();
-      if (state.putFault) return Response.json({ error: state.putFault.code, message: 'Try again later.' }, { status: state.putFault.status });
+      if (state.putDown) throw new TypeError('fetch failed');
+      if (state.putFault) {
+        const { status, code } = state.putFault;
+        return Response.json(code ? { error: code, message: 'Try again later.' } : { message: 'Bad gateway or proxy answer.' }, { status });
+      }
       const put = JSON.parse(raw) as { fields?: { apiKey?: string }; migration?: { savedAt: string | null }; connect?: unknown };
       if ((put.connect !== undefined && put.migration) || (put.connect !== undefined && put.connect !== 'manual')) {
         return Response.json({ error: 'invalid_fields', message: 'connect is "manual", alone.' }, { status: 400 });
@@ -594,16 +603,76 @@ describe('credentials the platform keeps (#921)', () => {
       expect(await b.service.check('amap')).toEqual({ connected: true });
     });
 
-    it('only the network and the platform’s own 5xx keep the key on the device and back off', async () => {
+    it.each([
+      ['the network dropping the upload', 'down'],
+      ['401', { status: 401, code: 'unauthorized' }],
+      ['403', { status: 403, code: 'forbidden' }],
+      ['the platform’s own 404', { status: 404, code: 'unknown_provider' }],
+      ['408', { status: 408, code: 'request_timeout' }],
+      ['429', { status: 429, code: 'rate_limited' }],
+      ['502', { status: 502, code: 'upstream_unavailable' }],
+      ['503', { status: 503, code: 'upstream_unavailable' }],
+      ['a 400 without the platform’s code (a proxy)', { status: 400, code: null }],
+      ['a 400 with another code', { status: 400, code: 'invalid_request' }],
+      ['a 422 without the platform’s code', { status: 422, code: null }],
+    ] as const)('%s on the way up keeps the key on the device and backs off', async (_case, fault) => {
       const platform = fakePlatform();
       const clock = { now: 1_000_000 };
       const b = await device(platform, 'B', clock);
       await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
-      platform.state.putFault = { status: 503, code: 'upstream_unavailable' };
+      if (fault === 'down') platform.state.putDown = true;
+      else platform.state.putFault = fault;
 
       await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
       expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
       expect(await b.service.check('amap')).toEqual({ connected: false });
+      // Backing off: not again a minute later; again once the back-off is over.
+      clock.now += 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+      clock.now += 5 * 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(2);
+      expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+    });
+
+    it('the back-off doubles from 5 minutes and stops growing at an hour', async () => {
+      const platform = fakePlatform();
+      const clock = { now: 1_000_000 };
+      const b = await device(platform, 'B', clock);
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+      platform.state.putFault = { status: 502, code: 'upstream_unavailable' };
+      const started = clock.now;
+      const uploadedAt: number[] = [];
+      platform.state.onPut = () => uploadedAt.push((clock.now - started) / 60_000);
+
+      for (let minute = 0; minute <= 240; minute += 5) {
+        clock.now = started + minute * 60_000;
+        await b.service.refresh({ maxAgeMs: 0 });
+      }
+      expect(uploadedAt.slice(1).map((at, index) => at - uploadedAt[index]!)).toEqual([5, 10, 20, 40, 60, 60]);
+    });
+
+    it('a provider the platform does not list is not sent up: the key stays, and goes up once it is listed and the back-off is over', async () => {
+      const platform = fakePlatform();
+      platform.state.listsAmap = false;
+      const clock = { now: 1_000_000 };
+      const b = await device(platform, 'B', clock);
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.requests.filter((request) => request.method === 'PUT')).toEqual([]);
+      expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+
+      platform.state.listsAmap = true;
+      clock.now += 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.requests.filter((request) => request.method === 'PUT')).toEqual([]);
+      clock.now += 5 * 60_000;
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(platform.saved.get('amap')?.apiKey).toBe(GOOD);
+      expect(b.fixture.secretStore.secrets.has(AMAP_SECRET_REF)).toBe(false);
     });
 
     it('a credential the platform keeps that needs a reconnect is not overwritten by a #649 key either', async () => {
