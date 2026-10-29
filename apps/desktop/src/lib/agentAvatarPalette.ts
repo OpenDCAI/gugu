@@ -64,3 +64,14 @@ export function boringFace(id: string, avatar?: string | null): { seed: string; 
   const look = parseBoringLook(avatar)
   return { seed: look?.seed ?? id, colors: AGENT_AVATAR_PALETTES[look?.palette ?? agentAvatarPaletteIndex(id)] }
 }
+
+/** The circle mask is luminance: opaque white keeps the face, independent of theme. */
+export const BORING_MASK_FILL = '#FFFFFF'
+
+/** Eyes and mouth on the body colour: white once it reaches 3:1 (WCAG non-text contrast), else black. Beam's own YIQ test
+ *  keeps black on mid-dark reds, oranges and browns, where the face reads as a hole. */
+export function boringFaceFeatureColor(body: string): '#FFFFFF' | '#000000' {
+  const channel = (i: number) => { const v = parseInt(body.slice(i, i + 2), 16) / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+  return 1.05 / (luminance + 0.05) >= 3 ? '#FFFFFF' : '#000000'
+}
