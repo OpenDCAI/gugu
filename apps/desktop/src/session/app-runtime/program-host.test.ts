@@ -34,6 +34,17 @@ async function program() {
 }
 
 describe('gugu in a program', () => {
+  it('carries a human request in the exact tool invocation that asked it', async () => {
+    const { gugu, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    expect(gugu.requestHuman).toBeTypeOf('function');
+    const requested = programCall.run('human-call', () => (gugu.requestHuman as (args: unknown) => Promise<unknown>)({ title: 'Finish this step', tab: 'main' }));
+    const call = await nextCall(0);
+    expect(call).toMatchObject({ method: 'requestHuman', call: 'human-call', args: { title: 'Finish this step', tab: 'main' } });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: { state: 'completed', requestId: 'human-1', by: 'desktop' } });
+    await expect(requested).resolves.toMatchObject({ state: 'completed', requestId: 'human-1' });
+  });
+
   it('is the same gugu — files and the host verbs — without a page’s editor', async () => {
     const { gugu } = await program();
     expect(typeof gugu.files.open).toBe('function');

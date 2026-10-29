@@ -144,6 +144,8 @@ function observeDocument(contents: WebContents): void {
  * three are answered by one `dispatch`; a verb only one of them has says so in its row (`VerbFacts.only`).
  */
 export interface BridgeCaller {
+  /** Main's live program invocation. It cannot be supplied by an App frame or its arguments. */
+  programRequest?: import('./app-human-request').ProgramRequestScope;
   extensionId: string;
   kind: 'page' | 'background' | 'program';
   /** A page's binding; null for the background page and a program. */
@@ -1456,6 +1458,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'requestHuman': {
+      const { requestAppHuman } = await import('./app-human-request');
+      return requestAppHuman(extensionsService().get(extensionId).manifest, caller.programRequest, args);
+    }
     case 'modalOpen': {
       const source = thePage(caller);
       const modal = appModals.open(caller.pageId, { ...source }, args);

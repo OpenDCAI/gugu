@@ -898,6 +898,19 @@ What the card, the detail sheet and the installed list show comes from manifest.
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
 
+## Human steps (API 21)
+
+Needs \`agents:tools\`:
+
+- In an agent tool's \`run\`, \`requestHuman({ title, detail?, tab? })\` on \`gugu\` asks the person to
+  finish a step in this session. \`tab\` names your own tab. No session or App argument: the host binds
+  the active call. It returns \`{ requestId, state, by? }\`: \`completed\`, \`cancelled\`, \`timeout\`
+  (10 minutes), or \`ended\`. Completion is the person's report: check the actual result yourself.
+  A timer outside a live call is refused. Opening the App answers nothing. An admitted mid-turn message
+  releases the MCP waiter as pending, without approving or repeating the request; the tool continues,
+  and its actual outcome arrives as \`gugu_human_tool_result\`. The tool's second argument has the real
+  MCP cancellation \`signal\`: pass it to your driver. Explicit stop cancels; steering alone does not.
+
 ## Platform declarations
 
 Declare human UI hosts in \`platforms\` (API 12): desktop, phone, or both. A phone UI may declare agent

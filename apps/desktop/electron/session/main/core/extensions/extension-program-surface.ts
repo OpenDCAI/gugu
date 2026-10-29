@@ -1,4 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ProgramRequestScope } from './app-human-request';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { APP_FRAME_MARKER, fileRefOf, isLocal, placeOf, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
@@ -47,7 +49,7 @@ export interface ProgramSurface {
    * and chats it handed; the function it returns takes them back when that call ends — resolved once the program let go
    * of the files, its last writes handed to the file service ahead of its Close (F106).
    */
-  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[]): () => Promise<void>;
+  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], request?: ProgramRequestScope): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
   close(): void;
@@ -58,7 +60,10 @@ let lastPageId = 0;
 export function attachProgramSurface(extensionId: string, child: ChildProcess): ProgramSurface {
   const pageId = --lastPageId;
   /** Each call running now, by its id: whose it is, and what it handed. */
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[] }>();
+  const calls = new Map<string, {
+    agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[];
+    request?: ProgramRequestScope; lifetime: AbortController; run: ReturnType<typeof AsyncLocalStorage.snapshot>;
+  }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -87,6 +92,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   };
   const callerFor = (callId: string | undefined): BridgeCaller => ({
     extensionId,
+    programRequest: callId === undefined ? undefined : calls.get(callId)?.request,
     kind: 'program',
     binding: null,
     pageId,
@@ -116,7 +122,13 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     if (frame.t !== 'call') return;
     // Imported when called: the bridge reaches the programs (`extensionPrograms`), which reach this file.
     void import('./extension-bridge')
-      .then(({ answerCall }) => answerCall(callerFor(typeof frame.call === 'string' ? frame.call : undefined), frame.method, (frame.args ?? {}) as Record<string, unknown>))
+      .then(({ answerCall }) => {
+        const callId = typeof frame.call === 'string' ? frame.call : undefined;
+        const answer = () => answerCall(callerFor(callId), frame.method, (frame.args ?? {}) as Record<string, unknown>);
+        // IPC runs outside its tool's async context. Restore only the exact live call, including its human wait.
+        const invocation = callId === undefined ? undefined : calls.get(callId);
+        return invocation ? invocation.run(answer) : answer();
+      })
       .then((answer) =>
         post(
           answer.ok
@@ -129,9 +141,12 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
 
   return {
     pageId,
-    hand(callId, agent, files, chats = []) {
-      calls.set(callId, { agent, files, chats });
+    hand(callId, agent, files, chats = [], request) {
+      const lifetime = new AbortController();
+      calls.set(callId, { agent, files, chats, lifetime, run: AsyncLocalStorage.snapshot(),
+        ...(request ? { request: { sessionId: request.sessionId, signal: AbortSignal.any([request.signal, lifetime.signal]) } } : {}) });
       return async () => {
+        lifetime.abort();
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last
         // writes first (F106). A file it was handed, unless another call running now hands it as the same agent; one it
@@ -151,6 +166,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     },
     openFiles: () => fileSync.openCount(pageId),
     close() {
+      for (const call of calls.values()) call.lifetime.abort();
+      calls.clear();
       child.off('message', onMessage);
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));

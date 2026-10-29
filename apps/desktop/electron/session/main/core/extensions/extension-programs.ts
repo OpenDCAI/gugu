@@ -13,6 +13,8 @@ import { programRuntimePath } from './app-runtime-dir';
 import { PROGRAM_CALL_META_KEY } from '@shared/extensions/app-runtime-protocol';
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { firstSentence } from '../../../../mcp/first-sentence';
+import { runHumanTool, humanToolPending } from '../asks/human-tool-wait';
+import type { ProgramRequestScope } from './app-human-request';
 import {
   attachProgramSurface,
   handedChatsAs,
@@ -74,7 +76,7 @@ export interface ExtensionPrograms {
    * by which calls hold the same file or chat at the moment.
    */
   call(program: ExtensionProgram, params: CallToolRequest['params'],
-    options: { signal: AbortSignal; onprogress?: (progress: Progress) => void; agent?: string; handed?: readonly ExtensionHandedFile[];
+    options: { signal: AbortSignal; sessionId?: string; onprogress?: (progress: Progress) => void; agent?: string; handed?: readonly ExtensionHandedFile[];
       handedChats?: readonly ExtensionHandedChat[] }): Promise<CallToolResult>;
   /** Which group each file is in, read as this agent; throws, naming the file, when the agent cannot open one. */
   handedFiles(agentUserId: string, itemIds: readonly string[]): Promise<ExtensionHandedFile[]>;
@@ -482,7 +484,7 @@ function armIdle(instance: Instance): void {
 }
 
 async function use<T>(program: ExtensionProgram, work: (client: Client) => Promise<T>,
-  call?: { id: string; agent?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
+  call?: { id: string; agent?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[]; request?: ProgramRequestScope }): Promise<T> {
   const key = versionKeyOf(program);
   let pending = live.has(key) ? Promise.resolve(live.get(key)!) : starting.get(key);
   if (!pending) {
@@ -495,7 +497,7 @@ async function use<T>(program: ExtensionProgram, work: (client: Client) => Promi
   // The call's agent, and what it handed for this call only: taken back (and what was opened on it alone) when it ends.
   // The answer goes back to the agent once the program let go of them: its writes handed to the file service in order,
   // ahead of the Close — not yet confirmed by the service, a millisecond window no agent's next step reaches (F106).
-  const release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats) : undefined;
+  const release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.request) : undefined;
   try {
     return await work(instance.client);
   } finally {
@@ -535,19 +537,25 @@ export const extensionPrograms: ExtensionPrograms = {
   instructions(program) {
     return instructionsOf.get(versionKeyOf(program));
   },
-  call(program, params, { signal, onprogress, agent, handed = [], handedChats = [] }) {
+  call(program, params, { signal, sessionId, onprogress, agent, handed = [], handedChats = [] }) {
     const id = randomUUID();
     const stamped = { ...params, _meta: { ...params._meta, [PROGRAM_CALL_META_KEY]: id } };
-    const call = program.native ? nativeProgram(program).call(program, stamped, signal)
-      : use(program, (client) => client.callTool(stamped, undefined, { signal, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>, { id, agent, handed, handedChats });
-    return call.then((result) => {
+    const finished = (result: CallToolResult) => {
       if (result.isError) {
         const detail = result.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
         failures.set(program.extensionId, { kind: 'tool', server: program.server, at: new Date().toISOString(),
           said: detail, stderrTail: detail, notStarted: false, code: null, command: program.command });
       } else lastWorked.set(program.extensionId, new Date().toISOString());
       return result;
-    });
+    };
+    const perform = (lifetime: AbortSignal) => use(program,
+      (client) => client.callTool(stamped, undefined, { signal: lifetime, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>,
+      { id, agent, handed, handedChats, ...(sessionId ? { request: { sessionId, signal: lifetime } } : {}) }).then(finished);
+    return program.native ? nativeProgram(program).call(program, stamped, signal).then(finished)
+      : sessionId ? runHumanTool<CallToolResult>(sessionId, 'app_program', signal, perform, requestId => {
+        const pending = humanToolPending(requestId);
+        return { content: [{ type: 'text', text: JSON.stringify(pending) }], structuredContent: pending };
+      }) : perform(signal);
   },
   handedFiles: handedFilesAs,
   handedChats: handedChatsAs,

@@ -10,6 +10,9 @@ import { enUSAgentStatusMessages, zhCNAgentStatusMessages } from './messages-age
 import { enUSAppSettingsMessages, zhCNAppSettingsMessages } from './messages-app-settings';
 
 const enUSCoreMessages = {
+  'extensions.humanComplete': 'Done',
+  'extensions.humanOpenApp': 'Open App',
+  'extensions.humanWaiting': 'Waiting for you',
   'taskError.connectionLost': 'The connection to the machine was lost. Try again when it reconnects.',
   'terminal.createFailed': 'Could not open terminal',
   'externalLink.openFailed': 'Could not open link',
@@ -1007,6 +1010,9 @@ const enUSCoreMessages = {
 type CoreSessionMessageKey = keyof typeof enUSCoreMessages;
 
 const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
+  'extensions.humanComplete': '已完成',
+  'extensions.humanOpenApp': '打开 App',
+  'extensions.humanWaiting': '等你完成',
   'taskError.connectionLost': '与机器的连接已断开，请在重新连上后再试。',
   'terminal.createFailed': '终端没能打开',
   'externalLink.openFailed': '链接没能打开',

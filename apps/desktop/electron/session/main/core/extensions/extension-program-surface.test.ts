@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +18,8 @@ const TOPIC = '0c4a7e10-0000-4000-8000-0000000000e3';
  */
 
 const granted = new Set<string>();
+const human = vi.hoisted(() => ({ request: vi.fn(async (_manifest: unknown, scope: { sessionId: string; signal: AbortSignal } | undefined, _args: unknown) => ({ session: scope?.sessionId })) }));
+vi.mock('./app-human-request', () => ({ requestAppHuman: human.request }));
 vi.mock('electron', () => ({
   app: { getLocale: () => 'zh-CN' },
   ipcMain: { handle: vi.fn(), on: vi.fn() },
@@ -30,6 +33,7 @@ vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgrou
 vi.mock('@main/core/extensions/extension-programs', () => ({ extensionPrograms: {}, onExtensionProgramNotification: vi.fn() }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
+    get: () => ({ manifest: { id: 'board', name: 'Board' } }),
     hasCapability: (_id: string, wanted: string) => granted.has(wanted),
     grantedCapabilities: () => [...granted],
   }),
@@ -109,6 +113,40 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('restores the exact host call context across IPC, and forgets it when that call ends', async () => {
+    granted.add('agents:tools');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const context = new AsyncLocalStorage<string>();
+    const signal = new AbortController().signal;
+    const release = context.run('original-operation', () => surface.hand('human-1', 'agent-1', [], [], { sessionId: 'task-1', signal }));
+    human.request.mockImplementationOnce(async (_manifest, scope) => {
+      expect(context.getStore()).toBe('original-operation');
+      return { session: scope?.sessionId };
+    });
+    expect(await call(child, 900, 'requestHuman', { title: 'Finish' }, 'human-1')).toMatchObject({ ok: true, value: { session: 'task-1' } });
+    const captured = human.request.mock.calls.at(-1)![1]!;
+    expect(captured.signal.aborted).toBe(false);
+    await release(); expect(captured.signal.aborted).toBe(true);
+    await call(child, 901, 'requestHuman', { title: 'Finish' }, 'human-1');
+    expect(human.request.mock.calls.at(-1)![1]).toBeUndefined();
+    surface.close();
+  });
+
+  it('closing a program cancels only that program’s live request scopes', async () => {
+    granted.add('agents:tools');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const controller = new AbortController();
+    surface.hand('human-2', 'agent-1', [], [], { sessionId: 'task-2', signal: controller.signal });
+    await call(child, 902, 'requestHuman', { title: 'Finish' }, 'human-2');
+    const captured = human.request.mock.calls.at(-1)![1]!;
+    expect(captured.signal.aborted).toBe(false);
+    surface.close();
+    expect(captured.signal.aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+  });
+
   it('simultaneous watches at the same place retain each caller through later calls and independent cancellation', async () => {
     granted.add('files:read');
     const child = fakeChild();

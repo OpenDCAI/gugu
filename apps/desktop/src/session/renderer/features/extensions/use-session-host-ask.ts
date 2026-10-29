@@ -3,6 +3,9 @@ import type { ComposerPermissionRequest } from '@gugu/session-ui/react/component
 import { settlementFromWire, type AskSource, type Settlement, type SessionpageSessionEvent, type TimelineAfterResult } from '@gugu/session-core/session-record/contract';
 import { sessionpageSessionTimelineChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
 import { appInstallAskOf } from '@shared/extensions/host-actions';
+import { appHumanAskOf, APP_HUMAN_OPEN } from '@shared/extensions/app-human';
+import { openLinkTarget } from '@/lib/guguLinks';
+import { appHumanTarget, appHumanWords } from './app-human-approval';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
@@ -11,8 +14,10 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { log } from '@renderer/utils/logger';
 import { answerAppInstall, answeredTooLate, appInstallWords, sessionWaitsOnApproval } from './app-install-approval';
 
-const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>, source: AskSource): Settlement | null =>
-  [...settlements.values()].find((settlement) => settlement.origin?.source === source && settlement.state === 'pending') ?? null;
+const APP_HOST_ASK_SOURCES = ['app-install', 'app-human'] as const;
+const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>, source: AskSource | readonly AskSource[]): Settlement | null =>
+  [...settlements.values()].find((settlement) => settlement.state === 'pending' && settlement.origin
+    && (typeof source === 'string' ? settlement.origin.source === source : source.includes(settlement.origin.source))) ?? null;
 
 /**
  * D-31 (L11 复核 67) The ask the host keeps pending on this session's timeline — an App install it asks for the agent — for
@@ -21,7 +26,7 @@ const pendingHostAsk = (settlements: ReadonlyMap<string, Settlement>, source: As
  */
 export function useSessionHostAsk(
   sessionId: string | null,
-  source: AskSource
+  source: AskSource | readonly AskSource[]
 ): Settlement | null {
   const [ask, setAsk] = useState<Settlement | null>(null);
   useEffect(() => {
@@ -73,37 +78,46 @@ export function useHostAskBand(
   session: { status: string | null; detail: string | null } | null | undefined
 ): { request: ComposerPermissionRequest; resolve: (optionId: string | null) => void } | null {
   const { translate } = useSessionMessages();
-  const ask = useSessionHostAsk(sessionWaitsOnApproval(session) ? sessionId : null, 'app-install');
+  const waitingSession = sessionWaitsOnApproval(session) ? sessionId : null;
+  const ask = useSessionHostAsk(waitingSession, APP_HOST_ASK_SOURCES);
   const install = appInstallAskOf(ask?.origin);
+  const human = appHumanAskOf(ask?.origin);
   const itemId = ask?.itemId;
   const machineId = sessionId ? machineRegistry.machineOf(sessionId) : null;
   const machine = machineId ? remoteHostsStore.device(machineId)?.label ?? machineId : undefined;
   const resolve = useCallback(
     (optionId: string | null) => {
-      if (!optionId || !sessionId || !itemId || !install) return;
-      void answerAppInstall({
-        itemId,
-        ask: install,
-        optionId,
-        machine,
-        respond: (answer) =>
-          rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer }),
-      })
+      if (!optionId || !sessionId || !itemId || (!install && !human)) return;
+      void (async () => {
+        if (human) {
+          const target = appHumanTarget(human);
+          if (optionId === APP_HUMAN_OPEN && target) { await openLinkTarget(target); return; }
+          return rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', optionId });
+        }
+        return answerAppInstall({
+          itemId,
+          ask: install!,
+          optionId,
+          machine,
+          respond: (answer) =>
+            rpc.sessionTimeline.sessionRespond({ conversationId: sessionId, itemId, kind: 'permission', by: 'desktop', ...answer }),
+        });
+      })()
         .then((result) => {
           if (answeredTooLate(result)) toast({ title: translate('extensions.consentNoLongerWaiting') });
         })
         .catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' }));
     },
-    [sessionId, itemId, install, machine, translate]
+    [sessionId, itemId, install, human, machine, translate]
   );
-  if (!ask || !install) return null;
-  const words = appInstallWords(install, translate, machine);
+  if (!ask || (!install && !human)) return null;
+  const words = human ? appHumanWords(human, translate) : appInstallWords(install!, translate, machine);
   return {
     request: {
       requestId: ask.itemId,
       title: words.title,
-      statusLabel: translate('composer.awaitingApproval'),
-      options: (ask.options ?? []).map((option) => ({
+      statusLabel: translate(human ? 'extensions.humanWaiting' : 'composer.awaitingApproval'),
+      options: [...(human?.tab ? [{ optionId: APP_HUMAN_OPEN, name: '', kind: '' }] : []), ...(ask.options ?? [])].map((option) => ({
         optionId: option.optionId,
         name: option.name,
         kind: option.kind ?? '',

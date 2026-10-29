@@ -19,6 +19,7 @@ import {
   callerMeta,
   handedAs,
   programFailureReason,
+  SESSION_META_KEY,
   toolVisibleTo,
   type Caller,
   type CallerSessionContext,
@@ -162,7 +163,7 @@ async function callProgram(programs: ExtensionPrograms, program: ExtensionProgra
     void extra.sendNotification({ method: 'notifications/progress', params: { ...progress, progressToken } })
   const _meta = await callerMeta(caller, readers.sessionContext)
   return programs.call(program, { name, arguments: given.args, _meta }, {
-    signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+    signal, sessionId: _meta[SESSION_META_KEY], onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
   })
 }
 

@@ -66,7 +66,10 @@ export function ask(
   if (!readSessionRow(conversationId)) return Promise.resolve('unavailable');
   if (options.signal?.aborted) return Promise.resolve('withdrawn');
   if (request.origin.source === 'agent-question') rememberAgentQuestion(conversationId, request);
-  const withdrawQuestions = (sessionId: string) => withdrawAll(sessionId, 'agent-question');
+  const withdrawQuestions = (sessionId: string) => {
+    withdrawAll(sessionId, 'agent-question');
+    withdrawAll(sessionId, 'app-human');
+  };
   hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawQuestions), sessionEvents.on('session:deleted', withdrawQuestions)];
   return new Promise((resolve) => {
     let unregisterHumanTool = () => undefined as void;
@@ -93,7 +96,7 @@ export function ask(
     const timer = timeoutMs === undefined ? null : setTimeout(() => aborted('timeout'), timeoutMs);
     timer?.unref?.();
     asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: () => aborted(), detach: () => end('withdrawn', false) });
-    if (request.origin.source === 'app-install') {
+    if (request.origin.source === 'app-install' || request.origin.source === 'app-human') {
       unregisterHumanTool = registerHumanToolAsk(conversationId, request.itemId);
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });

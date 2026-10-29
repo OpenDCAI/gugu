@@ -17,6 +17,7 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  requestHuman: { verb: 'requestHuman' },
   'modal.open': { verb: 'modalOpen' },
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
@@ -186,7 +187,7 @@ export function hostMembers(
     if (tail === undefined) members[head] = value;
     else members[head] = { ...(members[head] as Record<string, unknown> | undefined), [tail]: value };
   };
-  const has = (only: 'page' | 'background' | undefined) => only === undefined || only === caller;
+  const has = (only: HostCaller | undefined) => only === undefined || only === caller;
   for (const [member, row] of Object.entries(HOST_CALLS) as [HostMember, HostCall][]) {
     if (!offers(member) || !has(verbFacts(row.verb)?.only)) continue;
     const pack = (row.pack ?? same) as (...args: unknown[]) => unknown;

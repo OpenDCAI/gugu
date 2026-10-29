@@ -27,7 +27,7 @@ export type { SessionLiveReply } from './live-reply';
  * person answers it wherever they follow that session, and the first answer settles it (`respond`). `kind` says how a
  * surface draws it; `payload` is that kind's own.
  */
-export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install'] as const;
+export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install', 'app-human'] as const;
 export type AskSource = (typeof ASK_SOURCES)[number];
 export type AskOrigin = { source: AskSource; payload?: unknown };
 

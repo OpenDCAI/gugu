@@ -15,6 +15,10 @@ import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { MOBILE_RESPONDER_ID } from './useAgentWatchSession'
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
+import { appHumanAskOf } from '@/session/shared/extensions/app-human'
+import { appHumanTarget, appHumanWords } from '@/session/renderer/features/extensions/app-human-approval'
+import { openLinkTarget } from '@/lib/guguLinks'
+import { toast } from '@/session/renderer/lib/hooks/use-toast'
 import { answerAppInstall, appInstallWords } from '@/session/renderer/features/extensions/app-install-approval'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { QUESTION_DATA_PART } from './thread-messages'
@@ -104,7 +108,9 @@ export function SettlementCard({
   const multi = (questions?.length ?? 0) > 1
   // D-31 An App install the host asks for this agent: who asks for what; 「查看并安装」 opens this phone's own sheet first.
   const install = appInstallAskOf(settlement.origin)
-  const words = install ? appInstallWords(install, translateSessionMessage, machine) : null
+  const human = appHumanAskOf(settlement.origin)
+  const words = install ? appInstallWords(install, translateSessionMessage, machine) : human ? appHumanWords(human, translateSessionMessage) : null
+  const humanTarget = human ? appHumanTarget(human) : null
   const answer = (optionId: string) => {
     if (!install) {
       onRespond({ itemId: settlement.itemId, optionId, kind })
@@ -175,6 +181,11 @@ export function SettlementCard({
 
       {pending && !gap && !questions && options.length > 0 ? (
         <div className="gg-aw-card-options">
+          {humanTarget ? <Button variant="secondary" size="option" onClick={() => {
+            void openLinkTarget(humanTarget).catch((error: unknown) => toast({ title: error instanceof Error ? error.message : String(error), variant: 'destructive' }))
+          }}>
+            {translateSessionMessage('extensions.humanOpenApp')}
+          </Button> : null}
           {options.map((option) => (
             <Button
               key={option.optionId}
