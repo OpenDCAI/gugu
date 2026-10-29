@@ -49,6 +49,8 @@ import { coreLogger } from '../../log'
 import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
 import { turnFailureMarker } from '../../shared/ui/systemNotice'
 import { sessionArchiveRefusesMessage, type SessionArchivalState } from '../../shared/sessionArchival'
+import { beginInboxAttempt, clearInboxRetry, resetInboxRetries, retryInboxFailure } from './inboxRetry'
+import { attachmentFailureReason, attachmentStage } from '../files/attachmentDiagnostics'
 
 const log = coreLogger('agent-inbox-reader')
 
@@ -213,6 +215,7 @@ const threadBootstrapped = new Set<string>()
 const batchAudit: Array<{ agentUserId: string; rows: number; units: number }> = []
 
 export function resetAgentInboxReaderStateForTests(): void {
+  resetInboxRetries()
   inFlightByAgent.clear()
   threadBootstrapped.clear()
   batchAudit.length = 0
@@ -407,6 +410,7 @@ export function pullAgentInbox(agentUserId: string, deps: AgentInboxReaderDeps):
     existing.rerun = true
     return existing.promise
   }
+  beginInboxAttempt(agentUserId)
   const flight: SingleFlight = { rerun: false, promise: Promise.resolve({ pulled: 0, injected: 0, verdict: 'idle' }) }
   flight.promise = (async () => {
     try {
@@ -418,9 +422,13 @@ export function pullAgentInbox(agentUserId: string, deps: AgentInboxReaderDeps):
         if (result.completion) completions.push(result.completion)
       }
       const summary: AgentInboxPullResult = { pulled: result.pulled, injected: result.injected, verdict: result.verdict }
+      clearInboxRetry(agentUserId)
       return completions.length > 0
         ? { ...summary, completion: Promise.all(completions).then(() => undefined) }
         : summary
+    } catch (error) {
+      retryInboxFailure(agentUserId, error, () => kickAgentInboxPull(agentUserId, deps, 'failure-retry'))
+      throw error
     } finally {
       if (inFlightByAgent.get(agentUserId) === flight) inFlightByAgent.delete(agentUserId)
     }
@@ -448,7 +456,7 @@ export function combineCoalescedPulls(
   }
 }
 
-/** 触发入口(fire-and-forget):失败只 loud log——触发丢失由下一个触发/游标滞后兜底,不是静默吞。 */
+/** 触发入口(fire-and-forget):失败响亮记录，由失败退避计时重新拉取未读。 */
 export function kickAgentInboxPull(agentUserId: string, deps: AgentInboxReaderDeps, trigger: string): void {
   log.info({ agentUserId, trigger }, 'agent inbox pull kicked')
   void pullAgentInbox(agentUserId, deps).then(
@@ -473,7 +481,7 @@ export function kickAgentInboxPull(agentUserId: string, deps: AgentInboxReaderDe
     (error: unknown) => {
       log.error(
         { agentUserId, trigger, err: error instanceof Error ? error.message : String(error) },
-        'agent inbox pull failed; unread stays in the cloud cursor and the next trigger re-pulls',
+        'agent inbox pull failed; unread stays in the cloud cursor and a retry is scheduled',
       )
     },
   )
@@ -611,7 +619,7 @@ type PreparedUnit = {
  * A chat row whose own identity cannot be written into an envelope: no host can ever deliver it, so retrying
  * it re-fails every pull. Left in the batch it blocked every later message to this agent — a 1040.1 host failed
  * every delivery to one agent for hours on one notice whose id it refused to encode. Only identity
- * shape is judged here; a failure that could pass on retry (a read, an attachment) still fails the batch.
+ * shape is judged here; a failure that could pass on retry (such as an identity read) still fails the batch.
  */
 function undeliverableRowReason(row: AgentInboxUnreadRow): string | null {
   if (row.localSessionDirect || row.forum) return null
@@ -827,24 +835,28 @@ async function prepareMessage(
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
-  const download = (_source: unknown, fileName: string) => {
+  const download = (fileName: string) => attachmentStage({ agentUserId, chatId: row.chatId, messageId: row.id }, 'download', async () => {
     if (!deps.downloadAttachment) throw new Error('Verified attachment reader is not installed')
     return deps.downloadAttachment({ message_id: row.id }, fileName, agentUserId)
-  }
+  })
   // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
   let attachments: InlineImage[] | undefined
+  let fileLine = ''
   if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {
-    const image = await download(attachment.source, attachment.fileName)
-    attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+    try {
+      const image = await download(attachment.fileName)
+      attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+    } catch (error) {
+      fileLine = `\n[Image not saved: ${attachmentFailureReason(error)}]`
+    }
   }
   // 新式附件的文件(不是图):正文里没有链接(老附件靠正文里的 [URL] 去取),字节和图片一样下到本机,交本地路径。
   // 下不下来(签不到、CDN 回错、超时)就照实说没存下和原因 —— 这一行和同一批的别的行照样交,不卡住收件。
-  let fileLine = ''
-  if (!attachments && attachment && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
+  if (attachment?.kind === 'file' && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
     try {
-      fileLine = `\n[File saved at local path: ${(await download(attachment.source, attachment.fileName)).localPath}]`
+      fileLine = `\n[File saved at local path: ${(await download(attachment.fileName)).localPath}]`
     } catch (error) {
-      fileLine = `\n[File not saved: ${error instanceof Error ? error.message : String(error)}]`
+      fileLine = `\n[File not saved: ${attachmentFailureReason(error)}]`
     }
   }
   const folderLine = attachment?.source.kind === 'item' ? `\n${attachmentFolderLine(attachment.source.itemId, attachment.source.version)}` : ''
