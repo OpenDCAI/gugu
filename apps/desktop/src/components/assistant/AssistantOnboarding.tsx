@@ -115,11 +115,11 @@ export function AssistantOnboarding({
     localInstallationStarted.current = true
     setInstalling(true)
     setBusy('resume')
-    writeSetupStep(ownerUserId, 'connect')
+    writeSetupStep(ownerUserId, 'shell')
     resumeLocalAssistant(record)
-      .then(() => { resumed = true; reloadMyAssistant(ownerUserId) })
+      .then(() => { resumed = true; writeSetupStep(ownerUserId, 'connect'); reloadMyAssistant(ownerUserId) })
       .catch((e: unknown) => {
-        writeSetupStep(ownerUserId, null)
+        writeSetupStep(ownerUserId, 'shell')
         setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
         setError(messageForUser(e))
         log.error({ error: String(e) }, 'resume local assistant failed')
@@ -181,17 +181,18 @@ export function AssistantOnboarding({
         localInstallationStarted.current = true
         setInstalling(true)
         setCancelling(false)
-        writeSetupStep(ownerUserId, 'connect')
+        writeSetupStep(ownerUserId, 'shell')
         offerCustomizeCard(ownerUserId)
       }
       if (pending) {
         onInstalling()
         await resumeLocalAssistant(pending)
       } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
+      writeSetupStep(ownerUserId, 'connect')
       reloadMyAssistant(ownerUserId)
     } catch (e) {
       keepBusy = localInstallationStarted.current || e instanceof AssistantSetupCleanupError
-      writeSetupStep(ownerUserId, null)
+      writeSetupStep(ownerUserId, keepBusy ? 'shell' : null)
       setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
       if (e instanceof AssistantSetupCleanupError) setRetryCleanup(() => e.retry)
       if (!(e instanceof Error && e.name === 'AbortError')) {

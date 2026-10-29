@@ -7,23 +7,20 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const f = vi.hoisted(() => ({
   setup: vi.fn<(draft: unknown, device: string, options: { signal?: AbortSignal; onInstalling?: () => void }) => Promise<unknown>>(),
-  pending: vi.fn(), resume: vi.fn(),
+  pending: vi.fn(), resume: vi.fn(), writeStep: vi.fn(),
   SetupError: class extends Error {
     constructor(readonly kind: string, message: string) { super(message) }
   },
 }))
 vi.mock('react-i18next', async importOriginal => ({ ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/components/agentAvatar/AgentAvatar', () => ({ AgentAvatar: () => null }))
-vi.mock('@/components/ui/Button', () => ({ Button: ({ children, onClick, disabled, 'data-testid': testId }: {
-  children: React.ReactNode; onClick?: () => void; disabled?: boolean; 'data-testid'?: string
-}) => createElement('button', { onClick, disabled, 'data-testid': testId }, children) }))
 vi.mock('@/components/assistant/AssistantSetupIdentity', () => ({ AssistantSetupIdentity: ({ onContinue }: { onContinue: () => void }) => createElement('button', { onClick: onContinue }, 'continue') }))
 vi.mock('@/components/assistant/AssistantIntro', () => ({ AssistantIntro: () => null }))
 vi.mock('@/components/settings/CloudComputerSection', () => ({ CloudComputerProvisionPanel: () => null, CloudComputerRefusal: () => null }))
 vi.mock('@/lib/assistantSetup', () => ({ setUpAssistantOnThisComputer: f.setup, pendingLocalAssistant: f.pending, resumeLocalAssistant: f.resume,
   AssistantSetupError: f.SetupError, draftAvatarUrl: () => '', claimCloudAssistant: vi.fn() }))
 vi.mock('@/lib/firstRun', () => ({ takeAssistantStartAtHome: () => true, readOccupation: async () => null }))
-vi.mock('@/lib/assistantSetupState', () => ({ offerCustomizeCard: vi.fn(), writeSetupStep: vi.fn() }))
+vi.mock('@/lib/assistantSetupState', () => ({ offerCustomizeCard: vi.fn(), writeSetupStep: f.writeStep }))
 vi.mock('@/lib/myAssistant', () => ({ reloadMyAssistant: vi.fn() }))
 vi.mock('@/lib/cloudComputerStore', () => ({ refreshCloudComputer: vi.fn() }))
 vi.mock('@/lib/billing/membership', () => ({ getMembership: vi.fn() }))
@@ -94,4 +91,34 @@ it('keeps retrying the same recovery when cancellation has not reached its termi
   await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
   expect(f.resume.mock.calls).toEqual([[pending], [pending]])
   expect(f.setup).not.toHaveBeenCalled()
+})
+
+it('keeps a committed startup failure on its setup page and advances only after the same retry completes', async () => {
+  f.setup.mockImplementationOnce(async (_draft, _device, options) => {
+    options.onInstalling?.()
+    expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
+    f.pending.mockReturnValue({ operationId: 'same-operation' })
+    throw new Error('CLI startup refused')
+  })
+  f.resume.mockResolvedValueOnce({ agentUserId: 'same-agent' })
+  await render()
+  await click(container.querySelector('button'))
+  await click(container.querySelector('[data-testid="assistant-setup-install-here"]'))
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('CLI startup refused')
+  expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
+  expect(f.writeStep.mock.calls).not.toContainEqual(['owner', 'connect'])
+  await click([...container.querySelectorAll('button')].find(button => button.textContent === 'setup.retry') ?? null)
+  expect(f.resume).toHaveBeenCalledWith({ operationId: 'same-operation' })
+  expect(f.setup).toHaveBeenCalledOnce()
+  expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'connect')
+})
+
+it('keeps interrupted setup in shell until its resumed startup actually completes', async () => {
+  f.pending.mockReturnValue({ operationId: 'interrupted' })
+  let finish!: () => void
+  f.resume.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+  await render()
+  expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'shell')
+  await act(async () => finish())
+  expect(f.writeStep).toHaveBeenLastCalledWith('owner', 'connect')
 })
