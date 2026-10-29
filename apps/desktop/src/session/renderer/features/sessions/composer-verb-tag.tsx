@@ -43,10 +43,12 @@ function ComposerVerbTag({ tone, agentId, label, onCancel, testId }: {
   return (
     <span
       data-testid={testId ? `${testId}-verb` : undefined}
+      title={label}
       className={cn('inline-flex h-6 items-center gap-1 rounded-full pl-2 text-xs whitespace-nowrap', onCancel ? 'pr-1' : 'pr-2', TAG_TONE[tone])}
     >
       {agentId ? <AgentIcon id={agentId} size={12} /> : null}
-      <span>{label}</span>
+      {/* 框窄到底排最后一档时字收掉、只剩所选 agent 的标(composer-foldable-label);没有标就不收。 */}
+      <span data-slot={agentId ? 'composer-foldable-label' : undefined}>{label}</span>
       {onCancel ? (
         <button
           type="button"
