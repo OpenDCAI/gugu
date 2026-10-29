@@ -39,11 +39,11 @@ describe('platform integrations client (#921)', () => {
       accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }],
       disconnectedAt: {},
     }])
-    await expect(c.saveCredential('amap', { apiKey: 'k-123' })).resolves.toEqual({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
+    await expect(c.saveCredential('amap', { apiKey: 'k-123' }, { connect: 'manual' })).resolves.toEqual({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
     await expect(c.deleteCredential('amap')).resolves.toBeUndefined()
     expect(calls.map((x) => `${x.method} ${x.url.replace(BASE, '')} ${x.body === undefined ? '' : JSON.stringify(x.body)}`.trim())).toEqual([
       'GET /integrations',
-      'PUT /integrations/amap/credential {"fields":{"apiKey":"k-123"}}',
+      'PUT /integrations/amap/credential {"fields":{"apiKey":"k-123"},"connect":"manual"}',
       'DELETE /integrations/amap/credential',
     ])
     expect(calls[1].headers).toMatchObject({ Authorization: 'Bearer jwt-1', apikey: 'anon', 'Content-Type': 'application/json' })
@@ -52,7 +52,7 @@ describe('platform integrations client (#921)', () => {
   it('brings the platform’s error codes back as they are', async () => {
     for (const [status, code] of [[400, 'invalid_fields'], [404, 'unknown_provider'], [422, 'auth_failed'], [502, 'upstream_unavailable'], [503, 'not_open']] as const) {
       const { c } = client(() => json({ error: code, message: 'nope' }, status))
-      await expect(c.saveCredential('amap', { apiKey: 'k' })).rejects.toMatchObject({ status, code })
+      await expect(c.saveCredential('amap', { apiKey: 'k' }, { connect: 'manual' })).rejects.toMatchObject({ status, code })
     }
   })
 
@@ -103,7 +103,7 @@ describe('platform integrations client (#921)', () => {
     }
     // The service is there and answered: not a reason to keep anything on the device.
     for (const [status, code] of [[503, 'not_open'], [404, 'unknown_provider'], [404, 'not_found'], [401, 'unauthorized']] as const) {
-      const error = await client(() => json({ error: code, message: 'no' }, status)).c.saveCredential('amap', { apiKey: 'k' }).catch((e: unknown) => e)
+      const error = await client(() => json({ error: code, message: 'no' }, status)).c.saveCredential('amap', { apiKey: 'k' }, { connect: 'manual' }).catch((e: unknown) => e)
       expect(isPlatformServiceMissing(error), code).toBe(false)
     }
     expect(isPlatformServiceMissing(new Error('offline'))).toBe(false)
@@ -146,15 +146,16 @@ describe('platform integrations client (#921)', () => {
     }
   })
 
-  it('a #649 key goes up marked as a migration, with its save time; an explicit connect carries no marker', async () => {
+  it('a #649 key goes up marked as a migration and never as manual; the connection page marks its PUT manual', async () => {
     const { calls, c } = client(() => json({ connected: true, updatedAt: null, checkedAt: null }))
     await c.saveCredential('amap', { apiKey: 'k' }, { migration: { savedAt: null } })
     await c.saveCredential('amap', { apiKey: 'k' }, { migration: { savedAt: '2026-10-29T01:00:00.000Z' } })
-    await c.saveCredential('amap', { apiKey: 'k' })
+    await c.saveCredential('amap', { apiKey: 'k' }, { connect: 'manual' })
+    // A PUT without a marker would count as a migration with an unknown save time: no path sends one.
     expect(calls.map((call) => call.body)).toEqual([
       { fields: { apiKey: 'k' }, migration: { savedAt: null } },
       { fields: { apiKey: 'k' }, migration: { savedAt: '2026-10-29T01:00:00.000Z' } },
-      { fields: { apiKey: 'k' } },
+      { fields: { apiKey: 'k' }, connect: 'manual' },
     ])
   })
 

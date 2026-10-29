@@ -81,12 +81,18 @@ function fakePlatform() {
     if (credential && method === 'PUT') {
       state.onPut?.();
       if (state.putFault) return Response.json({ error: state.putFault.code, message: 'Try again later.' }, { status: state.putFault.status });
-      const put = JSON.parse(raw) as { fields?: { apiKey?: string }; migration?: { savedAt: string | null } };
-      if (put.migration) {
+      const put = JSON.parse(raw) as { fields?: { apiKey?: string }; migration?: { savedAt: string | null }; connect?: unknown };
+      if ((put.connect !== undefined && put.migration) || (put.connect !== undefined && put.connect !== 'manual')) {
+        return Response.json({ error: 'invalid_fields', message: 'connect is "manual", alone.' }, { status: 400 });
+      }
+      const manual = put.connect === 'manual';
+      // No marker = a migration with an unknown save time: it can only create.
+      const migration = manual ? null : (put.migration ?? { savedAt: null });
+      if (migration) {
         // A key moved up from a device never overwrites what the platform keeps, and never undoes a disconnection.
         if (saved.has(credential[1]!)) return Response.json({ error: 'already_connected', message: 'Already connected.' }, { status: 409 });
         const at = disconnected.get(credential[1]!);
-        if (at && (put.migration.savedAt === null || at > put.migration.savedAt)) {
+        if (at && (migration.savedAt === null || at > migration.savedAt)) {
           return Response.json({ error: 'disconnected_after', message: 'Disconnected after this key was saved.' }, { status: 409 });
         }
       }
@@ -94,7 +100,7 @@ function fakePlatform() {
       // A careless upstream message that repeats the key: the client must not pass it on.
       if (apiKey !== GOOD) return Response.json({ error: 'auth_failed', message: `AMap rejected ${apiKey} (INVALID_USER_KEY)` }, { status: 422 });
       saved.set(credential[1]!, { apiKey, rejected: false });
-      if (!put.migration) disconnected.delete(credential[1]!);
+      if (manual) disconnected.delete(credential[1]!);
       return Response.json({ connected: true, updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' });
     }
     if (credential && method === 'DELETE') {
@@ -162,7 +168,8 @@ describe('credentials the platform keeps (#921)', () => {
     expect(await a.service.connect('amap', { apiKey: ` ${GOOD} ` })).toEqual({ success: true });
 
     const put = platform.requests.find((request) => request.method === 'PUT');
-    expect(put).toMatchObject({ path: '/integrations/amap/credential', authorization: 'Bearer A-session-1', body: { fields: { apiKey: GOOD } } });
+    expect(put).toMatchObject({ path: '/integrations/amap/credential', authorization: 'Bearer A-session-1' });
+    expect(put?.body).toEqual({ fields: { apiKey: GOOD }, connect: 'manual' });
     expect(a.fixture.secretStore.secrets.size).toBe(0);
     const rows = await a.fixture.registry.listAccounts('amap');
     expect(rows.map((row) => [row.accountId, row.meta?.credentialSource])).toEqual([['default', 'platform']]);
@@ -612,7 +619,17 @@ describe('credentials the platform keeps (#921)', () => {
       expect(await b.service.check('amap')).toMatchObject({ connected: false, errorType: 'authorization_expired' });
     });
 
-    it('an explicit connect after a disconnect connects, carries no migration marker, and clears the disconnection', async () => {
+    it('the connection page replaces a kept key that needs a reconnect: only its manual PUT overwrites', async () => {
+      const platform = fakePlatform();
+      platform.saved.set('amap', { apiKey: 'kept-on-the-platform', rejected: true });
+      const b = await device(platform, 'B');
+
+      expect(await b.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
+      expect(platform.saved.get('amap')).toEqual({ apiKey: GOOD, rejected: false });
+      expect(await b.service.check('amap')).toEqual({ connected: true });
+    });
+
+    it('the connection page connects after a disconnect: its PUT is manual, and it clears the disconnection', async () => {
       const platform = fakePlatform();
       const a = await device(platform, 'A');
       const b = await device(platform, 'B');
@@ -621,7 +638,7 @@ describe('credentials the platform keeps (#921)', () => {
       expect(platform.disconnected.has('amap')).toBe(true);
 
       expect(await b.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
-      expect(puts(platform, 'B-session-1').map((request) => request.body)).toEqual([{ fields: { apiKey: GOOD } }]);
+      expect(puts(platform, 'B-session-1').map((request) => request.body)).toEqual([{ fields: { apiKey: GOOD }, connect: 'manual' }]);
       expect(platform.disconnected.has('amap')).toBe(false);
       await lookedInTheBackground(a);
       expect(await amapEntry(a.service)).not.toBeNull();
