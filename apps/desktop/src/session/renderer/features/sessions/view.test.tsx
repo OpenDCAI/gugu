@@ -7,6 +7,7 @@ import { PageShownContext } from '@renderer/app/recent-session-pages';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const provisionSession = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const mountProject = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const state = vi.hoisted(() => ({
   kind: 'idle',
   machine: null as string | null,
@@ -18,6 +19,7 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   sessionViewKind: () => state.kind,
   getSessionManagerStore: () => ({ provisionSession }),
 }));
+vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ mountProject }) }));
 vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => state.machine } }));
 vi.mock('@renderer/lib/machine-clients', () => ({
   machineLinkState: () => state.link,
@@ -58,6 +60,7 @@ const page = (shown: boolean) => (
 describe('session view: an idle session is provisioned only by the page on screen', () => {
   beforeEach(() => {
     provisionSession.mockClear();
+    mountProject.mockClear();
     Object.assign(state, { kind: 'idle', machine: null, link: 'closed' });
     state.listeners.clear();
     const dom = new JSDOM('<div id="root"></div>');
@@ -106,5 +109,53 @@ describe('session view: an idle session is provisioned only by the page on scree
     act(() => root.render(page(false)));
     act(() => setLink('open'));
     expect(provisionSession).toHaveBeenCalledTimes(0);
+  });
+
+  it('remounts an open task after its machine reconnects, then prepares its workspace without a manual retry', () => {
+    state.machine = 'mac-1';
+    state.kind = 'project-error';
+    act(() => root.render(page(true)));
+    expect(mountProject).not.toHaveBeenCalled();
+    act(() => setLink('open'));
+    expect(mountProject).toHaveBeenCalledExactlyOnceWith('p');
+    state.kind = 'idle';
+    act(() => root.render(page(true)));
+    expect(provisionSession).toHaveBeenCalledExactlyOnceWith('s');
+  });
+
+  it('retries a late project failure once per reconnection, never in an error loop', () => {
+    state.machine = 'mac-1';
+    state.kind = 'project-mounting';
+    act(() => root.render(page(true)));
+    act(() => setLink('open'));
+    state.kind = 'project-error';
+    act(() => root.render(page(true)));
+    expect(mountProject).toHaveBeenCalledTimes(1);
+    state.kind = 'project-mounting';
+    act(() => root.render(page(true)));
+    state.kind = 'project-error';
+    act(() => root.render(page(true)));
+    expect(mountProject).toHaveBeenCalledTimes(1);
+    act(() => setLink('closed'));
+    act(() => setLink('open'));
+    expect(mountProject).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves hidden retained tasks alone until shown', () => {
+    state.machine = 'mac-1';
+    state.kind = 'project-error';
+    act(() => root.render(page(false)));
+    act(() => setLink('open'));
+    expect(mountProject).not.toHaveBeenCalled();
+    act(() => root.render(page(true)));
+    expect(mountProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not automatically remount an unrelated local or continuously online project failure', () => {
+    state.kind = 'project-error';
+    act(() => root.render(page(true)));
+    state.machine = 'mac-1'; state.link = 'open';
+    act(() => root.render(page(true)));
+    expect(mountProject).not.toHaveBeenCalled();
   });
 });
