@@ -32,7 +32,7 @@ const CHILD_STOP_GRACE_MS = 30_000
 const QUICK_EXIT_MS = 30_000
 const MAX_BACKOFF_MS = 60_000
 
-type Child = { process: ChildProcess; startedAt: number; version: string | null }
+type Child = { process: ChildProcess; startedAt: number; version: string | null; restarting?: boolean }
 
 export type SupervisorLog = {
   info: (message: string, fields?: Record<string, unknown>) => void
@@ -149,6 +149,7 @@ export async function runSupervisor(): Promise<void> {
       noteExitReason(accountDataDir(userId), 'update')
       const child = children.get(userId)
       if (!child) return
+      child.restarting = true
       child.process.kill('SIGTERM')
       // A live but unready/hung account must not retain takeover forever after rollback.
       const force = setTimeout(() => {
@@ -279,12 +280,13 @@ export async function runSupervisor(): Promise<void> {
       const replies = await Promise.all(accounts.map(async account => {
         const child = children.get(account.userId)
         if (!child) return account.signedIn ? null : undefined
+        if (child.restarting) return null
         const permit = await prepareAccountHandoff(account, child.process, target)
         return permit && { permit, child, userId: account.userId }
       }))
       const held = replies.filter((reply): reply is NonNullable<typeof reply> => reply != null)
       const valid = () => replies.every(reply => reply !== null)
-        && held.every(({ permit, child, userId }) => permit.valid() && children.get(userId) === child)
+        && held.every(({ permit, child, userId }) => permit.valid() && !child.restarting && children.get(userId) === child)
         // An account may have appeared while the existing accounts were closing admission.
         && listAccounts().filter(account => account.signedIn).every(account => held.some(reply => reply.userId === account.userId))
       const release = async () => { await Promise.all(held.map(({ permit }) => permit.release())) }
@@ -298,6 +300,7 @@ export async function runSupervisor(): Promise<void> {
           const child = children.get(account.userId)
           // Backoff/rollback is unknown, not a gap in which the supervisor may upgrade.
           if (!child) return account.signedIn
+          if (child.restarting) return true
           return accountIsBusy(account.dataDir, Date.now(), {
             pid: child.process.pid, startedAt: child.startedAt,
           })

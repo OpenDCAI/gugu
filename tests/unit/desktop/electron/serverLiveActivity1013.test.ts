@@ -208,6 +208,10 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       versions.converge([account])
       await vi.waitFor(() => expect(kill).toHaveBeenCalledOnce())
       expect(context.log.info).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ urgent: false }))
+      // A late idle heartbeat from the child being stopped cannot cancel recovery ownership.
+      await publisher!.report()
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(shutdown).not.toHaveBeenCalled()
       children.delete(account.userId)
       // The fixture's process object is replaced in-process; actual account exit discards this gate.
       await Promise.all(permits.splice(0).map(permit => permit.release()))
