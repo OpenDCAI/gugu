@@ -452,7 +452,6 @@ export default {
       "connectors": "Connected apps",
       "about": "About",
       "account": "Account",
-      "activity": "Activity",
       "apps": "Apps",
       "browser": "Browser",
       "devices": "Devices",

@@ -137,25 +137,15 @@
 .gg-usage .na-stats-grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .gg-usage .na-stats-grid[data-cols="2"] .na-stat { border-top: 0; }
 
-/* 积分概览:一张卡左右两栏,右栏 19rem 渐变底余额面板。 */
-.na-overview { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--card, var(--bg)); box-shadow: 0 1px 2px color-mix(in oklab, black 5%, transparent); }
-.na-overview-main { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 20px; }
-.na-overview-head { display: flex; align-items: center; gap: 8px; }
-.na-overview-head b { font-size: var(--font-body); font-weight: var(--font-weight-semibold); }
-.na-overview-head .na-status { margin-left: 4px; }
+/* 积分余额与充值入口;会员段归订阅/账户行。 */
+.na-overview { display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--card, var(--bg)); box-shadow: 0 1px 2px color-mix(in oklab, black 5%, transparent); }
 .na-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-fg); font-size: var(--font-caption); }
 .na-status i { width: 6px; height: 6px; border-radius: 9999px; background: var(--muted-fg); }
 .na-status i[data-tone="success"] { background: var(--ok); }
 .na-status i[data-tone="destructive"] { background: var(--danger); }
-.na-sub { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: color-mix(in oklch, var(--bg) 60%, transparent); }
-.na-sub-title { font-size: var(--font-body); font-weight: var(--font-weight-medium); color: var(--fg); }
 .na-sub-meta { color: var(--muted-fg); font-size: var(--font-caption); }
-.na-sub-meter { display: grid; gap: 4px; margin-top: 4px; }
-.na-sub-meter .na-sub-meta { justify-self: end; font-variant-numeric: tabular-nums; }
-.na-footnote { margin: 0; color: color-mix(in oklch, var(--muted-fg) 80%, transparent); font-size: var(--font-caption); line-height: 1.7; }
 .na-overview-balance {
   display: flex; flex-direction: column; justify-content: space-between; gap: 16px; padding: 20px;
-  border-left: 1px solid var(--border);
   background: linear-gradient(135deg,
     color-mix(in oklch, var(--usage-accent-2) 12%, var(--bg)),
     color-mix(in oklch, var(--usage-accent-mint) 8%, var(--bg)),
@@ -174,10 +164,6 @@
 /* 整行宽的按钮,文案(英文尤其)比 360 宽:允许换行、高度跟着长(Button 只有 min-height),❌ 冲出卡片被裁掉。 */
 .na-balance-button { justify-content: space-between; width: 100%; white-space: normal; text-align: left; padding-block: var(--spacing-sm); }
 .na-balance-button svg { width: 16px; height: 16px; }
-@container (max-width: 720px) {
-  .na-overview { grid-template-columns: minmax(0, 1fr); }
-  .na-overview-balance { border-left: 0; border-top: 1px solid var(--border); }
-}
 
 /* 邀请好友卡:沿用图表卡的壳,体里一行统计 + 一行邀请链接 */
 .na-referral { display: grid; gap: 16px; padding: 16px; }
@@ -255,9 +241,9 @@
 /* One set of data and rows: narrow containers read as labelled records rather than a wide table. */
 @container (max-width: 560px) {
   .gg-usage-section { grid-template-columns: minmax(0, 1fr); }
-  .na-overview-balance { grid-row: 1; min-width: 0; border-top: 0; border-bottom: 1px solid var(--border); }
-  .na-overview-head, .na-balance-top, .na-balance-cell span { flex-wrap: wrap; }
-  .na-overview-main, .na-overview-balance, .na-referral { overflow-wrap: anywhere; }
+  .na-overview-balance { min-width: 0; }
+  .na-balance-top, .na-balance-cell span { flex-wrap: wrap; }
+  .na-overview-balance, .na-referral { overflow-wrap: anywhere; }
   .gg-usage .na-balance-value { font-size: var(--font-heading); overflow-wrap: anywhere; }
   .na-stat-label, .na-stat-value { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
   .na-stat-label { letter-spacing: normal; text-transform: none; }

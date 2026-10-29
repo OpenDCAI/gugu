@@ -1085,7 +1085,7 @@ export default {
       "balanceBlocked": "已用完",
       "periodCredits": "会员额度",
       "walletCredits": "不过期积分",
-      "openWebBilling": "去网页充值与管理会员",
+      "openWebBilling": "去网页充值",
       "statTokensHint": "咕咕模型，含缓存读写"
     },
     "noCompare": "上一段没有可比的数据",

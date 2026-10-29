@@ -10,7 +10,6 @@ import { SectionLabel } from '../ui/SectionLabel'
 import { EngineIcon } from '../AgentHarnessIdentity'
 import { engineLabel } from '../../lib/usage/engineLabel'
 import {
-  RANGE_PRESETS,
   activeDays,
   busiestDay,
   changeRatio,
@@ -39,15 +38,13 @@ import '../settings/settings.css'
 import './usage.css'
 
 /**
- * 设置 →「活跃」(product spec)。从上往下:总览 → 活跃热力图 → 按引擎 → 节奏。
- * 积分与使用日志在另一页「用量」(UsageSection.tsx)。
+ * 用量里的活跃区块:总览 → 热力图 → 按引擎 → 节奏。时间段来自页面,设备筛选只管本区块。
  * 数据是云端的跨设备汇总;本机在打开这一页时先把最新数据送上去(见 lib/usage/sync.ts)。
  */
-export function ActivitySection() {
+export function ActivitySection({ preset }: { preset: RangePreset }) {
   const { t } = useTranslation('settings')
   const { user } = useAuth()
   const knownDevices = useDisplayDevices(useDevicesStore().devices)
-  const [preset, setPreset] = useState<RangePreset>('30d')
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [metric, setMetric] = useState<HeatMetric>('sessions')
   const data = useUsageData({ userId: user?.id ?? null, deviceId, wantPreviousYear: preset === '1y' })
@@ -63,6 +60,7 @@ export function ActivitySection() {
   return (
     <div className="gg-usage" data-testid="activity-section">
       <div className="gg-usage-toolbar">
+        <SectionLabel id="usage-activity">{t('usage.activity')}</SectionLabel>
         {deviceOptions.length > 1 || deviceId ? (
           <select
             // @@@6436 与设置里其它下拉(语言)同一种:手机上 44px 触控高度,桌面 32。
@@ -77,19 +75,12 @@ export function ActivitySection() {
           </select>
         ) : <span className="gg-usage-caption">{t('usage.allDevices')}</span>}
         {data.syncing && <span className="gg-usage-caption mr-auto" data-testid="usage-syncing">{t('usage.syncing')}</span>}
-        <SegmentedTabs
-          ariaLabel={t('usage.range')}
-          value={preset}
-          onChange={setPreset}
-          items={RANGE_PRESETS.map((p) => ({ value: p, label: t(`usage.ranges.${p}`), testId: `usage-range-${p}` }))}
-        />
       </div>
       {data.syncError && <span className="gg-usage-caption" data-testid="usage-sync-error" title={data.syncError}>{t('usage.syncError')}</span>}
 
       <Summary data={data} usage={usage} current={current} previous={previous} preset={preset} />
 
       <section className="gg-usage-section" aria-labelledby="usage-activity">
-        <SectionLabel id="usage-activity">{t('usage.activity')}</SectionLabel>
         <Activity usageState={data.usage} today={data.today} metric={metric} onMetric={setMetric} range={current} />
       </section>
 

@@ -67,9 +67,10 @@ const control = vi.hoisted(() => ({
 }));
 
 vi.mock('@/store/auth', () => ({ useAuth: () => ({ user: { id: 'subscription-test' } }) }));
-vi.mock('@/lib/billing', () => ({
+vi.mock('@/lib/billing', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/billing')>()),
   formatCredits: (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value),
-  quotaWindowViews: () => ({ period: { limit: 4, remaining: 3.2 - control.held, freesAt: new Date('2026-11-01T00:00:00Z') } }),
+  quotaWindowViews: () => ({ period: { hours: 744, limit: 4, remaining: 3.2 - control.held, freesAt: new Date('2026-11-01T00:00:00Z') } }),
   getMembership: async () => {
     if (control.membershipError) throw new Error('offline');
     return { tier: 'free', expiresAt: null };

@@ -1,35 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CreditUsageDay } from '@gugu/core/shared/usage/dailyUsage'
-import { formatDate, formatNumber } from '@/i18n'
-import { CalendarClock, Coins, Crown, Gauge, Hash, Layers, ShieldCheck, SquareArrowRight, Zap } from '@/lib/icons'
+import { formatNumber } from '@/i18n'
+import { CalendarClock, Coins, Gauge, Hash, Layers, ShieldCheck, SquareArrowRight, Zap } from '@/lib/icons'
 import { GUGU_BILLING_URL } from '../../lib/appLinks'
 import { useAuth } from '../../store/auth'
 import {
-  creditCount,
-  daysUntilExpiry,
   describeSpendingPower,
   formatCredits,
   formatUsageCredits,
-  getMembership,
-  periodUsdFor,
-  quotaWindowLabel,
-  quotaWindowViews,
   useSpendingPower,
-  type Membership,
 } from '../../lib/billing'
 import { type DayRange } from '../../lib/usage/derive'
 import { creditAmounts, perMinute } from '../../lib/usage/charts'
 import { fetchLedgerPage, type LedgerRow } from '../../lib/usage/cloud'
 import { SectionLabel } from '../ui/SectionLabel'
 import { Button } from '../ui/Button'
-import { QuotaMeter } from '../credits/QuotaMeter'
 import { compact, plain } from './format'
-import { EmptyRows, IconBadge, ModelBadge, Pagination, StatStrip } from './UsageParts'
+import { EmptyRows, ModelBadge, Pagination, StatStrip } from './UsageParts'
 import { ConsumptionCard, ModelAnalysisCard } from './UsageChartCards'
 import { ReferralCard } from './ReferralCard'
 import type { Loadable } from './useUsageData'
-import { desktopIpc } from '../../platform/desktopIpc'
 
 // 用量页的「积分」段 —— 原先侧栏那个积分小面板(CreditsPanel)的全部内容搬到这里,下面接
 // 数据看板与使用日志的那一套:统计条 → 消耗分布 → 模型调用分析 → 使用日志(分页表)。
@@ -45,7 +36,7 @@ const EMPTY: CreditUsageDay[] = []
 
 export function UsageCredits({ credits, guguTokens, range }: {
   credits: Loadable<CreditUsageDay[]>
-  /** 这段时间走咕咕模型的 token(本机日志口径、含缓存,与「活跃」页同一份汇总);null = 还没到或取不到。 */
+  /** 这段时间走咕咕模型的 token(本机日志口径、含缓存,与活跃区块同一份汇总);null = 还没到或取不到。 */
   guguTokens: Loadable<number>
   range: DayRange
 }) {
@@ -71,15 +62,15 @@ export function UsageCredits({ credits, guguTokens, range }: {
           <ModelAnalysisCard amounts={requestValues} range={range} kind="calls" format={formatCalls} testId="usage-model-calls" />
         </>
       )}
-      <Ledger />
+      <Ledger range={range} />
     </section>
   )
 }
 
 /**
  * 使用日志顶上那条统计:总数 / 总积分 / 总 Token 数 / 平均 RPM / 平均 TPM,口径是当前时间段。
- * Token 与「活跃」页的「咕咕模型 Token」是同一个数、同一个来源(本机日志汇总,含缓存读写)——
- * ❌ 用计费记录的 token:不同协议的网关对缓存的归法不同,#6660 之前的计费行也没记缓存,两页会对不上。
+ * Token 与活跃区块在所有设备下的「咕咕模型 Token」是同一个数、同一个来源(本机日志汇总,含缓存读写)——
+ * ❌ 用计费记录的 token:不同协议的网关对缓存的归法不同,#6660 之前的计费行也没记缓存,两种口径会对不上。
  */
 function CreditStats({ rows, range, guguTokens }: { rows: CreditUsageDay[]; range: DayRange; guguTokens: Loadable<number> }) {
   const { t } = useTranslation('settings')
@@ -103,39 +94,12 @@ function CreditStats({ rows, range, guguTokens }: { rows: CreditUsageDay[]; rang
 }
 
 /**
- * 余额、会员、本周期刻度、计费说明 —— 与原积分面板同一套口径和同一套诚实性约束。
- * 版式是「用量概览」:一张卡左右两栏,左栏讲会员与本周期额度,右栏是渐变底的余额面板
- * (大数字 + 两个小格 + 去「会员与额度」的按钮),右上角一颗状态点。
+ * #986:用量只留积分数字与充值入口。会员与周期说明归桌面订阅行、手机账户行。
  */
 function CreditsOverview() {
   const { t } = useTranslation('settings')
   const { user } = useAuth()
-  const { balanceError, windows, windowsError, power, activityRevision } = useSpendingPower(user)
-  // undefined = 还没回来;null = 后端没有这一行。取失败单独一格,❌ 折成「免费档」——
-  // 那会让付了钱的人在一次网络抖动后看见自己被降级(同 MembershipStatus)。
-  const [membership, setMembership] = useState<Membership | null | undefined>(undefined)
-  const [membershipError, setMembershipError] = useState<string | null>(null)
-  // 免费额度跟设备走:这台设备名额已满时说一句(主进程登录时认领的结果);其余状态什么都不显示。
-  const [deviceFull, setDeviceFull] = useState(false)
-  useEffect(() => {
-    let alive = true
-    void desktopIpc()?.invoke('device:free-credits-status')
-      .then((s) => { if (alive) setDeviceFull(s === 'device_full') }, () => undefined)
-    return () => { alive = false }
-  }, [user?.id])
-
-  useEffect(() => {
-    let alive = true
-    setMembershipError(null)
-    getMembership()
-      .then((m) => { if (alive) { setMembership(m); setMembershipError(null) } })
-      .catch((e: unknown) => { if (alive) setMembershipError(message(e)) })
-    return () => { alive = false }
-  }, [activityRevision, user?.id])
-
-  const views = windows ? quotaWindowViews(windows) : null
-  const periodUsd = windows ? periodUsdFor(windows) : null
-  const remainingDays = membership ? daysUntilExpiry(membership.expiresAt) : null
+  const { balanceError, windowsError, power } = useSpendingPower(user)
   const copy = power ? describeSpendingPower(power) : null
   // 余额与额度都还在路上 → 占位;任一取不到 → 各自那一行说取不到(不连坐、不折成 0)。
   const pending = !copy && !windowsError && !balanceError
@@ -143,69 +107,6 @@ function CreditsOverview() {
 
   return (
     <div className="na-overview" data-testid="usage-credits-overview">
-      <div className="na-overview-main">
-        <div className="na-overview-head">
-          <IconBadge icon={<Crown />} tone="warning" />
-          <b>{t('usage.na.membership')}</b>
-          {membership && (
-            <span className="na-status"><i data-tone={membership.tier === 'free' ? 'muted' : 'success'} />
-              {t(membership.tier === 'free' ? 'usage.na.membershipFree' : 'usage.na.membershipActive')}
-            </span>
-          )}
-        </div>
-        {/* 两个到期日不是一回事:会员额度每个周期清零重算(windows.period_ends_at),会员本身到期后
-            降回免费档(subscription_expires_at)。官方会员口径「续费与到期」要求两件事用户始终看得到。 */}
-        <div className="na-sub" data-testid="usage-credits-membership">
-          {membershipError !== null && (
-            <span data-testid="usage-credits-membership-error" className="gg-usage-muted">
-              {t('membership.statusError', { error: membershipError })}
-            </span>
-          )}
-          {membershipError === null && membership === undefined && <span className="gg-usage-muted">{t('credits.loading')}</span>}
-          {membershipError === null && membership && (
-            <div className="na-sub-row">
-              <span data-testid="usage-credits-membership-status" className="na-sub-title">
-                {t(`membership.tier.${membership.tier}`)}
-                {membership.expiresAt && remainingDays !== null && ` · ${t('membership.expiresOn', {
-                  date: formatDate(membership.expiresAt, { year: 'numeric', month: 'long', day: 'numeric' }),
-                  days: formatNumber(remainingDays),
-                  count: remainingDays,
-                })}`}
-              </span>
-            </div>
-          )}
-          {deviceFull && <span data-testid="usage-credits-device-full" className="na-sub-meta">{t('usage.na.deviceFull')}</span>}
-          {windows && (
-            <span data-testid="usage-credits-period-reset" className="na-sub-meta">
-              {t('credits.periodResetsOn', { date: formatDate(windows.period_ends_at, { month: 'long', day: 'numeric' }) })}
-            </span>
-          )}
-          {/* 额度取不到就整段不画 —— 宁可少一段,也不留含义不明的进度条。 */}
-          {!windowsError && views && (
-            <div className="na-sub-meter">
-              <QuotaMeter window={views.period} testId="usage-credits-period" />
-              <span className="na-sub-meta">
-                {t('usage.na.periodUsedPercent', { percent: plain(views.period.usedRatio * 100) })}
-              </span>
-            </div>
-          )}
-        </div>
-        {views && windows && periodUsd !== null && (
-          <p className="na-footnote">
-            {t('credits.billingCopy', {
-              periodLabel: quotaWindowLabel(views.period.hours),
-              periodCredits: formatCredits(windows.period_credits),
-              // 显式钉住两位小数:120 ÷ 18 否则会渲染成 $6.667。
-              usd: formatNumber(periodUsd, { maximumFractionDigits: 2 }),
-              endDate: formatDate(windows.period_ends_at, { month: 'long', day: 'numeric' }),
-            })}
-          </p>
-        )}
-        {windows && windows.outstanding_credits > 0 && (
-          <p className="na-footnote">{t('credits.reservedCopy', { credits: formatCredits(windows.outstanding_credits), count: creditCount(windows.outstanding_credits) })}</p>
-        )}
-      </div>
-
       <div className="na-overview-balance">
         <div className="na-balance-top">
           <span className="na-balance-label">{t('credits.spendable')}</span>
@@ -265,11 +166,17 @@ const DEFAULT_PAGE_SIZE = 20
  * 使用日志表 —— 时间 / 模型 / Tokens / 费用,顶上是「模型名称」筛选,底下是分页器
  * (❌ 一路往下滚的长列表)。总数是库里精确计数,翻页按页码取。
  */
-function Ledger() {
+function Ledger({ range }: { range: DayRange }) {
   const { t } = useTranslation('settings')
   const [draft, setDraft] = useState('')
   const [model, setModel] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [pageRange, setPageRange] = useState({ from: range.from, to: range.to })
+  // 时段变化只重置页码,模型筛选和每页行数保持。调整发生在同组件渲染内,不提交旧页的查询。
+  if (pageRange.from !== range.from || pageRange.to !== range.to) {
+    setPageRange({ from: range.from, to: range.to })
+    setPage(1)
+  }
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [rows, setRows] = useState<LedgerRow[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -279,7 +186,7 @@ function Ledger() {
   useEffect(() => {
     let alive = true
     setBusy(true)
-    fetchLedgerPage({ page, pageSize, model })
+    fetchLedgerPage({ page, pageSize, model, range: { from: range.from, to: range.to } })
       .then((result) => {
         if (!alive) return
         // 翻到了已经不存在的页(别处刚删过数据、或换了每页行数)→ 退到最后一页。
@@ -290,7 +197,7 @@ function Ledger() {
       .catch((e: unknown) => { if (alive) setError(message(e)) })
       .finally(() => { if (alive) setBusy(false) })
     return () => { alive = false }
-  }, [page, pageSize, model])
+  }, [page, pageSize, model, range.from, range.to])
 
   const search = () => { setModel(draft.trim() || null); setPage(1) }
   const reset = () => { setDraft(''); setModel(null); setPage(1) }

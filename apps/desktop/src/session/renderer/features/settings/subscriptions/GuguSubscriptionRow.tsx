@@ -1,20 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets';
 import { ArrowUpRight } from '@/lib/icons';
 import { useAuth } from '@/store/auth';
-import { formatCredits, getMembership, quotaWindowViews, useSpendingPower } from '@/lib/billing';
+import { formatCredits, getMembership, periodUsdFor, quotaWindowLabel, quotaWindowViews, useSpendingPower } from '@/lib/billing';
+import { formatDate, formatNumber } from '@/i18n';
+import { desktopIpc } from '@/platform/desktopIpc';
 import { GUGU_BILLING_URL } from '@/lib/appLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { Button } from '@renderer/lib/ui/button';
-import { rpc } from '@renderer/lib/ipc';
+import { Button } from '@/components/ui/Button';
+import { queryClient } from '@renderer/lib/query-client';
 import { SubscriptionServiceRow } from './SubscriptionServiceRow';
 import { errorText } from './subscription-queries';
+import './subscriptions.css';
 
 const APP_ICON_URL = publicAssetPath('/assets/app/gugu-icon-512.png');
 
 export function GuguSubscriptionRow() {
   const { translate, locale } = useSessionMessages();
+  const { t } = useTranslation('settings');
   const { user } = useAuth();
+  const [deviceFull, setDeviceFull] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setDeviceFull(false);
+    void desktopIpc()?.invoke('device:free-credits-status')
+      .then(status => { if (alive) setDeviceFull(status === 'device_full'); }, () => undefined);
+    return () => { alive = false; };
+  }, [user?.id]);
   const { power, windows, balanceError, windowsError, activityRevision } = useSpendingPower(user);
   const membership = useQuery({
     queryKey: ['subscriptions', 'gugu', user?.id, activityRevision],
@@ -23,11 +37,12 @@ export function GuguSubscriptionRow() {
     retry: false,
     staleTime: 30_000,
     gcTime: 30_000,
-  });
+  }, queryClient);
   const plan = membership.data;
   const date = (value: Date) =>
     new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(value);
   const period = windows ? quotaWindowViews(windows).period : null;
+  const periodUsd = windows ? periodUsdFor(windows) : null;
   const badge = plan ? plan.tier[0].toUpperCase() + plan.tier.slice(1) : undefined;
   const identity = !user
     ? translate('subscriptions.gugu.signIn')
@@ -49,7 +64,7 @@ export function GuguSubscriptionRow() {
       scope={translate('subscriptions.gugu.shared')}
       testId="subscription-row-gugu"
       action={
-        <Button variant="ghost" size="xs" onClick={() => void rpc.app.openExternal(GUGU_BILLING_URL)}>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<a href={GUGU_BILLING_URL} target="_blank" rel="noreferrer" />}>
           {translate('subscriptions.gugu.manage')}
           <ArrowUpRight className="ml-1 size-3" />
         </Button>
@@ -99,6 +114,17 @@ export function GuguSubscriptionRow() {
       {(balanceError || windowsError) && (
         <p className="subscription-error" role="status">
           {translate('subscriptions.unavailable.error', { message: balanceError || windowsError || '' })}
+        </p>
+      )}
+      {deviceFull && <p className="subscription-note">{t('usage.na.deviceFull')}</p>}
+      {period && windows && periodUsd !== null && (
+        <p className="subscription-note" data-testid="subscription-billing-copy">
+          {t('credits.billingCopy', {
+            periodLabel: quotaWindowLabel(period.hours),
+            periodCredits: formatCredits(windows.period_credits),
+            usd: formatNumber(periodUsd, { maximumFractionDigits: 2 }),
+            endDate: formatDate(windows.period_ends_at, { month: 'long', day: 'numeric' }),
+          })}
         </p>
       )}
     </SubscriptionServiceRow>

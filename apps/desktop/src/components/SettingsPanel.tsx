@@ -1,5 +1,4 @@
 import { lazy, Suspense, useRef, useState } from 'react'
-import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
 import { useDevicesStore } from '../store/devicesContext'
@@ -12,7 +11,6 @@ import { DevicesSection } from './settings/DevicesSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
-import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
 import { SettingsDetailNavigation, type SettingsDetailState } from './settings/SettingsDetailNavigation'
 import { usePanelScroll } from '../session/renderer/features/assistant/use-panel-scroll'
@@ -47,7 +45,6 @@ import { useTranslation } from 'react-i18next'
 const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
-      (section !== 'usage' || officialServicesEnabled()) &&
       (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&
       (section !== 'phone' || platform.kind === 'capacitor') &&
@@ -119,12 +116,11 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
     switch (activeSection) {
       case 'assistant': return <AssistantSection available={sections} onOpenSection={selectSection} onOpenAssistantPage={openAssistantPage} />
       case 'connectors': return <ConnectorsSection />
-      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} />
+      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} mobile={mobile} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
       case 'devices':  return <DevicesSection key={requestedSection} fileStorage={requestedSection === 'files'} onUpgrade={() => selectSection('usage')} />
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
-      case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
       case 'apps':     return <Suspense fallback={null}><MobileAppsSection appDetail={appDetail} /></Suspense>

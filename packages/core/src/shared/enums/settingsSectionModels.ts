@@ -13,7 +13,6 @@ export type ActiveSection =
   | 'usage'
   // 用户自己在各家买的订阅(product spec):这台电脑上各家 Harness 的套餐与这一期还剩多少。
   | 'subscriptions'
-  | 'activity'
   | 'about'
   | 'permissions'
   // The phone's own App store (L9): the Apps installed on it from chats, to uninstall. The desktop manages its Apps on
@@ -38,17 +37,17 @@ export type SettingsGroupId = 'assistant' | 'account' | 'preferences' | 'work' |
 
 /**
  * The one settings (product spec): sections in groups, a caption + divider between groups.
- * 咕咕 · 连接应用 / 账户 · 用量 · 订阅 · 活跃 / 通用 · 界面 · 权限 · 模型 / 会话 · 仓库 · 浏览器 · 设备 · App / 关于.
+ * 咕咕 · 连接应用 / 账户 · 用量 · 订阅 / 通用 · 界面 · 权限 · 模型 / 会话 · 仓库 · 浏览器 · 设备 · App / 关于.
  * Which of them a host shows is SettingsPanel's filter (task host, system permissions, the phone's own Apps).
  * 桌面左栏与手机「我的」读的都是这一份,❌ 各写一个顺序。
  */
 export const SETTINGS_GROUPS: readonly { readonly id: SettingsGroupId; readonly sections: readonly ActiveSection[] }[] = [
   // 咕咕自己的设置排第一组:「咕咕」页里的齿轮直接开到这里。
   { id: 'assistant', sections: ['assistant', 'connectors'] },
-  // product spec:用量(积分)与活跃(会话/token)都是云端汇总,手机上一样看得到(只是不上传本机数据)。
+  // #986:用量合并积分与活跃统计;手机也能看,只是不上传本机数据。
   // 订阅挨着用量:咕咕的积分与用户自己在各家买的订阅两页并排，好对照(owner 2026-10-13 定单开一页)。
   // 它读的是这台电脑上装着的 Harness,由会话页那一侧画 ⇒ 只在有会话页的地方出现。
-  { id: 'account', sections: ['account', 'usage', 'subscriptions', 'activity'] },
+  { id: 'account', sections: ['account', 'usage', 'subscriptions'] },
   // product spec:桌面与手机同一页;这台机器读不读得到真值由 SettingsPanel 那道过滤决定。
   { id: 'preferences', sections: ['general', 'interface', 'permissions', 'model', 'resource-monitor'] },
   // agent 跑起来的那几样(会话的默认行为、仓库、浏览器)挨着「设备」。App 只在手机壳上:那里的 App 由
