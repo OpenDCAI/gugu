@@ -16,10 +16,11 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, CONVERSATION_NARRATION_H, conversationNarrationText, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationActions } from './conversation-body';
+import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationNarration, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
 
@@ -36,7 +37,7 @@ export function conversationContext(ctx: MeasureCtx): MeasureCtx {
 }
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
-  const long = item.text.length > 700 || item.text.split('\n').length > 10;
+  const long = !item.conversationFull && (item.text.length > 700 || item.text.split('\n').length > 10);
   return { ...vars, footerH: 16, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
@@ -62,7 +63,7 @@ function quoteSummary(text: string): string {
 }
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
-  if (item.conversationNarration) return CONVERSATION_NARRATION_H;
+  if (item.conversationNarration) return conversationNarrationHeight(item, ctx);
   if (item.conversationPart === 'head') return HEADER_H + TIME_H + backgroundHeight(item, ctx);
   const header = item.conversationPart === 'body' ? 0 : HEADER_H;
   const bodyVars = conversationVars(item, vars);
@@ -87,8 +88,7 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
   // 中途说的话:步骤之间一行灰字,放不下就省略(设计稿 0 号「五路排查都回来了……」)。
   // 同一条在跑完时会变成回复气泡(同一个 id),所以用 <Show> 跟着数据换,❌ 组件里一次性 if。
   return <Show when={!props.data.conversationNarration} fallback={
-    <div class={conversationNarration} style={{ height: `${CONVERSATION_NARRATION_H}px` }}
-      data-conversation-narration={props.data.id} title={props.data.text}>{conversationNarrationText(props.data.text)}</div>
+    <ConversationNarration data={props.data} ctx={props.ctx} />
   }>
     <Show when={(props.data.guguDelivery?.segments.length ?? 0) > 1} fallback={<SingleConversationMessage {...props} />}>
       <For each={segments(props.data)}>{(segment, index) => <div style={{ 'margin-top': index() ? '12px' : '0' }}><SingleConversationMessage {...props} data={segment} /></div>}</For>
@@ -117,7 +117,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const quoteSender = (from: string | null, fromId: string | null) =>
     isSelfAddress(fromId, self()) && self()?.displayName?.trim() ? self()!.displayName!.trim() : shownSender(from, fromId, self());
   // 「群名 · 发送者 · 短摘要」;被引用那条来自私聊就没有群名。发送者是那条自己的发送者(agent 或真人),❌ 默认写成 agent。
-  const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => [
+  const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => quote.background ? '' : [
     quote.chatId ? chatName(quote.chatId) : null,
     // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
     quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? (quote.unloaded ? null : self()?.displayName),
@@ -131,8 +131,9 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       <Show when={messageQuote(props.data)}>{quote => <>
         <span class={conversationTimeSeparator} aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
-          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
-          aria-label={translate('transcript.showOriginalMessage')}>
+          disabled={!quote().background && !commands().onConversationReply} onClick={quote().background ? undefined : () => commands().onConversationReply?.(quote().itemId)}
+          data-collapse-id={quote().background ? props.data.conversationProcess?.id : undefined} data-collapse-anchor={props.data.id}
+          aria-label={quote().background ? quote().text : translate('transcript.showOriginalMessage')}>
           <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
           <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
