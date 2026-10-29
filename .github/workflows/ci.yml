@@ -311,7 +311,7 @@ jobs:
           export GUGU_PROJECTION_FFMPEG
           GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)
           for round in 1 2 3; do
-            node --test node/host.node-test.mjs node/host-browser.node-test.mjs node/signaling.node-test.mjs
+            node --test node/*.node-test.mjs
           done
   session-browser:
     name: Session browser project

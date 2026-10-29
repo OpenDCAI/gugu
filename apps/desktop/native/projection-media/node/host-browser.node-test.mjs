@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -24,6 +24,11 @@ test('Node host → actual native helper → Chromium decodes correlated video a
   t.after(async () => { lifetime.abort(); await media.closed.catch(() => undefined) })
   const server = createServer(async (request, response) => {
     try {
+      if (request.url === '/viewer.mjs') {
+        response.setHeader('Content-Type', 'text/javascript')
+        response.end(await readFile(new URL('../web/viewer.mjs', import.meta.url)))
+        return
+      }
       if (request.url === '/offer') { response.end(JSON.stringify(media.offer)); return }
       let data = ''
       if (request.method === 'POST') for await (const chunk of request) {
@@ -85,34 +90,22 @@ test('Node host → actual native helper → Chromium decodes correlated video a
 })
 
 const fixture = `<!doctype html><video autoplay muted playsinline></video><canvas width="128" height="96"></canvas>
-<script>
+<script type="module">
+import {openProjectionVideo} from '/viewer.mjs';
 (async()=>{
-  const pc=new RTCPeerConnection({iceServers:[]}), video=document.querySelector('video'), canvas=document.querySelector('canvas');
-  const ctx=canvas.getContext('2d'), frames=new Map(), receipts=new Map(); let channel;
-  const report=stamp=>{
-    const rgb=frames.get(stamp), receipt=receipts.get(stamp);
-    if(!rgb||!receipt||channel?.readyState!=='open')return;
-    channel.send(JSON.stringify({painted:{...receipt,rgb}})); frames.delete(stamp); receipts.delete(stamp);
-  };
-  video.requestVideoFrameCallback(function painted(now,meta){
-    ctx.drawImage(video,0,0,128,96); const pixel=ctx.getImageData(64,48,1,1).data;
-    frames.set(meta.rtpTimestamp,[pixel[0],pixel[1],pixel[2]]); report(meta.rtpTimestamp);
-    if(frames.size>64)frames.delete(frames.keys().next().value);
-    video.requestVideoFrameCallback(painted);
+  const video=document.querySelector('video'), ctx=document.querySelector('canvas').getContext('2d');
+  await openProjectionVideo({video,offer:await(await fetch('/offer')).json(),
+    answer:async description=>{
+      const response=await fetch('/answer',{method:'POST',body:JSON.stringify(description)});
+      if(!response.ok)throw new Error(await response.text());
+    },
+    onFrame:(frame,send)=>{
+      if(!frame)return;
+      ctx.drawImage(video,0,0,128,96); const p=ctx.getImageData(64,48,1,1).data;
+      send(JSON.stringify({painted:{...frame,rgb:[p[0],p[1],p[2]]}}));
+    },
+    onControl:(raw,send)=>{const message=JSON.parse(raw);if(message.probe)send(JSON.stringify({echo:message.probe}))}
   });
-  pc.ontrack=e=>{video.srcObject=e.streams[0]??new MediaStream([e.track]);void video.play()};
-  pc.ondatachannel=e=>{channel=e.channel;channel.onmessage=e=>{
-    const message=JSON.parse(e.data);
-    if(message.probe)channel.send(JSON.stringify({echo:message.probe}));
-    if(message.type==='frame'){receipts.set(message.frame.rtpTimestamp,message.frame);report(message.frame.rtpTimestamp)}
-    if(receipts.size>64)receipts.delete(receipts.keys().next().value);
-  }};
-  await pc.setRemoteDescription(await(await fetch('/offer')).json());
-  const gathered=new Promise(resolve=>pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete')resolve()});
-  await pc.setLocalDescription(await pc.createAnswer());
-  if(pc.iceGatheringState!=='complete')await gathered;
-  const answer=await fetch('/answer',{method:'POST',body:JSON.stringify(pc.localDescription)});
-  if(!answer.ok)throw new Error(await answer.text());
   await fetch('/ready',{method:'POST'});
 })().catch(e=>fetch('/error',{method:'POST',body:String(e)}));
 </script>`
