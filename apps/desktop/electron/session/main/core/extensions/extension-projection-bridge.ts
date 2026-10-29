@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
 import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
 import { ProjectionMediaAccess } from './projection-media-access';
+import { projectionVideoFeed } from './projection-video-feed';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
 
@@ -39,6 +40,12 @@ export class ExtensionProjectionBridge {
 
   /** Internal host adapter; deliberately absent from the App verb dispatcher. */
   mediaResource(caller: BridgeCaller, sourceId: string) { return this.mediaAccess.open(caller, sourceId); }
+
+  /** Trusted host encoding adapter, not an App verb or a bitmap-over-RPC route. */
+  mediaFeed(caller: BridgeCaller, sourceId: string, context: Parameters<typeof projectionVideoFeed>[2],
+    decode: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
+    return projectionVideoFeed(this.resources, this.mediaResource(caller, sourceId), context, decode, createMedia);
+  }
 
   count(pageId: number): number {
     return [...this.sources.values()].filter(source => source.pageId === pageId && source.alive).length;
