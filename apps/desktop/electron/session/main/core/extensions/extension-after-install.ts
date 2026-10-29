@@ -10,6 +10,7 @@ import {
 } from '@main/core/extensions/extension-background';
 import { retireExtensionPrograms } from '@main/core/extensions/extension-programs';
 import { notifyInstalledAppsChanged } from '@main/core/extensions/extension-bridge';
+import { log } from '@main/lib/logger';
 
 /**
  * What has to happen once a bundle's files are in place — whoever installed it.
@@ -42,7 +43,9 @@ export function applyInstalledExtension(installed: { manifest: { id: string }; r
   stopExtensionBackground(id);
   syncExtensionBackgrounds();
   // #6615 升级立即对所有会话生效:旧版程序退出池子,下一次调用(不论哪条会话)起新版。
-  void retireExtensionPrograms(id);
+  void retireExtensionPrograms(id).catch(error => {
+    log.warn('Extension program retirement failed after install', { extensionId: id, error });
+  });
   // 摩擦单 F87: the files it claims open with it now — open group pages list again, and show so at once.
   void notifyInstalledAppsChanged();
 }

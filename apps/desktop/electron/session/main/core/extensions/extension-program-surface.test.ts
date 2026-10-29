@@ -27,9 +27,12 @@ vi.mock('electron', () => ({
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: () => 'board', isExtensionSessionConfigured: () => true }));
 vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgroundWebContentsId: () => null, runningExtensionBackgrounds: () => [] }));
+vi.mock('./projection-task', () => ({ projectionTaskProject: async () => 'project-1' }));
 vi.mock('@main/core/extensions/extension-programs', () => ({ extensionPrograms: {}, onExtensionProgramNotification: vi.fn() }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
+    get: () => ({}),
+    isEnabled: () => true,
     hasCapability: (_id: string, wanted: string) => granted.has(wanted),
     grantedCapabilities: () => [...granted],
   }),
@@ -87,7 +90,15 @@ const { APP_FRAME_MARKER } = await import('@shared/extensions/app-runtime-protoc
 
 function fakeChild() {
   const child = Object.assign(new EventEmitter(), { connected: true, sent: [] as unknown[] });
-  (child as unknown as { send: (message: unknown) => boolean }).send = (message) => (child.sent.push(message), true);
+  (child as unknown as { send: (message: unknown) => boolean }).send = (message) => {
+    child.sent.push(message);
+    const frame = message as { t?: string; event?: { type?: string; event?: { type: string; id: string; requestId?: string } } };
+    const event = frame.event?.type === 'projectionSource' ? frame.event.event : undefined;
+    if (event?.type === 'close' || event?.type === 'disconnect') queueMicrotask(() => child.emit('message', {
+      m: APP_FRAME_MARKER, t: 'call', id: -1, method: event.type === 'close' ? 'projectionClosed' : 'projectionInputResult', args: { id: event.id, requestId: event.requestId },
+    }));
+    return true;
+  };
   return child;
 }
 /** One verb over the channel (made in tool call `inCall`, when given), and its answer once the bridge gave one. */
@@ -109,6 +120,69 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('a person\'s stamped page call keeps person membership for files, chats and messages', async () => {
+    granted.add('files:read');
+    granted.add('chat:read');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('person-page', null, [], [], 'person-task', 'person');
+    expect(await call(child, 1100, 'filesList', { place: { chat: BOARD_CHAT } }, 'person-page')).toMatchObject({ ok: true });
+    expect(listAppFiles).toHaveBeenLastCalledWith(expect.not.objectContaining({ asAgent: expect.anything() }), { place: { chat: BOARD_CHAT } });
+    expect(await call(child, 1101, 'chatsList', {}, 'person-page')).toMatchObject({ ok: true });
+    expect(chatsOf).toHaveBeenLastCalledWith({ asAgent: null });
+    expect(await call(child, 1102, 'messagesHistory', { chat: BOARD_CHAT }, 'person-page')).toMatchObject({ ok: true });
+    expect(messagesHistory).toHaveBeenLastCalledWith({ chat: BOARD_CHAT }, { asAgent: null });
+    await release();
+    expect(await call(child, 1103, 'chatsList', {}, 'person-page')).toMatchObject({ ok: false, code: 'denied' });
+    surface.close();
+  });
+  it('uses only the current call\'s host-stamped task for a projection, never a task in the arguments or a completed call', async () => {
+    granted.add('agents:tools');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('scoped', null, [], [], 'task-owned');
+    const answer = await call(child, 1001, 'projectionCreate', { sessionId: 'task-forged' }, 'scoped') as { ok: boolean; value: { id: string } };
+    expect(answer.ok).toBe(true);
+    expect(answer.value.id).toEqual(expect.any(String));
+    expect(surface.openFiles()).toBe(1);
+    await release();
+    const late = await call(child, 1002, 'projectionCreate', { sessionId: 'task-owned' }, 'scoped') as { ok: boolean; message: string };
+    expect(late.ok).toBe(false);
+    expect(late.message).toContain('inside a task tool call');
+    await surface.close();
+    expect(surface.openFiles()).toBe(0);
+  });
+  it('allows only owned cleanup ACKs after App grants are withdrawn, before detaching the program', async () => {
+    granted.add('agents:tools');
+    const child = fakeChild(); const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('cleanup-call', 'agent-1', [], [], 'task-cleanup');
+    const created = await call(child, 1200, 'projectionCreate', {}, 'cleanup-call') as { value: { id: string } };
+    const { revokeExtensionProgramAccess } = await import('./extension-program-access');
+    const { answerCall } = await import('./extension-bridge');
+    granted.clear();
+    revokeExtensionProgramAccess('board');
+    const closing = surface.close();
+    await closing; // fake child replies through the real surface -> answerCall cleanup path
+    expect(surface.openFiles()).toBe(0);
+    expect(child.sent).toContainEqual(expect.objectContaining({ t: 'result', id: -1, ok: true }));
+    const forged = await answerCall({ kind: 'program', extensionId: 'board', pageId: surface.pageId - 1, binding: null } as never,
+      'projectionClosed', { id: created.value.id });
+    expect(forged.ok).toBe(false);
+    await release();
+  });
+
+  it.each(['session:deleted', 'session:archived'] as const)('closes a task projection from the actual %s lifecycle hook', async event => {
+    granted.add('agents:tools');
+    const child = fakeChild(); const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    surface.hand('ending-call', 'agent-1', [], [], 'task-ending');
+    await call(child, 1300, 'projectionCreate', {}, 'ending-call');
+    const { sessionEvents } = await import('../sessions/session-events');
+    sessionEvents._emit(event, 'task-ending');
+    await vi.waitFor(() => expect(surface.openFiles()).toBe(0));
+    expect(child.sent).toContainEqual(expect.objectContaining({ t: 'event', event: { type: 'projectionSource', event: expect.objectContaining({ type: 'close' }) } }));
+    await surface.close();
+  });
+
   it('simultaneous watches at the same place retain each caller through later calls and independent cancellation', async () => {
     granted.add('files:read');
     const child = fakeChild();

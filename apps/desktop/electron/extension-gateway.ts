@@ -166,6 +166,7 @@ async function callProgram(programs: ExtensionPrograms, program: ExtensionProgra
     signal.throwIfAborted()
     return programs.call(program, { name, arguments: given.args, _meta }, {
       signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+      ...(typeof _meta['gugu/sessionId'] === 'string' ? { sessionId: _meta['gugu/sessionId'] } : {}),
     })
   })
 }

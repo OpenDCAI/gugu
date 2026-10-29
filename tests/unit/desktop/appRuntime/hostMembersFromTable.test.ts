@@ -21,7 +21,9 @@ const SESSIONS = ['sessions.index', 'sessions.read']
 const FORUM = ['list', 'read', 'post', 'reply', 'react', 'remove', 'block', 'assign', 'award', 'subscribe', 'unsubscribe'].map((verb) => `forum.${verb}`).concat('onForumChanged')
 const EVERYONE = ['getContext', 'onContextChanged', 'onFilesChanged', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'openBrowserTab', 'reportError', 'listAgents', 'readAgentHistory', 'stopAgent', 'dispatch', ...MESSAGES, ...PROJECTS, ...SESSIONS, 'readData', 'writeData', 'listData', 'callProgram', 'onProgramNotification', 'notify', 'onNotificationClicked', 'linkTo', 'onLink', ...FILES]
 const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalFocus']
-const PAGE_ONLY = ['showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, ...FORUM, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
+const PROJECTION_VIEWER = ['projection.watch', 'projection.unwatch', 'projection.send', 'onProjection']
+const PROJECTION_SOURCE = ['projection.create', 'projection.publish', 'projection.close', 'projection.closed', 'projection.inputResult', 'onProjectionSource']
+const PAGE_ONLY = ['showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, ...FORUM, ...PROJECTION_VIEWER, 'openLink', 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
 const PHONE = ['showContextMenu', 'appFiles.viewPreferences', 'appFiles.keep', ...MODAL, 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'listAgents', 'linkTo', 'openLink', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', ...MESSAGES, ...SESSIONS, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'clipboard.writeText', 'readData', 'writeData', 'listData', 'callProgram', ...FILES, 'appFiles.openWith', 'appFiles.download']
 
 const desktop = (caller: 'page' | 'background') => hostMembers(caller, () => true, vi.fn(), hostEventHub().on)
@@ -36,7 +38,7 @@ describe('one table, the members each host had', () => {
   it('the phone exposes device calls everywhere and task notifications in task tabs; programs expose the shared index', () => {
     expect(names(overMessages({ framed: true }))).toEqual([...PHONE].sort())
     expect(names(overMessages({ framed: true, session: true }))).toEqual([...PHONE, 'onProgramNotification'].sort())
-    expect(names(overMessages({ program: true }))).toEqual(['getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...SESSIONS, ...FILES].sort())
+    expect(names(overMessages({ program: true }))).toEqual(['getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...SESSIONS, ...FILES, ...PROJECTION_SOURCE].sort())
   })
 
   it('a member asks its verb with its arguments packed one way, on every host', () => {
