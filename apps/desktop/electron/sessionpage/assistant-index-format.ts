@@ -12,11 +12,11 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
     if (typeof row === 'string') continue
     if (row.source === 'integrations' && Array.isArray(row.items)) {
       // The opening inventory names connected applications, not every account.
-      // Keep the CLI read pointer, but do not pay repeatedly for the same App.
+      // Keep the CLI read pointer and delegation route, but do not pay repeatedly for the same App.
       const applications = new Map<string, Row>()
       for (const item of row.items as Row[]) {
         const id = String(item.id).split(':')[0]!
-        applications.set(id, { id, name: item.name, ...(item.path ? { path: item.path } : {}) })
+        applications.set(id, { id, name: item.name, ...(item.path ? { path: item.path } : {}), ...(item.use ? { use: item.use } : {}) })
       }
       row.items = [...applications.values()]
     }
@@ -44,9 +44,11 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
       const candidate = candidates.find(row => !row.device_id) ?? candidates.at(-1)
       if (!candidate) {
         const applications = rows.find((row): row is Row => typeof row !== 'string' && row.source === 'integrations'
-          && Array.isArray(row.items) && row.items.some(item => (item as Row).path))
+          && Array.isArray(row.items) && row.items.some(item => (item as Row).path || ((item as Row).use as Row | undefined)?.task_skills))
         if (!applications) throw new Error('Assistant required resources exceed their context budget')
-        applications.items = (applications.items as Row[]).map(({ id, name }) => ({ id, name }))
+        // The route outranks its details: a connected application still says how it is used.
+        applications.items = (applications.items as Row[]).map(({ id, name, use }) => ({ id, name,
+          ...(use ? { use: { note: (use as Row).note, delegate: (use as Row).delegate } } : {}) }))
         applications.omitted_details = true
         result = render()
         continue

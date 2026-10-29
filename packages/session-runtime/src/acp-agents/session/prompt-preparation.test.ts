@@ -44,6 +44,16 @@ it('adds current panel changes to a direct prompt and consumes them only after a
   expect(accepted).toHaveBeenCalledOnce()
 })
 
+it('returns the notice of a cancelled turn to the next one instead of consuming it', async () => {
+  const { cell,agent } = fixture()
+  const accepted = vi.fn(async () => {}), rejected = vi.fn(async () => {})
+  setNativePromptPreparation(async () => ({ text: '',beforeText: '<resource_changes>飞书已连接</resource_changes>',accepted,rejected }))
+  agent.prompt = vi.fn(async () => ({ stopReason: 'cancelled' as const }))
+  await cell.prompt({ text: 'Hello',origin: 'typed' })
+  expect(rejected).toHaveBeenCalledOnce()
+  expect(accepted).not.toHaveBeenCalled()
+})
+
 it('reads the latest changes after queued messages coalesce and before their actual model request', async () => {
   const { cell,agent } = fixture(), first = Promise.withResolvers<{ stopReason: 'end_turn' }>(), second = Promise.withResolvers<{ stopReason: 'end_turn' }>()
   let context = ''

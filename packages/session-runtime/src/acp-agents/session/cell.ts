@@ -2059,7 +2059,13 @@ export class SessionCell {
         }),
       ]) : nativePrompt);
       providerAdmission?.accept();
-      confirmPreparation();
+      // A cancelled turn ends without acting on what it carried: its notice goes back for the next turn (#881).
+      if (response.stopReason === 'cancelled') {
+        preparationAccepted = true;
+        void rejectPreparation?.().catch(() => {
+          this.deps.logger.warn('Resource change reservation release failed', { sessionId: this.sessionId });
+        });
+      } else confirmPreparation();
       const reportedFailure = this.deps.turnFailure?.fromPromptResponse?.(response);
       if (reportedFailure) this.providerTurnFailure = reportedFailure;
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
