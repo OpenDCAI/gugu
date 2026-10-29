@@ -458,6 +458,15 @@ export class PlatformCredentialService {
     return (await this.deps.accounts.listAccounts(integrationId)).some(keptByPlatform);
   }
 
+  /**
+   * 这一行此刻用不了、要他重连:平台说存着的被拒了,或这台设备上那把旧 key 搬上去时被拒了。按已知的答复说,❌ 现问。
+   * 助理的连接索引据此不把它当成能用的。
+   */
+  needsReconnect(integrationId: string, row: ProviderAccount): boolean {
+    if (keyRejected(row)) return true;
+    return keptByPlatform(row) && this.snapshot?.get(integrationId)?.get(row.accountId) === false;
+  }
+
   /** 资源库 / 面板上的「连接状态」:现问平台。存着但对方不认了 = 要重连(❌ 说成登录问题)。 */
   async check(integrationId: string): Promise<PlatformConnectionCheck> {
     const answered = await this.refresh({ maxAgeMs: 0 });

@@ -35,7 +35,10 @@ export async function configuredIntegrationIndex() {
     return accounts.map(account => ({
       id: `${provider}:${account.accountId}`, name: plugin.metadata.name,
       modifiedAt: new Date(account.updatedAt).toISOString(), isDefault: account.isDefault,
-      ...(use ? { use } : {}), ...(note ? { note } : {}),
+      // #921 kept but not usable now (rejected): a task would get no tools; only the person can fix it.
+      ...(platformCredentials.needsReconnect(provider, account)
+        ? { note: `${plugin.metadata.name}要重新连接，现在用不了；请他到连接页处理` }
+        : { ...(use ? { use } : {}), ...(note ? { note } : {}) }),
     }))
   })
 }
