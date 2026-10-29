@@ -229,7 +229,7 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
             {overflow.length > 0 && <MoreOverflow tokens={overflow} onTokenClick={onTokenClick} preview={handle} />}
           </div>
           {previewChatId && token ? <Popover.Portal>
-            <Popover.Positioner side="top" align={overflow.some((item) => item.id === token.id) ? 'center' : 'start'} sideOffset={8} collisionPadding={8}>
+            <Popover.Positioner positionMethod="fixed" side="top" align={overflow.some((item) => item.id === token.id) ? 'center' : 'start'} sideOffset={8} collisionPadding={8}>
               {/* 只读预览不移动或归还焦点,避免 token blur/focus 导致循环开合。 */}
               <Popover.Popup className="rtb-mp" initialFocus={false} finalFocus={false}>
                 <MessagePreviewCard chatId={previewChatId} token={token} displayName={resolveAgentRunningDisplayName(token.name)} open={handle.isOpen} />
