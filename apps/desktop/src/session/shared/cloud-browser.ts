@@ -35,6 +35,8 @@ export type CloudBrowserStatus = {
   /** 有人接管着(或在等接管)。 */
   controlled: boolean;
   lastActivityAt: string | null;
+  /** 只有协议 12 的 server 报(13 起求助是会话上的 Ask,见 useCloudBrowser 的向下兼容)。 */
+  assistance?: CloudBrowserAssistance | null;
   /** 实时画面那条 websocket 在云电脑本机哪个端口、凭什么连;Chrome 没开 = null。 */
   live: { port: number; token: string } | null;
 };
