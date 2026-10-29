@@ -5,7 +5,7 @@ const data = vi.hoisted(() => ({
   resolveSecret: vi.fn(() => { throw new Error('Must not decrypt credentials') }),
 }))
 // #921 a credential the platform keeps: asking the platform first brings in what another device connected.
-const platform = vi.hoisted(() => ({ refresh: vi.fn(async () => { data.connected.add('amap'); return true }) }))
+const platform = vi.hoisted(() => ({ keepsAmap: false, refresh: vi.fn(async () => { if (platform.keepsAmap) data.connected.add('amap'); return true }) }))
 vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry: { getAll: () => [
   { metadata: { id: 'dingtalk', name: '钉钉' } }, { metadata: { id: 'feishu', name: '飞书' } }, { metadata: { id: 'email', name: '邮箱' } },
   { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
@@ -61,6 +61,7 @@ it('never marks a connected CLI application issue-only while its skills cannot b
 
 it('lists an integration the platform keeps for the person even when this device never connected it (#921)', async () => {
   expect(data.connected.has('amap')).toBe(false)
+  platform.keepsAmap = true // another device connected it
   const rows = await configuredIntegrationIndex()
   expect(platform.refresh).toHaveBeenCalled()
   expect(rows.find(row => row.id === 'amap:default')).toMatchObject({ name: '高德地图', isDefault: true })
