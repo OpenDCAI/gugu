@@ -427,6 +427,8 @@ function syncPending(entry: TimelineEntry): void {
  * answer handler from the archived card and use the existing idempotent session outbox.
  */
 function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
+  void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) => restoreHumanToolResults(entry.conversationId, projectId))
+    .catch(error => log.error('Human tool results could not be restored', { conversationId: entry.conversationId, error: String(error) }));
   const saved = new Map(readAgentQuestionRecords(entry.conversationId).map(item => [item.itemId, item]));
   for (const item of entry.timeline.getSnapshot({ limit: 1 }).settlements) {
     if (!saved.has(item.itemId) && restoredAgentQuestion(item)) { rememberAgentQuestion(entry.conversationId, item); saved.set(item.itemId, item); }

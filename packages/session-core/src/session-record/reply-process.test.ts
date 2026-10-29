@@ -128,10 +128,18 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
     expect(agentSendOf(tool, inGroup(tool))?.to).not.toHaveProperty('peer');
   });
 
-  it('another chat is named only when the agent addressed it by conversation id', () => {
-    expect(agentSendOf(send({ chat_id: '999' }), turn())?.to).toMatchObject({ conversationId: null, threadRootId: null });
+  it('preserves another chat address for the host to name, without borrowing the delivery destination', () => {
+    expect(agentSendOf(send({ chat_id: '999' }), turn())?.to).toMatchObject({ conversationId: null, chatId: '999', threadRootId: null });
     const other = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     expect(agentSendOf(send({ chat_id: other.toUpperCase() }))?.to).toMatchObject({ conversationId: other });
+  });
+
+  it('keeps a public-number destination when background work resumes without an incoming message', () => {
+    const tool = { ...send({ chat_id: '216012', text: 'Background result' }), status: 'done' as const,
+      outputText: `sent (id=msg:${messageId})` };
+    const record: TranscriptTurn = { id: 'background', seq: 2, initiator: 'agent', items: [tool], outcome: { kind: 'done' } };
+    expect(agentSendOf(tool, record)).toEqual({ text: 'Background result',
+      to: { kind: 'chat', conversationId: null, chatId: '216012', threadRootId: null, whisper: false } });
   });
 
   it('session_message counts its recipients', () => {

@@ -11,6 +11,8 @@ export const blockKey = {
   project: (projectId: string) => `project:${projectId}`,
   /** 一个群里的一张 App 页单独占一块(那个群的那张;为某个文件开的认那个文件)。 */
   chatApp: (chatId: string, tabKind: string, itemId?: string) => `chat-app:${chatId}:${tabKind}:${itemId ?? ''}`,
+  /** 示例项目(#709)只有一份。 */
+  sampleProject: () => 'sample-project',
 }
 
 /** 一组:组员按屏上从左上到右下(blockKey);`onScreen` = 这组此刻在屏上。 */

@@ -693,6 +693,7 @@ export default {
       "reconnect": "重新连接",
       "copyAddress": "复制地址",
       "remove": "移除这台机器",
+      "removeVersions": "移除版本…",
       "rename": "改名",
       "uninstall": "卸载咕咕 server"
     },
@@ -710,6 +711,7 @@ export default {
     "offline": "离线",
     "online": "在线",
     "remove": {
+      "versions": { "title": "移除「{{name}}」的版本" },
       "version": {
         "label": "移除「{{name}}」的「{{version}}」",
         "title": "移除「{{name}}」的「{{version}}」？",
