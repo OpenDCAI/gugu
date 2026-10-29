@@ -50,10 +50,12 @@ export function isTransientAgentConversationStatus(status: AgentDisplayStatus): 
  */
 export function deriveAgentReachability(input: {
   accountStatus: AgentAccountStatus
+  sessionArchivedAt?: string | null
   desiredStatus?: AgentDesiredStatus | null
   deviceOnline: boolean
 }): Exclude<AgentReachability, 'pending'> {
   if (input.accountStatus === 'removed') return 'removed'
+  if (input.sessionArchivedAt) return 'archived'
   if (!input.deviceOnline) return 'offline'
   if (input.desiredStatus === 'offline') return 'offline'
   return 'online'
@@ -76,6 +78,7 @@ export function displayStatusOf(tone: AgentStatusTone): AgentDisplayStatus {
     case 'needs_user':
     case 'error':
     case 'offline':
+    case 'archived':
     case 'removed':
     case 'pending':
       return tone
@@ -99,6 +102,7 @@ export function labelOfDisplayStatus(status: AgentDisplayStatus): AgentStatusLab
     case 'parked':
     case 'error':
     case 'offline':
+    case 'archived':
     case 'removed':
     case 'pending':
       return status

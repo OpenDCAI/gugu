@@ -264,6 +264,7 @@ describe('archiveSession', () => {
       deviceId,
       label: deviceId,
       session: { conversationId: id, projectId: `p-${deviceId}`, parentConversationId: parent } as SessionpageSessionSummary,
+      listsAgents: true,
     });
     const appMessage = vi.fn();
     const appReadFile = vi.fn();
@@ -384,6 +385,27 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     (fixture.sqlite.prepare(`SELECT archived_at FROM sessions WHERE id = ?`).get(id) as {
       archived_at: string | null
     }).archived_at;
+
+  it('commits refusal before teardown finishes and serializes a concurrent restore', async () => {
+    insert('concurrent');
+    mocks.mounted.add('concurrent');
+    const teardown = Promise.withResolvers<{ success: boolean }>();
+    mocks.teardown.mockReturnValueOnce(teardown.promise);
+    const archiving = archiveSession('p1', 'concurrent');
+    await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('concurrent', 'archive'));
+    expect(archivedAt('concurrent')).not.toBeNull();
+    let restored = false;
+    const restoring = restoreSession('p1', 'concurrent').then(() => { restored = true; });
+    await Promise.resolve();
+    expect(restored).toBe(false);
+    expect(archivedAt('concurrent')).not.toBeNull();
+    teardown.resolve({ success: true });
+    await Promise.all([archiving, restoring]);
+    expect(archivedAt('concurrent')).toBeNull();
+    const { sessionArchivalState } = await import('./session-archival');
+    expect(sessionArchivalState('concurrent')).toMatchObject({ revision: 2, archivedAt: null,
+      intervals: [{ restoredAt: expect.any(String) }] });
+  });
 
   it('把这条会话放回列表', async () => {
     insert('a');

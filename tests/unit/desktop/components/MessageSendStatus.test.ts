@@ -10,6 +10,15 @@ afterEach(() => {
   harness.cleanup()
 })
 describe('MessageSendStatus', () => {
+  it('shows a terminal per-recipient archive refusal alongside other recipients still waiting', async () => {
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'm',
+      blocks: [{ agent_user_id: 'archived', reason: 'agent_archived' }] }),
+    { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    const notice = document.body.querySelector('[data-agent-id="archived"]')!
+    expect(notice.textContent).toContain('对方已归档、未送达')
+    expect(document.body.querySelector('[data-send-state="queued"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="message-send-failed"]')).toBeNull()
+  })
   it('uses the shared Base UI menu and wires retry/discard actions', async () => {
     const retrySend = vi.fn()
     const discardSend = vi.fn()

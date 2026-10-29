@@ -61,6 +61,109 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .kinds button[aria-pressed='true'] { background: var(--em-background); color: var(--em-foreground); font-weight: 600; box-shadow: 0 1px 2px color-mix(in srgb, var(--em-foreground) 12%, transparent); }
 .sort { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 2px var(--em-spacing-xs); min-height: 24px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); white-space: nowrap; }
 .sort gugu-icon { width: 12px; height: 12px; }
+.views { display: flex; gap: 0; flex: none; }
+.views button { border: 0; background: none; width: 26px; height: 26px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--em-foreground-muted); border-radius: calc(var(--em-radius-control) - 2px); }
+.views button[aria-pressed='true'] { color: var(--em-foreground); background: var(--em-background-subtle, color-mix(in srgb, var(--em-foreground) 6%, transparent)); }
+.views gugu-icon { width: 14px; height: 14px; }
+
+/* The filters: a chip per filter, a set one in the accent. */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--em-spacing-xs); padding: 0 var(--em-spacing-lg) var(--em-spacing-sm); flex: none; }
+.chip { min-height: 24px; padding: 0 var(--em-spacing-sm); border: 1px dashed var(--em-border); border-radius: var(--em-radius-capsule); background: none; font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.chip[aria-pressed='true'] { border-style: solid; border-color: var(--em-accent-11); color: var(--em-accent-11); background: color-mix(in srgb, var(--em-accent-11) 8%, transparent); }
+.chips-clear { border: 0; background: none; min-height: 24px; padding: 0 var(--em-spacing-xs); font-size: var(--em-font-caption); color: var(--em-accent-11); }
+
+/* A picture where there is one (an image with a cloud copy): the suffix square becomes it. */
+.file-badge.has-thumb { background-size: cover; background-position: center; color: transparent; }
+.file[data-offline] { opacity: .6; }
+.file-host[data-online='true']::after, .file-host[data-online='false']::after { content: ''; flex: none; width: 6px; height: 6px; border-radius: 3px; background: #2f9e5b; }
+.file-host[data-online='false']::after { background: var(--em-foreground-muted); }
+
+/* The grid (images and videos): square pictures, the name under them; sections and folders across the whole width. */
+.file-list.as-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--em-spacing-sm); align-content: start; }
+.file-list.as-grid > .list-section, .file-list.as-grid > .file:not(.cell) { grid-column: 1 / -1; }
+.file.cell { position: relative; display: block; padding: 0; }
+.file.cell .file-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; grid-template-columns: none; }
+.file.cell .cell-picture { position: relative; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--em-radius-control); font-size: 13px; }
+.file.cell .file-name { font-size: var(--em-font-caption); font-weight: 400; color: var(--em-foreground-muted); }
+.cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: #fff; opacity: .85; }
+.cell-keep { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
+.cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
+/* The cell's ⋯ stays small on a touch screen too (ui.css gives buttons a finger's size there): it sits on the picture. */
+.file.cell .row-more { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; min-width: 0; min-height: 0; padding: 0; line-height: 1; background: color-mix(in srgb, var(--em-background) 85%, transparent); }
+
+/* 多选: a file's box sits on its mark — drawn on hover, and on every row while anything is picked. */
+.file { position: relative; }
+.file-pick { position: absolute; z-index: 2; left: 8px; top: 50%; width: 28px; height: 28px; margin-top: -14px; padding: 0; border: 0; border-radius: 6px; background: none; opacity: 0; }
+.file-pick::before { content: ''; position: absolute; inset: 6px; border: 1.5px solid var(--em-border-strong, var(--em-foreground-muted)); border-radius: 4px; background: var(--em-background); }
+.file-pick[aria-checked='true']::before { border-color: var(--em-accent-11); background: var(--em-accent-11); }
+.file-pick[aria-checked='true']::after { content: ''; position: absolute; left: 11px; top: 8px; width: 5px; height: 9px; border: solid var(--em-background); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.file:hover .file-pick, .file-list.picking .file-pick, .file-pick:focus-visible { opacity: 1; }
+.file:hover .file-pick + .file-open .file-mark, .file-list.picking .file:not(.cell) .file-mark { visibility: hidden; }
+.file.picked { background: color-mix(in srgb, var(--em-accent-11) 10%, transparent); }
+.file.cell .file-pick { top: 6px; left: 6px; margin-top: 0; }
+.file.cell .file-pick + .file-open .file-mark { visibility: visible; }
+@media (hover: none) { .file:hover .file-pick { opacity: 0; } .file-list.picking .file-pick { opacity: 1; } }
+.pick-bar { position: fixed; z-index: 12; left: 50%; bottom: var(--em-spacing-lg); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; max-width: calc(100vw - 16px); padding: 4px 6px 4px var(--em-spacing-md); border-radius: var(--em-radius-control); background: var(--em-foreground); color: var(--em-background); box-shadow: var(--em-shadow-lift); font-size: var(--em-font-caption); overflow-x: auto; }
+.pick-bar[hidden] { display: none; }
+.pick-bar button { border: 0; background: none; color: inherit; white-space: nowrap; min-height: 28px; padding: 0 var(--em-spacing-sm); }
+.pick-bar button:disabled { opacity: .4; }
+.pick-count { font-weight: 600; white-space: nowrap; margin-inline-end: var(--em-spacing-sm); }
+.pick-at { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lasso { position: fixed; z-index: 11; border: 1px solid var(--em-accent-11); background: color-mix(in srgb, var(--em-accent-11) 12%, transparent); pointer-events: none; }
+
+/* The table's head: only where the pane is wide. */
+.table-head { display: none; }
+
+/* A file's details: over the list (narrow), beside it (wide). */
+.details { position: fixed; z-index: 15; inset: auto 0 0 0; max-height: 80vh; overflow: auto; display: flex; flex-direction: column; gap: var(--em-spacing-sm); padding: var(--em-spacing-lg); border-radius: var(--em-radius-card, 12px) var(--em-radius-card, 12px) 0 0; box-shadow: var(--em-shadow-dialog); }
+.details-head { display: flex; align-items: center; gap: var(--em-spacing-sm); }
+.details-title { flex: 1; min-width: 0; margin: 0; font-size: var(--em-font-title); line-height: var(--em-lh-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-close { border: 0; background: none; }
+.details .details-picture { width: 100%; height: 160px; border-radius: var(--em-radius-control); font-size: 18px; }
+img.details-picture { object-fit: contain; }
+.details .details-picture.details-badge { width: 56px; height: 56px; font-size: 13px; }
+.details-actions { display: flex; flex-wrap: wrap; gap: var(--em-spacing-xs); }
+.details-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px var(--em-spacing-md); margin: 0; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); }
+.details-facts dt { color: var(--em-foreground-muted); }
+.details-facts dd { margin: 0; overflow-wrap: anywhere; }
+.details-sub { margin: var(--em-spacing-xs) 0 0; font-size: var(--em-font-caption); color: var(--em-foreground-muted); }
+.details-versions { margin: 0; padding-inline-start: 0; list-style: none; font-size: var(--em-font-caption); }
+
+/* Wide (an expanded tab): the rows line up as a table, and the details sit beside the list. */
+.files { container-type: inline-size; }
+@container (min-width: 720px) {
+  .table-head { display: grid; grid-template-columns: 28px minmax(0, 1fr) 140px 130px 80px 160px; column-gap: var(--em-spacing-md); padding: 0 8px 4px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border); }
+  .table-head > [data-cell='name'] { grid-column: 2; }
+  .table-head > button { border: 0; background: none; padding: 0; min-height: 0; text-align: start; font: inherit; color: inherit; }
+  .table-head > [aria-current='true'] { color: var(--em-foreground); font-weight: 600; }
+  .file:not(.cell) { display: grid; grid-template-columns: minmax(0, 1fr) 160px 28px; padding-block: 4px; }
+  .file:not(.cell) .file-open { grid-template-columns: 28px minmax(0, 1fr) 140px 130px 80px; align-items: center; }
+  .file:not(.cell) .file-mark { grid-row: auto; }
+  .file:not(.cell) .file-meta { display: contents; }
+  .file:not(.cell) .file-cell::before { content: none; }
+  .file:not(.cell) .file-cell { grid-row: 1; font-size: var(--em-font-caption); color: var(--em-foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file:not(.cell) .file-cell[data-cell='who'] { grid-column: 3; }
+  .file:not(.cell) .file-cell[data-cell='when'] { grid-column: 4; }
+  .file:not(.cell) .file-cell[data-cell='size'] { grid-column: 5; }
+  .file:not(.cell) .file-meta > .file-path { grid-column: 2; grid-row: 2; }
+  .file:not(.cell) .file-marks { grid-column: 2; max-width: none; }
+  .file:not(.cell) .row-more { grid-column: 3; }
+}
+/* The phone (a narrow pane): taller rows, the kinds and filters scroll sideways, the bar spans the bottom, the details are
+   a sheet that slides away. */
+@media (max-width: 520px) {
+  .file:not(.cell) { min-height: 60px; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chip { flex: none; }
+  .pick-bar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; flex-wrap: wrap; justify-content: center; overflow-x: visible; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .details { padding-top: var(--em-spacing-sm); }
+  .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
+  .file-list.as-grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
+}
+@media (min-width: 720px) {
+  .details { inset: 0 0 0 auto; width: 300px; max-height: none; border-radius: 0; box-shadow: none; border-left: 1px solid var(--em-border); }
+  body.has-details .files { margin-inline-end: 300px; }
+}
 .list-section { list-style: none; padding: var(--em-spacing-sm) var(--em-spacing-sm) 2px; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); font-weight: 600; color: var(--em-foreground-muted); }
 .list-section:first-child { padding-top: 0; }
 /* The menu is a .list: its label and separators are not rows (no row padding or height). */

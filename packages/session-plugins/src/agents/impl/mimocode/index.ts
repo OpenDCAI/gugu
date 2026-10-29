@@ -14,6 +14,7 @@ import {
   buildStandardCommand,
   createFileDropPlugin,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { mimocodeAuthStatus, mimocodeModelCredential } from './auth';
@@ -152,7 +153,7 @@ export const plugin = definePlugin(
     // 托管安装:`@mimo-ai/cli` 的 bin 是启动器,程序体在 `@mimo-ai/mimocode-<platform>-<arch>`
     // 里(六格齐全,归档内 `bin/mimo`;包名从 `cli` 换成了 `mimocode`,`win32` 叫 `windows`)。
     // ❌ 厂商的 curl / powershell 脚本不再作为产品内装法(#6098)。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'mimo',
       package: '@mimo-ai/cli',
       installDocs: 'https://github.com/XiaomiMiMo/MiMo-Code#quick-start',
@@ -166,7 +167,7 @@ export const plugin = definePlugin(
         'linux-x64': 'bin/mimo', 'linux-arm64': 'bin/mimo',
         'win32-x64': 'bin/mimo.exe', 'win32-arm64': 'bin/mimo.exe',
       },
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     mcp: {
       kind: 'supported',
       scope: 'global',

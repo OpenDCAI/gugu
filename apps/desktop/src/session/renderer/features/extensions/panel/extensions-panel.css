@@ -108,7 +108,7 @@
   transition: border-color var(--xp-fast);
 }
 .xp-search::placeholder {
-  color: var(--foreground-passive);
+  color: var(--foreground-muted);
 }
 .xp-search:hover {
   border-color: var(--border-1);

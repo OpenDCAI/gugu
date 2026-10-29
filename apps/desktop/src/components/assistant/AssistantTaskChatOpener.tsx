@@ -78,6 +78,5 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
   const close = () => showAssistantTaskChat(null)
   return createPortal(<AssistantTaskChatWindow agent={agent} onClose={close}
     onOpenUserChat={handlers.onOpenUserChat ? (target) => { close(); handlers.onOpenUserChat?.(target) } : undefined}
-    onOpenSessionpageAgent={handlers.onOpenSessionpageAgent ? (id, view) => { close(); return handlers.onOpenSessionpageAgent!(id, view) } : undefined}
     onOpenSessionpageAgentFile={handlers.onOpenSessionpageAgentFile ? (id, path) => { close(); return handlers.onOpenSessionpageAgentFile!(id, path) } : undefined} />, slot)
 }

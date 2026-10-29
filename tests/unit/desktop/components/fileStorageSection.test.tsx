@@ -10,6 +10,7 @@ vi.mock('../../../../apps/desktop/src/lib/fileStorage', () => ({
   readFileStorage: async () => f.stored,
   writeFileStorage: async (_user: string, change: Partial<FileStorage>) => { f.write(change); f.stored = { ...f.stored, ...change }; return f.stored },
 }))
+vi.mock('../../../../apps/desktop/src/components/settings/FileStorageDashboard', () => ({ FileStorageDashboard: () => null }))
 vi.mock('../../../../apps/desktop/src/lib/deviceProjects', () => ({ listMyDeviceProjects: f.projects }))
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: { id: 'owner' } }) }))
 vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'mac', label: 'Studio Mac' }] }) }))
@@ -31,19 +32,28 @@ describe('the one 「文件存储与读取」: other files are one choice', () =
     await harness.render(createElement(FileStorageSection, { onBack: vi.fn() }))
     await vi.waitFor(() => expect($('settings-file-mode')?.value).toBe('machine'))
     expect($('settings-file-retention')).not.toBeNull()
-    expect($('settings-image-retention')).not.toBeNull()
+    expect($('settings-kept-retention')).not.toBeNull()
     // No separate switch can leave files on a machine where nobody else can read them.
     expect(harness.container.querySelector('button[role="switch"]')).toBeNull()
 
     await choose('settings-file-mode', 'cloud')
     expect(f.write).toHaveBeenLastCalledWith({ proactive_upload: true })
     await vi.waitFor(() => expect($('settings-file-retention')).toBeNull())
-    expect($('settings-image-retention')).toBeNull()
-    expect(harness.container.textContent).toContain('fileStorage.imagesCloudHint')
+    expect(harness.container.textContent).toContain('fileStorage.filesCloudHint')
 
     await choose('settings-file-mode', 'machine')
     expect(f.write).toHaveBeenLastCalledWith({ proactive_upload: false, temporary_transfer: true })
     await vi.waitFor(() => expect($('settings-file-retention')).not.toBeNull())
+  })
+
+  it('one control keeps images and temporary files: it writes both stored keys, and says when they differ', async () => {
+    f.stored = { ...DEFAULT_FILE_STORAGE, image_retention: '1d', temporary_retention: '30d' }
+    await harness.render(createElement(FileStorageSection, { onBack: vi.fn() }))
+    await vi.waitFor(() => expect($('settings-kept-retention')?.value).toBe('1d'))
+    expect(harness.container.textContent).toContain('fileStorage.keptDiffer')
+    await choose('settings-kept-retention', '30d')
+    expect(f.write).toHaveBeenLastCalledWith({ image_retention: '30d', temporary_retention: '30d' })
+    await vi.waitFor(() => expect(harness.container.textContent).not.toContain('fileStorage.keptDiffer'))
   })
 
   it('shows only the ordinary rules to someone with no machine bound to a project', async () => {
@@ -51,6 +61,8 @@ describe('the one 「文件存储与读取」: other files are one choice', () =
     await harness.render(createElement(FileStorageSection, { onBack: vi.fn() }))
     await vi.waitFor(() => expect(harness.container.textContent).toContain('fileStorage.noMachine'))
     expect($('settings-file-mode')).toBeNull()
+    // Temporary files hold in ordinary groups too: the one retention control is everyone's.
+    expect($('settings-kept-retention')).not.toBeNull()
     expect(harness.container.textContent).toContain('fileStorage.ordinary')
   })
 })

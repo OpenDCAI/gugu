@@ -135,11 +135,6 @@ export const electronPlatform: AppPlatform = {
     const api = electronApi()
     return api?.getAppVersion ? api.getAppVersion() : ''
   },
-  async openAgentRuntime(agentUserId) {
-    const api = electronApi()
-    if (!api?.openAgentRuntime) throw unavailable('Agent runtime')
-    return api.openAgentRuntime(agentUserId)
-  },
   saveFile: anchorDownload,
   async openRemoteFile(file, filename) {
     const api = electronApi()
@@ -209,6 +204,11 @@ export const electronPlatform: AppPlatform = {
     const api = electronApi()
     if (!api?.notifyDeviceCommandsChanged) throw unavailable('Device runtime notification')
     api.notifyDeviceCommandsChanged()
+  },
+  notifyScheduledTasksChanged() {
+    const api = electronApi()
+    if (!api?.notifyScheduledTasksChanged) throw unavailable('Device runtime notification')
+    api.notifyScheduledTasksChanged()
   },
   notifyOwnedAgentsChanged() {
     const api = electronApi()

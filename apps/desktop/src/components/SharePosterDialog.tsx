@@ -6,6 +6,7 @@ import { Sheet } from './ui/Sheet'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { qrColors } from '../lib/qrColors'
 
 // @@@share-poster (#903) - Share poster dialog: canvas-composed image with QR + branding.
 // Supports copy-to-clipboard and download. No new dependencies (reuses `qrcode` already
@@ -44,7 +45,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
   useEffect(() => {
     if (!qrValue) return
     let cancelled = false
-    QRCode.toDataURL(qrValue, { width: 280, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
+    QRCode.toDataURL(qrValue, { width: 280, margin: 1, color: qrColors() })
       .then((url) => { if (!cancelled) setQrDataUrl(url) })
       .catch((err) => {
         console.error('[SharePosterDialog] QR gen error', err)
@@ -193,7 +194,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
             }}
           >
             {genError ? (
-              <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger)', textAlign: 'center', padding: '0 16px' }}>
+              <span style={{ fontSize: 'var(--font-body)', color: 'var(--danger-fg)', textAlign: 'center', padding: '0 16px' }}>
                 {genError}
               </span>
             ) : generating || !posterDataUrl ? (

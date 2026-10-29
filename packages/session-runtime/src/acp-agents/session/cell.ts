@@ -148,6 +148,10 @@ export class SessionCell {
    * 下一个工具边界就打断」。回合结束时两格一起清。
    */
   private readonly runningTools = new Set<string>();
+  /** Native steering acknowledges admission, not consumption. Keep uncertain inputs until a
+   * subsequent tool call or a completed turn proves the provider moved past their admission. */
+  private pendingNativeSteers: Array<{ prompt: QueuedPrompt; toolsAtAdmission: ReadonlySet<string> }> = [];
+  private replayHistoryUnknown = false;
   private interruptForSteer = false;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
@@ -383,6 +387,7 @@ export class SessionCell {
   }
 
   beginReplay(at = Date.now()): void {
+    this.replayHistoryUnknown = false;
     this.replayingHistory = true;
     this.promptSequence += 1;
     this.applyEvent({ type: 'ReplayStarted' });
@@ -404,9 +409,33 @@ export class SessionCell {
     this.lastReplayedSessionContext = null;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.endReplay(at, outcome);
+    this.reconcileReplayedQueue();
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.applyEvent({ type: 'ReplayEnded', status: outcome?.kind === 'error' ? 'error' : 'complete' });
     this.emitTranscriptChanged();
+  }
+
+  markReplayHistoryUnknown(): void {
+    this.replayHistoryUnknown = true;
+  }
+
+  private reconcileReplayedQueue(): void {
+    const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
+    const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
+    if (!queued.length || (!hasCanonicalReplay && !this.replayHistoryUnknown)) return;
+    const recover = this.deps.recoverDelivery;
+    if (!recover) throw new Error('SessionCell: delivery recovery requires the core envelope owner');
+    const inputs = [...this.transcript.history, ...(this.transcript.activeTurn ? [this.transcript.activeTurn] : [])]
+      .flatMap((turn) => turn.items.flatMap((item) => item.kind === 'message' && item.role === 'user' ? [item.text] : []));
+    for (const prompt of queued) {
+      const text = recover(prompt.text, inputs, this.replayHistoryUnknown);
+      if (text === prompt.text) continue;
+      const result = text === null ? this.removeQueuedPrompt(prompt.id) : this.editQueuedPrompt(prompt.id, {
+        text, origin: prompt.origin, hiddenContext: prompt.hiddenContext,
+        attachments: prompt.attachments, coalesceKey: prompt.coalesceKey,
+      });
+      if (!result.success) throw new Error(`Cannot reconcile recovered delivery: ${result.error.type}`);
+    }
   }
 
   /**
@@ -517,6 +546,11 @@ export class SessionCell {
       return;
     }
     this.trackSubagentSession(event);
+    if (!this.replayingHistory && event.kind === 'tool_call') {
+      this.pendingNativeSteers = this.pendingNativeSteers.filter(
+        (entry) => entry.toolsAtAdmission.has(event.toolCallId)
+      );
+    }
     this.trackRunningTool(event);
     if (event.kind === 'message' ? event.role === 'assistant' : this.isTranscriptEvent(event)) {
       this.turnHadAgentOutput = true;
@@ -861,6 +895,7 @@ export class SessionCell {
 
   async closeSession(): Promise<void> {
     this.closeRequested = true;
+    this.returnPendingNativeSteers();
     if (!this.agent.closeSession) return;
     try {
       await this.agent.closeSession({ sessionId: this.acpSessionId });
@@ -872,6 +907,18 @@ export class SessionCell {
       // 没关成,会话照旧在管(stop 可重试):之后的失败照实分类。
       this.closeRequested = false;
       throw error;
+    }
+  }
+
+  private returnPendingNativeSteers(): void {
+    const pending = this.pendingNativeSteers;
+    this.pendingNativeSteers = [];
+    // The inbox cursor already advanced on admission. Only this queue can replay these inputs.
+    // If the provider consumed one without a later tool/completion, replay once: prefer duplicates
+    // to silently losing an accepted message. Assistant text alone is not a consumption receipt.
+    for (const { prompt } of pending) {
+      const result = this.dispatch({ type: 'QueuePrompt', prompt });
+      if (!result.success) throw new Error(`Cannot retain admitted steering: ${result.error.type}`);
     }
   }
 
@@ -1337,6 +1384,9 @@ export class SessionCell {
       this.closeTurnCompletion();
       return false;
     }
+    if (outcome.kind !== 'cancelled' || outcome.reason === 'interrupted_for_message') {
+      this.pendingNativeSteers = [];
+    }
     // 任何一次落定都先把「可改口」收回:只有紧接着的 prompt-边界分类会再把它打开。
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
@@ -1672,7 +1722,7 @@ export class SessionCell {
   }
 
   private trackRunningTool(event: NormalizedEvent): void {
-    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary' && !this.deps.assistantOwnerId) return;
+    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary' && !this.deps.assistantOwnerId && !this.deps.supportsSteering) return;
     if (event.kind !== 'tool_call' && event.kind !== 'tool_update') return;
     if (event.status === 'completed' || event.status === 'failed') {
       if (this.runningTools.delete(event.toolCallId)) this.interruptIfAtToolBoundary();
@@ -1974,6 +2024,9 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
+        this.pendingNativeSteers.push({ prompt, toolsAtAdmission: new Set(this.runningTools) });
+        // A stop can race the admission receipt; it must retain that accepted input too.
+        if (this.closeRequested) this.returnPendingNativeSteers();
         confirmPreparation();
         if (this.agent.protocolVersion === 2) admit();
         // `injected` is an admission receipt. The provider's output remains on the primary

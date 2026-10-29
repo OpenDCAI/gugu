@@ -1,4 +1,4 @@
-import { openLinkTarget } from '../../lib/guguLinks'
+import { followLink, openLinkTarget } from '../../lib/guguLinks'
 import { reaction } from 'mobx'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -7,10 +7,8 @@ import { extensionSurfaceStore } from '../../session/renderer/features/extension
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import {
   APP_SESSION_FRAME_NAME,
-  APP_SHOW_SESSION_EVENT,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
-  type AppShowSessionDetail,
 } from '../../session/shared/extensions/app-runtime-protocol'
 import type { ExtensionCapability } from '../../session/shared/extensions/manifest'
 import { extensionProgramNotifiedChannel } from '../../session/shared/extensions/marketEvents'
@@ -135,7 +133,7 @@ export function PhoneAppFrame({
         if (!('row' in listed)) return listed
         // Beside the page (G1): its timeline over this frame; else the task tab opens its row.
         if (peek) peekStore.open(null, bindingRef.current.tabId, { kind: 'session', sessionId, projectId: listed.row.session.projectId, deviceId: listed.row.deviceId })
-        else window.dispatchEvent(new CustomEvent<AppShowSessionDetail>(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+        else followLink({ kind: 'session', sessionId, deviceId: listed.row.deviceId })
         return { shown: true }
       },
       openWith: (detail) => onOpenWithRef.current(detail),

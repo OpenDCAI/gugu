@@ -711,16 +711,17 @@ function trustArgs(cwd: string): string[] {
 
 /**
  * #7191 Codex 自带的两个浏览器插件(`browser` = 它桌面版的应用内浏览器,`chrome` = 人的 Chrome)。它们的 skill 写着
- * 「浏览器活之前必读、先于 standalone Playwright」,于是带着 `gugu-browser` 的会话里 agent 会先去走它们 —— 咕咕里没有那个
+ * 「浏览器活之前必读、先于 standalone Playwright」,于是带着咕咕浏览器的会话里 agent 会先去走它们 —— 咕咕里没有那个
  * 应用内浏览器,它的 `getForUrl` 落到人的 Chrome 扩展上(10-15 实撞:10 次里 1 次连上了人的 Chrome、1 次在路上)。
- * 这条会话有自己的页签,就在这条会话里关掉这两个插件:进程级 `-c`,❌ 改人的 `~/.codex/config.toml`。
+ * 咕咕的浏览器是 Browser Use App(`bundle.browserUse`,宿主按这台机器装没装它给;它的工具可能经 catalog 来,
+ * ❌ 按 server 名认):有它,就在这条会话里关掉这两个插件:进程级 `-c`,❌ 改人的 `~/.codex/config.toml`。
  * 键名不加引号:codex 的 `-c` 按 `.` 切路径,`plugins."browser@openai-bundled"` 会把引号当成名字的一部分、静默不生效
  * (codex 0.160 `codex plugin list -c …` 实测:加引号仍 enabled,不加 disabled)。
  */
 const CODEX_OWN_BROWSER_PLUGINS = ['browser@openai-bundled', 'chrome@openai-bundled'] as const;
 
 function ownBrowserPluginArgs(bundle: SessionCapabilityBundle): string[] {
-  if (!bundle.mcpServers.some((server) => server.name === 'gugu-browser')) return [];
+  if (!bundle.browserUse) return [];
   return CODEX_OWN_BROWSER_PLUGINS.flatMap((plugin) => ['-c', `plugins.${plugin}.enabled=false`]);
 }
 

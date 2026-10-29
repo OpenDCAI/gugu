@@ -101,4 +101,20 @@ describe('message_send_file in a project chat that keeps files on its machine', 
     const error = await send({ file: `gugu-file://${ITEM}?v=2`, file_path: pdf }).catch((e: Error) => e) as Error
     expect(error.message).toContain(`someone stored a newer version of gugu-file://${ITEM}?v=2 since version 2, and nothing was sent`)
   })
+
+  // #791: the publisher hands a next version to the machine that keeps the file; when that machine did not write it, the
+  // refusal names the machine, says the copy is still where it was, and what to do.
+  test.each([
+    ['host_offline', 'is offline', '它现在离线'],
+    ['timeout', 'did not take the new version in time', '它没有及时收下新版本'],
+  ])('the host did not write it (%s): which machine, the copy is still there, what to do', async (status, en, zh) => {
+    const { NextVersionHandoffRefused } = await import('@gugu/core/cloud/fileVersionHandoff')
+    const { send, uploads } = setup({ publish: vi.fn(async () => { throw new NextVersionHandoffRefused({ status: status as 'timeout', host_label: 'Studio Mac', host_account_id: 'owner-1' }) }) })
+    const error = await send({ file: `gugu-file://${ITEM}?v=2`, file_path: pdf }).catch((e: Error) => e) as Error
+    expect(error.message).toContain(`notes.pdf was not sent, and nothing was changed: "Studio Mac" (Ming's computer) keeps this project chat's files and ${en}. Your changed copy is still at ${pdf}.`)
+    expect(error.message).toContain(`Send it again with file gugu-file://${ITEM}?v=2 once that computer is online, or ask an agent on that computer to make the change.`)
+    expect(error.message).toContain(`「Studio Mac」（Ming 的电脑）上，${zh}`)
+    expect(error.message).not.toMatch(/Settings|handoff/i)
+    expect(uploads).toEqual([])
+  })
 })

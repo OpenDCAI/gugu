@@ -22,6 +22,9 @@ export const MAX_SESSION_TITLE_LENGTH = 100;
  * 值保持 `pty` / `acp`:在这一层它们是**准确**的(一个真的是伪终端,一个真的是那个协议),
  * 换掉只会让存量数据要重写,换不来任何清晰度。
  */
+/** 宿主上一次退出的原因(见 electron/lib/exit-reason.ts):更新 / 重启 / 没正常退出。 */
+export type InterruptedBy = 'update' | 'restart' | 'unclean';
+
 export type SessionRuntime = 'pty' | 'acp';
 
 /**
@@ -212,6 +215,11 @@ export type Session = {
   /** spec agent-status「附属态」:只给显示;null / 缺席 = 退回基础态的画法。 */
   agentStatusDetail?: AgentStatusDetail | null;
   agentStatusSeen?: boolean;
+  /**
+   * 上一轮被宿主的退出打断了(开机收残记下的,下一轮开工清掉):宿主更新 / 重启 / 上一次没正常退出。
+   * 只在 `agentStatus` 还是 `error` 时有意义;缺席 = 没有这回事(或老宿主)。
+   */
+  interruptedBy?: InterruptedBy;
   /** 这条会话跑成什么(`SessionRuntime`)。缺席按 `'pty'` 读 —— 见该类型的说明。 */
   runtime?: SessionRuntime;
   /** spec session-page: pinned conversations gather in the sidebar Pinned section. */

@@ -192,7 +192,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('closeDialog.title', { name })}</div>
         <div className={cn(text, 'text-[var(--muted-fg)]')}>{t('closeDialog.body')}</div>
         {plan === 'loading' && <div className={cn(text, 'text-[var(--muted-fg)]')}>{t('closeDialog.checking')}</div>}
-        {plan === 'unreadable' && <div className={cn(text, 'text-[var(--danger)]')} role="alert">{t('closeDialog.unreadable')}</div>}
+        {plan === 'unreadable' && <div className={cn(text, 'text-[var(--danger-fg)]')} role="alert">{t('closeDialog.unreadable')}</div>}
         {started.length > 0 && (
           <div className="flex flex-col gap-2">
             <label className={cn(text, 'flex cursor-pointer items-start gap-2 text-[var(--fg)]')}>
@@ -215,7 +215,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
           </div>
         )}
         {failure && (
-          <div className={cn(text, 'text-[var(--danger)]')} role="alert" data-testid="assistant-close-failure">
+          <div className={cn(text, 'text-[var(--danger-fg)]')} role="alert" data-testid="assistant-close-failure">
             {failure.kind === 'schedule-starting' ? t('closeDialog.scheduleStarting') : t(`closeDialog.failedAt.${failure.step}`)}
           </div>
         )}

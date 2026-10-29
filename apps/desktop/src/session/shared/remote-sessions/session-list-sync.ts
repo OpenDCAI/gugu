@@ -180,7 +180,8 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
   const byId = new Map<string, SessionpageProjectSummary>()
   const sessions: SessionpageSessionSummary[] = []
   for (const entry of digest ?? []) {
-    if (entry.projectId && !byId.has(entry.projectId)) {
+    // 摘要里没名字的不是项目(任务工作区 #590、#609 起每个 workspace):它的会话读方列进「任务」,❌ 画成一格没名字的项目。
+    if (entry.projectId && entry.projectName && !byId.has(entry.projectId)) {
       byId.set(entry.projectId, { id: entry.projectId, name: entry.projectName, path: '' })
     }
     sessions.push({

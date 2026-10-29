@@ -38,6 +38,7 @@ import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDeliver
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { storedMessageLink } from '@gugu/core/shared/ui/guguLink'
+import type { SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const AGENT = 'agent-0000-0000-0000-000000000001'
 const HUMAN = 'human-0000-0000-0000-000000000002'
@@ -223,6 +224,63 @@ function assertPerMessageAttribution(text: string, ids: string[]): void {
     }
   }
 }
+
+describe('archived session admission', () => {
+  const chat = '00000000-0000-4000-8000-000000000074'
+  const start = '2026-10-28T09:00:00Z'
+  const end = '2026-10-28T09:01:00Z'
+  const restored: SessionArchivalState = { sessionId: 's', revision: 2, archivedAt: null,
+    intervals: [{ id: 'interval', archivedAt: start, restoredAt: end }] }
+  const row = (seq: number, at: string): CloudRow => ({ chatId: chat,
+    id: `10000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    senderUserId: HUMAN, senderType: 'human', content: `Archive marker ${seq}`, createdAt: at })
+  const cloudForArchive = () => { const cloud = new FakeCloud(); cloud.addChat(chat, 'dm'); cloud.join(chat, AGENT); return cloud }
+
+  it('does not pull, inject, mark read or wake an archived recipient', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, start))
+    const fetchUnread = vi.fn(cloud.fetchUnread)
+    const { deps, injections, wakes } = makeDeps(cloud, { fetchUnread, sessionArchival: () => ({ ...restored, archivedAt: start }) })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
+    expect(fetchUnread).not.toHaveBeenCalled(); expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('scans an entirely suppressed page and admits the new message after it without fake read receipts', async () => {
+    const cloud = cloudForArchive()
+    for (let seq = 1; seq <= 160; seq++) cloud.post(row(seq, start))
+    cloud.post(row(161, end))
+    const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => restored })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 161, injected: 1 })
+    expect(injections.map((input) => input.messageId)).toEqual([row(161, end).id])
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(161, end).id }])
+    expect(wakes).toEqual([])
+  })
+
+  it('rechecks an archive committed while message preparation was in flight', async () => {
+    const cloud = cloudForArchive(); cloud.addChat(chat, 'group'); cloud.post(row(1, end))
+    let state = restored
+    const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => state,
+      fetchChatFacts: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
+    expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('honors a persisted refusal ID when the repeated envelope has a different timestamp', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, end)); cloud.post(row(2, end))
+    const sessionMessageRefused = vi.fn(async (_agent: string, id: string) => id === row(1, end).id)
+    const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, intervals: [] }), sessionMessageRefused })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 1 })
+    expect(injections.map((entry) => entry.messageId)).toEqual([row(2, end).id])
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(2, end).id }])
+    expect(sessionMessageRefused).toHaveBeenCalledWith(AGENT, row(1, end).id, end)
+  })
+
+  it('admits a new session normally when it has no archive intervals', async () => {
+    const cloud = cloudForArchive(); cloud.post(row(1, start))
+    const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, revision: 0, intervals: [] }) })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 1 })
+    expect(injections).toHaveLength(1)
+  })
+})
 
 beforeEach(() => {
   resetAgentInboxReaderStateForTests()

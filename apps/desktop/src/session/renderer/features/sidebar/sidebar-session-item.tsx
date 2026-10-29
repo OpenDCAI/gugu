@@ -38,7 +38,7 @@ import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
 import { useSessionDropTarget } from './use-session-drop-target';
-import { LocalHostBadge, ProjectBadge, RemoteHostBadge } from './remote-host-chip';
+import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -261,29 +261,10 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
   const doneUnread = row.status === 'idle' && !row.seen;
 
-  // 行首的机器标记:这一行与它上面那一行不在同一台机器上时才画。挂在父会话下的跟父会话比(owner 2026-10-01:
-  // 别的机器上的 agent 挂在本机会话下面要有标识;本机的挂在别的机器的会话下面标「本机」);置顶 / 任务区的根会话
-  // 没有项目行替它说,按本机比;项目下面的根会话不画,项目行已经说了。
-  const above =
-    parentProjectId !== undefined
-      ? machineRegistry.machineOf(parentProjectId)
-      : rowVariant === 'section'
-        ? null
-        : machine;
-  // 一行只标一样(owner 2026-10-08):机器跟上面那一行不同 ⇒ 只标机器,悬停里写它属于哪个项目;
-  // 机器相同、项目不同(挂在父会话下的 child,nest 不再限于同一个目录)⇒ 只标项目;都相同 ⇒ 不标。
+  // owner 10-28:会话列表里不标机器(机器只在悬停卡里写)。只剩一样:挂在父会话下、与父会话不在同一个项目行的 child 标它的项目。
   const projectLabel =
     parentProjectId !== undefined ? sidebarStore.nestedProjectLabel(projectId, parentProjectId) : null;
-  const badge =
-    machine !== above ? (
-      machine ? (
-        <RemoteHostBadge deviceId={machine} project={sidebarStore.projectLabel(projectId)} />
-      ) : (
-        <LocalHostBadge project={sidebarStore.projectLabel(projectId)} />
-      )
-    ) : projectLabel ? (
-      <ProjectBadge label={projectLabel} />
-    ) : null;
+  const badge = projectLabel ? <ProjectBadge label={projectLabel} /> : null;
 
   const badges = (
     <>

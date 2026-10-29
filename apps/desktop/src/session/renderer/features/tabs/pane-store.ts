@@ -17,6 +17,7 @@ import {
   type TabReturnTo,
 } from '@shared/view-state';
 import type { TabHost } from './core/tab-host';
+import { tabFullscreen } from './tab-fullscreen';
 import type {
   TabEntry,
   TabHandle,
@@ -165,10 +166,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   /** 并排的一对(spec session-page「并排」);整份替换。成不成立读 `livePair`。 */
   pair: TabPair | null = null;
   /**
-   * 用户拆开过(「拆开」、⌘\):之后开在对话旁边的不再自动并排,只多一枚页签 —— 那是用户选的「不分屏」,
-   * ❌ 让 agent 一打开就推翻。用户自己再分屏才清掉。关掉一边 ≠ 拆开,不碰它。
+   * 用户拆开过哪几类页签(「拆开」、⌘\):之后开在对话旁边的**同一类**不再自动并排,只多一枚页签 —— 那是用户对这一类
+   * 选的「不分屏」,❌ 让 agent 一打开就推翻。按类各记各的(owner 10-28):拆开过文件页,群文件 / 成员 / 设置照旧并排。
+   * 用户自己再把这一类分屏才清掉。关掉一边 ≠ 拆开;程序为让位拆开的(`separatePair({ remember: false })`)也不算。
    */
-  splitDeclined = false;
+  splitDeclinedKinds = new Set<string>();
   /** 上一枚拿过焦点的页签:分屏时「正看着的就是要挪的那枚」,另一边放它(⌘\ 也是和它并排)。 */
   private _previousActiveTabId: string | undefined = undefined;
   /** Current pixel dimensions of the pane container, null until first measurement. */
@@ -226,7 +228,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       tabOrder: observable,
       activeTabId: observable,
       pair: observable.ref,
-      splitDeclined: observable,
+      splitDeclinedKinds: observable,
       livePair: computed,
       pairSlots: computed,
       pairShown: computed,
@@ -424,10 +426,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 开在对话旁边(agent 打开的、从对话里点开的):把 `tabId` 摆到 `anchorId`(对话)旁边并排(spec session-page「并排」)。
    * ❌ 不改点着的是哪一枚:用户正看着对话,就看到并排;正看着别的(终端、审阅),就不切走,一对只在页签条上连好。
    * 唯一例外是用户正点着被顶下来的那页 —— 那个位置换了一页,焦点跟着位置走。
-   * 用户拆开过(splitDeclined)、或摆不到一起(认不出来)= 什么都不做,它照常是一枚页签。
+   * 用户拆开过这一类(splitDeclinedKinds)、或摆不到一起(认不出来)= 什么都不做,它照常是一枚页签。
    */
   pairWith(anchorId: string, tabId: string): void {
-    if (this.splitDeclined || !this._canPair(anchorId, tabId)) return;
+    if (this.splitDeclinedFor(tabId) || !this._canPair(anchorId, tabId)) return;
     const current = this.livePair;
     if (current && (current.anchor === anchorId || current.side === anchorId)) {
       // 对话已经在这一对里(钉住的、或被摆到另一边的都算):另一页换成它,摆法不动,从此钉住的是对话。
@@ -445,11 +447,33 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   /**
    * 「拆开」(两枚中间那根线上的钮、页签右键、⌘\):两枚都变回普通页签,点着的那枚占满(照 Chrome「Separate views」)。
-   * 这是用户选了不分屏:之后开在对话旁边的也不再自动并排,直到他自己再分屏。
+   * 这是用户对这一类选了不分屏:之后开在对话旁边的同一类不再自动并排,直到他自己再分屏。
+   * `remember: false` = 程序为让位拆开的(会话浮在页上时,群面板 setPanelFull),不是用户的选择,❌ 记。
    */
-  separatePair(): void {
+  separatePair({ remember = true }: { remember?: boolean } = {}): void {
+    const pair = this.pair;
     this.pair = null;
-    this.splitDeclined = true;
+    if (!remember || !pair) return;
+    // 记的是并排在对话旁边的那几类;对话那一枚(锚)本身不算一类「不想并排」的页签。
+    const anchorTab = this._layoutSplitter?.pairAnchorTab?.() ?? null;
+    for (const id of [pair.anchor, pair.side]) {
+      const kind = id === anchorTab ? undefined : this.entries.get(id)?.kind;
+      if (kind) this.splitDeclinedKinds.add(kind);
+    }
+  }
+
+  /** 这一枚所属的那一类,用户拆开过没有(拆开过 = 开在对话旁边的不再自动并排)。 */
+  splitDeclinedFor(tabId: string): boolean {
+    const kind = this.entries.get(tabId)?.kind;
+    return !!kind && this.splitDeclinedKinds.has(kind);
+  }
+
+  /** 用户自己把这几枚分屏了:它们那几类的「拆开过」清掉(别的类照旧)。 */
+  private _acceptSplitOf(...tabIds: (string | undefined)[]): void {
+    for (const id of tabIds) {
+      const kind = id ? this.entries.get(id)?.kind : undefined;
+      if (kind) this.splitDeclinedKinds.delete(kind);
+    }
   }
 
   /**
@@ -476,7 +500,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this.pair = { anchor, side: tabId, sideAt: edge, ratio: null };
     }
     this._placeAdjacent(this.pair!);
-    this.splitDeclined = false;
+    this._acceptSplitOf(this.pair!.anchor, this.pair!.side);
     this._focus(tabId);
     return true;
   }
@@ -506,7 +530,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const otherFirst = this.tabOrder.indexOf(other) < this.tabOrder.indexOf(current);
     this.pair = { anchor: current, side: other, sideAt: otherFirst ? 'left' : 'right', ratio: null };
     this._placeAdjacent(this.pair, otherFirst ? 'side' : 'anchor');
-    this.splitDeclined = false;
+    this._acceptSplitOf(current, other);
   }
 
   /** 和 `tabId` 并排的会是哪一页(见 splitBeside)。 */
@@ -753,7 +777,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       tabs,
       activeTabId,
       ...(savedPair ? { pair: savedPair } : {}),
-      ...(this.splitDeclined ? { splitDeclined: true } : {}),
+      ...(this.splitDeclinedKinds.size > 0 ? { splitDeclinedKinds: [...this.splitDeclinedKinds].sort() } : {}),
     };
   }
 
@@ -857,11 +881,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   /**
    * 亮起一枚页签(点页签、键盘切换、新开的页签都经过这里)。spec session-page「并排」的那条规矩就在这儿:
    * 屏上正并排时,钉住的那页不动 —— 亮起一枚不在这对里的,它顶替另一页、原来那页退下;屏上只有一页时照旧换成它。
-   * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。
+   * 亮起这一对里的任一枚 = 那一边拿到焦点,并排照旧。用户拆开过的那一类不顶替,自己占满这一格(这一对留着)。
    */
   setActiveTab(id: string): void {
     const pair = this.livePair;
-    if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && this._canPair(pair.anchor, id)) {
+    if (pair && id !== pair.anchor && id !== pair.side && this.pairShown && !this.splitDeclinedFor(id) && this._canPair(pair.anchor, id)) {
       this._replaceSide(pair, id);
     }
     this._focus(id);
@@ -914,15 +938,13 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     return this.inSplitLayout && this.pairSplitBlocked(tabId, 'right') === null;
   }
 
-  tabFill(tabId: string): { full: boolean; toggle: () => void } | null {
-    const anchor = this._layoutSplitter?.pairAnchorTab?.() ?? null;
-    if (!anchor || tabId === anchor) return null;
+  tabFill(tabId: string, multiBlock = false): { full: boolean; toggle: () => void } | null {
+    const full = tabFullscreen.isOn(this, tabId);
     const pair = this.livePair;
-    if (pair && this.pairShown && (tabId === pair.anchor || tabId === pair.side)) {
-      return { full: false, toggle: () => runInAction(() => { this.separatePair(); this._focus(tabId); }) };
-    }
-    if (!this.splitDeclined || this.resolvedActiveTabId !== tabId || !this._canPair(anchor, tabId) || !roomForTwo(this.dimensions, false)) return null;
-    return { full: true, toggle: () => runInAction(() => { this.splitDeclined = false; this.pairWith(anchor, tabId); this._focus(tabId); }) };
+    // 只有一块时,对话那一枚(并排的锚)照旧没有这颗钮:全屏它只等于把旁边那页藏起来。
+    const paired = !!pair && this.pairShown && tabId === pair.side;
+    if (!full && !paired && !multiBlock) return null;
+    return { full, toggle: () => runInAction(() => { this._focus(tabId); tabFullscreen.toggle(this, tabId); }) };
   }
 
   tabWindowOpener(tabId: string): (() => void) | null {
@@ -1076,7 +1098,11 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
         : null;
       // 合成一条页签条的旧存档里,两格屏上那两页不一定挨着:读回来就让它们挨着(一对在页签条上始终连着)。
       if (this.pair) this._placeAdjacent(this.pair);
-      this.splitDeclined = snapshot.splitDeclined === true;
+      // 10-28 之前存的是一个不分类型的 splitDeclined:来源混着(多半是从前的「最大化」和浮出会话留下的),直接不读。
+      this.splitDeclinedKinds.clear();
+      for (const kind of Array.isArray(snapshot.splitDeclinedKinds) ? snapshot.splitDeclinedKinds : []) {
+        if (typeof kind === 'string') this.splitDeclinedKinds.add(kind);
+      }
     }
     if (snapshot.activeTabId !== undefined) this.activeTabId = snapshot.activeTabId;
   }

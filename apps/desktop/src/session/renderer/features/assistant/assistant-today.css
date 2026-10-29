@@ -2,7 +2,7 @@
  * #7199 「助理」App 的样子:
  * 左边一整列就是和它的聊天(头像 + 名字胶囊、搜索 / 齿轮、圆角输入条),右边一块半透明的大圆角面板
  * (胶囊分段标签、往下钻有返回箭头、右上收起)。数值按 1280 宽定、都写成 CSS 变量,
- * 深色(咕咕默认)在下面,浅色接 [data-theme='light']。
+ * 颜色取值(深色、浅色、素白三组与健康页调色)在 tokens.css 的 theme batch A 段,同样的选择器;这里只管尺寸与形状。
  * 这一份也给壳 portal 进来的组件换衣服:聊天面(.ta-chat)、设置原语(.gg-settings-*,在 .ta-skin 里)——
  * 那些组件的逻辑与数据照用,样子在这里管(设置里的兼容入口不受影响:选择器都挂在 .ta-app 下面)。
  * 手机壳里的助理 App(mobile/assistant)根节点是 .ta-phone:同一组变量、同一套卡片,页面骨架在 assistant-phone.css。
@@ -14,22 +14,13 @@
 [data-ta-menu],
 [data-ta-scope] {
   /* 渐变底与玻璃卡片;品牌色仍由助理的主题色提供。 */
-  --ta-tint-h: var(--tint, 268);
-  --ta-tint: oklch(0.74 0.1 var(--ta-tint-h));
+  --ta-tint-h: 268;
   --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 13%, transparent);
   --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 20%, transparent);
   --ta-tint-ink: color-mix(in oklab, var(--ta-tint) 78%, var(--fg));
-  --ta-app-bg: linear-gradient(180deg, #14171c 0%, #17181b 60%, #1b1916 100%);
-  --ta-panel-bg: linear-gradient(180deg, #1f2c3d 0%, #23283a 45%, #2a2531 70%, #33271f 100%);
-  --ta-panel-border: rgba(255, 255, 255, 0.08);
-  --ta-glass: rgba(255, 255, 255, 0.1);
-  --ta-glass-strong: rgba(255, 255, 255, 0.16);
-  --ta-glass-hover: rgba(255, 255, 255, 0.14);
   /* 玻璃(bg 白 60% / 暗 10% + 背景模糊 20px + 顶沿一道高光 + 1px 白描边):
      卡片、列表、分段、对话框、浮层一律吃这一组(--ta-glass-fx 是描边 + 高光两层 inset 阴影),❌ 逐页自己写一份。 */
   --ta-glass-blur: 20px;
-  --ta-glass-edge: rgba(255, 255, 255, 0.2);
-  --ta-glass-top: rgba(255, 255, 255, 0.08);
   --ta-glass-fx: inset 0 0 0 1px var(--ta-glass-edge), inset 0 1px 1px var(--ta-glass-top);
   /* 尺寸(owner 10-16「整体偏大了,和咕咕现有的不统一」):
      字阶与触控尺寸沿用咕咕,卡片、面板和胶囊形状是助理 App 自己的。
@@ -54,15 +45,6 @@
   --ta-pad-card: var(--spacing-lg);         /* 卡片内边距 16 */
   --ta-pad-row-y: var(--spacing-md);        /* 行内边距 12 / 16 */
   --ta-pad-row-x: var(--spacing-lg);
-  --ta-seg-bg: rgba(255, 255, 255, 0.08);
-  --ta-seg-active: rgba(255, 255, 255, 0.14);
-  --ta-circle-bg: rgba(255, 255, 255, 0.1);
-  --ta-circle-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --ta-divider: rgba(255, 255, 255, 0.08);
-  --ta-composer-bg: rgba(255, 255, 255, 0.08);
-  --ta-composer-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  --ta-bubble-mine: rgba(255, 255, 255, 0.1);
-  --ta-bubble-other: rgba(255, 255, 255, 0.06);
   --ta-chip-bg: var(--ta-tint-soft);
   --ta-chip-fg: var(--ta-tint-ink);
   --ta-fg: var(--fg);
@@ -95,36 +77,6 @@
   padding: 8px;
   background: var(--ta-app-bg);
   color: var(--ta-fg);
-}
-
-[data-theme='light'] .ta-app,
-[data-theme='light'] .ta-dialog,
-[data-theme='light'] .ta-phone,
-[data-theme='light'] [data-ta-menu],
-[data-theme='light'] [data-ta-scope] {
-  /* 浅色:蓝到桃色的面板、半透明白色卡片。 */
-  --ta-app-bg: linear-gradient(180deg, #dfe6ec 0%, #e5e8ec 55%, #ecebe8 100%);
-  --ta-tint: oklch(0.62 0.12 var(--ta-tint-h));
-  --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 11%, transparent);
-  --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 14%, transparent);
-  --ta-tint-ink: color-mix(in oklab, var(--ta-tint) 85%, var(--fg));
-  --ta-panel-bg: linear-gradient(180deg, #a9c9ea 0%, #c5d8ef 30%, #e2e5f3 60%, #f4e6dc 80%, #fcd9b5 100%);
-  --ta-panel-border: rgba(255, 255, 255, 0.6);
-  --ta-glass: rgba(255, 255, 255, 0.6);
-  --ta-glass-strong: rgba(255, 255, 255, 0.78);
-  --ta-glass-hover: rgba(255, 255, 255, 0.72);
-  --ta-glass-edge: rgba(255, 255, 255, 0.55);
-  --ta-glass-top: rgba(255, 255, 255, 0.55);
-  --ta-glass-fx: inset 0 0 0 1px var(--ta-glass-edge), inset 0 1px 1px var(--ta-glass-top), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --ta-seg-bg: rgba(255, 255, 255, 0.55);
-  --ta-seg-active: rgba(0, 0, 0, 0.07);
-  --ta-circle-bg: #fff;
-  --ta-circle-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --ta-divider: rgba(0, 0, 0, 0.07);
-  --ta-composer-bg: rgba(255, 255, 255, 0.92);
-  --ta-composer-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  --ta-bubble-mine: rgba(0, 0, 0, 0.08);
-  --ta-bubble-other: #fff;
 }
 
 /* ── 左边:聊天这一列 ─────────────────────────────────────────────── */
@@ -259,12 +211,12 @@
 /* 顶上从头像那一排底下淡出来;底下在输入框(或它上面那颗胶囊)的上沿之前 24px 淡完:输入框底下、两侧那条空地不露出滚过去的消息,
    也不在上沿硬切一刀(硬切会把气泡和字截成一道锯齿)。--chat-dock-avatar-h 是 ChatBottomDock 实测的「输入框上沿到列底」的高度。 */
 .ta-chat [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
-  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 28px, black calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, transparent 0, black 28px, black calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 .ta-task-chat-slot [data-testid='chat-message-list'] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--chat-dock-avatar-h, 0px) - 24px), transparent calc(100% - var(--chat-dock-avatar-h, 0px)));
 }
 
 /* 输入区复用聊天页的三段式组件与尺寸，多行输入不另套圆角容器。 */
@@ -448,7 +400,7 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 }
 .ta-pill-btn:hover { background: var(--ta-glass-hover); }
 .ta-pill-btn svg { width: 14px; height: 14px; }
-.ta-pill-btn[data-tone='danger'] { color: var(--danger); }
+.ta-pill-btn[data-tone='danger'] { color: var(--danger-fg); }
 
 .ta-chip {
   display: inline-flex;
@@ -599,10 +551,10 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 .ta-pad { padding-inline: 4px; }
 .ta-chip-off { background: var(--ta-seg-active); color: var(--ta-muted); }
 .ta-card-text { margin: 0; padding: var(--spacing-md) var(--ta-pad-card); white-space: pre-wrap; }
-.ta-unseen { display: inline-block; height: 7px; width: 7px; border-radius: 999px; background: #1f8cff; }
+.ta-unseen { display: inline-block; height: 7px; width: 7px; border-radius: 999px; background: var(--live); }
 .ta-radio { display: inline-block; height: 20px; width: 20px; border-radius: 999px; border: 1.5px solid var(--ta-faint); }
 .ta-radio[data-on] { border-color: var(--ta-muted); }
-.ta-crown { width: 22px; height: 22px; color: #f09a3e; }
+.ta-crown { width: 22px; height: 22px; color: var(--warn); }
 .ta-card-title { margin: 8px 0 2px; font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); font-weight: 600; color: var(--ta-fg); }
 .ta-card-divider { margin: 12px 0; height: 1px; background: var(--ta-divider); }
 .ta-about-list { margin: 0; padding-left: 1.1em; }
@@ -614,22 +566,20 @@ button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
 /* 「自定义」对话框:大圆角、右上圆形关闭、底部一整条黑色「保存」。 */
 .ta-dialog {
   border-radius: var(--radius-xl) !important;
-  background: var(--ta-glass-strong) !important;
+  background: var(--ta-dialog-bg) !important;
   -webkit-backdrop-filter: blur(28px);
   backdrop-filter: blur(28px);
-  box-shadow: var(--ta-glass-fx), 0 24px 64px rgba(0, 0, 0, 0.24) !important;
+  box-shadow: var(--ta-glass-fx), var(--shadow-dialog) !important;
   color: var(--ta-fg);
 }
-[data-theme='light'] .ta-dialog { background: rgba(248, 249, 251, 0.8) !important; }
 /* 浮出来的菜单(portal 到 body,不在 .ta-app 里):带 data-ta-menu 的那一份也是玻璃。 */
 [data-ta-menu] {
-  background: var(--ta-glass-strong) !important;
+  background: var(--ta-menu-bg) !important;
   -webkit-backdrop-filter: blur(var(--ta-glass-blur));
   backdrop-filter: blur(var(--ta-glass-blur));
-  box-shadow: var(--ta-glass-fx), 0 12px 32px rgba(0, 0, 0, 0.18) !important;
+  box-shadow: var(--ta-glass-fx), var(--shadow-lift) !important;
   border: 0 !important;
 }
-[data-theme='light'] [data-ta-menu] { background: rgba(250, 250, 252, 0.82) !important; }
 .ta-dialog-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); font-weight: 600; }
 .ta-field-label { font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--ta-muted); padding-inline: 4px; }
 .ta-input {
@@ -661,7 +611,7 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   color: var(--ta-fg);
   cursor: pointer;
 }
-.ta-wide-btn[data-tone='primary'] { background: var(--ta-fg); color: var(--bg, #fff); font-weight: 500; }
+.ta-wide-btn[data-tone='primary'] { background: var(--ta-fg); color: var(--bg); font-weight: 500; }
 .ta-wide-btn:disabled { opacity: 0.5; cursor: default; }
 .ta-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .ta-chips button {
@@ -703,11 +653,11 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   font-size: var(--ta-fs-row);
   line-height: var(--ta-lh-btn);
   font-weight: 500;
-  color: var(--bg, #fff);
+  color: var(--bg);
   cursor: pointer;
 }
 .ta-solid-btn:disabled { opacity: 0.5; cursor: default; }
-.ta-ok { color: #22a35a; }
+.ta-ok { color: var(--ok-fg); }
 .ta-today-hello { display: flex; flex-direction: column; gap: 6px; padding: var(--spacing-2xl) var(--spacing-lg); }
 .ta-today-brief { display: flex; width: 100%; align-items: center; gap: 14px; border: 0; color: var(--ta-fg); cursor: pointer; text-align: left; }
 .ta-today-brief:hover { background: var(--ta-glass-hover); }
@@ -719,26 +669,6 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-today-card .ta-tile-title { white-space: normal; }
 
 /* 健康页(assistant-health.tsx):关键指标小卡(值、基线状态、7 天小柱)、昨晚的分期条、读不到时那张卡。 */
-.ta-app {
-  --ta-health-good: #4cc38a;
-  --ta-health-ok: var(--ta-muted);
-  --ta-health-warn: #f2b06a;
-  --ta-health-bad: #f0716b;
-  --ta-health-bar: rgba(255, 255, 255, 0.16);
-  --ta-health-bar-latest: #7cb7ff;
-  --ta-stage-deep: #5b6cf0;
-  --ta-stage-light: #7cb7ff;
-  --ta-stage-rem: #b48cf2;
-  --ta-stage-awake: #f2b06a;
-  --ta-stage-asleep: #6fa8dc;
-}
-[data-theme='light'] .ta-app {
-  --ta-health-good: #1f9d63;
-  --ta-health-warn: #c96a0c;
-  --ta-health-bad: #d4453e;
-  --ta-health-bar: rgba(0, 0, 0, 0.1);
-  --ta-health-bar-latest: #2f7de1;
-}
 .ta-health-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .ta-health-line { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); }
 .ta-health-metric { min-height: 136px; cursor: default; }
@@ -833,8 +763,8 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-day-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ta-day-row[data-open] .ta-day-title { font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); white-space: normal; }
 .ta-day-time { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--ta-muted); }
-.ta-day-row[data-status='soon'] .ta-day-status { color: #22a35a; }
-.ta-day-row[data-status='ending'] .ta-day-status { color: #e07b14; }
+.ta-day-row[data-status='soon'] .ta-day-status { color: var(--ok-fg); }
+.ta-day-row[data-status='ending'] .ta-day-status { color: var(--warn-fg); }
 .ta-day-row[data-status='now'] .ta-day-status { color: var(--ta-fg); }
 .ta-day-row[data-status='past'] .ta-day-title { color: var(--ta-muted); }
 .ta-day-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px 20px; }
@@ -856,7 +786,7 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
   cursor: pointer;
 }
 .ta-day-btn svg { width: 13px; height: 13px; }
-.ta-day-btn[data-tone='primary'] { border-color: transparent; background: var(--ta-fg); color: var(--bg, #fff); font-weight: 500; }
+.ta-day-btn[data-tone='primary'] { border-color: transparent; background: var(--ta-fg); color: var(--bg); font-weight: 500; }
 .ta-day-divider { display: flex; align-items: center; gap: 8px; padding: 6px 8px 2px; font-size: var(--font-caption); color: var(--ta-faint); }
 .ta-day-divider::after { content: ''; flex: 1; border-top: 1px solid var(--ta-divider); }
 .ta-day-more { display: inline-flex; align-self: center; align-items: center; gap: 4px; border: 0; background: transparent; padding: 6px 10px; font-size: var(--font-caption); color: var(--ta-muted); cursor: pointer; }

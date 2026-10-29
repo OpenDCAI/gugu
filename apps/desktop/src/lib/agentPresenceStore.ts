@@ -396,6 +396,7 @@ function presentationOf(
 ): AgentStatusPresentation {
   const reachability = deriveAgentReachability({
     accountStatus: payload.accountStatus,
+    sessionArchivedAt: payload.sessionArchivedAt,
     desiredStatus: payload.desiredStatus,
     deviceOnline,
   })

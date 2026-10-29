@@ -82,7 +82,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
           {/* 卡上记着接手的是哪种 agent(贴卡时写下的),谁看都画这一枚;没记的老卡画通用的星 —— ❌ 去查这个 agent 现在看不看得到。 */}
           {task ? (task.agentType ? <EngineIcon engine={task.agentType} size={13} /> : <Sparkles size={13} />) : <Clock size={13} />}
         </span>
-        <span className="text-[var(--font-body)] font-semibold">
+        <span className="min-w-0 truncate text-[var(--font-body)] font-semibold">
           {task ? t('message.taskCard.task') : `${t('message.taskCard.schedule')} · ${card.type === 'schedule' ? card.scheduleLabel : ''}`}
         </span>
         <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
@@ -93,9 +93,9 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
       ) : task && (
         <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
           <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
-          <span className="flex shrink-0 items-center gap-1">
+          <span className="flex min-w-0 items-center gap-1">
             <Avatar name={task.agentName} avatarUrl={task.agentAvatar ?? null} seed={task.agentUserId} isAgent harnessBadge={false} size={16} still />
-            <b className="font-medium text-[var(--text-secondary)]">{task.agentName}</b>
+            <b className="truncate font-medium text-[var(--text-secondary)]">{task.agentName}</b>
           </span>
           <span className="min-w-0 truncate">
             {join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}
@@ -113,7 +113,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
  */
 export function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
-  if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
+  if (!status || status === 'pending' || status === 'removed' || status === 'archived' || status === 'offline') return null
   if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />
   const presentation = presentAgentStatus({
     reading: status === 'parked' ? { status: 'working', detail: 'parked' } : { status, detail: null },

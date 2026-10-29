@@ -143,7 +143,7 @@ export async function listDevices(
   if (!ownerId) throw new Error('listDevices requires ownerId (refuse to list devices without an owner scope)')
   const owned = client
     .from('gugu_devices')
-    .select('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
+    .select('device_id, label, hostname, platform, status, last_seen_at, created_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
     .eq('user_id', ownerId)
   const { data, error } = await (options.deviceIds ? owned.in('device_id', options.deviceIds) : owned)
     .order('last_seen_at', { ascending: false })
@@ -179,6 +179,9 @@ export function normalizeDeviceRow(value: unknown): Device {
     capabilities: normalizeDeviceCapabilities(row.capabilities),
     // 老行 / 老测试桩没有这列 ⇒ null(展示层退回按 device_id 归类),❌ 当缺列报错。
     machine_id: typeof row.machine_id === 'string' && row.machine_id ? row.machine_id : null,
+    // When this row first appeared (a new install, a new data directory): what tells a machine that replaced another
+    // from an old one. Old rows / stubs without it ⇒ absent.
+    ...(typeof row.created_at === 'string' && row.created_at ? { created_at: row.created_at } : {}),
     ...(typeof row.tier === 'string' && row.tier ? { tier: row.tier } : {}),
     // 离线时手机拿它显示「这台机器上有哪些会话、卡在哪儿」。同上:老行没有这列 ⇒ 空,
     // ❌ 不报错 —— 迁移铺开之前每一行都没有它。
@@ -265,6 +268,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     // @@@fleet-version (#663) - old hosts omit the field → undefined (UI shows 版本未知).
     app_version:
       typeof row.app_version === 'string' && row.app_version.length > 0 ? row.app_version : undefined,
+    published_desktop_version: typeof row.published_desktop_version === 'string' ? row.published_desktop_version : undefined,
     // #6264 老宿主不报这几项 ⇒ 缺席(界面退回平台名、不显示升级状态),❌ 补默认值冒充事实。
     ...(row.host_kind === 'server' || row.host_kind === 'desktop' || row.host_kind === 'phone' ? { host_kind: row.host_kind } : {}),
     ...(typeof row.os_name === 'string' && row.os_name ? { os_name: row.os_name.slice(0, 80) } : {}),

@@ -3,6 +3,7 @@ import { assistantPanelFailure } from '@/components/assistant/assistant-panel-er
 import { useTranslation } from 'react-i18next';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
+import { requestCloudVersionMatch, useCloudVersionMatch } from '@/lib/cloudVersionMatch';
 import { CheckCircle, Copy, ExternalLink, Eye, EyeOff } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -120,6 +121,7 @@ function IntegrationBrowserAuthorization({
 }) {
   const { authorizeIntegration, cancelIntegrationAuthorization } = useIntegrationsContext();
   const remote = useLibraryHost().remote;
+  const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const [waiting, setWaiting] = useState(false);
@@ -139,6 +141,7 @@ function IntegrationBrowserAuthorization({
   );
 
   const start = async () => {
+    if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
     setError(null);
     setWaiting(true);
     waitingRef.current = true;
@@ -176,7 +179,9 @@ function IntegrationBrowserAuthorization({
         </p>
         {error ? (
           <p className="text-xs text-foreground-destructive" role="alert">
-            {error}
+            {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion?.status === 'failed' ? cloudVersion.error
+                : cloudVersion?.status === 'ready' ? translate('integrations.cloudUpdated') : error}
           </p>
         ) : null}
       </DialogContentArea>
@@ -222,6 +227,7 @@ function IntegrationCliLogin({
   const { startCliLogin, waitCliLogin, readCliProgress, cancelIntegrationAuthorization } = useIntegrationsContext();
   const readProgress = useCallback(() => readCliProgress?.(integration) ?? Promise.resolve(null), [readCliProgress, integration]);
   const remote = useLibraryHost().remote;
+  const cloudVersion = useCloudVersionMatch(remote?.deviceId ?? null);
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const [phase, setPhase] = useState<'idle' | 'starting' | 'waiting'>('idle');
@@ -245,6 +251,7 @@ function IntegrationCliLogin({
   const start = async () => {
     setError(null);
     setPrompt(null);
+    if (cloudVersion?.status === 'failed' && remote) await requestCloudVersionMatch(remote.deviceId, true);
     setPhase('starting');
     activeRef.current = true;
     try {
@@ -330,7 +337,7 @@ function IntegrationCliLogin({
               <img
                 src={prompt.image}
                 alt={translate('integrations.cliQrAlt', { name: metadata.name })}
-                className="size-44 rounded-lg border border-border bg-white p-1"
+                className="size-44 rounded-lg border border-border bg-[var(--qr-paper)] p-1"
               />
               <p className="text-sm text-foreground-muted">{translate('integrations.cliQrHint', { name: metadata.name })}</p>
               {copyLink}
@@ -362,7 +369,9 @@ function IntegrationCliLogin({
         ) : null}
         {error ? (
           <p className="whitespace-pre-wrap text-xs text-foreground-destructive" role="alert">
-            {error}
+            {cloudVersion?.status === 'updating' ? translate('integrations.cloudUpdating', { version: cloudVersion.version })
+              : cloudVersion?.status === 'failed' ? cloudVersion.error
+                : cloudVersion?.status === 'ready' ? translate('integrations.cloudUpdated') : error}
           </p>
         ) : null}
       </DialogContentArea>
@@ -376,7 +385,7 @@ function IntegrationCliLogin({
             {translate('integrations.cliOpenAuthorizePage', { name: metadata.name })}
           </ConfirmButton>
         ) : phase === 'waiting' ? null : (
-          <ConfirmButton onClick={() => void start()} disabled={phase === 'starting'}>
+          <ConfirmButton onClick={() => void start()} disabled={phase === 'starting' || cloudVersion?.status === 'updating'}>
             {phase === 'starting' ? <LoadingIndicator size="inline" className="mr-2" /> : null}
             {phase === 'starting'
               ? translate('integrations.cliConnecting')

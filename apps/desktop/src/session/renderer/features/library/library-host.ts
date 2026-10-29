@@ -68,14 +68,16 @@ export type LibraryIntegrationsRpc = Pick<
   | 'authorize'
   | 'cancelAuthorization'
   | 'cliLoginStart'
-  | 'cliToolPrepare'
   | 'cliLoginWait'
   | 'cliLoginProgress'
   | 'accounts'
   | 'checkAccounts'
   | 'checkAllConnections'
   | 'checkConfiguredConnections'
->;
+> & {
+  /** Renderer-only cancellation; never serialized into the host RPC. */
+  cliToolPrepare(id: string, signal?: AbortSignal): ReturnType<IntegrationsApi['cliToolPrepare']>;
+};
 
 /** GitHub 账号(集成那一页的 GitHub 卡片、连接弹窗、设备码弹窗)。 */
 export type LibraryGithubRpc = Pick<

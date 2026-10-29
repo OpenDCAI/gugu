@@ -38,6 +38,8 @@ export interface ShareToAppsPayload {
   text?: string
   title?: string
   files?: Array<{ file: FileHandle; name: string; mimeType?: string }>
+  /** Bytes made here (a live document's text, say), shared as files beside `files`. */
+  blobs?: Array<{ blob: Blob; name: string }>
 }
 
 /** 没收下的原因,给界面挑一句用户看得懂的话;原文只进日志。 */
@@ -112,7 +114,6 @@ export interface AppPlatform {
    * ❌ 读不到就抛 —— 调用方必须当场告诉用户「这次带不上」,不许静默附一个空的。
    */
   readLogTail: () => Promise<FeedbackLogTail>
-  openAgentRuntime: (agentUserId: string) => Promise<unknown>
   /**
    * 用系统应用打开一个附件。字节怎么拿由宿主挑:桌面要字节(交给主进程落盘再打开),安卓要签名链接(原生自己下),
    * 网页开新标签页。两样都按需取,宿主只调它要的那一样。
@@ -168,6 +169,8 @@ export interface AppPlatform {
    * 可选:只有带本机设备 runtime 的宿主(Electron)有这个口;网页与移动端没有可通知的对象。
    */
   notifyDeviceCommandsChanged?: () => void
+  /** 渲染层建 / 改 / 删了定时任务:本机设备 runtime 当场重排(表上没有事件)。只有 Electron 有。 */
+  notifyScheduledTasksChanged?: () => void
   /**
    * #6396 本账号的 agent 有变动(另一台设备建了 / 改名 / 删了)—— 告诉本机会话页起名那一层当场刷新「用到几号」。
    * 可选:只有在本机起会话页会话的宿主(Electron)有这个口。

@@ -59,6 +59,22 @@ describe('@ 弹层读会话目录', () => {
     expect(items.map((item) => item.id)).toEqual(['aid:agent-local', 'not-read:dev-c']);
   });
 
+  it('中文名按拼音全拼、首字母、混拼都能筛到;咕咕号只认全等或前缀', async () => {
+    const HAN = { sessionId: 'local-2', identity: { users: { id: 'agent-han', display_name: '咕咕助手', gugu_number: 52013 } }, engine: 'claude' };
+    const ids = async (query: string) => {
+      sessionPeers.mockResolvedValueOnce([LOCAL, HAN]);
+      directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
+      return (await createLocalSessionMentionProvider().search(query)).map((item) => item.id);
+    };
+    expect(await ids('gugu')).toEqual(['aid:agent-han']);
+    expect(await ids('ggzs')).toEqual(['aid:agent-han']);
+    expect(await ids('guguzs')).toEqual(['aid:agent-han']);
+    expect(await ids('520')).toEqual(['aid:agent-han']);
+    expect(await ids('52013')).toEqual(['aid:agent-han']);
+    expect(await ids('013')).toEqual([]);
+    expect(await ids('03')).toEqual([]);
+  });
+
   it('全都读到了:只有会话,没有说明行', async () => {
     directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
     const items = await createLocalSessionMentionProvider().search('');

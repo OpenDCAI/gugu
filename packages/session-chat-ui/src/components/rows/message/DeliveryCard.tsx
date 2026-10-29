@@ -18,6 +18,8 @@ import { pxTokens } from '@session-chat/styles/px-tokens';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import { UserMessageCard } from './UserMessageCard';
+import { SenderName } from './SenderName';
+import { messageSenderTarget } from '@session-chat/lib/sender-target';
 import { splitAttachmentMentions } from '@session-chat/core/markdown/attachment-mentions';
 import { userAvailableWidth, type MessageVars } from './metrics';
 import { estimateUserMessage, measureUserMessage } from './user-message-metrics';
@@ -308,9 +310,7 @@ function SingleDelivery(props: {
             )}
           </Show>
         </span>
-        <span class={deliverySender} data-slot="delivery-sender">
-          {sender()}
-        </span>
+        <span data-slot="delivery-sender"><SenderName class={deliverySender} name={sender()} target={messageSenderTarget(facts())} /></span>
         <Show when={facts()}>{(f) => <span class={deliveryRoute} data-slot="delivery-route">{routeLabel(f(), translate, namers)}</span>}</Show>
   </>);
 
@@ -338,7 +338,9 @@ function SingleDelivery(props: {
     >
       <Show when={!bodyOnly(props.data)}>
       <div class={deliveryHeader} data-slot="delivery-header">
-        <Show when={hasDetails()} fallback={<span class={deliveryFactsToggle}>{sourceContent()}</span>}>
+        <div class={deliveryFactsToggle}>
+          {sourceContent()}
+        <Show when={hasDetails()}>
           <button
             type="button"
             class={deliveryFactsToggle}
@@ -348,10 +350,10 @@ function SingleDelivery(props: {
             aria-label={`${sender()} · ${facts() ? routeLabel(facts()!, translate, namers) : ''} · ${translate('transcript.deliveryDetails')}`}
             title={translate('transcript.deliveryDetails')}
           >
-            {sourceContent()}
             <span aria-hidden="true">{factsOpen() ? '▾' : '▸'}</span>
           </button>
         </Show>
+        </div>
       </div>
       <Show when={facts()?.replyTo}>
         {(reply) => (

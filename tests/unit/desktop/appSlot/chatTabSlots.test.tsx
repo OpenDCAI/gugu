@@ -8,7 +8,7 @@ import { createReactHarness } from '../../../support/testHarness'
 import { installShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { folderItem } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item'
 import { chatLayoutOf, closeChatTab, closeInfoTab, closeTopicTab, infoTabOf, openInfoTab, openPanelItem, openTopicTab, showChatOnly, showChatTab } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
-import { chatPanelTabProvider } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-tab-providers'
+import { ChatTabHostContext, chatPanelTabProvider } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-tab-providers'
 import { ChatTabPage, ChatTabPortals } from '../../../../apps/desktop/src/components/appSlot/ChatTabHosts'
 import { PaneContent } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-content'
 import { PaneContext } from '../../../../apps/desktop/src/session/renderer/features/tabs/pane-context'
@@ -157,5 +157,24 @@ describe('a chat\'s info is one of its tabs (owner 10-26)', () => {
     expect(harness.container.textContent).toBe('Info')
     await act(async () => closeInfoTab(chatId))
     expect(harness.container.textContent).toBe('')
+  })
+})
+
+describe('the chat itself stays mounted while another of its tabs is the one shown', () => {
+  // 重启后亮着的是单独一枚群信息页(没并排):对话那一层要挂着 —— 群信息页、对话的名字、右端按钮都由它画(owner 10-28)。
+  it('restored with only the info tab on screen, the chat is there (hidden) and the info page gets drawn', async () => {
+    const chatId = 'lone-info-restored'
+    const group = chatLayoutOf(chatId).groups[0]!
+    const pane = group.pane
+    await act(async () => { openInfoTab(chatId, 'members'); pane.separatePair() })
+    expect(pane.resolvedActiveTabId).toBe(infoTabOf(chatId)!.tabId)
+    const host = { chip: () => null, body: createElement('div', { 'data-chat-body': '' }), ownBlock: () => {} }
+    await harness.render(createElement(ChatTabHostContext.Provider, { value: host },
+      createElement(PaneContext.Provider, { value: { paneId: group.paneId, pane, isFocusedPane: true } }, createElement(PaneContent, { hideTabBar: true })),
+    ))
+    const chat = harness.container.querySelector<HTMLElement>('[data-chat-body]')
+    expect(chat, 'the chat is mounted though it was never on screen').not.toBeNull()
+    expect(chat!.closest<HTMLElement>('[style*="content-visibility"]')?.style.contentVisibility, 'and hidden').toBe('hidden')
+    expect(slots()).toEqual([infoTabOf(chatId)!.tabId])
   })
 })

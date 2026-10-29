@@ -47,8 +47,9 @@ import { turnOutcomeUnitDef } from '@session-chat/components/rows/turn-outcome/t
 import { turnProcessUnitDef } from '@session-chat/components/rows/turn-process/turn-process.def';
 import { turnCompletionUnitDef } from '@session-chat/components/rows/turn-process/turn-completion.def';
 import { toolRunUnitDef } from '@session-chat/components/rows/tool-run/tool-run.def';
+import { conversationStepUnitDef } from '@session-chat/components/rows/conversation-step/conversation-step.def';
 import { toolCallName } from '@gugu/session-core/acp/client';
-import { isPlanApprovalToolName } from '@gugu/session-core/session-record/question-tools';
+import { isPlanApprovalToolName, isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
 import type { GroupChrome, ItemSegmenter, SegmentCtx, SegmentItem, UnitDef } from '@session-chat/core/units';
 import { unit } from '@session-chat/core/units';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
@@ -192,6 +193,11 @@ function toolNodeSegment(kind: ToolNode['kind']): ItemSegmenter {
     chrome: COMPOSITE_CHROME,
     segment(item, ctx) {
       const tool = item as ToolNode;
+      if (ctx.agentConversation && tool.kind !== 'tool-group' && !isQuestionOrPlanToolName(toolCallName(tool))) {
+        const row = unit('conversation-step', tool, tool, { key: 'self' });
+        row.chrome = MESSAGE_CHROME;
+        return [row];
+      }
       // 派发子智能体那一行**永远是一行**:它下面挂着的是那个子智能体自己跑的调用,
       // 而那些 ❌ 不进主消息列表(owner 2026-09-05),所以这里不许走成可展开的组。
       // 那批调用没有丢 —— 花名册按 `parentToolCallId` 收走了,显示在面板上它那张卡上。
@@ -306,6 +312,7 @@ export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
   'turn-process': turnProcessUnitDef as unknown as RegistryUnitDef,
   'turn-completion': turnCompletionUnitDef as unknown as RegistryUnitDef,
   'tool-run': toolRunUnitDef as unknown as RegistryUnitDef,
+  'conversation-step': conversationStepUnitDef as unknown as RegistryUnitDef,
   'plan-review': planReviewUnitDef as unknown as RegistryUnitDef,
   'file-change-summary': fileChangeSummaryUnitDef as unknown as RegistryUnitDef,
   'opened-output': openedOutputUnitDef as unknown as RegistryUnitDef,

@@ -15,6 +15,7 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
+import { takeLastExit } from '../../lib/exit-reason'
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
@@ -67,7 +68,6 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
-import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
@@ -101,6 +101,7 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
@@ -141,6 +142,8 @@ import { resolveAgentSessionProject } from '@main/core/projects/operations/resol
 import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { deleteSession } from '@main/core/sessions/deleteSession'
 import { getSessions } from '@main/core/sessions/getSessions'
+import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
+export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
 import { mcpLibraryService, planLibraryMcpDelivery } from '@main/core/mcp-library/service'
 import { mcpService } from '@main/core/mcp/services/McpService'
 import type { LibraryMcpServer } from '@shared/mcp-library'
@@ -512,6 +515,13 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
+  try {
+    const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
+    if (demoted.length > 0) log.info('project-kind: app-kept directories are workspaces now', { demoted })
+  } catch (error) {
+    log.error('project-kind: migration failed; retrying next start', { error: String(error) })
+  }
   await tmuxBackendStartupSweepSettled()
   await runTaskToSessionOnce({ db: sqlite, userData: app.getPath('userData') }).then(
     (summary) => { if (summary) log.info('task-to-session: segment 2 done', { summary }) },
@@ -559,7 +569,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       log.error('[session-host] 开机收残问不出 tmux 会话列表,按一个都没活下来收', { error: String(error) })
       return new Set<string>()
     })
-    await agentStatusWriter.settleAfterRestart(tmuxSessionNames)
+    // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
+    await agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir))
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     claimInterruptedDispatches()
@@ -933,6 +944,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
+export { setSessionOpening } from '@main/core/extensions/gugu-links'
+
 export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
   return await openLink(url)
 }
@@ -2168,21 +2181,23 @@ export async function emdashOpenSessionFile(
 /**
  * @@@sessionpage TASKPAGE-FUSION — the authoritative inventory the gugu host reconciles its social-side
  * projection against (session-page spec ⑨: the session page is the single source of truth; gugu's contacts and
- * groups are a projection of it). `sessionIds` = conversations that still EXIST and are not archived;
+ * groups are a projection of it). `sessionIds` = conversations that still EXIST, including archived;
  * `projectIds` = projects that still exist. The host reaps any session-page agent whose conversation is absent
- * here, and archives the group mirroring any absent project. Conversations reuse `getSessions` — the
- * same query the session-page UI lists from (it already hides archived conversations) — so
- * anything absent here is absent from the product and reaping on absence can never orphan a visible row.
+ * here, and archives the group mirroring any absent project. Visibility and existence are separate:
+ * an archived conversation keeps its identity, name, relationships and group seat.
  */
 export async function emdashSessionpageInventory(): Promise<{
   sessionIds: string[]
   projectIds: string[]
+  archival: NonNullable<ReturnType<typeof sessionArchivalState>>[]
 }> {
+  const archival = sessionArchivalInventory()
   // Detaching folders only hides a project. Its historical group must survive reaping.
-  const [sessionRows, projectRows] = await Promise.all([getSessions(), getProjects({ includeHidden: true })])
+  const projectRows = await getProjects({ includeHidden: true })
   return {
-    sessionIds: sessionRows.map((c) => c.id),
+    sessionIds: archival.map((state) => state.sessionId),
     projectIds: projectRows.map((p) => p.id),
+    archival,
   }
 }
 
@@ -2190,8 +2205,8 @@ export async function emdashSessionpageInventory(): Promise<{
  * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
  * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
  * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases. Only
- * `session:archived` / `session:deleted` NAME a dead session; `session:torn-down` (archive, delete,
+ * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
+ * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
  * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
  * the session. Returns an unsubscribe fn.
  */
@@ -2222,12 +2237,13 @@ export function onEmdashSessionpageReapTrigger(
       cb('session:deleted', { deadSessionId: sessionId }))
   )
   sub('session:archived', () =>
-    sessionEvents.on('session:archived', (sessionId) =>
-      cb('session:archived', { deadSessionId: sessionId }))
+    sessionEvents.on('session:archived', () =>
+      cb('session:archived'))
   )
+  sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
   // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。会话死亡的写入者是上面的 session:archived / session:deleted(行操作之后才发);
+  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
   // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))
@@ -2381,12 +2397,13 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   lastInteractedAt: string | null
 }>> {
   const [rows, projectRows] = await Promise.all([getSessions(), getProjects()])
-  const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
+  // #609 workspace 不是项目,不带名字(与心跳摘要同一条,见 sessionpageSessionDigest)。
+  const projectName = new Map(projectRows.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
     projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
-    projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
+    projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
       ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null }
@@ -2442,13 +2459,14 @@ export function sessionpageSessionDigest(): Array<{
   refreshDigestAgents()
   const agents = digestAgents
   const { projects, sessions } = listSessionStates()
-  const projectName = new Map(projects.map((project) => [project.id, project.name]))
+  // #609 workspace(任务工作区、替人登记的 ~)不是项目:摘要里不带它的名字,读方据此把它的会话列进「任务」。
+  const projectName = new Map(projects.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return [...sessions]
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       conversationId: session.conversationId,
       projectId: session.projectId,
-      projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
+      projectName: projectName.get(session.projectId) ?? '',
       title: session.title,
       harness: session.harness,
       agentStatus: session.agentStatus,

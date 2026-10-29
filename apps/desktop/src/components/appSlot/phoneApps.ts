@@ -192,26 +192,77 @@ function ready(): Promise<void> {
   return loading
 }
 
+/**
+ * Why the index could not be read this page load (null: it was). Then nothing is written over it and no App's files go:
+ * what can be read is drawn, every change is refused (`writable`) and the settings page offers to read it again (`reload`).
+ */
+let unreadable: string | null = null
+const UNREADABLE = 'The list of Apps on this phone could not be read, so nothing was changed. Try again.'
+
+/** The switched-off list as last written, kept apart from the index: what stays off while the index cannot be read. */
+const DISABLED_KEY = 'gugu.phoneApps.disabled'
+function lastDisabled(): string[] | null {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(DISABLED_KEY) ?? 'null')
+    return Array.isArray(parsed) && parsed.every((id) => typeof id === 'string') ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const isIdList = (value: unknown): value is string[] | undefined => value === undefined || (Array.isArray(value) && value.every((id) => typeof id === 'string'))
+
+/** The index read as it is stored; a part that is not what it should be makes the whole unreadable (thrown). */
+function parseIndex(stored: string): Index {
+  const parsed = JSON.parse(stored) as Partial<Index> | null
+  if (!parsed || typeof parsed !== 'object' || !isIdList(parsed.disabled) || !isIdList(parsed.autoUpdateOff)) throw new Error('the App store index is not an index')
+  const firstRun = firstRunRecordSchema.safeParse(parsed.firstRun)
+  return { version: 1, installed: parsed.installed ?? {}, serve: parsed.serve ?? {}, firstRun: firstRun.success ? firstRun.data : { state: 'existing' }, disabled: parsed.disabled ?? [], autoUpdateOff: parsed.autoUpdateOff ?? [] }
+}
+
+/** The Apps an index that cannot be read whole still names, to draw them (none when it is not JSON at all). */
+function installedIn(stored: string | null): Record<string, InstalledRecord> {
+  try {
+    const installed = (JSON.parse(stored ?? 'null') as Partial<Index> | null)?.installed
+    return installed && typeof installed === 'object' ? installed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Every write of the index; refused while it could not be read, so what is stored is never written over. */
+async function save(): Promise<void> {
+  if (unreadable) throw new Error(UNREADABLE)
+  await appStore.writeIndex({ json: JSON.stringify(index) })
+  localStorage.setItem(DISABLED_KEY, JSON.stringify(index.disabled ?? []))
+}
+
+/** What every change waits for: the index read, and read whole. */
+async function writable(): Promise<void> {
+  await ready()
+  if (unreadable) throw new Error(UNREADABLE)
+}
+
+let listening = false
+
 async function load(): Promise<void> {
   shipped = await readShipped()
   shippedIcons = Object.assign({}, ...(await Promise.all(shipped.map((manifest) => iconsOf(manifest, (path) => shippedFile(manifest.id, path), true)))))
-  const stored = (await appStore.readIndex()).json
-  // No index: this phone's first start — the first-run set goes in (161 10-15; silently, owner 10-16).
-  index.firstRun = stored ? { state: 'existing' } : { state: 'pending' }
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as Partial<Index>
-      const firstRun = firstRunRecordSchema.safeParse(parsed.firstRun)
-      const disabled = parsed.disabled === undefined || (Array.isArray(parsed.disabled) && parsed.disabled.every((id) => typeof id === 'string'))
-        ? (parsed.disabled ?? [])
-        : (log.error({ disabled: String(parsed.disabled) }, 'the App store index has an unreadable list of switched-off Apps; all are on'), [])
-      const autoUpdateOff = parsed.autoUpdateOff === undefined || (Array.isArray(parsed.autoUpdateOff) && parsed.autoUpdateOff.every((id) => typeof id === 'string'))
-        ? (parsed.autoUpdateOff ?? [])
-        : (log.error({ autoUpdateOff: String(parsed.autoUpdateOff) }, 'the App store index has an unreadable list of Apps not updated by themselves; all are'), [])
-      index = { version: 1, installed: parsed.installed ?? {}, serve: parsed.serve ?? {}, firstRun: firstRun.success ? firstRun.data : { state: 'existing' }, disabled, autoUpdateOff }
-    } catch (error) {
-      log.error({ error: String(error) }, 'the App store index could not be read; starting empty')
-    }
+  index = { version: 1, installed: {}, serve: {} }
+  unreadable = null
+  let stored: string | null = null
+  try {
+    stored = (await appStore.readIndex()).json
+    // No index: this phone's first start — the first-run set goes in (161 10-15; silently, owner 10-16).
+    if (stored) index = parseIndex(stored)
+    else index.firstRun = { state: 'pending' }
+  } catch (error) {
+    unreadable = error instanceof Error ? error.message : String(error)
+    log.error({ error: unreadable }, 'the App store index could not be read; it is left as it is and nothing is changed')
+    index.installed = installedIn(stored)
+    // What was switched off stays off; never written down here, every App installed is off (fail closed).
+    index.disabled = lastDisabled() ?? Object.keys(index.installed)
+    index.firstRun = { state: 'existing' }
   }
   // A shipped App's id is gugu's: a package installed under it before (not possible now, E-05) never shadows it.
   for (const manifest of shipped) {
@@ -220,19 +271,32 @@ async function load(): Promise<void> {
   }
   for (const record of Object.values(index.installed)) {
     index.serve[record.manifest.id] = { root: `file:${record.dir}`, csp: cspOf(record.manifest) }
-    if (record.runtimeTag !== RUNTIME_SCRIPT_TAG) await retag(record)
+    if (!unreadable && record.runtimeTag !== RUNTIME_SCRIPT_TAG) await retag(record)
   }
-  await appStore.writeIndex({ json: JSON.stringify(index) })
+  if (unreadable) {
+    tell()
+    return
+  }
+  await save()
   // What no index entry names — an older version, an install that stopped half way — goes now, before any page opens.
   const named = new Set(Object.values(index.installed).map((record) => record.dir))
   const { dirs } = await appStore.list()
   for (const dir of dirs) if (!named.has(dir)) await appStore.discard({ dir })
   tell()
   // Market Apps update by themselves (owner 10-19): once a page load, after the index is asked for; then whenever it changes.
-  market.onRefreshed((refreshed) => {
-    if (refreshed.outcome === 'changed') void autoUpdate()
-  })
+  if (!listening) {
+    listening = true
+    market.onRefreshed((refreshed) => {
+      if (refreshed.outcome === 'changed' && !unreadable) void autoUpdate()
+    })
+  }
   void market.refresh().then(() => autoUpdate())
+}
+
+/** The settings page's 「重试」: the index read again from the start. */
+function reload(): Promise<void> {
+  loading = null
+  return ready()
 }
 
 /** The build's runtime line changed (its format or `/_gugu/<ver>/`): the installed pages are given the new one. */
@@ -451,7 +515,7 @@ async function installAttachment(args: AttachmentPackage & { unasked?: boolean; 
     const found = await resolveAttachmentPackage(args, phonePackageReads)
     // The person behind the publisher the server vouches for (an agent's owner): who published these bytes (app-identity.ts).
     const publisher = await publisherOf(async (id) => (await readDisplayIdentities([id]))[0] ?? null, found.publisher)
-    await ready()
+    await writable()
     // 摩擦单 F66: nobody clicked, and it could be no update of an App here — not downloaded.
     if (args.unasked && !couldUpdateUnasked(publisher.id, Object.keys(index.installed).flatMap((id) => installedHere(id) ?? []))) {
       await found.file.dispose()
@@ -539,7 +603,7 @@ async function installFromMarket(args: {
   consent?: Exclude<InstallConsent, { kind: 'here' }> | { kind: 'gugu' }
 }): Promise<Result<PhoneMarketOutcome>> {
   try {
-    await ready()
+    await writable()
     const { extensionId } = args.ref
     const key = (version: string) => `${extensionId}@${version}`
     let pkg = args.consent?.kind === 'given' && args.ref.version ? held.get(key(args.ref.version)) : undefined
@@ -629,7 +693,7 @@ async function store(
     icons,
   }
   index.serve[manifest.id] = { root: `file:${dir}`, csp: cspOf(manifest) }
-  await appStore.writeIndex({ json: JSON.stringify(index) })
+  await save()
   tell()
 }
 
@@ -712,14 +776,14 @@ async function writeAutoUpdate(id: string, on: boolean): Promise<void> {
   if (on) off.delete(id)
   else off.add(id)
   index.autoUpdateOff = [...off]
-  await appStore.writeIndex({ json: JSON.stringify(index) })
+  await save()
   tell()
 }
 
 /** An App's 「自动更新」 (owner 10-19): only a market App installed here has one. Back on, it is updated at once (as VS Code does). */
 async function setAutoUpdate(id: string, on: boolean): Promise<Result<null>> {
   try {
-    await ready()
+    await writable()
     if (index.installed[id]?.origin !== 'market') throw new Error(`"${id}" is not an App from the market installed here`)
     await writeAutoUpdate(id, on)
     if (on) void autoUpdate()
@@ -765,7 +829,7 @@ function forgetOrigin(id: string): Promise<void> {
 /** Removed from this phone: its files, and what it stored in its own origin goes with the origin (never the group's files). */
 async function uninstall(id: string): Promise<Result<null>> {
   try {
-    await ready()
+    await writable()
     if (shipped.some((manifest) => manifest.id === id)) throw new Error(`"${id}" is a preinstalled App and cannot be uninstalled.`)
     const record = index.installed[id]
     if (!record) throw new Error(`"${id}" is not installed`)
@@ -777,7 +841,7 @@ async function uninstall(id: string): Promise<Result<null>> {
     // "Off" was about something no longer here: a reinstall arrives switched on (as the desktop's uninstall).
     index.disabled = (index.disabled ?? []).filter((one) => one !== id)
     index.autoUpdateOff = (index.autoUpdateOff ?? []).filter((one) => one !== id)
-    await appStore.writeIndex({ json: JSON.stringify(index) })
+    await save()
     await appStore.discard({ dir: record.dir })
     await appStore.dataRemove({ app: id })
     tell()
@@ -793,14 +857,14 @@ async function uninstall(id: string): Promise<Result<null>> {
  */
 async function setEnabled(id: string, enabled: boolean): Promise<Result<null>> {
   try {
-    await ready()
+    await writable()
     if (shipped.some((manifest) => manifest.id === id)) throw new Error(`"${id}" is a preinstalled App and cannot be switched off.`)
     if (!index.installed[id]) throw new Error(`"${id}" is not installed`)
     const disabled = new Set(index.disabled ?? [])
     if (enabled) disabled.delete(id)
     else disabled.add(id)
     index.disabled = [...disabled]
-    await appStore.writeIndex({ json: JSON.stringify(index) })
+    await save()
     tell()
     return { success: true, data: null }
   } catch (error) {
@@ -859,9 +923,9 @@ const firstRun = {
   },
   async set(record: FirstRunRecord): Promise<Result<null>> {
     try {
-      await ready()
+      await writable()
       index.firstRun = firstRunRecordSchema.parse(record)
-      await appStore.writeIndex({ json: JSON.stringify(index) })
+      await save()
       return { success: true, data: null }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -871,6 +935,9 @@ const firstRun = {
 
 export const phoneApps = {
   ready,
+  reload,
+  /** Why this page load could not read the list of Apps here (null: it could); nothing is changed until it can. */
+  unreadable: (): string | null => unreadable,
   firstRun,
   installAttachment,
   installFromMarket,

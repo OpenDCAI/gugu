@@ -14,6 +14,7 @@ import { LIBRARY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-li
 import { PROJECT_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-project-tool'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 import { EXTENSION_TOOL_DEFS, setExtensionCheckAvailable } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
+import { handleUnifiedSessionMessage } from '../../../../apps/desktop/electron/unified-session-message'
 
 // #4191:胖工具 gugu_session(action 分派 + union)退役,会话页两域 = registerGuguSessionTools 的
 // session_* 原子工具 + registerGuguExtensionTools 的 app_* 三个,同一台会话 MCP server。
@@ -87,6 +88,34 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
+  it.each([false, true])('returns an Agent-ID receipt after exactly one delivery (remote: %s)', async (remote) => {
+    const delivered: string[] = []
+    const deliver = async (ids: string[]) => {
+      delivered.push(...ids)
+      return { recipients: ids.map(id => ({ to: `session:${id}`, status: 'delivered' as const, message_id: 'receipt' })) }
+    }
+    const client = await connectTo(socialContext(async action => handleUnifiedSessionMessage(action as Record<string, unknown>, {
+      caller: { sessionId: 'caller', runtimeFork: false },
+      graphMessage: deliver,
+      localSessionsOfAgents: async () => ({ sessions: new Map(remote ? [] : [['target-agent', 'target-session']]), deletedRecipients: [] }),
+      resolveLocalGuguNumbers: async () => new Map(),
+      ...(remote ? { remote: {
+        locateAgents: async () => ({ byUserId: new Map([['target-agent', 'other-device']]), numberToUserId: new Map() }),
+        thisDeviceId: async () => 'this-device',
+        sessionsOfAgents: async () => new Map([['target-agent', 'target-session']]),
+        locateSessions: async () => ({ found: new Map(), missingMessage: null }),
+        assertReachable: async () => {},
+        deliver: async (_device, group) => (await deliver(group.sessionIds)).recipients,
+      } } : {}),
+    })))
+    const response = await client.callTool({ name: 'session_message', arguments: { to: ['aid:target-agent'], text: 'one marker' } })
+    expect(delivered).toEqual(['target-session'])
+    expect(response.isError).not.toBe(true)
+    expect(JSON.parse(responseText(response)).recipients).toEqual([
+      { to: 'user:target-agent', session_id: 'session:target-session', status: 'delivered', message_id: 'msg:receipt' },
+    ])
+  })
+
   it('requires the assistant to distinguish a question from an assignment before dispatch', async () => {
     const seen: unknown[] = []
     const client = await connectTo({ ...socialContext(async action => { seen.push(action); return { recipients: [] } }), personalAssistant: true })

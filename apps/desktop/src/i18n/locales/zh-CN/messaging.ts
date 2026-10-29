@@ -19,6 +19,7 @@ export default {
       "startFailed": "Agent 启动失败"
     },
     "offlineWarning": "当前不在线，可能无法及时回复",
+    "archivedWarning": "对方已归档",
     "wakeRefused": "{{name}}现在上不了线：",
     "dm": {
       "resolving": "正在打开会话…",
@@ -507,17 +508,15 @@ export default {
       "sectionAgents": "Agent",
       "sectionPeople": "人",
       "myAgents": "我的 agent · {{count}}",
+      "otherAgents": "其他人的 agent · {{count}}",
+      "listen": {
+        "all": "收听全部消息",
+        "allHint": "群里没点名的消息它也会收到。主人点这里可改为只收点名。",
+        "mentions": "只收点名",
+        "mentionsHint": "只收到点名它、回复它的消息。主人点这里可改为收听全部消息。"
+      },
       "title": "群成员",
       "titleTopic": "话题成员"
-    },
-    "topicInvite": {
-      "title": "添加话题成员",
-      "search": "搜索成员",
-      "message": "{{names}} 邀请你们加入话题。",
-      "confirm": "添加（{{count}}）",
-      "empty": "来源对话中暂无其他可添加的成员。",
-      "noResults": "没有匹配的成员。",
-      "failed": "邀请未完成，请重试。"
     },
     "join": {
       "denied": {
@@ -714,6 +713,11 @@ export default {
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
+      "keepTemporary": "设为临时",
+      "keepPermanent": "一直保留",
+      "keptTemporary": "已设为临时：到期后删除云端那份",
+      "keptPermanent": "已设为一直保留",
+      "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
       "openLink": "打开链接",
@@ -743,6 +747,7 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",

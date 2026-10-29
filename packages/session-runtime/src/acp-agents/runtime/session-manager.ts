@@ -42,6 +42,7 @@ import type {
   NormalizedEvent,
   PlanState,
   PromptDraft,
+  PromptInput,
   PromptDraftUpdate,
   QueuedPrompt,
   QueuedPromptEdit,
@@ -90,7 +91,8 @@ import { SessionCell, type AcpChatHistory } from '../session/cell';
 import { pendingPermissionWaits } from '../session/permission-broker';
 import { classifyTurnFailure } from '../session/turn-failure';
 import type { LiveSettingApplyResult, SessionCellCallbacks, TurnEnvelope } from '../session/cell-deps';
-import type { SessionConfigOption } from '@agentclientprotocol/sdk';
+import type { LoadSessionResponse, SessionConfigOption } from '@agentclientprotocol/sdk';
+import { historyUnknownReason } from './history-recovery';
 import type { SessionNoticeCode } from '@gugu/session-core/acp';
 
 /**
@@ -861,9 +863,19 @@ export class SessionManager implements InboundRouter {
         record.cell.beginReplay();
 
         try {
+          const loadingCell = record.cell;
           const response = await connection.agent.loadSession(
             this.buildLoadSessionRequest(input, loadProviderSessionId)
-          );
+          ).catch((error: unknown): LoadSessionResponse => {
+            const reason = historyUnknownReason(error, loadProviderSessionId);
+            if (reason === null) throw error;
+            loadingCell.markReplayHistoryUnknown();
+            startupNotices.push({
+              code: 'provider-notice',
+              detail: `History unknown: ${reason}. Recovered deliveries may already have been received.`,
+            });
+            return {};
+          });
           record.cell.applySessionLoaded({
             modes: response.modes,
             configOptions: response.configOptions,
@@ -1315,7 +1327,7 @@ export class SessionManager implements InboundRouter {
           this.deps.logger.warn('SessionManager: provider close failed; stopping its process', { sessionId, error: String(error) });
         } finally { if (timer) clearTimeout(timer); }
       }
-      this.keepOwnerQueueAcrossStop(sessionId, record);
+      this.keepQueueAcrossStop(sessionId, record);
       await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
       await record.connectionLease.release();
@@ -1786,6 +1798,12 @@ export class SessionManager implements InboundRouter {
     return closedSessionState();
   }
 
+  /** Read-only stopped queue projection; reading it must never wake the provider. */
+  getStoredQueue(sessionId: string): Array<Pick<PromptInput, 'text' | 'origin'>> {
+    if (this.cells.has(sessionId)) return [];
+    return (this.deps.promptQueueStore?.load(sessionId) ?? []).map(({ text, origin }) => ({ text, origin }));
+  }
+
   getTerminals(sessionId: string): TerminalState[] {
     return this.terminals.listBySession(sessionId);
   }
@@ -2203,6 +2221,7 @@ export class SessionManager implements InboundRouter {
         queuedPromptsPersisted: () => record.queuePersistenceError === null,
       } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
+      ...(this.deps.recoverDelivery ? { recoverDelivery: this.deps.recoverDelivery } : {}),
       logger: this.deps.logger,
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。
       // ⚠️ 与上面 `sessionOpenMeta` 互斥 —— 路由位决定去哪一边,不会两边都去。
@@ -2834,20 +2853,20 @@ export class SessionManager implements InboundRouter {
   }
 
   /**
-   * 停下时队列快照只留主人在输入框里排的话(origin `manual`),下次起来时它照常从快照恢复、先发出去。
-   * 投递信封照旧清掉(规则不变):这里只救人打的字,❌ 顺手改投递的去留 —— 那会多出一条重投的路。
+   * Every queued input has already been accepted. Communication inbox cursors have advanced,
+   * so preserve all origins here; the sender cannot recover an input discarded during stop.
    */
-  private keepOwnerQueueAcrossStop(sessionId: string, record: SessionRecord): void {
+  private keepQueueAcrossStop(sessionId: string, record: SessionRecord): void {
     const store = this.deps.promptQueueStore;
     if (!store) return;
-    const owner = record.cell.sessionState.queuedPrompts.filter((prompt) => prompt.origin === 'manual');
+    const queued = record.cell.sessionState.queuedPrompts;
     try {
-      if (owner.length > 0) store.save(sessionId, owner);
+      if (queued.length > 0) store.save(sessionId, queued);
       else store.clear(sessionId);
     } catch (error) {
-      this.deps.logger.error('SessionManager: failed to keep the owner queue across stop', {
+      this.deps.logger.error('SessionManager: failed to keep accepted inputs across stop', {
         sessionId,
-        queuedPromptCount: owner.length,
+        queuedPromptCount: queued.length,
         error,
       });
     }

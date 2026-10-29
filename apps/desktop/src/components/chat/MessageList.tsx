@@ -13,6 +13,7 @@ import type { MemberProfileSide } from '../memberProfileModels'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
 import { MessageRow } from './MessageRow'
+import { MessageSenderProvider } from './MessageSenderProvider'
 import { MessageBubble } from './MessageBubble'
 import { AgentFloodSystemNotice } from './AgentFloodSystemNotice'
 import { MemberJoinNotice, type MentionTarget } from '../groups/MemberJoinNotice'
@@ -231,6 +232,7 @@ const MessageListRow = memo(function MessageListRow({
     onMentionMember({ id: memberProfile.id, name: memberProfile.displayName })
   }
   const bubble = (
+    <MessageSenderProvider message={msg} group={isGroupChat}>
     <MessageBubble
       msg={msg}
       showReplyQuote={showReplyQuote}
@@ -260,6 +262,7 @@ const MessageListRow = memo(function MessageListRow({
       // @@@multi-select (#988) — More 菜单「多选」入口;多选态的勾选/底色在外层 MessageListRow 处理。
       onEnterSelectMode={onEnterSelectMode}
     />
+    </MessageSenderProvider>
   )
 
   return (

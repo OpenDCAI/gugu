@@ -59,6 +59,7 @@ export interface DeviceCapabilities {
   // @@@fleet-version (#663) - build version of the reporting app; kept in sync with the reader-side
   // DeviceCapabilities in shared/types/chat.ts (same two-sided convention as #647).
   app_version?: string
+  published_desktop_version?: string
 }
 
 // @@@host-runtime-capability-value (#647) - bump when a critical host capability lands, then raise the DB
@@ -790,11 +791,14 @@ export async function syncDeviceHeartbeat(
   // @@@fleet-version (#663) - fold the build version in at row-assembly so every capabilities source
   // (default probe or injected) reports it; heartbeat is the single writer of gugu_devices rows.
   const appVersion = resolveAppVersion(env)
+  const hostInfo = (options.hostInfo ?? resolveDeviceHostInfo)(env)
   // #6264 设置 → 设备每一行要写清是台什么机器(桌面/server、系统、架构、server 升级到哪了),同样在组行时折进来。
   const capabilities = {
     ...detectedCapabilities,
     ...(appVersion ? { app_version: appVersion } : {}),
-    ...(options.hostInfo ?? resolveDeviceHostInfo)(env),
+    ...(appVersion && env.GUGU_BUILD_DISTRIBUTION === 'published' && hostInfo.host_kind === 'desktop'
+      ? { published_desktop_version: appVersion } : {}),
+    ...hostInfo,
     ...resolveDeviceActions(options.deviceActions),
   }
   const timeouts = resolveDeviceOperationTimeouts(options.operationTimeouts)

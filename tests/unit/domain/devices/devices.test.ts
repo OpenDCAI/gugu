@@ -146,7 +146,7 @@ describe('device cloud helpers', () => {
         expect(table).toBe('gugu_devices')
         return {
           select(columns: string) {
-            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
+            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, created_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
             return {
               eq(column: string, value: string) {
                 expect(column).toBe('user_id')       // 必须按 owner 过滤,绝不全表列举

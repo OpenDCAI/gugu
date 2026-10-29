@@ -7,6 +7,7 @@ import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { log } from '@main/lib/logger';
 import { isProcessAlive } from '../../../../server/process-alive';
 import { agentHookService } from './agent-hook-service';
+import { harnessConfigRootOf } from './harness-config-roots';
 import { isAppFocused } from './app-focus';
 
 /**
@@ -40,8 +41,12 @@ export const PRESENCE_APPEAR_WITHIN_MS = 10_000;
 
 export function watchPresenceInterrupt(options: {
   presence: HarnessPresenceFile;
-  /** 这次 spawn 的配置目录(`presence.configDirEnvVar` 或 `<HOME>/<defaultConfigDirName>`)。 */
-  configRoot: string;
+  /**
+   * 这次 spawn 的配置目录候选,每次找都现取:harness 自己在 hook 里报的那个(`transcript_path` 推出,见
+   * harness-config-roots)排第一,然后是 spawn env 的 `presence.configDirEnvVar`,最后 `<HOME>/<defaultConfigDirName>`。
+   * ❌ 只猜一个:`claude` 可能是包装器(reclaude),配置目录由它在进程里自己定,宿主的 env 里看不到(10-28 Linux 2)。
+   */
+  configRoots: () => readonly string[];
   /** 这次 spawn 的 harness 会话 id;还不知道(fork 的子 id 等 hook 报上来)= `undefined`。 */
   harnessSessionId: () => string | undefined;
   isActive: () => boolean;
@@ -57,7 +62,7 @@ export function watchPresenceInterrupt(options: {
   const fs = options.fs ?? nodeFs;
   const isAlive = options.isAlive ?? isProcessAlive;
   const now = options.now ?? Date.now;
-  const directory = join(options.configRoot, presence.directory);
+  let directory: string | null = null;
   let pid: number | null = null;
   let last: HarnessPresenceStatus | null = null;
   let activeSince: number | null = null;
@@ -71,19 +76,22 @@ export function watchPresenceInterrupt(options: {
   };
   const overdue = () => activeSince !== null && now() - activeSince > PRESENCE_APPEAR_WITHIN_MS;
 
-  const findBySession = async (sessionId: string): Promise<number | null> => {
-    const names = await fs.readdir(directory).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return [];
-      throw error;
-    });
-    for (const name of names.filter((n) => n.endsWith('.json'))) {
-      const text = await fs.readFile(join(directory, name)).catch(() => null);
-      if (text === null) continue;
-      try {
-        const record = presence.parse(text);
-        if (record.sessionId === sessionId && isAlive(record.pid)) return record.pid;
-      } catch {
-        // 别人的、正写到一半的文件不是这条会话的证据;这条会话自己的文件读不出会在锁定之后报。
+  const findBySession = async (sessionId: string): Promise<{ pid: number; directory: string } | null> => {
+    for (const root of options.configRoots()) {
+      const dir = join(root, presence.directory);
+      const names = await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      });
+      for (const name of names.filter((n) => n.endsWith('.json'))) {
+        const text = await fs.readFile(join(dir, name)).catch(() => null);
+        if (text === null) continue;
+        try {
+          const record = presence.parse(text);
+          if (record.sessionId === sessionId && isAlive(record.pid)) return { pid: record.pid, directory: dir };
+        } catch {
+          // 别人的、正写到一半的文件不是这条会话的证据;这条会话自己的文件读不出会在锁定之后报。
+        }
       }
     }
     return null;
@@ -99,17 +107,19 @@ export function watchPresenceInterrupt(options: {
     } else {
       activeSince ??= now();
     }
-    if (pid === null) {
+    if (pid === null || directory === null) {
       const sessionId = harnessSessionId();
-      pid = sessionId === undefined ? null : await findBySession(sessionId);
-      if (pid === null) {
+      const found = sessionId === undefined ? null : await findBySession(sessionId);
+      if (found === null) {
+        pid = null;
         if (overdue()) {
           setFault(sessionId === undefined
             ? 'the harness has not reported its session id for this spawn'
-            : `no ${presence.directory}/<pid>.json for session ${sessionId} under ${options.configRoot}`);
+            : `no ${presence.directory}/<pid>.json for session ${sessionId} under ${options.configRoots().join(' or ')}`);
         }
         return;
       }
+      ({ pid, directory } = found);
     }
     const path = join(directory, `${pid}.json`);
     let text: string;
@@ -193,11 +203,13 @@ export function startPresenceInterrupt(input: {
     fault(`writes session presence since ${declared.sinceVersion}; this spawn is ${input.harnessVersion}, so Esc will not update the status`);
     return undefined;
   }
-  const configRoot = input.spawnEnv[presence.configDirEnvVar]?.trim()
-    || join(input.spawnEnv.HOME?.trim() || homedir(), presence.defaultConfigDirName);
+  const fromEnv = input.spawnEnv[presence.configDirEnvVar]?.trim();
+  const fallback = join(input.spawnEnv.HOME?.trim() || homedir(), presence.defaultConfigDirName);
   return watchPresenceInterrupt({
     presence,
-    configRoot,
+    // 第一次读在会话开始在跑之后(`isActive`),那一刻的 hook(UserPromptSubmit)已经带来了 harness 报的配置目录;
+    // 还没报时照旧找 env / 默认目录,找不到也先等满 `PRESENCE_APPEAR_WITHIN_MS` 才判。
+    configRoots: () => [...new Set([harnessConfigRootOf(sessionId), fromEnv, fallback].filter((root): root is string => Boolean(root)))],
     harnessSessionId: input.harnessSessionId,
     isActive: () => agentStatusWriter.isWorkingOrWaiting(sessionId),
     onInterrupted: () => {

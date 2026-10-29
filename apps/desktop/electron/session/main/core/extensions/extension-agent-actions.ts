@@ -31,7 +31,7 @@ import { dropReceivedPackage, readReceivedPackage, receivePackagePart } from './
 import { installExtensionFromMarket } from './extension-market-install';
 import { createAppFork, prepareForkVariant } from './app-forks';
 import { extensionVariants, removeExtensionVariant, prepareVariant, switchExtensionVariant } from './extension-variants';
-import { installPrepared } from './install-prepared';
+import { installPrepared, notGivenNoteOf } from './install-prepared';
 import { resolvesInside } from './path-containment';
 import { readExtensionSkills } from '../../../../extension-session-mcp';
 import { EXTENSION_ARCHIVE_MIME, EXTENSION_ARCHIVE_SUFFIX, packExtensionArchive, packInstalledExtension, unpackExtensionArchive } from './extension-archive';
@@ -716,6 +716,7 @@ async function installFolder(
     tabs: tabKinds(installed.manifest),
     ...(done.asked ? forAgentsNote(installed.manifest, service.disclosure(installed.manifest.id) === 'full', await callerHasApp(dependencies, installed.manifest.id)) : {}),
     ...(from ? installNext(installed.manifest, from, following, skillsLeftOut(installed)) : {}),
+    ...notGivenNoteOf(done),
   });
 }
 

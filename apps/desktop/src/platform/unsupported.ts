@@ -37,7 +37,6 @@ export function createUnsupportedPlatform(
     installUpdate: async () => { throw unsupported('Updates') },
     getAppVersion: async () => { throw unsupported('App version') },
     readLogTail: async () => { throw unsupported('Log tail') },
-    openAgentRuntime: async () => { throw unsupported('Agent runtime') },
     openRemoteFile: async () => { throw unsupported('External file open') },
     saveFile: async () => { throw unsupported('Save file') },
     writeClipboardText: async () => { throw unsupported('Clipboard') },

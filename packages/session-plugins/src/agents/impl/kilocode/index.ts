@@ -13,6 +13,7 @@ import {
   buildStandardCommand,
   createFileDropPlugin,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { icon } from './icon';
@@ -119,7 +120,7 @@ export const plugin = definePlugin(
     // 托管安装:程序体在 `@kilocode/cli-<platform>-<arch>` 里(六格齐全,归档内 `bin/kilo`)。
     // `id` 写厂商真正的二进制名 `kilo` —— 它同时是启动器文件名与探测名,写成 `kilocode`
     // 就再也认不出用户自己装的那一份。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'kilo',
       package: '@kilocode/cli',
       platformPackages: {
@@ -132,7 +133,7 @@ export const plugin = definePlugin(
         'linux-x64': 'bin/kilo', 'linux-arm64': 'bin/kilo',
         'win32-x64': 'bin/kilo.exe', 'win32-arm64': 'bin/kilo.exe',
       },
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     plugins: {
       kind: 'file-drop',
       scope: 'workspace',

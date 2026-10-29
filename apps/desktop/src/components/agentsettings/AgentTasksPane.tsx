@@ -166,7 +166,7 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
         </div>
       )}
 
-      {error && <div style={{ fontSize: 'var(--font-body)', color: 'var(--danger)', marginBottom: 10 }}>{error}</div>}
+      {error && <div style={{ fontSize: 'var(--font-body)', color: 'var(--danger-fg)', marginBottom: 10 }}>{error}</div>}
 
       {loading ? (
         <div className={asClass.tasksLoading}>{t('settings.tasks.loading')}</div>
@@ -236,7 +236,7 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
                   borderRadius: 'var(--radius-control)',
                   border: '1px solid var(--border-subtle)',
                   background: 'var(--bg-elevated)',
-                  color: 'var(--danger)',
+                  color: 'var(--danger-fg)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',

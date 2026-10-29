@@ -35,12 +35,12 @@ export async function showSession(id: unknown, deps: ShowSessionDeps): Promise<v
  * A session of this computer the task list shows: its project. Null for none here, and for an archived one — the list
  * does not show it (任务历史 does), and a session page navigated to it lands on a new task, not on it (#7158 A/B cell 8).
  */
-export async function sessionHere(sessionId: string): Promise<string | null> {
+export async function sessionHere(sessionId: string, options: { archived?: boolean } = {}): Promise<string | null> {
   const [{ db }, { sessions }, { eq }] = await Promise.all([import('@main/db/client'), import('@main/db/schema'), import('drizzle-orm')]);
   const [row] = await db
     .select({ projectId: sessions.projectId, archivedAt: sessions.archivedAt })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return row && !row.archivedAt ? row.projectId : null;
+  return row && (options.archived || !row.archivedAt) ? row.projectId : null;
 }

@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/qrPayload'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { useTranslation } from 'react-i18next'
+import { qrColors } from '../lib/qrColors'
 
 // @@@contact-qr (#537) - the current user's personal "add me" QR. Encodes their 咕咕号 (gugu_number) on the
 export function ContactQrShare({ guguNumber }: { guguNumber: number | null | undefined }) {
@@ -23,7 +24,7 @@ export function ContactQrShare({ guguNumber }: { guguNumber: number | null | und
       return
     }
     let cancelled = false
-    QRCode.toDataURL(payloadText, { width: 132, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
+    QRCode.toDataURL(payloadText, { width: 132, margin: 1, color: qrColors() })
       .then((url) => {
         if (!cancelled) {
           setQrDataUrl(url)

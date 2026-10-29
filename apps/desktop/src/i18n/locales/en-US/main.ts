@@ -126,7 +126,7 @@ export default {
     "sessions": {
       "loadFailed": "Could not load tasks",
       "actionFailed": "That did not go through",
-      "ungrouped": "No project",
+      "tasks": "Tasks",
       "menu": "More",
       "cancel": "Cancel",
       "stop": "Stop current task",
@@ -394,6 +394,7 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
+      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsAgent": "Agent notifications",
       "notificationsAgentAria": "Enable agent notifications",
