@@ -11,7 +11,6 @@ import {
 } from '@shared/events/browserEvents';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { acquireBrowserPage } from './browser-page-runtime';
-import { cloudAgentBrowserBridge, isCloudBrowserHost } from './cloud/cloud-browser';
 import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
 
 /**
@@ -504,27 +503,21 @@ export function createPaneTransport(
   return transport;
 }
 
-/** 宿主拿到的那几个动作的形状。`requestLogin` / `requestTakeover` 只有云浏览器有(cloud/cloud-browser.ts)。 */
+/** Local session browser actions exposed to the host. */
 export type AgentBrowserBridgeShape = {
-  closeSession?: (sessionId: string) => Promise<void>;
   states?: () => NonNullable<ExtensionAgentStatus['sessions']>;
   openTransport: (sessionId: string, signal?: AbortSignal) => Promise<AgentBrowserTransport>;
   toolStarting: (sessionId: string) => { ok: true } | { ok: false; message: string };
   toolFinished: (sessionId: string) => void;
   setInitialUrl: (sessionId: string, url: string | null) => void;
   workspaceRoot: (sessionId: string) => Promise<string | null>;
-  requestLogin?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>;
-  requestTakeover?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>;
-  /** 交回 agent 之前把工具结果里的已填密码盖掉(云浏览器的密码保险箱)。 */
-  redact?: (text: string) => string;
+
 };
 
 /**
  * 宿主(电子主进程那一侧的 MCP 层)经桥拿到的那几个动作 —— 一处出口,类型由宿主 `typeof` 引用。
- * #7199 咕咕 server 上没有会话页的页签:agent 驱动的是云电脑上的 Chrome(cloud/cloud-browser.ts),人在聊天里看。
  */
 export function agentBrowserBridge(): AgentBrowserBridgeShape {
-  if (isCloudBrowserHost()) return cloudAgentBrowserBridge();
   return {
     states: () => [...drivenBySession].flatMap(([sessionId, driven]) => {
       const page = browserWebContentsRegistry.browsersOfSession(sessionId).find((candidate) => candidate.browserId === driven.browserId);

@@ -32,13 +32,10 @@ export const ADAPTER_BRIDGE_ENTRIES = [
 /** 这些桥所在的包 —— 与桌面同版本(取仓库装好的那份)。 */
 export const ADAPTER_PACKAGES = ADAPTER_BRIDGE_ENTRIES.map((entry) => packageNameOf(entry))
 
-/**
- * #7199 云浏览器:agent 的浏览器工具是 `@playwright/mcp` 原样那一套(browser-agent-mcp.ts 运行时 `require` 它,
- * playwright-core 从它的位置解析)。桌面包里它是根依赖;server 包以前不带 —— 云电脑上的 agent 一调浏览器就找不到模块。
- */
-export const BROWSER_PACKAGES = ['@playwright/mcp']
+/** Playwright runs installed Apps' background HTML on the server (server/extension-background.ts). */
+export const APP_PAGE_PACKAGES = ['@playwright/mcp']
 
-export const RUNTIME_PACKAGES = [...NATIVE_EXTERNAL_PACKAGES, ...ADAPTER_PACKAGES, ...BROWSER_PACKAGES]
+export const RUNTIME_PACKAGES = [...NATIVE_EXTERNAL_PACKAGES, ...ADAPTER_PACKAGES, ...APP_PAGE_PACKAGES]
 
 /**
  * 适配器依赖树里的平台原生二进制包:与桌面包同一组排除(electron-builder.cjs 的 @@@thin-claude-native /

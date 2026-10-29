@@ -89,7 +89,7 @@ export function SettlementCard({
   machine?: string
   /** Optional task provenance inside the same actionable card. */
   source?: ReactNode
-  /** The way to what is asked, above the answers while it is pending (an agent's browser login: its Browser Use tab). */
+  /** Optional action supplied by the host above the pending answers. */
   action?: ReactNode
   /** 这条会话的腿。答不答得了与写侧同一条判据(`remoteSettlementGap`)。 */
   runtime: SessionpageSessionSummary['runtime']

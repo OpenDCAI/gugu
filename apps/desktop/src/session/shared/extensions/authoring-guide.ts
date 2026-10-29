@@ -924,13 +924,8 @@ the old program after in-flight calls finish, and new calls start with the new v
 A program's real failures reach the agent in its tool result and the person on the App's page; installed does not mean running.
 Native host resources use \`contributes.mcpServers:[{"name":"browser-use","host":"browser-use"}]\`
 (API 5, desktop GUI). They use the same App permissions, Agent scope, catalog and disclosure as stdio
-programs; \`browser-use\` operates only the calling session's browser tab. Optional \`startUrl\` in
+programs; \`browser-use\` operates only the calling local session's browser tab; it is not available on Gugu server. Optional \`startUrl\` in
 \`settings\` supplies the initial URL when that session has no tab; an explicit navigation wins.
-Such an App may declare \`{ "name":"browser", "title":"Browser", "hostPage":"browser", "perSession":true }\`: the host's
-page for that session's browser. On this computer it points to the session's built-in Browser panel; for a session on a
-Gugu server it shows the server's Chrome live, lets the person take over and hand back, stop or resume the agent, and log
-in through the password vault when the agent asks. It needs a \`browser-use\` host program and \`perSession\`, and takes
-no \`entry\`, \`opensFiles\` or page commands.
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.

@@ -312,7 +312,7 @@ function hasLoopbackMcp(servers) {
  *
  * Only streamable HTTP MCP servers are accepted. Bearer values stay in env; config carries the name.
  */
-/** Above the longest wait a gugu MCP tool may have on a person (asks/sources.ts: the browser-assistance deadline, 10 min). */
+/** Allows a human to complete an MCP approval without the transport timing out first. */
 const GUGU_MCP_TOOL_TIMEOUT_SEC = 900
 
 function mcpConfig(servers) {
