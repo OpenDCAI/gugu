@@ -75,7 +75,7 @@ export const SidebarSessionsSection = observer(function SidebarSessionsSection()
       {!sidebarStore.sessionsCollapsed &&
         (entries.length === 0 ? (
           // px-5 = 内容列(list body 12 + 8):空态那句话与它替代掉的那些会话行左缘同列。
-          <div className="animate-in fade-in px-5 pb-2 text-xs text-foreground-tertiary-passive duration-[var(--dur-med,180ms)]">
+          <div className="animate-in fade-in px-5 pb-2 text-xs text-foreground-muted duration-[var(--dur-med,180ms)]">
             {translate('sidebar.noTasks')}
           </div>
         ) : (

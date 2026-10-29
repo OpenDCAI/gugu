@@ -1241,7 +1241,7 @@ export const modelEffortReset = style({
 });
 
 /** 圆钮比轨道大,需要一道投影把自己托起来。这是这颗控件唯一的投影,别再往别处加。 */
-const EFFORT_THUMB_LIFT = '0 1px 2px 0 rgba(0, 0, 0, 0.18)';
+const EFFORT_THUMB_LIFT = 'var(--shadow-lift)';
 
 /** 轨道 12、圆钮 16(按下约 18)—— 10-10 缩小后的数,原来的 24/28/32 见抬头那张实测表。 */
 const EFFORT_TRACK_HEIGHT = '0.75rem';

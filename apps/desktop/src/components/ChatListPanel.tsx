@@ -103,7 +103,7 @@ interface ChatListPanelProps {
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
-const COLOR_PLACEHOLDER = 'var(--text-tertiary)'
+const COLOR_PLACEHOLDER = 'var(--muted-fg)'
 
 // @@@ui-ruler — 迁移到 Pane/PaneHeader/ListRow 原语后仍需要的少量结构性 style,提到模块作用域
 // 命名常量:既避免每次渲染重建对象,也让 JSX 里的 `style={{` 计数落回原语迁移前的水平。
@@ -120,7 +120,7 @@ const NO_JOINED_GROUPS: readonly JoinedGroup[] = []
 
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
 const EMPTY_STATE_WRAP_STYLE: React.CSSProperties = { padding: '40px 16px', display: 'flex', justifyContent: 'center' }
-const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)' }
+const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--muted-fg)', fontSize: 'var(--font-body)' }
 const PLUS_MENU_CONTENT_STYLE: React.CSSProperties = { minWidth: 160 }
 const PLUS_MENU_ITEM_STYLE_DESKTOP: React.CSSProperties = { minHeight: 'var(--control-h-lg)', fontSize: 'var(--font-body)' }
 const PLUS_MENU_ITEM_STYLE_TOUCH: React.CSSProperties = { minHeight: 'var(--control-h-touch)', fontSize: 'var(--font-title)' }
@@ -135,7 +135,7 @@ const SUNK_SECTION_STYLE: React.CSSProperties = {
   padding: '8px 16px 8px calc(40px + 13px + var(--row-gap))',
   border: 0,
   minHeight: 0,
-  color: 'var(--text-tertiary)',
+  color: 'var(--muted-fg)',
   // #7333 标注档 12/18:Button 自带 leading-none,不写行高这一行就是 12/12。
   fontSize: 'var(--font-caption)',
   lineHeight: 'var(--lh-caption)',
