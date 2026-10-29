@@ -13,12 +13,14 @@ async function setup() {
   let rejectInput = false;
   let refuseInput = false;
   let watches = 0;
+  let inputGate: Promise<void> | undefined;
   const host: ProjectionHost = {
     projection: {
       create: vi.fn(), publish: vi.fn(), close: vi.fn(), closed: vi.fn(), inputResult: vi.fn(),
       watch: async args => { watchId = args.watchId; watches++; }, unwatch: async () => {},
       send: async args => {
         packets.push(args.packet);
+        if (args.packet.type === 'input') await inputGate;
         if (rejectInput && args.packet.type === 'input') throw new Error('Native input unavailable');
         if (refuseInput && args.packet.type === 'input') return { status: 'rejected' as const, reason: 'Geometry changed' };
       },
@@ -44,6 +46,7 @@ async function setup() {
     await vi.waitFor(() => expect(packets.filter(packet => packet.type === 'ack')).toHaveLength(acks + 1));
   };
   return { root, packets, states, emit, paint, view, watches: () => watches,
+    holdInputs: () => { const gate = Promise.withResolvers<void>(); inputGate = gate.promise; return gate.resolve; },
     refuseInput: (value: boolean) => { refuseInput = value; }, rejectInput: (value = true) => { rejectInput = value; }, input: root.querySelector('textarea')! };
 }
 
@@ -152,6 +155,16 @@ describe('shared projection surface in Chromium', () => {
     s.input.dispatchEvent(new KeyboardEvent('keyup', { key: '€', ctrlKey: true, altKey: true, modifierAltGraph: true }));
     await vi.waitFor(() => expect(s.packets.filter(p => p.type === 'input')).toHaveLength(1));
     expect(s.packets.filter(p => p.type === 'input').map(p => p.input)).toEqual([{ kind: 'text', text: '€', source: 'typing' }]);
+  });
+
+  it('keeps an explicitly discarded unconfirmed record cleared when its late outcome arrives', async () => {
+    const s = await setup(); await s.paint(); const finish = s.holdInputs(); s.rejectInput();
+    s.input.value = 'discard this record'; s.input.dispatchEvent(new InputEvent('input'));
+    await vi.waitFor(() => expect(s.view.pendingText()[0]?.state).toBe('unconfirmed'));
+    s.view.discardPendingText(s.view.pendingText()[0]!.id); finish();
+    await vi.waitFor(() => expect(s.states).toContain('input-paused'));
+    expect(s.view.pendingText()).toEqual([]);
+    await s.paint(); expect(s.packets.filter(p => p.type === 'input')).toHaveLength(1);
   });
 
 });

@@ -46,16 +46,16 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
     const text = value.kind === 'text' ? { id: ++nextText, text: value.text, state: 'not-sent' as const } : undefined;
     if (text) pendingText.set(text.id, text);
     if (!ready || !client) return;
-    const operation = client.input(value, () => { if (text) pendingText.set(text.id, { ...text, state: 'unconfirmed' }); });
+    const operation = client.input(value, () => { if (text && pendingText.has(text.id)) pendingText.set(text.id, { ...text, state: 'unconfirmed' }); });
     if (observed.has(operation)) return;
     observed.add(operation);
     void operation.then(result => {
       if (result.status === 'applied') { if (text) pendingText.delete(text.id); return; }
-      if (text) pendingText.set(text.id, { ...text, state: result.status === 'rejected' ? 'not-sent' : 'unconfirmed', reason: result.reason });
+      if (text && pendingText.has(text.id)) pendingText.set(text.id, { ...text, state: result.status === 'rejected' ? 'not-sent' : 'unconfirmed', reason: result.reason });
       if (result.status === 'unknown') pause(new Error(result.reason));
       else options.error?.(new Error(result.reason));
     }, error => {
-      if (text) pendingText.set(text.id, { ...text, reason: String(error) });
+      if (text && pendingText.has(text.id)) pendingText.set(text.id, { ...text, reason: String(error) });
       if (error instanceof ProjectionInputNotSent) options.error?.(error);
       else pause(error);
     });
