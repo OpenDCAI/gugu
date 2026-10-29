@@ -2203,8 +2203,8 @@ export async function emdashSessionpageInventory(): Promise<{
 /**
  * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
  * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
- * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
+ * trigger. Populated project removal archives and retains its tasks; `project:deleted` never names dead sessions
+ * or authorizes identity removal. Inventory absence is the separate orphan-reconciliation contract.
  * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
  * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
  * the session. Returns an unsubscribe fn.

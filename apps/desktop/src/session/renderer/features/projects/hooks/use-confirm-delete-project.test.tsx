@@ -6,8 +6,11 @@ import { LocalizationProvider, setLocalePreference } from '@/i18n';
 import { modalStore } from '@renderer/lib/modal/modal-store';
 import { useConfirmDeleteProject } from './use-confirm-delete-project';
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn(), notice: vi.fn(), log: vi.fn() }));
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { automations: { listAutomations: mocks.list } } }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), impact: vi.fn(), remove: vi.fn(), notice: vi.fn(), log: vi.fn() }));
+vi.mock('@renderer/lib/ipc', () => ({ rpc: {
+  automations: { listAutomations: mocks.list },
+  projects: { getProjectDeletionImpact: mocks.impact },
+} }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ deleteProject: mocks.remove }),
 }));
@@ -27,6 +30,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocks.list.mockResolvedValue([]);
+  mocks.impact.mockResolvedValue({ tasks: 3, agents: 2, groups: 1 });
   mocks.remove.mockResolvedValue(undefined);
   setLocalePreference('en-US');
   modalStore.closeModal();
@@ -59,6 +63,10 @@ describe('project deletion confirmation', () => {
     await act(async () => root.render(args.description));
     expect(container.textContent).toContain('Daily report');
     expect(container.textContent).toContain('Research');
+    expect(container.textContent).toContain('Tasks: 3');
+    expect(container.textContent).toContain('Bound agents: 2');
+    expect(container.textContent).toContain('Associated project groups: 1');
+    expect(container.textContent).toContain('can be restored from Task history');
     act(() => args.onSuccess({ dontAskAgain: false, scopeChecked: false }));
     expect(mocks.remove).toHaveBeenCalledWith(project.projectId);
     expect(onDeleted).not.toHaveBeenCalled();
@@ -86,6 +94,26 @@ describe('project deletion confirmation', () => {
     expect(modalStore.isOpen).toBe(false);
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.notice).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error', description: 'The remote device disconnected' }));
+  });
+
+  it('does not present unreadable impact as zero tasks or agents', async () => {
+    mocks.impact.mockRejectedValue(new Error('Task inventory unavailable'));
+    await act(async () => confirm(project));
+    expect(modalStore.isOpen).toBe(false);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.notice).toHaveBeenCalledWith(expect.objectContaining({ description: 'Task inventory unavailable' }));
+  });
+
+  it('describes recoverable tasks and preserved identities in Chinese', async () => {
+    await act(async () => setLocalePreference('zh-CN'));
+    await act(async () => confirm(project));
+    await act(async () => root.render(modalStore.activeModalArgs!.description));
+    expect(container.textContent).toContain('3 个任务');
+    expect(container.textContent).toContain('2 个绑定 Agent');
+    expect(container.textContent).toContain('1 个关联项目群');
+    expect(container.textContent).toContain('任务历史恢复');
+    expect(container.textContent).toContain('群成员关系和消息均会保留');
+    expect(container.textContent).not.toContain('会话');
   });
 
   it('ends an unanswered automation read with an error and ignores a late answer', async () => {

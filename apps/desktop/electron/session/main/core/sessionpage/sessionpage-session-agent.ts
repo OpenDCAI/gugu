@@ -53,6 +53,17 @@ export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<str
   return ids
 }
 
+/** Project removal archives every retained task, including another account's parked binding. */
+export async function countSessionAgents(sessionIds: readonly string[], env: NodeJS.ProcessEnv): Promise<number> {
+  const sessions = new Set(sessionIds)
+  const agents = new Set<string>()
+  for (const agent of await listAgents(env, { includeGuests: true })) {
+    const sessionId = cached(agent, SESSIONPAGE_SESSION_CACHE_KEY) || cached(agent, SESSIONPAGE_PARKED_SESSION_CACHE_KEY)
+    if (sessions.has(sessionId) && agent.gugu_user_id) agents.add(agent.gugu_user_id)
+  }
+  return agents.size
+}
+
 export async function guguAgentUserIdForSession(
   sessionId: string,
   env: NodeJS.ProcessEnv,

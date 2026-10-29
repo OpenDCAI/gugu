@@ -8,9 +8,14 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { ProjectsTranslate } from '@renderer/localization/messages-projects';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { Automation } from '@shared/core/automations/automation';
+import type { ProjectDeletionImpact } from '@shared/projects';
 
 async function listProjectAutomations(projectId: string, timeoutMessage: string): Promise<Automation[]> {
   return withTimeout(rpc.automations.listAutomations(projectId), 3000, timeoutMessage);
+}
+
+async function readProjectDeletionImpact(projectId: string, timeoutMessage: string): Promise<ProjectDeletionImpact> {
+  return withTimeout(rpc.projects.getProjectDeletionImpact(projectId), 3000, timeoutMessage);
 }
 
 // The project label and the automation names are user data, interpolated or
@@ -18,26 +23,29 @@ async function listProjectAutomations(projectId: string, timeoutMessage: string)
 function deleteProjectDescription(
   projectLabel: string,
   automations: Automation[],
+  impact: ProjectDeletionImpact | null,
   translate: ProjectsTranslate
 ) {
   const headline = translate('projects.delete.description', { projectLabel });
-  if (automations.length === 0) return headline;
 
   return (
     <div className="space-y-3">
       <p>{headline}</p>
-      <div className="space-y-2">
-        <p className="text-foreground-muted">
-          {translate('projects.delete.detachWarning', { count: automations.length })}
-        </p>
-        <ul className="max-h-32 space-y-1 overflow-auto rounded-md border border-border bg-background-secondary p-2 text-sm">
-          {automations.map((automation) => (
-            <li key={automation.id} className="truncate">
-              {automation.name}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <p>{impact ? translate('projects.delete.impact', impact) : translate('projects.delete.impactUnknown')}</p>
+      {automations.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-foreground-muted">
+            {translate('projects.delete.detachWarning', { count: automations.length })}
+          </p>
+          <ul className="max-h-32 space-y-1 overflow-auto rounded-md border border-border bg-background-secondary p-2 text-sm">
+            {automations.map((automation) => (
+              <li key={automation.id} className="truncate">
+                {automation.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -67,9 +75,17 @@ export function useConfirmDeleteProject() {
       return;
     }
 
+    let impact: ProjectDeletionImpact;
+    try {
+      impact = await readProjectDeletionImpact(projectId, translate('projects.delete.checkTimeout'));
+    } catch (error) {
+      reportError(error);
+      return;
+    }
+
     showConfirmDeleteProject({
       title: translate('projects.delete.title'),
-      description: deleteProjectDescription(projectLabel, automations, translate),
+      description: deleteProjectDescription(projectLabel, automations, impact, translate),
       confirmLabel: translate('projects.delete.confirm'),
       onSuccess: async () => {
         try {

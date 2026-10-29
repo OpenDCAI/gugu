@@ -1,6 +1,6 @@
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { createProject, inspectProjectPath } from './operations/createProject';
-import { deleteProject } from './operations/deleteProject';
+import { deleteProject, getProjectDeletionImpact } from './operations/deleteProject';
 import { getProjects } from './operations/getProjects';
 import { openProject } from './operations/openProject';
 import {
@@ -26,6 +26,7 @@ export const projectController = createRPCController({
   inspectProjectPath,
   getProjects,
   deleteProject,
+  getProjectDeletionImpact,
   getProjectSettingsPage: (projectId: string) =>
     projectSettingsService.getProjectSettingsPage(projectId),
   updateProjectSettings: (projectId, settings) =>

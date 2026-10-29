@@ -2,14 +2,14 @@ import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — DELETION SYNC (spec ⑨「删除必同步」, owner: 千万不要只同步增、不同步删).
 // Provisioning mirrors a session-page conversation INTO gugu's social side (an agent contact, and for a
 // project-scoped conversation a member seat in the group mirroring that project). This module mirrors the
-// REMOVALS back out: delete a conversation and its agent leaves the contact list; delete a
-// project and the group mirroring it is archived along with the agents it produced.
+// REMOVALS back out: a permanently deleted conversation loses its agent. Project removal instead
+// archives tasks through archiveSession and retains their project/session rows and group bindings;
+// those rows remain in the existence inventory and MUST NOT become orphan identity cleanup.
 //
 // RECONCILE, NOT PER-EVENT BOOKKEEPING. We diff the roster against the session backend's authoritative inventory
 // (`emdashSessionpageInventory`) instead of subscribing to a delete event per entity — because two of the
-// removal paths emit no usable per-entity signal at all: deleting a task/project can cascade
-// its conversation rows away WITHOUT emitting a
-// per-conversation delete. A diff catches those, plus any future removal path nobody wired up. The session backend's
+// historical removal paths can leave an orphan without a per-conversation delete. A diff catches
+// genuinely absent task rows. Archived tasks and hidden projects are present, not orphans. The session backend's
 // trigger (`onEmdashSessionpageReapTrigger`) only says "something may have changed" and makes us re-diff; it
 // is never the source of truth. Also runs once at boot, so removals that happened while gugu was closed
 // still converge. This is spec ⑨'s 单向真源 in code: the session page decides, the social side follows.

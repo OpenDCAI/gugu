@@ -30,6 +30,14 @@ export type LocalProject = {
 
 export type Project = LocalProject;
 
+/** Snapshot on the project's host, including tasks already in Task history. */
+export type ProjectDeletionImpact = {
+  tasks: number;
+  agents: number;
+  /** Associated project groups, whose memberships and messages are preserved. */
+  groups: number;
+};
+
 /** The project row that owns a path in the database's global path index. */
 export type ProjectPathConflict = {
   id: string;
