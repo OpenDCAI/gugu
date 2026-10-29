@@ -90,6 +90,7 @@ import { pendingPermissionWaits } from '../session/permission-broker';
 import { classifyTurnFailure } from '../session/turn-failure';
 import type { LiveSettingApplyResult, SessionCellCallbacks, TurnEnvelope } from '../session/cell-deps';
 import type { SessionConfigOption } from '@agentclientprotocol/sdk';
+import { historyUnknownReason } from './history-recovery';
 import type { SessionNoticeCode } from '@gugu/session-core/acp';
 
 /**
@@ -862,9 +863,19 @@ export class SessionManager implements InboundRouter {
         record.cell.beginReplay();
 
         try {
+          const loadingCell = record.cell;
           const response = await connection.agent.loadSession(
             this.buildLoadSessionRequest(input, loadProviderSessionId)
-          );
+          ).catch((error: unknown): Awaited<ReturnType<typeof connection.agent.loadSession>> => {
+            const reason = historyUnknownReason(error, loadProviderSessionId);
+            if (reason === null) throw error;
+            loadingCell.markReplayHistoryUnknown();
+            startupNotices.push({
+              code: 'provider-notice',
+              detail: `History unknown: ${reason}. Recovered deliveries may already have been received.`,
+            });
+            return {};
+          });
           if (response.availableCommands) record.providerCommands = response.availableCommands;
           record.cell.applySessionLoaded({
             modes: response.modes,
@@ -2217,6 +2228,7 @@ export class SessionManager implements InboundRouter {
         queuedPromptsPersisted: () => record.queuePersistenceError === null,
       } : {}),
       ...(this.deps.mergeEnvelopes ? { mergeEnvelopes: this.deps.mergeEnvelopes } : {}),
+      ...(this.deps.recoverDelivery ? { recoverDelivery: this.deps.recoverDelivery } : {}),
       logger: this.deps.logger,
       // ③:没有系统位的家,会话级系统提示词以用户级载体随首轮进去(见 cell-deps 抬头)。
       // ⚠️ 与上面 `sessionOpenMeta` 互斥 —— 路由位决定去哪一边,不会两边都去。

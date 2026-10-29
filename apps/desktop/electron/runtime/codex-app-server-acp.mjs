@@ -8,6 +8,7 @@ import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { GUGU_MCP_CONFIG_KEY, normalizeGuguToolName } from '../mcp/gugu-mcp-name.mjs'
 import { joinPromptText, promptInputItems } from './codex-app-server-prompt.mjs'
+import { historyUnknownError, replayHistoryWithinBudget } from './codex-app-server-history.mjs'
 import { codexForkHandoffItems } from './codex-fork-handoff.mjs'
 import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mjs'
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
@@ -1280,7 +1281,7 @@ async function loadThreadTurns(threadId, deadline) {
  * transcript,重放是它重建对话的唯一来源。少了这一步,重开旧会话拿到的是零条消息,界面于是渲染
  * 「新会话空态」而不是「会话丢了」:比丢失更糟,因为它连这儿本该有东西都不知道。
  *
- * 拿不到历史只降级成「没有历史」,绝不让 `session/load` 失败 —— 会话能用比历史完整更要紧。
+ * 拿不到历史必须返回 history_unknown；宿主保留已恢复的原线程，并标记不确定的重投。
  *
  * `generation` 防的是宿主的重试:load 超时后它会隔 1s 再发一次(`LOAD_RETRY_DELAYS_MS`),而适配器
  * 对 ACP 请求不做串行化。没有这道闸,两次重放会交错写同一条会话,transcript 直接重影。
@@ -1291,9 +1292,9 @@ async function replayHistory(threadId, generation, deadline) {
     loaded = await loadThreadTurns(threadId, deadline)
   } catch (error) {
     process.stderr.write(
-      `[codex-app-server-acp] history replay skipped, session loads without it: ${error.message || String(error)}\n`,
+      `[codex-app-server-acp] history read failed: ${error.message || String(error)}\n`,
     )
-    return
+    return error.message || String(error)
   }
   if (loaded.truncated) {
     // 出声,别静默裁剪:少了的那截历史看上去和「本来就没有」一模一样。
@@ -1301,7 +1302,7 @@ async function replayHistory(threadId, generation, deadline) {
       `[codex-app-server-acp] history replay stopped by ${loaded.truncated} cap at ${loaded.turns.length} turns; older turns are NOT replayed\n`,
     )
   }
-  if (generation !== loadGeneration) return
+  if (generation !== loadGeneration) return 'history replay superseded by another load'
   // codex 给的是新→旧,对话顺序要旧→新。照数组原样重放会把整段对话倒过来。
   for (let i = loaded.turns.length - 1; i >= 0; i -= 1) {
     const turn = loaded.turns[i]
@@ -1309,7 +1310,7 @@ async function replayHistory(threadId, generation, deadline) {
     let userSeen = false
     for (let j = 0; j < items.length; j += 1) {
       // 每轮之间再查一次:重放一条长会话要写几千行,期间宿主完全可能已经重来一次 load。
-      if (generation !== loadGeneration) return
+      if (generation !== loadGeneration) return 'history replay superseded by another load'
       // A native turn may also contain steered inputs; only its leading prompt is a turn boundary.
       // The later ones carry the same steering mark the live insert had, so reopen keeps them in this turn.
       replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined, userSeen)
@@ -1317,6 +1318,7 @@ async function replayHistory(threadId, generation, deadline) {
     }
   }
   await subagents.replayChildren(deadline)
+  return loaded.truncated ? `history replay incomplete: ${loaded.truncated}` : null
 }
 
 /**
@@ -2371,14 +2373,14 @@ async function handleAcpRequest(message) {
       Date.now() + REPLAY_BUDGET_MS,
       loadStartedAt + SESSION_LOAD_SOFT_BUDGET_MS,
     )
+    let historyStatus = { status: 'omitted' }
     if (!wantsReplay) {
       // 不出声:这是宿主主动选的,不是出了岔子。
-    } else if (replayDeadline <= Date.now()) {
-      process.stderr.write(
-        '[codex-app-server-acp] history replay skipped: thread/resume already spent the session/load budget\n',
-      )
     } else {
-      await replayHistory(sessionId, generation, replayDeadline)
+      historyStatus = await replayHistoryWithinBudget(replayDeadline, () => replayHistory(sessionId, generation, replayDeadline))
+      if (historyStatus.status === 'unknown') {
+        process.stderr.write(`[codex-app-server-acp] History unknown: ${historyStatus.reason}\n`)
+      }
     }
     const activePermissionProfile = resumed?.activePermissionProfile
       ?? resumed?.thread?.activePermissionProfile
@@ -2404,14 +2406,19 @@ async function handleAcpRequest(message) {
     const resumedTurnId = activeTurnIdFromThread(resumed)
     if (resumedTurnId) beginCycle(resumedTurnId)
     sessionUpdate({ sessionUpdate: 'state_update', state: resumedTurnId ? 'running' : 'idle' })
-    respond(id, {
-            configOptions: withModelConfigOptions(
+    const setup = {
+      configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(resumed?.configOptions, responseModes),
         resumedModel,
         resumedEffort,
         models
       ),
-    })
+    }
+    // The thread and settings did recover. Keep those facts while refusing to claim known history.
+    if (historyStatus.status === 'unknown') {
+      notify('session/update', { sessionId, update: { sessionUpdate: 'config_option_update', configOptions: setup.configOptions } })
+    }
+    respond(id, setup, historyStatus.status === 'unknown' ? historyUnknownError(sessionId, historyStatus.reason) : undefined)
     // 重开的会话同样要报 —— 只在 new 里推的话,回到旧会话面板就是空的
     // (opencode 的 anomalyco#18819 正是这个形状,❌ 别自己再造一个)。
     void publishAvailableCommands(params.cwd, params.additionalDirectories)

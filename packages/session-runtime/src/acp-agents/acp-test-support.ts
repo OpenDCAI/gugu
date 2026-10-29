@@ -423,6 +423,7 @@ export class FakePtySpawner implements PtySpawner {
 }
 
 type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
+  providerId?: string;
   acpBehavior?: IAcpBehavior;
   authProvider?: ResolvedAuthProvider;
   autoApprove?: 'supported' | 'none';
@@ -564,6 +565,7 @@ function testSessionBundleDescriptor(
 
 export function makeAcpHarness(options: AcpHarnessOptions = {}) {
   const {
+    providerId,
     acpBehavior,
     authProvider,
     autoApprove,
@@ -588,6 +590,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     agentHost:
       depOverrides.agentHost ??
       testPluginHost({
+        providerId,
         acpBehavior: acpBehavior ?? {
           buildSpawn: () => ({ command: '/fake/node', args: ['agent.js'], env: {} }),
           connect: agent.behavior.connect,
@@ -603,6 +606,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     host: fakeHost,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
+    recoverDelivery: (text) => text,
     promptQueueStore: {
       load: (sessionId) => promptQueueSnapshots.get(sessionId) ?? [],
       save: (sessionId, prompts) => promptQueueSnapshots.set(sessionId, structuredClone(prompts)),
