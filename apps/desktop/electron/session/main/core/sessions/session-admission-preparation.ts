@@ -23,3 +23,10 @@ export async function prepareSessionAdmission(sessionId: string, text: string): 
       { deliveryRejectedBeforeAdmission: true })
   }
 }
+
+/** What an admission applies (saved panel changes) without keeping what only a sent turn may carry:
+ * the notice it reserved goes straight back to the session's next turn (#881). */
+export async function applySessionAdmissionChanges(sessionId: string): Promise<void> {
+  const prepared = await prepareSessionAdmission(sessionId,'')
+  await prepared.rejected?.()
+}

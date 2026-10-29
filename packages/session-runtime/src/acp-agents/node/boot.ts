@@ -63,6 +63,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       const preparation = createHostPromptPreparation({
         request: (event) => preparationRequested.emit(undefined, event),
         settle: (event) => preparationSettled.emit(undefined, event),
+        warn: (message, detail) => logger.warn(message, detail),
       });
       const attachmentStore = new LocalAttachmentStore(attachmentsDir);
       const promptQueueStore = new LocalPromptQueueStore(join(attachmentsDir, 'prompt-queues'));

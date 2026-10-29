@@ -22,7 +22,10 @@ export async function connectNativePromptPreparation(client: RuntimeClient, log:
       prepared.set(requestId, preparation);
       const { ok } = await client.resolveNativePromptPreparation({ requestId, available: true, text: preparation.text,
         ...(preparation.beforeText ? { beforeText: preparation.beforeText } : {}) });
-      if (!ok) { prepared.delete(requestId); release(preparation); }
+      if (!ok) {
+        prepared.delete(requestId); release(preparation);
+        log.warn('Native prompt preparation answered after the turn was sent; the notice stays for the next turn', { sessionId });
+      }
     } catch (error) {
       prepared.delete(requestId);
       release(preparation);

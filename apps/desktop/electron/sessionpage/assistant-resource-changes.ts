@@ -17,6 +17,9 @@ type Group = { kind: Kind; read: string; items: Record<string, Item> }
 type Event = { version: number; kind: Kind; operation: '+' | '-' | '~'; name: string; scope: string; read: string; state: string; trusted?: true }
 type State = { owner: string; version: number; delivered: number; acknowledged: number[]; healthy: boolean; groups: Record<string, Group>; events: Event[]; notices: string[]; hints: string[] }
 const services = new Map<string, ReturnType<typeof createResourceChanges>>()
+// A reserved notice belongs to its turn until that turn reports sent or released (#881: a 30 s hold
+// expired under a long answer and the notice went out twice). This only frees one that never reports.
+const HOLD_MS = 10 * 60_000
 const json = (value: unknown) => (JSON.stringify(value) ?? 'null').replace(/[<>&\u2028\u2029]/g,
   c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 const text = (value: unknown) => typeof value === 'string' ? value : ''
@@ -203,9 +206,10 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
       const events = value.events.filter(event => (value!.healthy || event.trusted) && !reserved.has(event.version) && !value!.acknowledged.includes(event.version))
       if (!events.length) return { text: '', accepted: async () => {}, rejected: async () => {} }
       const token = randomUUID(), versions = events.map(event => event.version)
-      claims.set(token, { versions, until: Date.now() + 30_000 })
+      claims.set(token, { versions, until: Date.now() + HOLD_MS })
       return { text: renderResourceChanges(events, versions[0]! - 1, versions.at(-1)!),
-        accepted: () => serial(async () => { if (claims.delete(token)) { settle(versions); await persist() } }),
+        // Sent is sent, even if the hold had already lapsed.
+        accepted: () => serial(async () => { claims.delete(token); settle(versions); await persist() }),
         rejected: () => serial(async () => { claims.delete(token) }),
       }
     }),

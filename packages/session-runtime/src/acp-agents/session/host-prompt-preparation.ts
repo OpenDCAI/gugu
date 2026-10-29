@@ -5,11 +5,12 @@ type Answer = { available: boolean; text?: string; beforeText?: string };
 /**
  * The runtime side of native prompt preparation (#881): the host's preparation lives in another
  * process, so each provider request asks the host by event and waits for its answer. No answer in
- * time, or none available, delivers nothing; the host keeps its notice for the next turn.
+ * time, or none available, delivers nothing and says so; the host keeps its notice for the next turn.
  */
 export function createHostPromptPreparation(deps: {
   request(event: { sessionId: string; requestId: string }): void;
   settle(event: { requestId: string; accepted: boolean }): void;
+  warn(message: string, detail: Record<string, unknown>): void;
   timeoutMs?: number;
 }) {
   const pending = new Map<string, (answer: Answer) => void>();
@@ -17,7 +18,10 @@ export function createHostPromptPreparation(deps: {
   function prepare(sessionId: string): Promise<NativePromptPreparation> {
     const requestId = `${Date.now().toString(36)}-${++sequence}`;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => answer({ available: false }), deps.timeoutMs ?? 3000);
+      const timer = setTimeout(() => {
+        deps.warn('Native prompt preparation timed out; this turn goes without it, the host keeps it for the next', { sessionId, timeoutMs: deps.timeoutMs ?? 3000 });
+        answer({ available: false });
+      }, deps.timeoutMs ?? 3000);
       function answer(value: Answer) {
         clearTimeout(timer);
         pending.delete(requestId);
