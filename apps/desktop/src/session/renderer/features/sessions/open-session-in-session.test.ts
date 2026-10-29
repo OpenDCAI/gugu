@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { observable, runInAction } from 'mobx';
 
-const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null }));
+const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null, machineReason: null as string | null }));
 const ready = observable.box(true);
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
@@ -30,6 +30,7 @@ vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@renderer/localization/locale-store', () => ({ translateSessionMessage: (k: string) => k }));
 
 vi.mock('./workspace-backend/workspace-surface', () => ({ workspaceReachLabel: () => opened.reason }));
+vi.mock('./machine-unavailable-label', () => ({ machineUnavailableLabel: () => opened.reason ?? opened.machineReason }));
 
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { openSessionInSessionWhenReady } from './open-session-in-session';
@@ -66,6 +67,28 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
 });
 
 describe('task entry keeps the workspace failure reason', () => {
+  it('names the offline machine when a cold project has no workspace status yet', async () => {
+    vi.useFakeTimers();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(toast).mockClear();
+    opened.provisioned = false;
+    opened.reason = null;
+    opened.machineReason = 'mac1 is offline. Resumes when it is back';
+    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
+    try {
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        description: opened.machineReason,
+      }));
+    } finally {
+      dispose();
+      opened.provisioned = true;
+      opened.machineReason = null;
+      logged.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ['cloud', 'Gugu on cloud host is too old. Update Gugu there'],
     ['ssh', 'Gugu on SSH host is too old. Update Gugu there'],
