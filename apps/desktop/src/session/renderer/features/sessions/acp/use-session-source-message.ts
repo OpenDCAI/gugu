@@ -10,12 +10,15 @@ export function useSessionSourceMessage(store: AcpChatStore | null | undefined, 
   const missing = useRef(onMissing);
   missing.current = onMissing;
   const request = useRef(0);
+  const mounted = useRef(true);
   const loading = useRef<{ store: AcpChatStore; promise: Promise<TranscriptTurn[]> } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null);
   useEffect(() => {
+    mounted.current = true;
     setFlashMessageId(null);
     return () => {
+      mounted.current = false;
       request.current++;
       if (timer.current) clearTimeout(timer.current);
     };
@@ -28,7 +31,7 @@ export function useSessionSourceMessage(store: AcpChatStore | null | undefined, 
     if (loading.current?.store === current) return loading.current.promise;
     const currentView = view.current;
     const promise = current.loadOlderHistory().then(turns => {
-      if (latest.current === current && view.current === currentView && turns.length) currentView?.loadOlder(turns);
+      if (mounted.current && latest.current === current && view.current === currentView && turns.length) currentView?.loadOlder(turns);
       return turns;
     });
     loading.current = { store: current, promise };

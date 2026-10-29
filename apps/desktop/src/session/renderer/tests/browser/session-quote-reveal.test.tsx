@@ -1,9 +1,10 @@
-import { act, useRef } from 'react';
+import { useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatView, TranscriptTurn } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../features/sessions/acp/acp-chat-store';
 import { useSessionSourceMessage } from '../../features/sessions/acp/use-session-source-message';
+import { until } from '../../../../../../../tests/support/awaitCondition';
 
 const turn = (id: string, seq: number): TranscriptTurn => ({ id: `turn-${seq}`, seq, initiator: 'user', items: [{ kind: 'message', id, role: 'user', seq: 0, text: 'Repeated words' }] });
 
@@ -26,21 +27,25 @@ describe('session quote navigation', () => {
     document.body.append(host);
     const root = createRoot(host);
     try {
-      await act(async () => root.render(<Harness />));
-      await act(async () => host.querySelector('button')!.click());
+      root.render(<Harness />);
+      await until(() => !!host.querySelector('button'));
+      host.querySelector('button')!.click();
+      await until(() => actions.flashMessageId === 'source');
       expect(loadOlderHistory).toHaveBeenCalledTimes(2);
       expect(loadOlder).toHaveBeenCalledTimes(2);
       expect(scrollToItem).toHaveBeenLastCalledWith('source', { align: 'center' });
       expect(actions.flashMessageId).toBe('source');
       expect(missing).not.toHaveBeenCalled();
-      await act(async () => actions.reveal('latest'));
+      actions.reveal('latest');
+      await until(() => actions.flashMessageId === 'latest');
       expect(loadOlderHistory).toHaveBeenCalledTimes(2);
       expect(scrollToItem).toHaveBeenLastCalledWith('latest', { align: 'center' });
-      await act(async () => actions.reveal('deleted'));
+      actions.reveal('deleted');
+      await until(() => missing.mock.calls.length === 1);
       expect(missing).toHaveBeenCalledOnce();
       expect(scrollToItem).toHaveBeenCalledTimes(2);
     } finally {
-      await act(async () => root.unmount());
+      root.unmount();
       host.remove();
     }
   });
