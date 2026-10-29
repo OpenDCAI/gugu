@@ -98,6 +98,42 @@ describe('新建页的模型那一格(#5014 续)', () => {
   })
 })
 
+describe('phone creation uses the shared available-model default', () => {
+  const own = 'gpt-6.1-sol'
+  const platform = 'platform:available-model'
+  const unsigned = {
+    ...catalog('codex', [own, platform]),
+    selected: own,
+    selectedCredential: 'uncredentialed' as const,
+    harnessAuth: 'signed-out' as const,
+  }
+
+  it('selects an offered platform model even when the unsigned-in harness lists its own models', () => {
+    expect(reconcileModel(defaultSelection(options), unsigned).model).toBe(platform)
+    expect(reconcileModel({ ...defaultSelection(options), model: own }, unsigned).model).toBe(platform)
+    expect(reconcileModel(selectHarness({ ...defaultSelection(options), harness: 'claude' }, 'codex', options), unsigned).model).toBe(platform)
+  })
+
+  it('preserves a valid remembered own choice when signed in and an explicitly chosen own default', () => {
+    const signed = { ...unsigned, selectedCredential: 'credentialed' as const, harnessAuth: 'signed-in' as const }
+    const remembered = { ...defaultSelection(options), model: own }
+    expect(reconcileModel(remembered, signed)).toBe(remembered)
+    expect(reconcileModel(defaultSelection(options), signed).model).toBeNull()
+    expect(reconcileModel(defaultSelection(options), unsigned, true).model).toBeNull()
+    expect(reconcileModel(remembered, unsigned, true)).toBe(remembered)
+  })
+
+  it('excludes hidden or membership-only platform defaults and does not confuse a catalogue with sign-in', () => {
+    const models = {
+      ...unsigned,
+      selectedCredential: 'unknown' as const,
+      models: [unsigned.models[0]!, { ...unsigned.models[1]!, hidden: true }, { ...unsigned.models[1]!, id: 'platform:locked', requires_membership: true }, { ...unsigned.models[1]!, id: 'platform:offered' }],
+    }
+    expect(reconcileModel(defaultSelection(options), models).model).toBe('platform:offered')
+    expect(reconcileModel({ ...defaultSelection(options), model: platform }, models).model).toBe('platform:offered')
+  })
+})
+
 describe('新建页沿用这台机器上次那一套(behavior mobile-session-view)', () => {
   const twoProjects: SessionpageSessionCreateOptions = {
     ...options,

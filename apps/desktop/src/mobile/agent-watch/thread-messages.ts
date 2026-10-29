@@ -1,3 +1,4 @@
+import type { TerminalState } from '@gugu/session-core/acp/client'
 import type { ThreadMessageLike } from '@assistant-ui/react'
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker'
 import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type TranscriptItem, type TranscriptTurn } from '@gugu/session-core/acp/client'
@@ -187,6 +188,7 @@ export function unsettledLastTurnId(turns: readonly TranscriptTurn[]): string | 
 }
 
 export type ThreadMessageOptions = {
+  terminals?: readonly TerminalState[]
   trimmedNote?: (chars: number) => string
   /** 远端正在跑的那一轮(最后一轮还没结算)。它的最后一段过程是活的:头在数秒、默认摊开,同桌面。 */
   liveTurnId?: string | null
@@ -200,7 +202,8 @@ function withTrimNote(text: string, chars: number, options?: ThreadMessageOption
 }
 
 function toolPart(node: ToolNode, options?: ThreadMessageOptions): ContentPart {
-  const rawOutput = node.kind === 'tool-group' ? null : (node.outputText ?? node.rawOutput ?? null)
+  const terminal = !('terminalId' in node) ? undefined : options?.terminals?.find(terminal => terminal.terminalId === node.terminalId)
+  const rawOutput = node.kind === 'tool-group' ? null : (terminal?.output ?? node.outputText ?? node.rawOutput ?? null)
   // 传输层裁过多少字（transport-trim；桌面侧恒缺这一格）。
   const trimmed = node.kind === 'tool-group' ? 0 : (node.trimmedChars ?? 0)
   const output = rawOutput !== null && trimmed > 0 ? withTrimNote(rawOutput, trimmed, options) : rawOutput

@@ -1,20 +1,20 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import { codexFilePatches } from '../../acp/transport/codex-file-patches';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readCodexRecord, type CodexRecord, type CodexRecordItem } from '@gugu/core/local/agent/transcriptSources/codex';
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
 
 import type { RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import { createJsonlTailSource } from './jsonl-tail-source';
-import { withSubagentSources } from './subagent-sources';
+import { childState, withSubagentSources } from './subagent-sources';
 import {
   SessionRecordNotFoundError,
   asRecord,
   boundaryEntry,
   parseTimestamp,
-  toJsonValue,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -41,7 +41,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
     initial: () => ({ turn: 0, item: -1, userSeen: false, calls: {}, children: {} }),
     decode(record, ordinals) {
       const codex = readCodexRecord(record);
-      // 序号按**每一条记录**推进，不按「解出了 update 的记录」推进:
+      // 序号按**每一条记录**推进，不按「解出了 event 的记录」推进:
       // 这样以后给某个记录类型补上解码，已有 key 不会整体错位。
       ordinals.item += 1;
       if (codex.turnStart) {
@@ -50,9 +50,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
       }
       if (codex.turnStart || codex.end) ordinals.userSeen = false;
       const key = `codex:${locator.providerSessionId}:${ordinals.turn}:${ordinals.item}`;
-      if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), update: subagentUpdate({
-        sessionUpdate: 'subagent_state_update', subagentSessionId: locator.providerSessionId, state: 'running', canCancel: false,
-      }) }];
+      if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), event: childState(locator.providerSessionId, 'in_progress') }];
       const item = codex.item;
       if (item?.kind === 'tool_call' && item.namespace === 'collaboration') {
         let input = item.input;
@@ -71,20 +69,25 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         const first = !ordinals.children[item.threadId];
         ordinals.children[item.threadId] = child;
         const at = parseTimestamp(codex.timestamp);
-        const updates: SessionUpdate[] = [];
-        if (first) updates.push(subagentUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: child.id,
-          name: child.name, task: child.task ?? child.name, request: child.task, model: child.model,
-          launchToolCallId: child.callId, background: true, capabilities: { cancel: false },
-        }));
-        // Lifecycle comes from the child's own task boundaries below. Replaying the parent's
-        // activity summary as well would complete it before its history, then complete it twice.
-        return updates.map((update, index) => ({ key: `${key}#${index}`, at, update }));
+        // The child's own task boundaries provide lifecycle; the parent's summary does not complete it.
+        if (!first) return [];
+        return [{ key: `${key}#0`, at, event: {
+          kind: 'subagent', toolCallId: child.id, subagentSessionId: child.id,
+          ...(child.name ? { title: child.name } : {}),
+          ...((child.task ?? child.name) ? { inputSummary: child.task ?? child.name } : {}),
+          status: 'completed', parentToolCallId: null, canCancel: false, background: true,
+          ...(child.model ? { model: child.model } : {}),
+          ...(child.callId ? { agentToolUseId: child.callId } : {}),
+          ...(child.task ? { rawInput: child.task } : {}),
+        } }];
       }
       const entry = decode(codex, key);
-      if (entry?.update && item?.kind === 'text' && item.role === 'user') {
-        // Only task_started's leading input opens a turn; later inputs use the runtime replay's steering mark.
-        if (ordinals.turn > 0 && ordinals.userSeen) entry.update._meta = { ...entry.update._meta, guguSteering: true };
+      const event = entry?.event;
+      if (entry && event?.kind === 'message' && event.role === 'user') {
+        // Only task_started's leading input opens a turn; later inputs continue it.
+        const steering = ordinals.turn > 0 && ordinals.userSeen;
         ordinals.userSeen = true;
+        if (steering) return [{ key: entry.key, at: entry.at, event: { ...event, steering: true } }];
       }
       return entry ? [entry] : [];
     }
@@ -111,7 +114,7 @@ function decode(record: CodexRecord, key: string): RecordEntry | null {
     );
   }
   if (!record.item) return null;
-  return { key, ...(at !== undefined ? { at } : {}), update: toUpdate(record.item, key) };
+  return { key, ...(at !== undefined ? { at } : {}), event: toEvent(record.item, key) };
 }
 
 // ─── 定位 ────────────────────────────────────────────────────────────────────
@@ -164,20 +167,18 @@ async function findBySuffix(root: string, suffix: string): Promise<string | null
 }
 
 // ─── 映射 ────────────────────────────────────────────────────────────────────
-// 一行记录是什么意思由 core 的 `readCodexRecord` 读（导入清单读的是同一份）；这里只映射成 ACP update。
+// 一行记录是什么意思由 core 的 `readCodexRecord` 读（导入清单读的是同一份）；这里只解码成领域事件。
 
-function toUpdate(item: CodexRecordItem, messageId: string): SessionUpdate {
+function toEvent(item: CodexRecordItem, messageId: string): NormalizedEvent {
   switch (item.kind) {
-    case 'text': {
-      const content = { type: 'text' as const, text: item.text };
-      return item.role === 'user'
-        ? { sessionUpdate: 'user_message_chunk', content, messageId }
-        : { sessionUpdate: 'agent_message_chunk', content, messageId };
-    }
+    case 'text':
+      return item.text ? { kind: 'message', role: item.role, messageId, text: item.text } : { kind: 'ignored' };
     case 'thinking':
-      return { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: item.text }, messageId };
+      return item.text ? { kind: 'thinking', messageId, text: item.text } : { kind: 'ignored' };
     case 'subagent':
       throw new Error('Codex subagent activity must be decoded with its source state');
+    case 'file_change':
+      return { ...toolCallResult(item.id, item.failed ? 'failed' : 'completed', { contentBlocks: codexFilePatches(item) }), title: 'apply_patch', toolKind: 'edit' };
     case 'tool_call':
       return toolCallStart(item.id, item.name, codexToolKind(item.name), item.input);
     case 'tool_result': {
@@ -189,17 +190,12 @@ function toUpdate(item: CodexRecordItem, messageId: string): SessionUpdate {
       // pictures stored twice, review 10f3ea946c); one with an item no block carries stays disclosed whole, as the
       // claude source does (#6020).
       const carried = Array.isArray(item.output) && blocks.length > 0 && blocks.length === item.output.length;
-      return {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: item.callId,
-        status: item.failed ? 'failed' : 'completed',
-        ...(text !== null
-          ? { content: [{ type: 'content' as const, content: { type: 'text' as const, text } }] }
-          : blocks.length > 0
-            ? { content: blocks.map((block) => ({ type: 'content' as const, content: block })) }
-            : {}),
-        ...(item.output !== undefined && text === null && !carried ? { rawOutput: toJsonValue(item.output) } : {})
-      };
+      const texts = blocks.filter((block) => block.type === 'text').map((block) => block.text);
+      return toolCallResult(item.callId, item.failed ? 'failed' : 'completed', {
+        ...(text !== null ? { text } : texts.length ? { text: texts.join('\n') } : {}),
+        images: blocks.filter((block) => block.type === 'image'),
+        ...(item.output !== undefined && text === null && !carried ? { rawOutput: item.output } : {}),
+      });
     }
   }
 }
@@ -215,3 +211,4 @@ function codexResultBlock(item: unknown): Array<{ type: 'text'; text: string } |
 
 /** codex 的工具名 → ACP ToolKind。名单外一律 'other'，理由同 claude 侧。 */
 const codexToolKind = toolKindTable({ execute: ['shell', 'local_shell', 'exec_command'], edit: ['apply_patch', 'write_file'], read: ['read_file'], fetch: ['web_search', 'web_fetch'] });
+

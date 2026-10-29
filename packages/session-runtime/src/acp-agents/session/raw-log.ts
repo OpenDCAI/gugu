@@ -1,4 +1,4 @@
-import type { NewSessionResponse, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NewSessionResponse } from '@agentclientprotocol/sdk';
 import type { SerializedError } from '@gugu/session-shared';
 
 export interface RawAcpLogMeta {
@@ -15,7 +15,7 @@ export interface RawAcpLogExportMeta extends RawAcpLogMeta {
 export interface RawAcpSessionUpdateEvent {
   kind: 'session_update';
   sessionId: string;
-  update: SessionUpdate;
+  update: unknown;
 }
 
 export interface RawAcpPromptEvent {
@@ -52,7 +52,7 @@ export interface RawAcpSessionNewEvent {
     cwd: string;
     mcpServerNames: string[];
   };
-  response: Pick<NewSessionResponse, 'sessionId' | 'modes' | 'configOptions'>;
+  response: Pick<NewSessionResponse, 'sessionId' | 'modes' | 'configOptions'> & { availableCommands?: Extract<import('@gugu/session-core/acp').NormalizedEvent, { kind: 'commands' }>['commands'] };
 }
 
 export interface RawAcpSessionConfigOptionRequestEvent {

@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 import { describe, expect, it, vi } from 'vitest'
 import { createChatContext } from '../chat-context'
 import { createChatState } from '../state/chat-state'
@@ -12,6 +14,7 @@ const item: FileChangeSummaryItem = {
   kind: 'file-change-summary',
   id: 't:file-changes',
   turnId: 't',
+  adds: 5, dels: 0,
   files: Array.from({ length: 5 }, (_, i) => ({
     path: `/workspace/subfolder/${i}/test.txt`,
     adds: 1,
@@ -20,9 +23,8 @@ const item: FileChangeSummaryItem = {
       {
         kind: 'diff',
         id: `d${i}`,
-        path: `/workspace/subfolder/${i}/test.txt`,
-        oldText: null,
-        newText: 'hello',
+        patches: [textFilePatch(`/workspace/subfolder/${i}/test.txt`, null, 'hello')],
+
         status: 'done'
       }
     ]

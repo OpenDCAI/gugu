@@ -29,9 +29,8 @@ export function segmentCtxFor(context: ChatContext, state: ChatState, caches: Ch
     translate: context.translate,
     pendingToolCallIds: () => state.session.state.pendingToolCallIds,
     permissionFor: (toolCallId: string) =>
-      state.session.state.permissions.find((request) => request.toolCall.toolCallId === toolCallId),
-    terminalOutputText: (terminalId: string) => state.session.state.terminalOutputText(terminalId),
-    terminalExitStatus: (terminalId: string) => state.session.state.terminalExitStatus(terminalId),
+      state.session.state.permissions.find((request) => request.toolCall?.toolCallId === toolCallId),
+    terminalSnapshot: (terminalId: string) => state.session.state.terminalSnapshot(terminalId),
     // 这条会话此刻的状态 —— 只有 active 档会读它(flatten 在那一档的末尾发出这一行)。
     condition: () => state.session.state.condition,
     backgroundTasks: () => {

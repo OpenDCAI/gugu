@@ -1,6 +1,6 @@
-import { toolCallStart } from '../../../packages/session-core/src/session-record/sources/shared.ts'
+import { toolCallStart, toolCallResult } from '../../../packages/session-core/src/session-record/sources/shared.ts'
 
-const textUpdate = (kind, id, text) => ({ sessionUpdate: kind === 'thinking' ? 'agent_thought_chunk' : 'agent_message_chunk', messageId: id, content: { type: 'text', text } })
+const textUpdate = (kind, id, text) => kind === 'thinking' ? { kind: 'thinking', messageId: id, text } : { kind: 'message', role: 'assistant', messageId: id, text }
 const blocksOf = (content) => typeof content === 'string' ? [{ type: 'text', text: content }] : (content ?? []).filter((block) => block?.type === 'text' || block?.type === 'image')
 
 /** Pi's public message_end notification precedes its synchronous appendMessage. Resolve the
@@ -59,7 +59,7 @@ export function createPhoneLiveProjection() {
   }
   const tool = (state, job, call, name, args, at) => {
     if (state.tools.has(call)) return
-    state.tools.set(call, { jobId: job.id, key: `phone-tool:${job.id}:${call}`, at, update: toolCallStart(call, name, 'other', args) })
+    state.tools.set(call, { jobId: job.id, key: `phone-tool:${job.id}:${call}`, at, event: toolCallStart(call, name, 'other', args) })
   }
   return {
     accept(agent, job, event) {
@@ -84,7 +84,7 @@ export function createPhoneLiveProjection() {
         }
       }
       if (event.kind === 'tool') tool(state, job, event.toolCallId, event.name, event.args, event.at)
-      if (event.kind === 'result') state.groups.set(event.id, { jobId: job.id, id: event.id, at: event.at, order: state.sequence++, result: { sessionUpdate: 'tool_call_update', toolCallId: event.toolCallId, status: event.isError ? 'failed' : 'completed', ...(event.content.length ? { content: event.content.map((content) => ({ type: 'content', content })) } : {}) } })
+      if (event.kind === 'result') state.groups.set(event.id, { jobId: job.id, id: event.id, at: event.at, order: state.sequence++, result: toolCallResult(event.toolCallId, event.isError ? 'failed' : 'completed', { text: event.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n'), images: event.content.filter((block) => block.type === 'image') }) })
       if (event.kind === 'committed' && group) group.recordId = event.recordId
     },
     project(agent, entries) {
@@ -93,9 +93,9 @@ export function createPhoneLiveProjection() {
       const found = new Set()
       const toolFound = new Set()
       const base = entries.flatMap((entry) => {
-        if (entry.update?.sessionUpdate === 'tool_call' && state.tools.has(entry.update.toolCallId)) {
-          const draft = state.tools.get(entry.update.toolCallId)
-          toolFound.add(entry.update.toolCallId)
+        if (entry.event?.kind === 'tool_call' && state.tools.has(entry.event.toolCallId)) {
+          const draft = state.tools.get(entry.event.toolCallId)
+          toolFound.add(entry.event.toolCallId)
           return [{ ...entry, key: draft.key, at: draft.at }]
         }
         const match = /^pi:([^#]+)#(\d+)$/.exec(entry.key)
@@ -105,20 +105,20 @@ export function createPhoneLiveProjection() {
         if (group.result) { group.result = null; return [{ ...entry, key: `${group.id}:result`, at: group.at }] }
         if (!group.blocks) return [{ ...entry, key: `${group.id}:result`, at: group.at }]
         const block = group.blocks.get(Number(match[2]))
-        if (!block || !['agent_message_chunk', 'agent_thought_chunk'].includes(entry.update?.sessionUpdate)) return [entry]
-        const text = entry.update.content.text
+        if (!block || !['message', 'thinking'].includes(entry.event?.kind)) return [entry]
+        const text = entry.event.text
         let offset = 0
-        const result = block.parts.map((part) => { const value = { key: part.key, at: group.at, update: textUpdate(block.kind, `${group.id}#${match[2]}`, text.slice(offset, offset + part.length)) }; offset += part.length; delete part.text; return value })
-        if (offset < text.length) result.push({ key: `${group.id}#${match[2]}:tail`, at: group.at, update: textUpdate(block.kind, `${group.id}#${match[2]}`, text.slice(offset)) })
+        const result = block.parts.map((part) => { const value = { key: part.key, at: group.at, event: textUpdate(block.kind, `${group.id}#${match[2]}`, text.slice(offset, offset + part.length)) }; offset += part.length; delete part.text; return value })
+        if (offset < text.length) result.push({ key: `${group.id}#${match[2]}:tail`, at: group.at, event: textUpdate(block.kind, `${group.id}#${match[2]}`, text.slice(offset)) })
         return result
       })
       const pending = []
       for (const group of state.groups.values()) {
         if (found.has(group.id)) continue
-        if (group.result) pending.push({ key: `${group.id}:result`, at: group.at, update: group.result })
-        for (const [index, block] of group.blocks ?? []) for (const part of block.parts) if (part.text !== undefined) pending.push({ key: part.key, at: group.at, update: textUpdate(block.kind, `${group.id}#${index}`, part.text) })
+        if (group.result) pending.push({ key: `${group.id}:result`, at: group.at, event: group.result })
+        for (const [index, block] of group.blocks ?? []) for (const part of block.parts) if (part.text !== undefined) pending.push({ key: part.key, at: group.at, event: textUpdate(block.kind, `${group.id}#${index}`, part.text) })
       }
-      for (const [id, draft] of state.tools) if (!toolFound.has(id) && draft.update) pending.push({ key: draft.key, at: draft.at, update: draft.update })
+      for (const [id, draft] of state.tools) if (!toolFound.has(id) && draft.event) pending.push({ key: draft.key, at: draft.at, event: draft.event })
       return { base, pending }
     },
     finish(agent, job) {
@@ -127,7 +127,7 @@ export function createPhoneLiveProjection() {
         if (!group.recordId) state.groups.delete(id)
         else { for (const block of group.blocks?.values() ?? []) for (const part of block.parts) delete part.text; group.result = null }
       }
-      for (const draft of state.tools.values()) if (draft.jobId === job.id) draft.update = null
+      for (const draft of state.tools.values()) if (draft.jobId === job.id) draft.event = null
     },
     reset(sessionId) { sessions.delete(sessionId) },
     clear() { sessions.clear() },

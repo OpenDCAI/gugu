@@ -1,3 +1,4 @@
+import type { TerminalState } from '@gugu/session-core/acp/client';
 /**
  * Render-unit primitives — the flat virtualization model.
  *
@@ -30,7 +31,7 @@
 
 import type { Component } from 'solid-js';
 import type { ChatTranslator } from '@session-chat/localization';
-import type { AcpPermissionRequest, ChatItem, PlanState, SyntheticItem, TerminalExit, SessionCondition } from '@session-chat/model';
+import type { AcpPermissionRequest, ChatItem, SessionPlans, SyntheticItem, SessionCondition } from '@session-chat/model';
 import type { BackgroundTasks } from '@session-chat/state/chat-state';
 import type { ChatCaches } from './caches';
 import type { MeasureCtx, RenderCtx } from './define';
@@ -131,13 +132,12 @@ export type SegmentCtx = {
   active: boolean;
   /** Latest logical turn across committed and active tiers; its empty acknowledgement remains visible. */
   latestTurnId?: string;
-  plan: () => PlanState | null;
+  plan: () => SessionPlans | null;
   translate: ChatTranslator;
   pendingToolCallIds: () => Set<string>;
   /** 这次调用正在等的那条审批请求（计划审批卡拿它画选项）；没在等 ⇒ undefined。 */
   permissionFor?: (toolCallId: string) => AcpPermissionRequest | undefined;
-  terminalOutputText: (terminalId: string) => string | null;
-  terminalExitStatus: (terminalId: string) => TerminalExit | null;
+  terminalSnapshot: (terminalId: string) => TerminalState | null;
   /**
    * 这条会话此刻的状态（引擎没装 / 要登录 / 连接断了 …）。
    * 只有**最后一档**（active 档）读它 —— 它是贴在列表末尾的一行，不是历史。

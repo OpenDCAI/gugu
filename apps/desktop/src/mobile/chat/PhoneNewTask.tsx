@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { remoteFailureKind, type SessionpageSessionCreateOptions } from '@gugu/session-core/session-record/contract'
+import { remoteFailureKind, type SessionpageSessionCreateModels, type SessionpageSessionCreateOptions } from '@gugu/session-core/session-record/contract'
 import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import type { ComposerAttachAction } from '@/components/chat/ComposerAttachButton'
 import { useToast } from '@/components/toastContext'
@@ -13,8 +13,8 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { ProjectFolderCard } from '@renderer/features/projects/components/main-panel/project-folder-card'
 import type { ProjectFoldersState, ShownFolder } from '@renderer/features/projects/components/main-panel/project-folders'
 import { TaskInGroupError, createTaskInGroup } from '../agent-watch/createTaskInGroup'
-import { harnessUsable, initialSelection } from '../agent-watch/create-session-form'
-import { SessionpageRpcError, fetchCreateOptions } from '../agent-watch/sessionpage-rpc'
+import { createModelNeedsSignIn, harnessUsable, initialSelection, reconcileModel, selectHarness } from '../agent-watch/create-session-form'
+import { SessionpageRpcError, fetchCreateModels, fetchCreateOptions } from '../agent-watch/sessionpage-rpc'
 import { taskFoldersOfChat } from './phoneTaskFolders'
 import { usePhoneFolderAttach } from './usePhoneFolderAttach'
 import { projectRpcOn } from '../partners/projectRpc'
@@ -66,6 +66,7 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
   const [stage, setStage] = useState<Stage>({ kind: 'off' })
   const [options, setOptions] = useState<{ deviceId: string; value: SessionpageSessionCreateOptions | null; failed: boolean } | null>(null)
   const [harness, setHarness] = useState<string | null>(null)
+  const [modelRead, setModelRead] = useState<{ deviceId: string; harness: string; models: SessionpageSessionCreateModels | null; failed: boolean } | null>(null)
   const [sending, setSending] = useState(false)
   const [optionsRead, setOptionsRead] = useState(0)
   useEffect(() => { setStage({ kind: 'off' }) }, [chatId])
@@ -101,12 +102,34 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
 
   const usable = options?.value?.harnesses.filter(harnessUsable) ?? []
   const picked = usable.find((option) => option.id === harness) ?? null
+  const selectedHarness = picked?.id ?? null
+  // 同创建页读宿主现有目录；不把「能运行 Codex」当作「已登录自有订阅」。
+  useEffect(() => {
+    if (!deviceId || !online || !selectedHarness || !options?.value) { setModelRead(null); return }
+    let live = true
+    const initial = selectHarness(initialSelection(options.value), selectedHarness, options.value)
+    setModelRead({ deviceId, harness: selectedHarness, models: null, failed: false })
+    fetchCreateModels(deviceId, selectedHarness, null, initial.model).then(
+      (models) => { if (live) setModelRead({ deviceId, harness: selectedHarness, models, failed: false }) },
+      (error: unknown) => {
+        log.warn({ error: String(error), deviceId, harness: selectedHarness }, 'read the models on that machine failed')
+        if (live) setModelRead({ deviceId, harness: selectedHarness, models: null, failed: true })
+      },
+    )
+    return () => { live = false }
+  }, [deviceId, online, selectedHarness, options])
+  const read = modelRead?.deviceId === deviceId && modelRead.harness === selectedHarness ? modelRead : null
+  const selection = options?.value && selectedHarness
+    ? reconcileModel(selectHarness(initialSelection(options.value), selectedHarness, options.value), read?.models ?? null, false, options.value.lastUsed)
+    : null
   const machine = home?.machine.label ?? ''
   const blocked = !chosen ? t('composer.phoneTask.pickFolder')
     : !online ? t('composer.phoneTask.offline', { machine })
     : options?.failed ? t('composer.phoneTask.optionsFailed', { machine })
       : options?.value && usable.length === 0 ? t('composer.phoneTask.noAgent', { machine })
-        : null
+        : read?.failed ? t('composer.phoneTask.optionsFailed', { machine })
+          : picked && !read?.models ? t('agentWatch.create.modelLoading', { ns: 'main' })
+            : selection && createModelNeedsSignIn(selection, read?.models ?? null) ? t('agentWatch.create.modelHarnessState.auth-required', { ns: 'main' }) : null
 
   const folderState: ProjectFoldersState | null = project ? {
     folders: project.folders,
@@ -182,16 +205,13 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
   const send = async (text: string) => {
     const prompt = text.trim()
     if (stage.kind !== 'on' || !chatId || !prompt || sending) return
-    if (blocked || !home || !chosen || !picked) { toast(blocked ?? t('composer.phoneTask.loading', { machine }), 'error'); return }
+    if (blocked || !home || !chosen || !picked || !selection || !read?.models) { toast(blocked ?? t('composer.phoneTask.loading', { machine }), 'error'); return }
     setSending(true)
     try {
-      const remembered = options?.value ? initialSelection(options.value) : null
       await createTaskInGroup({
         deviceId: home.deviceId, projectId: home.localProjectId, cwd: chosen.path, chatId, prompt, harness: picked.id,
-        ...(remembered?.harness === picked.id ? {
-          model: remembered.model ?? undefined,
-          permissionMode: remembered.permissionMode ?? undefined, effort: remembered.effort ?? undefined,
-        } : {}),
+        model: selection.model ?? undefined,
+        permissionMode: selection.permissionMode ?? undefined, effort: selection.effort ?? undefined,
       })
       clear()
       setStage({ kind: 'off' })

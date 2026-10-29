@@ -62,7 +62,7 @@ it('hot-switches approval policy with each builtin profile while preserving nati
     .map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
     .filter((m) => m.method === 'thread/settings/update').map((m) => m.params)
 
-  expect((await call('initialize', { protocolVersion: 1, clientCapabilities: {} })).error).toBeUndefined()
+  expect((await call('initialize', { protocolVersion: 2, clientCapabilities: {} })).error).toBeUndefined()
   expect((await call('session/new', {
     cwd: dir, mcpServers: [],
     _meta: { guguCodex: { permissionProfile: ':danger-full-access', threadStart: { approvalPolicy: 'never', sandbox: 'danger-full-access' } } },
@@ -73,13 +73,13 @@ it('hot-switches approval policy with each builtin profile while preserving nati
     [':read-only', 'never'],
     [':workspace', 'on-request'],
   ]) {
-    const response = await call('session/set_config_option', { sessionId: 'thread-permission', configId: 'mode', value: profile })
+    const response = await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'mode', value: profile })
     expect(response.error).toBeUndefined()
     expect(settings().at(-1)).toEqual({ threadId: 'thread-permission', permissions: profile, approvalPolicy })
   }
-  expect((await call('session/set_config_option', { sessionId: 'thread-permission', configId: 'mode', value: 'custom' })).error).toBeUndefined()
+  expect((await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'mode', value: 'custom' })).error).toBeUndefined()
   expect(settings().at(-1)).toEqual({ threadId: 'thread-permission', permissions: 'custom' })
   const before = settings()
-  expect((await call('session/set_config_option', { sessionId: 'thread-permission', configId: 'mode', value: 'missing' })).error?.code).toBe(-32602)
+  expect((await call('session/set_config_option', { sessionId: 'thread-permission', type: 'id', configId: 'mode', value: 'missing' })).error?.code).toBe(-32602)
   expect(settings()).toEqual(before)
 })

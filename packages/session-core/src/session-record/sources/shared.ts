@@ -1,4 +1,9 @@
-import type { SessionUpdate, ToolKind } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent, NormalizedToolStatus } from '../../acp/reducer/normalized-event';
+import type { EntityContent } from '../../acp/models/entity-content';
+import type { ToolImage } from '../../acp/models/turns/tool-calls';
+import { hasRecordedAnswers, serializePayload, toolOutputText } from '../../acp/models/tool-payload';
+
+export type RecordContentBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
 
 import { RECORD_KEY_BOUNDARY_SUFFIX, type RecordBoundary, type RecordEntry } from '../contract';
 
@@ -42,7 +47,7 @@ export function warnOf(options: SessionRecordSourceOptions | undefined): RecordS
 /**
  * 把 provider 的任意载荷收敛成 JSON 可序列化的值。
  *
- * 每一条 SessionUpdate 都会经 Realtime 广播到手机：一个循环引用或一个 undefined
+ * 时间线会经 Realtime 广播到手机：一个循环引用或一个 undefined
  * 不是「显示得难看一点」，是那一帧整个发不出去。宁可在这里把不认识的东西变成 null。
  */
 export function toJsonValue(value: unknown): unknown {
@@ -156,22 +161,46 @@ export function boundaryEntry(key: string, at: number | undefined, boundary: Rec
  * 一家的工具名 → ACP ToolKind,按类列名字。表里没有的一律 `other`:❌ 按名字形状猜 —— 猜错一个
  * 就把「执行命令」画成「读文件」,而界面上看不出是猜的。
  */
-export function toolKindTable(groups: Partial<Record<ToolKind, readonly string[]>>): (name: string) => ToolKind {
-  const byName = new Map<string, ToolKind>();
-  for (const [kind, names] of Object.entries(groups) as Array<[ToolKind, readonly string[]]>) {
+export function toolKindTable(groups: Record<string, readonly string[]>): (name: string) => string {
+  const byName = new Map<string, string>();
+  for (const [kind, names] of Object.entries(groups)) {
     for (const name of names) byName.set(name, kind);
   }
   return (name) => byName.get(name) ?? 'other';
 }
 
-/** 起一个工具调用的那一条 update(各家都在模型发出调用时写)。 */
-export function toolCallStart(toolCallId: string, name: string, kind: ToolKind, input: unknown, title = name): SessionUpdate {
+/** Native text and pictures use the same domain vocabulary as live ingress. */
+export function messageEvent(role: 'user' | 'assistant', block: RecordContentBlock, messageId: string | null): NormalizedEvent {
+  return block.type === 'text' && block.text
+    ? { kind: 'message', role, messageId, text: block.text }
+    : { kind: 'ignored' };
+}
+
+/** Native tool invocation, with no intermediate protocol object. */
+export function toolCallStart(toolCallId: string, name: string, kind: string, input: unknown, title = name): Extract<NormalizedEvent, { kind: 'tool_call' }> {
+  const rawInput = serializePayload(toJsonValue(input));
   return {
-    sessionUpdate: 'tool_call',
-    toolCallId,
-    title,
-    kind,
-    status: 'in_progress',
-    ...(input !== undefined ? { rawInput: toJsonValue(input) } : {})
+    kind: 'tool_call', toolCallId, title, toolKind: kind, status: 'in_progress',
+    parentToolCallId: null, locations: [],
+    ...(rawInput !== undefined ? { rawInput } : {}),
+  };
+}
+
+/** A native result preserves display content and the unformatted answer's settlement fact. */
+export function toolCallResult(toolCallId: string, status: NormalizedToolStatus, result: {
+  text?: string; images?: ToolImage[]; rawInput?: unknown; rawOutput?: unknown; contentBlocks?: EntityContent[];
+} = {}): Extract<NormalizedEvent, { kind: 'tool_update' }> {
+  const outputText = toolOutputText(result.text);
+  const images = result.images?.filter((image) => image.data && image.mimeType.startsWith('image/')).map(({ mimeType, data }) => ({ mimeType, data }));
+  const rawInput = serializePayload(toJsonValue(result.rawInput));
+  const rawOutput = serializePayload(toJsonValue(result.rawOutput));
+  return {
+    kind: 'tool_update', toolCallId, status,
+    ...(result.contentBlocks !== undefined ? { contentBlocks: result.contentBlocks } : {}),
+    ...(outputText !== undefined ? { outputText } : {}),
+    ...(images?.length ? { images } : {}),
+    ...(rawInput !== undefined ? { rawInput } : {}),
+    ...(rawOutput !== undefined ? { rawOutput } : {}),
+    recordedAnswers: status === 'completed' && hasRecordedAnswers(result.text ?? rawOutput),
   };
 }

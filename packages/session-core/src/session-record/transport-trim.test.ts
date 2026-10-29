@@ -1,3 +1,4 @@
+import { textFilePatch } from '../lib/text-diff';
 import { describe, expect, it } from 'vitest';
 
 import type { ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
@@ -51,13 +52,13 @@ describe('发给手机那一份的裁剪', () => {
     expect(trimTurnsForTransport(longer, LIMIT)).not.toBe(longer);
   });
 
-  it('四类大字段都裁：工具的入参/原始输出/文本输出，以及改文件的新旧文本', () => {
+  it('trims raw tool fields but preserves canonical patch bytes and structure', () => {
     const big = 'y'.repeat(LIMIT + 5);
     const [trimmed] = trimTurnsForTransport(
       [
         turn('t1', [
           execTool('a', { rawInput: big, rawOutput: big, outputText: big }),
-          { ...execTool('b'), kind: 'modify-file-tool-call', path: '/f', oldText: big, newText: big } as ToolNode
+          { ...execTool('b'), kind: 'patch-tool-call', contentBlocks: [textFilePatch('/f', 'before', big)] } as ToolNode
         ])
       ],
       LIMIT
@@ -70,7 +71,28 @@ describe('发给手机那一份的裁剪', () => {
       big.slice(0, LIMIT)
     ]);
     expect(exec.trimmedChars).toBe(15); // 三格各少 5
-    expect([modify.oldText, modify.newText]).toEqual([big.slice(0, LIMIT), big.slice(0, LIMIT)]);
+    expect(modify.contentBlocks).toEqual([textFilePatch('/f', 'before', big)]);
+    expect(modify.trimmedChars).toBeUndefined();
+  });
+
+  it('carries only the entity blocks a view reads (patches, terminals); text and pictures travel as their trimmed projections', () => {
+    const big = 'y'.repeat(LIMIT + 5);
+    const patch = textFilePatch('/f', 'before', 'after');
+    const blocks = [
+      { type: 'content', content: { type: 'text', text: big } },
+      { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'x'.repeat(1_000) } },
+      patch,
+      { type: 'terminal', terminalId: 'term-1' },
+    ];
+    const tool = execTool('a', { contentBlocks: blocks, outputText: big, images: [{ mimeType: 'image/png', data: 'x'.repeat(1_000) }] });
+    const [trimmed] = trimTurnsForTransport([turn('t1', [tool])], LIMIT);
+    const item = trimmed.items[0] as Record<string, unknown>;
+    expect(item.contentBlocks).toEqual([patch, { type: 'terminal', terminalId: 'term-1' }]);
+    expect(item.outputText).toBe(big.slice(0, LIMIT));
+    expect(item.imageRefs).toEqual([{ mimeType: 'image/png', chars: 1_000 }]);
+    expect(JSON.stringify(item)).not.toContain('x'.repeat(1_000));
+    // The original stays whole for on-demand reads.
+    expect((tool as unknown as { contentBlocks: unknown[] }).contentBlocks).toHaveLength(4);
   });
 
   it('嵌在工具组里的子调用照裁 —— 大输出常常挂在某一条子调用上', () => {
@@ -133,7 +155,6 @@ describe('发给手机那一份的裁剪', () => {
     expect(TRANSPORT_TEXT_LIMIT).toBe(8_192);
   });
 });
-
 
 /**
  * 总量预算。逐字段裁只挡得住「一条输出几十万字」；导入进来的 CLI 会话是「单条不长、一轮里几十上百条」，

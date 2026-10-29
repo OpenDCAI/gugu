@@ -4,8 +4,7 @@ import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, realpa
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { SessionUpdate } from '@agentclientprotocol/sdk'
-import { AcpTranscriptParser } from '@gugu/session-core/acp'
+import { AcpTranscriptParser, decodeV2SessionUpdate } from '@gugu/session-core/acp'
 import type { TranscriptTurn } from '../../../../packages/session-core/src/acp/models/turns/turn'
 import { createCodexJsonlSource } from '../../../../packages/session-core/src/session-record/sources/codex-jsonl'
 import { createSessionTimeline } from '../../../../packages/session-core/src/session-record/timeline'
@@ -73,7 +72,7 @@ function expectNativeTurns(turns: readonly TranscriptTurn[]) {
   ])
 }
 
-async function loadHistory(): Promise<SessionUpdate[]> {
+async function loadHistory(): Promise<unknown[]> {
   const raw = join(tmpdir(), `codex-replay-steer-${process.pid}-${Date.now()}`)
   mkdirSync(raw, { recursive: true })
   dir = realpathSync(raw)
@@ -83,7 +82,7 @@ async function loadHistory(): Promise<SessionUpdate[]> {
   const child = spawn(process.execPath, [ADAPTER], { cwd: dir, env: { ...process.env, GUGU_CODEX_BIN: fake }, stdio: ['pipe', 'pipe', 'pipe'] })
   adapter = child
   const responses = new Map<number, unknown>()
-  const updates: SessionUpdate[] = []
+  const updates: unknown[] = []
   createInterface({ input: child.stdout }).on('line', (line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
@@ -95,17 +94,18 @@ async function loadHistory(): Promise<SessionUpdate[]> {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     return awaitFact(method, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   }
-  await call('initialize', { protocolVersion: 1, clientCapabilities: {} })
-  await call('session/load', { sessionId: 'th-steer', cwd: dir, mcpServers: [] })
+  await call('initialize', { protocolVersion: 2, clientCapabilities: {} })
+  await call('session/resume', { sessionId: 'th-steer', cwd: dir, mcpServers: [] })
   return updates
 }
 
 describe('codex reopen: a steered input stays in its native turn', () => {
   it('replays two native turns as two transcript turns, the inserted message inside the second', async () => {
     const updates = await loadHistory()
+    expect(updates.some((update) => (update as { sessionUpdate: string }).sessionUpdate === 'user_message')).toBe(true)
     const parser = new AcpTranscriptParser({ sessionId: 'th-steer' })
     parser.beginReplay(1)
-    for (const update of updates) parser.push(update, 2)
+    for (const update of updates) parser.pushEvent(decodeV2SessionUpdate(update), 2)
     parser.endReplay(3)
     const turns = [...parser.history, ...(parser.activeTurn ? [parser.activeTurn] : [])]
     expectNativeTurns(turns)

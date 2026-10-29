@@ -61,10 +61,9 @@ function unitParts(unit: RenderUnit, caches: Caches): Part[] {
       case 'diff': {
         const diff = item as ChatDiff;
         const { maxLines, context } = diffUnitDef.vars ?? { maxLines: 12, context: 1 };
-        const lines = diff.awaitingPermission ? [] : caches.computeDiff(diff.oldText, diff.newText);
-        const rows = selectPreview(lines, maxLines, context);
-        const name = diff.path.split(/[\\/]/).pop();
-        return [...part(name, outer), ...part(diff.error, outer), ...part(rows.map((r) => r.text).join('\n'), outer)];
+        const rows = diff.awaitingPermission ? [] : diff.patches.flatMap(patch => selectPreview(caches.computeDiff(patch), maxLines, context));
+        const paths = diff.patches.flatMap(patch => patch.changes.map(change => typeof change.path === 'string' ? change.path : change.operation));
+        return [...part(paths.join('\n'), outer), ...part(diff.error, outer), ...part(rows.map(row => row.text).join('\n'), outer)];
       }
       case 'subagent': {
         const sub = item as ChatSubagentToolCall;

@@ -253,6 +253,16 @@ it('carries the delegation hint of a connected CLI application into the opening 
   ])
 })
 
+it('carries the issue-only note of a connection into the opening index, also under budget pressure', async () => {
+  const note = '只用来关联 issue，助理不能直接用'
+  const items = [{ id: 'github:default', name: 'GitHub', modifiedAt: '2026-10-29T07:38:13Z', note },
+    { id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z',
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: Array.from({ length: 600 }, (_, i) => `lark-skill-${i}`) } }]
+  const index = await assistantStartupIndex({ ...fixture(), overflow: async () => '/isolated/remaining-index.md',
+    localSources: async () => [{ source: 'integrations', status: 'read', read: 'catalog_list', items }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toContainEqual({ id: 'github', name: 'GitHub', note })
+})
+
 it('keeps the other local sources readable when a delegation hint names an unexpected tool', async () => {
   const index = await assistantStartupIndex({ ...fixture(), localSources: async () => [
     { source: 'assistant_memory', status: 'read', read: 'Read', items: [{ id: '/memory/a.md', name: 'a.md', modifiedAt: '2026-10-29T07:38:13Z' }] },

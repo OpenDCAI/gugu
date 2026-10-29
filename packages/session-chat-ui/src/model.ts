@@ -9,6 +9,7 @@ import type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -26,6 +27,7 @@ export type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -217,9 +219,7 @@ export type ChatSubagentToolCall = {
    * 不是它从哪个传输字段来的。
    *
    * 没有它的时候,并行派出去的 N 个子任务在界面上是 N 行一模一样的「Agent 已完成」——
-   * owner 真机验收时一次就摞了 8 行(2026-09-05)。链路上其实一直有这句话:
-   * claude 的 enrich 从 Task 工具的 `rawInput.description` 提出来,`upsertSpecialEvent`
-   * 也存进了条目的 `inputSummary`,**只有这一层没读**。
+   * 入口解码保留原生派活描述，领域条目通过 `inputSummary` 传到这里，按任务正文展示。
    */
   task?: string;
   background?: boolean;
@@ -325,10 +325,8 @@ export type ChatExecute = {
   /**
    * How the embedded terminal's process ended, once it has ended.
    *
-   * First-hand: the client spawns the process for `terminal/create`, so this is
-   * our own reading of our own child rather than anything the provider reports.
-   * Absent means "not known" — the command is still running, the agent never
-   * asked for a client terminal, or the exit landed outside this view's lifetime.
+   * Read from the shared snapshot, whether the agent or host owns the process.
+   * Missing means no exit was reported; it grants no control of that process.
    * Absent is never rendered as success.
    */
   exitStatus?: TerminalExit;
@@ -336,25 +334,13 @@ export type ChatExecute = {
   parentId?: string;
 };
 
-/**
- * A diff preview row — produced by ACP `kind: 'edit'` tool calls.
- *
- * Renders a compact, non-scrollable preview of the first changed region
- * (capped at 12 lines with ±1 context), with syntax + diff highlighting.
- * One `ChatDiff` is created per changed file within a single tool call.
- *
- * `oldText` is the replaced region (old_string). `null` means a new file —
- * all `newText` lines are additions.
- */
+/** One tool's canonical patch blocks, projected without rebuilding file contents. */
 export type ChatDiff = {
   kind: 'diff';
-  /** `${toolCallId}:${path}` — unique per file within a tool call. */
+  /** The same tool identity in preview and result. */
   id: string;
-  /** Full path; basename and extension derived in the component. */
-  path: string;
-  /** The replaced region, or null for new files. */
-  oldText: string | null;
-  newText: string;
+  /** Full canonical blocks; this view never reconstructs file contents. */
+  patches: import('@gugu/session-core/acp').SessionPatch[];
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
@@ -438,6 +424,7 @@ export type ChatPlan = {
   kind: 'plan';
   id: string;
   entries: ChatPlanEntry[];
+  body?: { type: 'markdown'; content: string } | { type: 'file'; uri: string };
   /** True while tasks are still being appended (drives preview auto-scroll + shimmer). */
   streaming?: boolean;
 };
@@ -455,7 +442,6 @@ export type TurnOutcomeItem = {
    */
   prompt?: string;
 };
-
 
 /**
  * 一轮交出来的一份东西,画成一张附件卡,挂在这一轮最后那条回复下面。
@@ -684,7 +670,9 @@ export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
   id: string;
   turnId: string;
-  files: { path: string; diffs: ChatDiff[]; adds: number; dels: number }[];
+  files: { path: string; diffs: ChatDiff[]; adds: number | null; dels: number | null }[];
+  adds: number | null;
+  dels: number | null;
 };
 
 export type SyntheticItem =

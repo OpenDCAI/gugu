@@ -7,6 +7,8 @@ type TerminalHost = Pick<AcpProcessHost, 'spawnTerminal'>;
 
 export interface AgentTerminalHooks {
   onTerminalCreated(e: {
+    scope: string;
+    snapshot: TerminalState;
     sessionId: string;
     terminalId: string;
     command: string;
@@ -14,17 +16,21 @@ export interface AgentTerminalHooks {
     cwd: string;
   }): void;
   onTerminalOutput(e: {
+    scope: string;
+    snapshot: TerminalState;
     sessionId: string;
     terminalId: string;
     chunk: string;
     truncated: boolean;
   }): void;
   onTerminalExit(e: {
+    scope: string;
+    snapshot: TerminalState;
     sessionId: string;
     terminalId: string;
     exitStatus: { exitCode: number | null; signal: string | null };
   }): void;
-  onTerminalReleased(e: { sessionId: string; terminalId: string }): void;
+  onTerminalReleased(e: { sessionId: string; scope: string; terminalId: string }): void;
 }
 
 /**
@@ -33,7 +39,7 @@ export interface AgentTerminalHooks {
 export class AgentTerminalManager {
   private readonly byId = new Map<
     string,
-    { sessionId: string; terminal: ManagedAgentTerminal }
+    { sessionId: string; scope: string; terminal: ManagedAgentTerminal }
   >();
   private readonly bySession = new Map<string, Set<string>>();
 
@@ -60,6 +66,7 @@ export class AgentTerminalManager {
       env: Record<string, string>;
       cwd: string;
       outputByteLimit?: number | null;
+      scope?: string;
     }
   ): Promise<string> {
     if (!this.host.spawnTerminal) {
@@ -69,6 +76,7 @@ export class AgentTerminalManager {
     }
 
     const terminalId = crypto.randomUUID();
+    const scope = spec.scope ?? sessionId;
     const proc = await this.host.spawnTerminal(spec);
 
     const terminal = new ManagedAgentTerminal(
@@ -78,15 +86,15 @@ export class AgentTerminalManager {
       spec.cwd,
       proc,
       (chunk, truncated) => {
-        this.hooks.onTerminalOutput({ sessionId, terminalId, chunk, truncated });
+        this.hooks.onTerminalOutput({ sessionId, scope, terminalId, chunk, truncated, snapshot: terminal.snapshot() });
       },
       (exitStatus) => {
-        this.hooks.onTerminalExit({ sessionId, terminalId, exitStatus });
+        this.hooks.onTerminalExit({ sessionId, scope, terminalId, exitStatus, snapshot: terminal.snapshot() });
       },
       spec.outputByteLimit
     );
 
-    this.byId.set(terminalId, { sessionId, terminal });
+    this.byId.set(terminalId, { sessionId, scope, terminal });
     let ids = this.bySession.get(sessionId);
     if (!ids) {
       ids = new Set();
@@ -95,6 +103,8 @@ export class AgentTerminalManager {
     ids.add(terminalId);
 
     this.hooks.onTerminalCreated({
+      scope,
+      snapshot: terminal.snapshot(),
       sessionId,
       terminalId,
       command: spec.command,
@@ -108,6 +118,11 @@ export class AgentTerminalManager {
   /** Retrieve a live terminal by id. Returns undefined if not found. */
   get(terminalId: string): ManagedAgentTerminal | undefined {
     return this.byId.get(terminalId)?.terminal;
+  }
+
+  getOwned(terminalId: string, scope: string): ManagedAgentTerminal | undefined {
+    const entry = this.byId.get(terminalId);
+    return entry?.scope === scope ? entry.terminal : undefined;
   }
 
   /** Snapshots of all live terminals for a conversation. */
@@ -138,14 +153,14 @@ export class AgentTerminalManager {
   release(terminalId: string): void {
     const entry = this.byId.get(terminalId);
     if (!entry) return;
-    const { sessionId, terminal } = entry;
+    const { sessionId, scope, terminal } = entry;
     terminal.dispose();
     this.byId.delete(terminalId);
     this.bySession.get(sessionId)?.delete(terminalId);
     if (this.bySession.get(sessionId)?.size === 0) {
       this.bySession.delete(sessionId);
     }
-    this.hooks.onTerminalReleased({ sessionId, terminalId });
+    this.hooks.onTerminalReleased({ sessionId, scope, terminalId });
   }
 
   /**
