@@ -28,3 +28,6 @@
 .gg-topic-tab-src[data-gone] { color: var(--warn); }
 /* 一枚页签是手指点的:够 44 高(原型 v7.12 .v6-subtab);图标和字间距 8。 */
 .gg-phone-chat-tabs .gg-segtab { min-height: var(--control-h-touch); gap: var(--spacing-sm); }
+
+/* Desktop groups reuse the strip with the existing non-touch control height. */
+.gg-phone-chat-tabs[data-dense] .gg-segtab { min-height: var(--control-h-lg); }
