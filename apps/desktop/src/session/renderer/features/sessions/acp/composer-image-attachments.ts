@@ -30,6 +30,8 @@ export interface EnqueueImageAttachmentDeps {
   signal?: AbortSignal;
   onRetry?: (error: unknown) => void;
   onFailure?: (error: unknown) => void;
+  /** 已保存的正文路径可自动接替失败的图片块;等待保存完成后再放行发送。 */
+  fallback?: { available: Promise<boolean>; meta: string };
   /** 上传成功后把服务端 ref 记进账本 —— 发送与删除都只认它。 */
   rememberRef: (chipId: string, ref: AttachmentRef) => void;
   labels: { uploading: string; failed: string; retrying?: string };
@@ -70,7 +72,9 @@ export async function enqueueImageAttachment(
   let ref: AttachmentRef | null = null;
   let attempt = 0;
   const uploadId = crypto.randomUUID();
-  while (!deps.signal?.aborted) {
+  const maxAttempts = 3;
+  while (!deps.signal?.aborted && attempt < maxAttempts) {
+    attempt += 1;
     try {
       ref = await deps.upload(file, mimeType, {
         signal: deps.signal,
@@ -83,14 +87,23 @@ export async function enqueueImageAttachment(
     } catch (error) {
       if (deps.signal?.aborted) return;
       const code = (error as { code?: unknown } | null)?.code;
-      if (code !== 'TIMEOUT' && code !== 'DISCONNECTED') { deps.onFailure?.(error); break; }
+      if ((code !== 'TIMEOUT' && code !== 'DISCONNECTED') || attempt >= maxAttempts) {
+        deps.onFailure?.(error);
+        break;
+      }
       deps.onRetry?.(error);
       patch({ progress: undefined, meta: labels.retrying ?? labels.uploading });
-      await retryDelay(Math.min(10_000, 250 * 2 ** Math.min(attempt++, 6)), deps.signal);
+      await retryDelay(250 * 2 ** (attempt - 1), deps.signal);
     }
   }
   if (deps.signal?.aborted) return;
   if (!ref) {
+    const pathAvailable = await deps.fallback?.available;
+    if (deps.signal?.aborted) return;
+    if (pathAvailable) {
+      patch({ state: 'done', progress: undefined, cancelable: undefined, meta: deps.fallback?.meta });
+      return;
+    }
     patch({ state: 'error', progress: undefined, cancelable: undefined, meta: labels.failed });
     return;
   }

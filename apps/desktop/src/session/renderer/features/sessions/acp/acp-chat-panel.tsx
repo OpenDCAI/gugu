@@ -430,7 +430,14 @@ const ComposerForStore = observer(function ComposerForStore({
     if (back) store.setDraftText(back);
   }, [verb, store]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachments, setAttachmentState] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  // 发送等待的是上传 promise;账本必须在它 resolve 前更新,不能等 React 的下一次渲染。
+  const setAttachments = useCallback((update: ComposerAttachment[] | ((prev: ComposerAttachment[]) => ComposerAttachment[])) => {
+    const next = typeof update === 'function' ? update(attachmentsRef.current) : update;
+    attachmentsRef.current = next;
+    setAttachmentState(next);
+  }, []);
   // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
   // 不该摆到用户脸上 —— 屏幕上和图片一样是一枚 chip,路径发送时才拼进正文(#5269,与新建任务
   // 页那一半同构)。id → 路径的账在这儿记,chip 被 × 掉时跟着删。
@@ -446,8 +453,6 @@ const ComposerForStore = observer(function ComposerForStore({
     const uploads = imageUploadsRef.current;
     return () => { for (const controller of uploads.values()) controller.abort(); uploads.clear(); };
   }, []);
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
   // 文件 / 文件夹 chip:贴上来就开始传到会话所在的机器,进度在 chip 上(#6264,product spec)。
   const fileUploads = useComposerFileUploads({
     sessionId: () => store.sessionId,
@@ -719,10 +724,14 @@ const ComposerForStore = observer(function ComposerForStore({
             signal: controller.signal,
           }).then(
             (committed) => {
-              if (controller.signal.aborted) return;
+              if (controller.signal.aborted) return false;
               filePathsRef.current.set(chipId, committed.mentionPath.trim().replace(/\\/g, '/'));
+              return true;
             },
-            (error: unknown) => log.warn('Failed to persist composer attachment', { name: file.name, error })
+            (error: unknown) => {
+              log.warn('Failed to persist composer attachment', { name: file.name, error });
+              return false;
+            }
           );
           const both = Promise.all([
             persisted,
@@ -731,6 +740,10 @@ const ComposerForStore = observer(function ComposerForStore({
               update: (updater) => setAttachments(updater),
               readPreview: readFileAsDataUrl,
               signal: controller.signal,
+              fallback: {
+                available: persisted,
+                meta: `${formatAttachmentSize(file.size)} · ${translate('composer.attachmentAsPath')}`,
+              },
               upload: (source, mimeType, options) => uploadImageFile(store, source, mimeType, options),
               onRetry: (error) => log.warn('Retrying stalled ACP attachment upload', { name: file.name, error }),
               onFailure: (error) => log.warn('Failed to prepare ACP attachment upload', { name: file.name, error }),
@@ -749,21 +762,6 @@ const ComposerForStore = observer(function ComposerForStore({
           } finally {
             pendingImagesRef.current.delete(both);
             imageUploadsRef.current.delete(chipId);
-          }
-          // 上传腿失败 ≠ 这张图发不出去:引用那条腿成了的话,agent 照样读得到,消息里也照样
-          // 看得见。红着说「上传失败」就成了假话 —— 改成与非图片附件同一句「以文件路径发送」。
-          if (filePathsRef.current.has(chipId)) {
-            setAttachments((prev) =>
-              prev.map((att) =>
-                att.id === chipId && att.state === 'error'
-                  ? {
-                      ...att,
-                      state: 'done' as const,
-                      meta: `${formatAttachmentSize(file.size)} · ${translate('composer.attachmentAsPath')}`,
-                    }
-                  : att
-              )
-            );
           }
         })
       );

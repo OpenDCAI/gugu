@@ -13,6 +13,31 @@ const contract = defineContract({
 afterEach(() => vi.useRealTimers());
 
 describe('upload inactivity across a forwarding host (#995)', () => {
+  it('allows the server to commit for 35 seconds after all bytes have arrived', async () => {
+    vi.useFakeTimers();
+    let received = false;
+    const wire = createTestWire(contract, {
+      upload: async (_input, file) => {
+        const bytes = await file.bytes();
+        received = true;
+        await new Promise(resolve => setTimeout(resolve, 35_000));
+        return ok(bytes.byteLength);
+      },
+    });
+    let outcome: unknown = 'pending';
+    const upload = wire.client.upload({}, {
+      name: 'small.png', mimeType: 'image/png', size: 8,
+      source: blobSourceFromBytes(new Uint8Array(8)),
+    }).then(value => { outcome = value; }, error => { outcome = error; });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(received).toBe(true);
+      await vi.advanceTimersByTimeAsync(35_000);
+      await upload;
+      expect(outcome).toEqual(ok(8));
+    } finally { wire.dispose(); }
+  });
+
   it('reports real progress and permits a slow transfer that keeps moving', async () => {
     vi.useFakeTimers();
     const wire = createTestWire(contract, {

@@ -9,7 +9,6 @@ import type {
   LiveUpdate,
 } from '../live/protocol';
 import {
-  BLOB_IDLE_TIMEOUT_MS,
   createSingleUseDownloadHandle,
   normalizeUploadFile,
   type BlobDownloadHandle,
@@ -254,25 +253,18 @@ function buildContractClient(
           const channel = createRequestId();
           const controller = new AbortController();
           let failure: Error | undefined;
-          let timer: ReturnType<typeof setTimeout> | undefined;
           const fail = (error: Error): void => {
             if (controller.signal.aborted) return;
             failure = error;
             controller.abort();
           };
-          const progress = (sent?: number): void => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => fail(new WireError('TIMEOUT', 'File upload made no progress')),
-              BLOB_IDLE_TIMEOUT_MS);
-            if (sent !== undefined) options?.onProgress?.({ sent, total: meta.size });
-          };
           const producer = connection.openBlobProducer(channel, source, {
-            onProgress: progress, onError: fail,
+            onProgress: sent => options?.onProgress?.({ sent, total: meta.size }),
+            onError: fail,
           });
           const onAbort = (): void => { controller.abort(); producer.close(); };
           options?.signal?.addEventListener('abort', onAbort, { once: true });
           if (options?.signal?.aborted) onAbort();
-          progress();
           try {
             return (await connection.call(fullPath, input, {
               signal: controller.signal,
@@ -281,7 +273,6 @@ function buildContractClient(
           } catch (error) {
             throw failure ?? error;
           } finally {
-            if (timer) clearTimeout(timer);
             options?.signal?.removeEventListener('abort', onAbort);
             producer.close();
           }
