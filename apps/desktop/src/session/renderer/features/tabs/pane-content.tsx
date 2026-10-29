@@ -50,7 +50,8 @@ const FULLSCREEN_STYLE = {
   bottom: 'anchor(bottom)',
   left: 'anchor(left)',
   right: 'anchor(right)',
-  zIndex: 30,
+  // Resident App guests live outside this pane on the fixed z-30 layer.
+  zIndex: 20,
 } as CSSProperties;
 
 export const PaneContent = observer(function PaneContent({
