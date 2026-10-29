@@ -2380,7 +2380,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
 }
 
 /**
- * What the task sidebar shows for each active session: its title, the project it sits in, its status,
+ * The task sidebar's facts for each existing session, including archived tasks: its title, project, status,
  * whether it is pinned, and when it was last active. `session_peers` rows are these facts joined to identity.
  * This is deliberately a separate bridge from ACP runtime summaries: PTY sessions have no ACP summary, and a
  * runtime summary is not the source of the user's sidebar label. Status is the session-page status writer's
@@ -2395,7 +2395,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   isPinned: boolean
   lastInteractedAt: string | null
 }>> {
-  const [rows, projectRows] = await Promise.all([getSessions(), getProjects()])
+  const [rows, projectRows] = await Promise.all([getSessions({ includeArchived: true }), getProjects()])
   // #609 workspace 不是项目,不带名字(与心跳摘要同一条,见 sessionpageSessionDigest)。
   const projectName = new Map(projectRows.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return rows.map((session) => ({
