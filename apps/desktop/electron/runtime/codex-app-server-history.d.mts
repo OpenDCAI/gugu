@@ -1,3 +1,6 @@
+export function resumeReplayRequest(params: unknown):
+  | { replay: boolean }
+  | { error: { code: number; message: string } };
 export function replayHistoryWithinBudget(
   deadline: number,
   replay: () => Promise<string | null | undefined>,

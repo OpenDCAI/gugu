@@ -25,6 +25,7 @@ import { resolveLocalAgentRunContext } from '@main/core/agents/agent-run-context
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
 import { persistCommittedTurn, storedRevertBoundary, truncateStoredHistory } from '@main/core/sessions/session-turn-store';
 import { createHistoryReverter } from './history-revert';
+import { resumeHistoryFacts } from './resume-history';
 import { connectNativePromptPreparation } from './native-prompt-preparation';
 import { applyTurnToAuthExpiry, type AuthExpiryWriter } from '@main/core/agent-config/auth-expiry-from-turns';
 import { clearProviderSessionMissing, markProviderSessionMissing } from '@main/core/sessions/mark-provider-session-missing';
@@ -658,8 +659,19 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         capabilityInjection.platformModel,
       );
       mark('platform-injected', { injected: platformInjection.injected });
-      const injected = await withHostResolvedCli(platformInjection.command);
-      mark('run-context-resolved', { resolved: injected.input.runContext.cli.kind === 'resolved' });
+      const resolved = await withHostResolvedCli(platformInjection.command);
+      mark('run-context-resolved', { resolved: resolved.input.runContext.cli.kind === 'resolved' });
+      const resumeHistory = await resumeHistoryFacts(resolved.input, {
+        storedQueue: async () => {
+          try {
+            return await client.getStoredQueue({ sessionId: resolved.input.sessionId });
+          } catch {
+            return null;
+          }
+        },
+      });
+      mark('resume-history-read', { replay: resumeHistory.replayHistory !== false });
+      const injected = { ...resolved, input: { ...resolved.input, ...resumeHistory } };
       if (injected.input.sourceSessionId && injected.input.forkFromProviderSessionId) {
         log.info('acp runtime fork source injected', {
           sessionId: injected.input.sessionId,

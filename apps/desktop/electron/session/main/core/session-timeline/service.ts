@@ -54,6 +54,7 @@ import {
   type SessionSchedule,
 } from '@shared/core/automations/session-schedule';
 import { log } from '@main/lib/logger';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import {
   legacyAgentStatusWord,
   parseAgentStatus,
@@ -941,6 +942,36 @@ export async function recordHistoryPage(input: {
     return { ok: true, value: { turns, hasOlder } };
   } catch (error) {
     return fail('timeline_failed', (error as Error)?.message ?? String(error));
+  } finally {
+    release(acquired.value);
+  }
+}
+
+/**
+ * #980 agent 自己的记录里,它收到过的每一条投递的消息编号。接回会话不再让 agent 重放之后,重启补投之前的去重
+ * 靠它(从前那份事实来自重放)。`null` = 这里读不出来(没有记录、读失败):调用方照「历史未知」处理,
+ * 补投照旧、标「可能已收到」—— ❌ 当成「一条都没收到」。
+ */
+export async function recordedDeliveryIds(conversationId: string): Promise<string[] | null> {
+  const acquired = await acquire(conversationId);
+  if (!acquired.ok) return null;
+  try {
+    if (acquired.value.standIn) return null;
+    const timeline = acquired.value.timeline;
+    await timeline.catchUp();
+    const ids = new Set<string>();
+    for (const turn of timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns) {
+      for (const item of turn.items) {
+        if (item.kind !== 'message' || item.role !== 'user') continue;
+        for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
+          if (segment.facts?.messageId) ids.add(segment.facts.messageId);
+        }
+      }
+    }
+    return [...ids];
+  } catch (error) {
+    log.warn('[session-timeline] recorded deliveries unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
+    return null;
   } finally {
     release(acquired.value);
   }

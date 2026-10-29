@@ -12,6 +12,8 @@ export interface AcpTranscriptParserDeps {
   sessionId: string;
   /** Live runtimes supply a fresh identity per turn; bounded replay does not invent origins. */
   newTurnReference?: () => string;
+  /** See `ReducerDeps.turnIndexBase`. */
+  turnIndexBase?: number;
 }
 
 export type ReplayResult = {
@@ -28,11 +30,16 @@ export type ReplayEntry = NormalizedEvent | { event: NormalizedEvent; ts?: numbe
 
 export class AcpTranscriptParser {
   private state: ParserState;
-  private readonly deps: AcpTranscriptParserDeps;
+  private deps: AcpTranscriptParserDeps;
 
   constructor(deps: AcpTranscriptParserDeps) {
     this.state = initialState();
     this.deps = { ...deps };
+  }
+
+  /** #980 接回时没有重放:回合从宿主给的序号接着数(见 `ReducerDeps.turnIndexBase`)。 */
+  setTurnIndexBase(base: number): void {
+    this.deps = { ...this.deps, turnIndexBase: base };
   }
 
   pushEvent(event: NormalizedEvent, at = Date.now()): void {

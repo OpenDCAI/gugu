@@ -60,10 +60,13 @@ export function connectStdioAcpV2(
     },
     async loadSession(params) {
       const { mcpServers, ...rest } = params;
+      // #980 宿主说不重放(`_meta.history.replay === false`)⇒ 不带 replayFrom:ACP v2 里缺席就是「接回、不重放」。
+      const history = (params._meta as { history?: { replay?: unknown } } | null | undefined)?.history;
+      const replay = history?.replay !== false;
       const response = await agent.request(v2.methods.agent.session.resume, {
         ...rest,
         mcpServers: mcpServers.map(v2McpServer),
-        replayFrom: { type: 'start' },
+        ...(replay ? { replayFrom: { type: 'start' as const } } : {}),
       });
       return setupResponse(response);
     },

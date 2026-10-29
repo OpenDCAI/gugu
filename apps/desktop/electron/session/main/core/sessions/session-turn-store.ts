@@ -147,6 +147,25 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
   }
 }
 
+/**
+ * #980 运行时回合序号的下一个起点。库里每一行记着它来自引擎的哪一轮(`turn_id` = `${会话}:turn:${序号}`),
+ * 取其中最大的序号 + 1。接回会话不重放时运行时从这里接着数 —— 从 0 数会撞上上一次运行留在库里的同名回合,
+ * 界面按 turn_id 认「这一轮已经落库」,撞上的那一轮就被当成重复藏起来。旧版本写的行记的是库内 id(`:turn:sN`),不算。
+ */
+export async function storedTurnIndexBase(sessionId: string): Promise<number> {
+  await persistenceTails.get(sessionId);
+  const rows = await db
+    .select({ turnId: sessionTurns.turnId })
+    .from(sessionTurns)
+    .where(eq(sessionTurns.sessionId, sessionId));
+  let max = -1;
+  for (const { turnId } of rows) {
+    const index = /:turn:(\d+)$/.exec(turnId)?.[1];
+    if (index !== undefined) max = Math.max(max, Number(index));
+  }
+  return max + 1;
+}
+
 async function storedTurnCount(sessionId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)` })
