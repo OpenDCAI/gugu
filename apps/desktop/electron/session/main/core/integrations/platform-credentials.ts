@@ -2,6 +2,7 @@ import { CloudComputerError } from '@gugu/core/cloud/cloudComputer';
 import {
   isPlatformServiceMissing,
   PlatformCredentialRejectedError,
+  type PlatformIntegrationProvider,
   type PlatformIntegrationsClient,
 } from '@gugu/core/cloud/platformIntegrations';
 import {
@@ -25,7 +26,9 @@ import { DEFAULT_INTEGRATION_ACCOUNT_ID } from './integration-credential-store';
  *    问不到时用上一次的答复 —— 另一台设备(含云电脑)连的,这台照样算连着;
  *  · 会话里的工具 = 平台的 MCP 转发口,每次调用现取本人的会话令牌;
  *  · 断开 = `DELETE …/credential`,所有设备一起断;
- *  · #649 留在本机加密库里的 key:上传一次,传成功了才删本机那份;传不上就留着,过一阵再试。
+ *  · #649 留在本机加密库里的 key:作为「搬迁」上传一次,传成功了才删本机那份;传不上就留着,过一阵再试。
+ *    ❌ 推翻这个人的断开:平台说断开过 / 已存着一份,本机这份就作废删掉,不传。#649 没记过 key 是什么时候存的
+ *    (账号行的 updatedAt 每核一次就刷新,createdAt 会被搬家改写),所以存的时刻一律报「不知道」。
  * 唯一的退路:这个安装压根没有这项平台服务(没配平台地址,或网关回「没有这个函数」的 404)—— 只有这时凭据才留在
  * 这台电脑上(#649 的老路,`custody() === 'local'`)。平台在、但说 503 not_open = 「还没对你开放」,❌ 改存本机。
  * 凭据 ❌ 进日志、❌ 进任何报错。
@@ -254,8 +257,9 @@ export class PlatformCredentialService {
       return true;
     }
     let snapshot: Snapshot;
+    let listed: PlatformIntegrationProvider[];
     try {
-      const listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
+      listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
       snapshot = new Map(providers.map((provider) => [
         provider.id,
         new Map((listed.find((row) => row.provider === provider.id)?.accounts ?? []).map((account) => [account.accountId, account.connected])),
@@ -282,7 +286,7 @@ export class PlatformCredentialService {
     if (generation !== this.generation) return false;
     for (const provider of providers) {
       try {
-        await this.moveLocalKeys(client, provider, snapshot.get(provider.id)!);
+        await this.moveLocalKeys(client, provider, listed.find((row) => row.provider === provider.id), snapshot.get(provider.id)!);
         await this.mirror(provider.id, snapshot.get(provider.id)!);
       } catch (error) {
         this.deps.log.warn('Could not record the platform-kept credentials on this device', {
@@ -307,10 +311,17 @@ export class PlatformCredentialService {
     return { connected: false, error: this.lastFailure?.message ?? 'Could not reach the Gugu platform.' };
   }
 
-  /** #649 留在本机加密库里的那份:上传;成功了才删本机的。平台那边已有一份能用的,本机这份就是多余的了。 */
+  /**
+   * #649 留在本机加密库里的那份,作为搬迁传上平台;成功了才删本机的。这个人的明确操作压过它:
+   *  · 平台已存着一份(连着的、要重连的都算)→ ❌ 覆盖,本机这份作废,照平台的显示;
+   *  · 这个人断开过 → 本机这份作废,不传(#649 没记过它是什么时候存的,就当它早于那次断开);
+   *  · 平台在两步之间才知道的(409 already_connected / disconnected_after)→ 一样作废,❌ 再试。
+   * 老一点的平台不报断开(`disconnectedAt === null`)、也不认搬迁标记:只在它什么都没存时传,跟以前一样。
+   */
   private async moveLocalKeys(
     client: PlatformIntegrationsClient,
     provider: PlatformCustodyProvider,
+    listed: PlatformIntegrationProvider | undefined,
     known: Map<string, boolean>
   ): Promise<void> {
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
@@ -318,16 +329,31 @@ export class PlatformCredentialService {
       if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
       const fields = await this.localFields(provider, row);
       if (!fields) continue;
-      if ([...known.values()].some(Boolean)) {
+      if (known.size > 0) {
         await this.keepOnPlatformOnly(provider.id, row);
+        continue;
+      }
+      if (listed?.disconnectedAt?.[row.accountId]) {
+        await this.dropDisconnected(provider.id, row);
         continue;
       }
       if ((this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
       try {
-        await client.saveCredential(provider.id, fields);
+        await client.saveCredential(provider.id, fields, { migration: { savedAt: null } });
       } catch (error) {
-        this.migrationRetryAt.set(provider.id, this.now() + MIGRATION_RETRY_MS);
         const failure = failureOf(error);
+        if (failure.code === 'already_connected') {
+          this.migrationRetryAt.delete(provider.id);
+          known.set(row.accountId, true);
+          await this.keepOnPlatformOnly(provider.id, row);
+          continue;
+        }
+        if (failure.code === 'disconnected_after') {
+          this.migrationRetryAt.delete(provider.id);
+          await this.dropDisconnected(provider.id, row);
+          continue;
+        }
+        this.migrationRetryAt.set(provider.id, this.now() + MIGRATION_RETRY_MS);
         this.deps.log.warn('A credential saved on this device could not be moved to the Gugu platform yet; it stays here and is retried later', {
           provider: provider.id,
           code: failure.code,
@@ -340,6 +366,12 @@ export class PlatformCredentialService {
       await this.keepOnPlatformOnly(provider.id, row);
       this.deps.log.info('A credential saved on this device moved to the Gugu platform', { provider: provider.id });
     }
+  }
+
+  /** 这个人断开过:本机这份 #649 的 key 连同这一行一起删掉(❌ 传上去把它连回来)。 */
+  private async dropDisconnected(providerId: string, row: ProviderAccount): Promise<void> {
+    await this.deps.accounts.removeAccount(providerId, row.accountId);
+    this.deps.log.info('A credential saved on this device was dropped: it was disconnected in Gugu since', { provider: providerId });
   }
 
   private async localFields(

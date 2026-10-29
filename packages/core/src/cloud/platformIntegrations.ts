@@ -3,11 +3,14 @@
  * 人在一台设备上填一次,平台加密存着;他的每台设备(含云电脑)都经平台的 MCP 转发口用它,凭据 ❌ 回到任何设备。
  * 地址、鉴权与聊天渠道同一扇门(`cloudComputerBaseUrl`,用户自己的 JWT);这扇门说 503 not_open = 这个环境没开放。
  *
- *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt }] }] }
+ *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt, disconnectedAt }] }] }
  *           state:connected · reconnect(存着、但对方不认了 / 换钥后解不开,要重连) · not_connected(没存,时间为空)
- *  · PUT    /integrations/:provider/credential   { fields } → { connected: true, updatedAt, checkedAt }
+ *           disconnectedAt:这个人最近一次断开它的时刻(明确再连一次就清掉);老一点的平台没有这个字段
+ *  · PUT    /integrations/:provider/credential   { fields, migration? } → { connected: true, updatedAt, checkedAt }
  *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 not_open
- *  · DELETE /integrations/:provider/credential   → 204
+ *           `migration: { savedAt }` = 设备上 #649 留下的 key 搬上来:平台已存着 = 409 already_connected(❌ 覆盖);
+ *           断开过、且断开晚于 savedAt(或 savedAt 为空)= 409 disconnected_after。没有 migration = 人明确连,照常连、清掉断开记录
+ *  · DELETE /integrations/:provider/credential   → 204(平台记下断开的时刻)
  *  · POST|GET|DELETE /integrations/:provider/mcp  MCP Streamable HTTP 转发口,凭据由平台挂上;
  *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效);
  *           暂时的:408 request_timeout、429 too_many_streams(同一人同时开着的太多)/ rate_limited,带 retry-after
@@ -30,7 +33,19 @@ export type PlatformIntegrationAccount = {
   checkedAt: string | null
 }
 
-export type PlatformIntegrationProvider = { provider: string; accounts: PlatformIntegrationAccount[] }
+export type PlatformIntegrationProvider = {
+  provider: string
+  /** 平台存着的账号(连着的、要重连的);没存的不在这里。 */
+  accounts: PlatformIntegrationAccount[]
+  /**
+   * accountId → 这个人最近一次断开它的时刻(没断开过的不在里面)。null = 这个平台不报断开(应答里哪一行都没有这个字段),
+   * ❌ 当成「没断开过」。
+   */
+  disconnectedAt: Record<string, string> | null
+}
+
+/** #649 留在设备上的 key 搬上平台时带上:平台据此不覆盖已存着的、不推翻这个人断开过的。savedAt = null:不知道它是什么时候存的。 */
+export type PlatformCredentialMigration = { savedAt: string | null }
 
 export type PlatformCredentialSaved = { connected: true; updatedAt: string | null; checkedAt: string | null }
 
@@ -94,7 +109,12 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 
 export type PlatformIntegrationsClient = {
   list(signal?: AbortSignal): Promise<PlatformIntegrationProvider[]>
-  saveCredential(provider: string, fields: Record<string, string>, signal?: AbortSignal): Promise<PlatformCredentialSaved>
+  /** `migration`:只给 #649 搬上来的 key;人在表单里明确连 ❌ 带。 */
+  saveCredential(
+    provider: string,
+    fields: Record<string, string>,
+    options?: { migration?: PlatformCredentialMigration; signal?: AbortSignal },
+  ): Promise<PlatformCredentialSaved>
   deleteCredential(provider: string, signal?: AbortSignal): Promise<void>
   mcpEndpoint(
     provider: string,
@@ -124,8 +144,17 @@ export function parsePlatformIntegrations(value: unknown): PlatformIntegrationPr
     const row = entry as { provider?: unknown; accounts?: unknown } | null
     const provider = text(row?.provider)
     if (!provider || !Array.isArray(row?.accounts)) throw badResponse('/integrations')
+    const reportsDisconnections = row.accounts.some((raw: unknown) => raw !== null && typeof raw === 'object' && 'disconnectedAt' in raw)
+    const disconnectedAt: Record<string, string> = {}
+    for (const raw of row.accounts as unknown[]) {
+      const account = raw as Record<string, unknown> | null
+      const accountId = text(account?.accountId)
+      const at = timestamp(account?.disconnectedAt)
+      if (accountId && at) disconnectedAt[accountId] = at
+    }
     return {
       provider,
+      disconnectedAt: reportsDisconnections ? disconnectedAt : null,
       accounts: row.accounts.flatMap((raw: unknown): PlatformIntegrationAccount[] => {
         const account = raw as Record<string, unknown> | null
         const accountId = text(account?.accountId)
@@ -188,8 +217,9 @@ export function createPlatformIntegrationsClient(options: {
   }
   return {
     list: async (signal) => parsePlatformIntegrations(json(await request('GET', `${options.baseUrl}/integrations`, undefined, signal), '/integrations')),
-    saveCredential: async (provider, fields, signal) => {
-      const saved = json(await request('PUT', `${providerPath(provider)}/credential`, { fields }, signal), 'PUT credential') as Record<string, unknown> | null
+    saveCredential: async (provider, fields, { migration, signal } = {}) => {
+      const body = migration ? { fields, migration: { savedAt: migration.savedAt } } : { fields }
+      const saved = json(await request('PUT', `${providerPath(provider)}/credential`, body, signal), 'PUT credential') as Record<string, unknown> | null
       if (saved?.connected !== true) throw badResponse('PUT credential')
       return { connected: true, updatedAt: timestamp(saved.updatedAt), checkedAt: timestamp(saved.checkedAt) }
     },
