@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { messageHost } from '../../../../apps/desktop/src/session/app-runtime/framed-host'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { hostEventHub, hostMembers } from '../../../../apps/desktop/src/session/shared/extensions/host-calls'
+import { callRefusal } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
 
 /**
  * Every host builds its members from one table (host-calls.ts): which members a caller has is its verb's `only` and what
@@ -36,7 +37,15 @@ describe('one table, the members each host had', () => {
   it('the phone exposes device calls everywhere and task notifications in task tabs; programs expose the shared index', () => {
     expect(names(overMessages({ framed: true }))).toEqual([...PHONE].sort())
     expect(names(overMessages({ framed: true, session: true }))).toEqual([...PHONE, 'onProgramNotification'].sort())
-    expect(names(overMessages({ program: true }))).toEqual(['getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...SESSIONS, ...FILES].sort())
+    expect(names(overMessages({ program: true }))).toEqual(['requestHuman', 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'dispatch', 'linkTo', ...MESSAGES, ...PROJECTS, ...SESSIONS, ...FILES].sort())
+  })
+
+  it('the new human step belongs only to an authorized program, including at the bridge boundary', () => {
+    for (const kind of ['page', 'background'] as const) {
+      expect(callRefusal('requestHuman', { title: 'Finish' }, { kind, has: () => true })).toMatchObject({ code: 'invalid' })
+    }
+    expect(callRefusal('requestHuman', {}, { kind: 'program', has: () => false })).toMatchObject({ code: 'denied' })
+    expect(callRefusal('requestHuman', {}, { kind: 'program', has: word => word === 'agents:tools' })).toBeNull()
   })
 
   it('a member asks its verb with its arguments packed one way, on every host', () => {
