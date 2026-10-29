@@ -70,7 +70,7 @@ import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
-import { joinsFoldRunAt } from './state/turn-fold';
+import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier,
   isDeliveredFromAgent,
@@ -520,7 +520,10 @@ export function ChatRoot(props: ChatRootProps) {
   const maxScrollTop = () => Math.max(0, contentH() - viewHeight());
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
-  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active);
+  // Identity changes only once per new turn, not for every streamed update.
+  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
+    ?? state().transcript.state.committedTurns.at(-1)?.id);
+  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
   // O(1) lookup: itemId -> index of the FIRST unit for that item in the
@@ -578,6 +581,8 @@ export function ChatRoot(props: ChatRootProps) {
     if (
       next.length > prev.length &&
       (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1]) &&
+      // The previous acknowledgement stops being the latest when another turn arrives.
+      (prev.length === 0 || !isEmptyAgentTurn(prev[prev.length - 1])) &&
       // 新来的那一轮要并进上一条还没收尾的折叠(#4981)时,只 flatten 新的画不出合并,走整条重建。
       !joinsFoldRunAt(next, prev.length, ctx.foldTurnProcess === true)
     ) {
@@ -588,7 +593,7 @@ export function ChatRoot(props: ChatRootProps) {
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
       const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
-      committedDayKey = trailingDayKey(tail, committedDayKey);
+      committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
         const u = newUnits[j];
@@ -600,7 +605,7 @@ export function ChatRoot(props: ChatRootProps) {
     } else {
       // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
       committedUnitsArr = flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY);
-      committedDayKey = trailingDayKey(next);
+      committedDayKey = trailingDayKey(next, undefined, ctx.latestTurnId);
       committedIndexById.clear();
       for (let i = 0; i < committedUnitsArr.length; i++) {
         const u = committedUnitsArr[i];
@@ -661,7 +666,7 @@ export function ChatRoot(props: ChatRootProps) {
     const build = (withBackground: boolean) => {
       const full = segmentCtx(true);
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
-      if ((!at || at.items.length === 0) && !pendingPrompt) {
+      if (!at && !pendingPrompt) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
       }
