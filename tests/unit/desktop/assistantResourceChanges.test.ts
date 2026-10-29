@@ -155,6 +155,9 @@ it('tells a resumed assistant once that a connection with session tools is used 
   const notice = await journal.prepare()
   expect(notice.text).toContain('高德地图已连接，要用就派任务；任务会话里自带它的工具')
   expect(notice.text).not.toContain('任务技能')
+  // The group's read hint must not point back to the catalog or call it a command-line app.
+  expect(notice.text).not.toContain('catalog_list')
+  expect(notice.text).not.toContain('命令行应用')
   await notice.accepted()
   await journal.observe(routed)
   expect((await journal.prepare()).text).toBe('')
