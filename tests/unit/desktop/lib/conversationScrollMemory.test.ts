@@ -317,16 +317,20 @@ describe('conversation scroll memory', () => {
 
     // 锚点不在窗口里时列表按 openLocation() === null 藏着等(不露出最新处);等不到而放弃时要自己促一次重渲,否则列表一直藏着。
     it('re-renders its caller when it gives up on a saved row that never arrived, so a list hidden while waiting shows again', async () => {
+      vi.useFakeTimers()
       const rig = mount()
       try {
         await leaveAndReturn(rig, ['first', 'anchor', 'last'])
-        vi.useFakeTimers()
         await rig.render({ chatId: 'chat-a', messageIds: ['newer'], rows: ['newer'] })
         expect(rig.view.memory!.openLocation()).toBeNull()
         const before = rig.view.renders
-        vi.spyOn(console, 'error').mockImplementation(() => {})
-        // 放弃时限按 performance.now() 算,假时钟与它的起点不一定对齐 ⇒ 推足够久,只判「放弃之后有没有重渲」
-        await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        // Own the performance clock before restoration starts, then fire its scheduled deadline.
+        await act(async () => { await vi.runOnlyPendingTimersAsync() })
+        expect(error).toHaveBeenCalledWith(
+          '[conversation-scroll] saved message anchor is not in the loaded window',
+          { chatId: 'chat-a', messageId: 'anchor' },
+        )
         expect(rig.view.renders, '放弃后没有外部重渲也要重算一次').toBeGreaterThan(before)
         expect(rig.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
       } finally { vi.useRealTimers(); await rig.cleanup() }
