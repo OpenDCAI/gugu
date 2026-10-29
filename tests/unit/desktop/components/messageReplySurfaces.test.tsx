@@ -83,3 +83,16 @@ it('does not restore an old mobile DM quote or focus the composer after A → B 
     quoteVisible: !!h.container.querySelector('button[aria-label="取消引用"]'), composerFocused: focus.mock.instances.some(node => node instanceof HTMLElement && node.matches('[contenteditable]')) })
     .toEqual({ quoteFlashed: false, quoteVisible: false, composerFocused: false })
 })
+
+it.each(['dm', 'group'] as const)('keeps the original main %s preview without applying the topic prefix', async kind => {
+  const source = message({ id: 'source', chat_id: 'g1', sender_user_id: 'ada', content: 'Alpha first line.\n\nBeta second paragraph.' })
+  await renderWithAppProviders(h, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true }), { chat: {
+    activeChatId: 'g1', activeChat: chat({ id: 'g1', kind, peer_user_id: 'ada', name: 'Ada' }), messages: [source],
+    identitiesById: { ada: displayIdentity('ada', { display_name: 'Ada' }) }, getImRepository: async () => repository,
+  } })
+  await fireContextMenu(h.container.querySelector<HTMLElement>('[data-msg-id="source"] [data-testid="message-bubble-action-target"]')!)
+  await act(async () => { await vi.dynamicImportSettled() })
+  await clickElement([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === '回复')!)
+  const band = h.container.querySelector('button[aria-label="取消引用"]')!.parentElement!
+  expect(band.querySelector('.max-w-60 > div:last-child')?.textContent).toBe(source.content)
+})

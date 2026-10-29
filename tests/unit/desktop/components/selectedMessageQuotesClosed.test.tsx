@@ -8,7 +8,7 @@ import { messageActionItems, messageSelectionActionItems } from '../../../../app
 import { contentWithQuote, partialQuotedContent } from '../../../../apps/desktop/src/components/chat/messageQuoteContent'
 import { observeMessageTextSelection } from '../../../../apps/desktop/src/lib/messageTextSelection'
 import { topicHistoryStub } from '../../../support/chatWindowStub'
-import { clickElement, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { clickElement, createReactHarness, fireContextMenu, message, renderWithAppProviders } from '../../../support/testHarness'
 import { writeComposer } from '../../../support/composerEditor'
 
 const shell = vi.hoisted(() => ({ mobile: true }))
@@ -110,4 +110,25 @@ it('keeps a topic selection and focus without attaching or sending a quote', asy
   await act(async () => writeComposer(editor, 'Explain'))
   await clickElement(h.container.querySelector('button[aria-label="发送消息"]')!)
   expect(onSend).toHaveBeenCalledWith('Explain', [], null, undefined, expect.any(Number))
+})
+
+it.each([
+  ['Alpha first line.\n\nBeta second paragraph.', '> Alpha first line.'],
+  ['A'.repeat(65) + '\nSecond paragraph.', '> ' + 'A'.repeat(60) + '…'],
+])('keeps the original topic reply preview and source identity: %s', async (content, preview) => {
+  const onSend = vi.fn(async () => {})
+  await renderWithAppProviders(h, createElement(TopicSplitPane, {
+    topic: { chatId: 'topic-1', name: 'Topic' }, messages: [message({ id: 'source', chat_id: 'topic-1', content })], loading: false,
+    memberProfiles: {}, memberReadSeqs: {}, visibleChats: [], sourceMessagePreview: null, onSend,
+    onSendAttachments: async () => {}, onClose: () => {}, currentUserId: 'user-1', history: topicHistoryStub(), mentionMembers: [], mobile: true,
+  }))
+  await fireContextMenu(h.container.querySelector<HTMLElement>('[data-msg-id="source"] [data-testid="message-bubble-action-target"]')!)
+  await act(async () => { await vi.dynamicImportSettled() })
+  await clickElement(document.querySelector('[data-testid="message-action-reply"]')!)
+  const band = h.container.querySelector('button[aria-label="取消引用"]')!.parentElement!
+  expect(band.querySelector('.max-w-60 > div:last-child')?.textContent).toBe(preview)
+  const editor = h.container.querySelector<HTMLElement>('[data-topic-split-composer] [contenteditable]')!
+  await act(async () => writeComposer(editor, 'Answer'))
+  await clickElement(h.container.querySelector('button[aria-label="发送消息"]')!)
+  expect(onSend).toHaveBeenCalledWith('Answer', [], 'source', undefined, expect.any(Number))
 })

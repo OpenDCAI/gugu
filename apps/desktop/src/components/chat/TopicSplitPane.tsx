@@ -30,6 +30,7 @@ import {
   TOPIC_SPLIT_MIN_WIDTH,
   clampTopicSplitWidth,
   maxTopicSplitWidthForAvailableWidth,
+  quotePrefixOf,
   readStoredTopicSplitWidth,
   writeStoredTopicSplitWidth,
 } from './topicSplitModels'
@@ -248,7 +249,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     })
     return () => cancelAnimationFrame(frame)
   }, [focusComposerToken, mobile])
-  const { quote: activeQuote, setQuote: setQuoted, onQuote } = useMessageQuote(topic.chatId, id => memberProfiles[id ?? '']?.displayName ?? '', t('chatArea.attachment'))
+  const { quote: activeQuote, setQuote: setQuoted, onQuote } = useMessageQuote(topic.chatId, id => memberProfiles[id ?? '']?.displayName ?? '', t('chatArea.attachment'), quotePrefixOf)
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
