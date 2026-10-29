@@ -16,6 +16,8 @@ import (
 // pipe nor SDP creates an App/task grant. The parent must own the resource,
 // validate every input and release its injected controls before stopping it.
 // Config and encoder paths come from the trusted parent, never the remote peer.
+// input.Close must interrupt its active Read; wrap non-pollable inherited stdin
+// in the cancellable pipe used by cmd/projection-media rather than passing it directly.
 func ServeMedia(parent context.Context, config Config, encoding EncoderConfig, input io.ReadCloser, output io.WriteCloser) error {
 	defer input.Close()
 	defer output.Close()

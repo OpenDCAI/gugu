@@ -26,6 +26,8 @@ type encodingFrame struct {
 	finished  chan EncodedFrame
 }
 
+var errFrameEncodingTimeout = errors.New("projection frame encoding timed out")
+
 // VideoEncoder allows one source frame in flight. New source frames cannot be
 // associated with a prior frame merely because the sizes or pixels are equal.
 // A geometry or target change requires a new host input generation.
@@ -63,8 +65,7 @@ func (v *VideoEncoder) WriteFrame(ctx context.Context, sequence uint64, bgra []b
 		return EncodedFrame{}, ErrEncoderBusy
 	}
 	defer v.write.Unlock()
-	parent := ctx
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeoutCause(ctx, 3*time.Second, errFrameEncodingTimeout)
 	defer cancel()
 	v.mu.Lock()
 	if sequence <= v.last {
@@ -81,16 +82,14 @@ func (v *VideoEncoder) WriteFrame(ctx context.Context, sequence uint64, bgra []b
 	case receipt := <-frame.finished:
 		return receipt, nil
 	case <-v.encoder.done:
+		if cause := context.Cause(ctx); cause != nil {
+			return EncodedFrame{}, cause
+		}
 		return EncodedFrame{}, v.encoder.closedError()
 	case <-ctx.Done():
 		// Its bytes may already be in the encoder. Never relabel a late packet as
 		// a subsequent source frame or retry an uncertain frame on this stream.
-		err := ctx.Err()
-		if parent.Err() != nil {
-			err = parent.Err()
-		} else if errors.Is(err, context.DeadlineExceeded) {
-			err = errors.New("projection frame encoding timed out")
-		}
+		err := context.Cause(ctx)
 		v.encoder.stop(err)
 		return EncodedFrame{}, err
 	}
