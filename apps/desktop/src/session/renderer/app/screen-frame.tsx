@@ -148,7 +148,7 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
             // (owner 10-09:先是「怎么会没有任何分割线」—— 透明缝在这层皮里和白底同色;改成 6px 灰带又是
             // 「这么粗的线,你是想干啥?不能统一吗」)。
             // 会话页是贴在块上的另一层,压在这根线两边:线自己抬到那层上面,左右那几 px 的抓手才抓得到(会话列表那根也是这么浮着的)。
-            <ResizableHandle className="z-30" onDoubleClick={() => screenLayout.equalizeSplit(node.id)} />
+            <ResizableHandle style={{ zIndex: 'var(--z-pane-divider)' }} onDoubleClick={() => screenLayout.equalizeSplit(node.id)} />
           )}
           <ResizablePanel id={childPanelId(child)} defaultSize={`${node.sizes[index] ?? 0}%`} minSize={`${blockTreeMin(child, node.orientation === 'horizontal' ? 'width' : 'height')}px`}>
             <BlockTree node={child} />

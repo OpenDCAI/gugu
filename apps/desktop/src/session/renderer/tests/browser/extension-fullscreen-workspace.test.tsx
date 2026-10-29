@@ -1,4 +1,5 @@
 import { act, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
@@ -12,6 +13,8 @@ import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneContext } from '@renderer/features/tabs/pane-context';
 import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 import { tabFullscreen, WORKSPACE_ANCHOR } from '@renderer/features/tabs/tab-fullscreen';
+import { ScreenFrame } from '@renderer/app/screen-frame';
+import { screenLayout } from '@renderer/app/screen-layout';
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
@@ -48,6 +51,7 @@ beforeEach(async () => {
   vi.stubGlobal('electronAPI', {
     invoke: async (channel: string) => {
       if (channel === 'extensions.activate') return { success: true, data: { partition: 'fixture', entryUrl: 'about:blank' } };
+      if (channel === 'viewState.save') return undefined;
       throw new Error(`Unexpected bridge call: ${channel}`);
     },
     eventOn: () => () => {},
@@ -59,6 +63,7 @@ afterEach(() => {
   act(() => tabFullscreen.exit());
   harness.cleanup();
   act(() => {
+    for (const block of [...screenLayout.blocks.values(), ...screenLayout.parkedContents]) screenLayout.forgetContent(block);
     extensionViewStore.forgetOpened(kind);
     installedExtensionsStore.manifests = [];
   });
@@ -151,3 +156,70 @@ it('keeps a host PDF canvas above both split backgrounds when fullscreen', async
     expect(document.elementFromPoint(x, rect.top + rect.height / 2)).toBe(canvas);
   }
 });
+
+// Use the real ScreenFrame/ResizableHandle as well as the real pane and resident
+// layer. The screen divider used to choose z-30 independently of the pane table.
+async function screenSplit() {
+  const layouts = ['group', 'direct'].map((name) => {
+    const chatId = `${name}-${++serial}`;
+    const layout = new PaneLayoutStore(registry, { viewId: chatId }, undefined, { singleStrip: true });
+    layout.open('document', { id: 'report.md' }, { preview: false });
+    return { layout, chatId };
+  });
+  act(() => {
+    screenLayout.show({ projectId: 'fullscreen-fixture', sessionId: layouts[0]!.chatId });
+    screenLayout.showBeside({ projectId: 'fullscreen-fixture', sessionId: layouts[1]!.chatId });
+  });
+  let blocks: HTMLElement[] = [];
+  const view = () => <div className="gugu-skin" style={{ position: 'fixed', left: 100, top: 40, width: 1000, height: 600 }}>
+    <style>{'webview { display: block; }'}</style>
+    <ExtensionViewLayer />
+    <ScreenFrame />
+    {blocks.map((block, side) => {
+      const { paneId, pane } = layouts[side]!.layout.groups[0]!;
+      return createPortal(<PaneContext.Provider value={{ paneId, pane, isFocusedPane: true }}><PaneContent hideTabBar /></PaneContext.Provider>, block);
+    })}
+  </div>;
+  await harness.render(view());
+  await until('the real screen split has two blocks and a divider', () =>
+    harness.container.querySelectorAll('[data-screen-block]').length === 2 &&
+    harness.container.querySelector('[data-slot="resizable-handle"]') !== null);
+  blocks = [...harness.container.querySelectorAll<HTMLElement>('[data-screen-block]')];
+  await harness.render(view());
+  await until('both resident documents occupy the real screen blocks', () =>
+    harness.container.querySelectorAll('[data-extension-view] webview').length === 2 &&
+    [...harness.container.querySelectorAll<HTMLElement>('[data-extension-view]')].every((box) => box.getBoundingClientRect().width > 400));
+  return layouts;
+}
+
+for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1]) {
+  it(`fullscreen ${contentKind} in real screen block ${side} covers every divider hit and restores the divider on exit`, async () => {
+    const layouts = await screenSplit();
+    const { layout, chatId } = layouts[side]!;
+    const pane = layout.groups[0]!.pane;
+    const handle = harness.container.querySelector<HTMLElement>('[data-slot="resizable-handle"]')!;
+    const original = handle.getBoundingClientRect().toJSON();
+    const centreX = original.x + original.width / 2;
+    expect(document.elementFromPoint(centreX, original.y + original.height / 2)?.closest('[data-slot="resizable-handle"]')).toBe(handle);
+    let surface: Element;
+    if (contentKind === 'pdf') {
+      act(() => { layout.open('pdf', {}, { preview: false }); });
+      await until('the real split contains the PDF canvas', () => harness.container.querySelector('canvas') !== null);
+      surface = harness.container.querySelector('canvas')!;
+    } else surface = resident(chatId).guest;
+    act(() => tabFullscreen.toggle(pane, pane.resolvedActiveTabId!));
+    await until('fullscreen content covers the real screen workspace', () => surface.getBoundingClientRect().width === 1000);
+    const rect = surface.getBoundingClientRect();
+    for (const x of [rect.left + 5, rect.left + rect.width / 4, rect.left + rect.width / 2, rect.left + rect.width * 3 / 4, rect.right - 5, centreX - 3, centreX, centreX + 3]) {
+      for (const y of [rect.top + 5, rect.top + rect.height / 2, rect.bottom - 5]) {
+        const hit = document.elementFromPoint(x, y);
+        expect(hit?.closest('[data-slot="resizable-handle"], [data-pair-divider]'), `fullscreen content cannot hit a divider at ${x},${y}`).toBeNull();
+        expect(hit, `fullscreen content owns the hit at ${x},${y}`).toBe(surface);
+      }
+    }
+    act(() => tabFullscreen.exit());
+    await until('the same screen divider is hit-testable again', () =>
+      document.elementFromPoint(centreX, original.y + original.height / 2)?.closest('[data-slot="resizable-handle"]') === handle);
+    expect(handle.getBoundingClientRect().toJSON()).toEqual(original);
+  });
+}

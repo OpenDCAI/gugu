@@ -5,6 +5,7 @@ const read = (path: string) => readFileSync(new URL(`../../../../${path}`, impor
 const css = read('apps/desktop/src/styles/tokens.css')
 const layer = read('apps/desktop/src/session/renderer/features/extensions/extension-view-layer.tsx')
 const pane = read('apps/desktop/src/session/renderer/features/tabs/pane-content.tsx')
+const screen = read('apps/desktop/src/session/renderer/app/screen-frame.tsx')
 const menu = read('packages/session-ui/src/react/primitives/dropdown-menu/dropdown-menu.css.ts')
 
 describe('workspace surfaces share one stacking contract', () => {
@@ -33,6 +34,8 @@ describe('workspace surfaces share one stacking contract', () => {
     expect(pane).toContain("zIndex: 'var(--z-pane-divider)'")
     const divider = pane.slice(pane.indexOf('const PairDivider'))
     expect(divider).not.toMatch(/\bz-\d+\b/)
+    expect(screen).toMatch(/<ResizableHandle\s+style=\{\{ zIndex: 'var\(--z-pane-divider\)' \}\}/)
+    expect(screen).not.toMatch(/<ResizableHandle[^>]*\bz-\d+\b/)
     const menuLevels = [...menu.matchAll(/zIndex:\s*([^,\n]+)/g)].map((match) => match[1])
     expect(menuLevels).not.toHaveLength(0)
     expect(menuLevels.every((value) => value === "'var(--z-menu)'")).toBe(true)
