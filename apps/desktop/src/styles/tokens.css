@@ -936,6 +936,34 @@
   --team-mint:  color-mix(in oklab, var(--fg) 4%, transparent);   --team-mint-ico:  color-mix(in oklab, var(--fg) 8%, transparent);
 }
 
+/* File-family marks share one App/host palette. Dark keeps the light hue and lightness at 85% chroma. */
+:root {
+  --file-generic: oklch(0.63634 0.01132 286.02);
+  --file-pdf: oklch(0.61840 0.14465 27.02);
+  --file-word: oklch(0.57077 0.13565 260.18);
+  --file-sheet: oklch(0.60970 0.11638 153.04);
+  --file-slides: oklch(0.69924 0.12360 59.28);
+  --file-archive: oklch(0.55083 0.05070 66.06);
+  --file-image: oklch(0.63298 0.08133 207.76);
+  --file-video: oklch(0.55054 0.15088 291.37);
+  --file-audio: oklch(0.61064 0.13170 357.37);
+  --file-code: oklch(0.44744 0.02913 261.32);
+  --file-text: oklch(0.47513 0.01492 285.71);
+}
+[data-theme="light"] {
+  --file-generic: #8a8a93;
+  --file-pdf: #d9534a;
+  --file-word: #3b74d4;
+  --file-sheet: #2e9a5a;
+  --file-slides: #df8530;
+  --file-archive: #8a6b4c;
+  --file-image: #2f9aa8;
+  --file-video: #7657cf;
+  --file-audio: #c95584;
+  --file-code: #4a5568;
+  --file-text: #5b5b66;
+}
+
 /* ── theme batch C2:会话页功能里的固定色(App 市场主推卡、项目文件夹卡、App 图标兜底底板) ─────────────
    owner 10-28 批的 token 方案:颜色只在 tokens.css 里写。这几样都是**身份 / 压图**色,两套主题同值。 */
 :root {

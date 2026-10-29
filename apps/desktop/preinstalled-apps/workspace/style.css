@@ -26,19 +26,19 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 
 /* A file's mark: its suffix on a square coloured by its family (list.js markOf). */
 .file-badge {
-  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: #fff;
-  font-size: 8.5px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: #8a8a93;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--em-color-white);
+  font-size: 8.5px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: var(--em-file-generic);
 }
-.file-badge[data-family='pdf'] { background: #d9534a; }
-.file-badge[data-family='word'] { background: #3b74d4; }
-.file-badge[data-family='sheet'] { background: #2e9a5a; }
-.file-badge[data-family='slides'] { background: #df8530; }
-.file-badge[data-family='archive'] { background: #8a6b4c; }
-.file-badge[data-family='image'] { background: #2f9aa8; }
-.file-badge[data-family='video'] { background: #7657cf; }
-.file-badge[data-family='audio'] { background: #c95584; }
-.file-badge[data-family='code'] { background: #4a5568; }
-.file-badge[data-family='text'] { background: #5b5b66; }
+.file-badge[data-family='pdf'] { background: var(--em-file-pdf); }
+.file-badge[data-family='word'] { background: var(--em-file-word); }
+.file-badge[data-family='sheet'] { background: var(--em-file-sheet); }
+.file-badge[data-family='slides'] { background: var(--em-file-slides); }
+.file-badge[data-family='archive'] { background: var(--em-file-archive); }
+.file-badge[data-family='image'] { background: var(--em-file-image); }
+.file-badge[data-family='video'] { background: var(--em-file-video); }
+.file-badge[data-family='audio'] { background: var(--em-file-audio); }
+.file-badge[data-family='code'] { background: var(--em-file-code); }
+.file-badge[data-family='text'] { background: var(--em-file-text); }
 
 /* At a row's end: how long its cloud copy has left (faint, owner 10-28), and the machine it stays on. */
 /* Denser rows (owner 10-28): a 28px mark, two lines, 6px around — about 52px a file. */
@@ -75,7 +75,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 /* A picture where there is one (an image with a cloud copy): the suffix square becomes it. */
 .file-badge.has-thumb { background-size: cover; background-position: center; color: transparent; }
 .file[data-offline] { opacity: .6; }
-.file-host[data-online='true']::after, .file-host[data-online='false']::after { content: ''; flex: none; width: 6px; height: 6px; border-radius: 3px; background: #2f9e5b; }
+.file-host[data-online='true']::after, .file-host[data-online='false']::after { content: ''; flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--em-foreground-success); }
 .file-host[data-online='false']::after { background: var(--em-foreground-muted); }
 
 /* The grid (images and videos): square pictures, the name under them; sections and folders across the whole width. */
@@ -85,7 +85,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file.cell .file-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; grid-template-columns: none; }
 .file.cell .cell-picture { position: relative; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--em-radius-control); font-size: 13px; }
 .file.cell .file-name { font-size: var(--em-font-caption); font-weight: 400; color: var(--em-foreground-muted); }
-.cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: #fff; opacity: .85; }
+.cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: var(--em-color-white); opacity: .85; }
 .cell-keep { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 .cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 /* The cell's ⋯ stays small on a touch screen too (ui.css gives buttons a finger's size there): it sits on the picture. */

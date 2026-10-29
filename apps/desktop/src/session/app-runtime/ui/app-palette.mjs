@@ -48,6 +48,18 @@ export const APP_PALETTE_COLORS = [
   ['--em-background-warning', 'var(--warn-tint)'],
   ['--em-foreground-info', 'var(--live)'],
   ['--em-background-info', 'var(--live-soft)'],
+  // File-family colours follow the same host tokens in both themes.
+  ['--em-file-generic', 'var(--file-generic)'],
+  ['--em-file-pdf', 'var(--file-pdf)'],
+  ['--em-file-word', 'var(--file-word)'],
+  ['--em-file-sheet', 'var(--file-sheet)'],
+  ['--em-file-slides', 'var(--file-slides)'],
+  ['--em-file-archive', 'var(--file-archive)'],
+  ['--em-file-image', 'var(--file-image)'],
+  ['--em-file-video', 'var(--file-video)'],
+  ['--em-file-audio', 'var(--file-audio)'],
+  ['--em-file-code', 'var(--file-code)'],
+  ['--em-file-text', 'var(--file-text)'],
   // State overlays (translucent: right on any surface) and the shadows: lift for what floats, dialog for the dialog (#7333).
   ['--em-hover', 'var(--hover)'],
   ['--em-press', 'var(--press)'],
