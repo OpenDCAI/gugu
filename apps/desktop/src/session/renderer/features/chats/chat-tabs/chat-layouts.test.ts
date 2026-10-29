@@ -157,15 +157,16 @@ describe('filling the block (the old 「全屏」) is the pair separated', () =>
     expect(chatAlone('full-1')).toBe(false);
   });
 
-  it.each([false, true])('fullscreen preserves whether the panel is separated (separated=%s)', (separated) => {
+  it.each([false, true])('multi-block fullscreen preserves whether the panel is separated (separated=%s)', (separated) => {
     const chatId = `full-pair-projection-${separated}`;
     const tab = openPanelItem(chatId, board)!;
     if (separated) setPanelFull(chatId, tab, true);
     const host = pane(chatId);
     const saved = JSON.stringify(chatLayoutOf(chatId).snapshot);
     const pair = host.livePair && { ...host.livePair };
+    if (separated) expect(host.tabFill(tab)).toBeNull(); // A lone, unpaired page already fills its only block.
     try {
-      host.tabFill(tab)!.toggle();
+      host.tabFill(tab, true)!.toggle(); // Same multi-block capability passed by GenericTabItem.
       expect(tabFullscreen.isOn(host, tab)).toBe(true);
       expect(host.shownTabIds).toEqual([tab]);
       expect(panelFull(chatId, tab)).toBe(separated);
