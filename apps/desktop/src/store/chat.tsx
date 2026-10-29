@@ -48,7 +48,7 @@ import {
 import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevisionSource'
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
-import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
+import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'; import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 const revisionLog = rendererLogger('chat/account-revision')
@@ -807,8 +807,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
     return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage,
-      removePlaceholder: (id) => removeMessage(id, chatId) })
-  }, [userId, cache, loadHistoryPage, appendMessage, removeMessage])
+      observeMessage: observeAttachmentMessage(subscribeAccountRevision, userId, chatId), removePlaceholder: (id) => removeMessage(id, chatId) })
+  }, [userId, cache, loadHistoryPage, appendMessage, removeMessage, subscribeAccountRevision])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!userId) throw new Error('Not authenticated')
