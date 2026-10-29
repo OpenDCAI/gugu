@@ -49,9 +49,9 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
   return segments(item).reduce((height, segment, index) => height + singleHeight(segment, ctx, vars) + (index ? 12 : 0), 0);
 }
 
-/** agent 发出去的那条带了 reply_to_message_id ⇒ 气泡上方一行「谁 · 摘要」(owner 10-28);❌ 猜出来的不画。 */
-function sentQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
-  return item.role === 'assistant' && item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
+/** Only an explicit IM reply or persisted timeline source gets a clickable quote. */
+function messageQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
+  return item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
 }
 
 /** 引用里的摘要截短一点(owner 10-28「比现在短一点」);一行放不下再由 CSS 省略。 */
@@ -128,7 +128,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     <Show when={props.data.conversationPart !== 'body'}>
     <div class={conversationHeader} style={{ height: `${HEADER_H}px` }}>
       <SenderName class={conversationName} name={name()} target={senderTarget()} />
-      <Show when={sentQuote(props.data)}>{quote => <>
+      <Show when={messageQuote(props.data)}>{quote => <>
         <span class={conversationTimeSeparator} aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
           disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
@@ -152,7 +152,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       </>
     }</Show>
     <Show when={props.data.conversationPart !== 'head'}>
-      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation />
+      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation sender={name} />
     </Show>
   </div>;
 }

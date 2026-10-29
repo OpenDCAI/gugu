@@ -2,6 +2,10 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { useSessionSourceMessage } from './use-session-source-message';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
+import { useSessionMessageQuotes } from './use-session-message-quotes';
+import { useSessionQuoteComposer } from './use-session-quote-composer';
+import { consumeSessionQuote, getSessionQuote, quotedSessionPrompt } from './session-quote-draft';
+import { continueSessionTurn } from './continue-session-turn';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
@@ -180,7 +184,6 @@ import {
 import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
-import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -459,6 +462,7 @@ const ComposerForStore = observer(function ComposerForStore({
   /** 发送时附件还没传完:在等(发送键禁用、输入框上方一句话);有一件没成:不发,说一句。 */
   const [sendHold, setSendHold] = useState<'waiting' | 'blocked' | null>(null);
   const sendingRef = useRef(false);
+  const quoteComposer = useSessionQuoteComposer(store, editorApiRef);
   const { value: promptLibrary } = usePromptLibrary();
 
   // Autofocus when the slot becomes available — only while the session page is on screen. 宿主把它常驻挂载在
@@ -483,6 +487,7 @@ const ComposerForStore = observer(function ComposerForStore({
     async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void) => {
       if (sendingRef.current) return;
       sendingRef.current = true;
+      const quote = getSessionQuote(store);
       try {
         // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
         if (fileUploads.unsettled() || pendingImagesRef.current.size > 0) {
@@ -507,12 +512,13 @@ const ComposerForStore = observer(function ComposerForStore({
         fileUploads.clear();
         editorApiRef.current?.clear();
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
-        deliver(text, promptAttachments);
+        deliver(quotedSessionPrompt(text, quote), promptAttachments);
+        consumeSessionQuote(store, quote);
       } finally {
         sendingRef.current = false;
       }
     },
-    [fileUploads]
+    [fileUploads, store]
   );
 
   const handleSubmit = useCallback(
@@ -1640,6 +1646,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
+      {quoteComposer.preview}
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -1666,14 +1673,12 @@ const ComposerForStore = observer(function ComposerForStore({
         queuedPrompts={queuedPrompts}
         // 排队条打印的是原文,而 @ 提及在原文里是它的地址 —— 显示成名字,与输入框里的 pill、
         // 聊天记录里的 pill 一致(点进去编辑仍是原文,那才是真要发出去的东西)。
-        renderQueuedPromptText={(text) =>
-          renderMentionTokens(text, store.chatState.uri ?? store.sessionId)
-        }
+        renderQueuedPromptText={quoteComposer.renderQueuedPromptText}
         onEditQueuedPrompt={(id, text) => { void store.editQueuedPrompt(id, text); }}
-        queuedPromptEdit={store.queuedPromptEdit}
+        queuedPromptEdit={quoteComposer.queuedPromptEdit}
         onBeginEditQueuedPrompt={(id) => { void store.beginQueuedPromptEdit(id); }}
-        onChangeQueuedPromptEdit={(text) => store.changeQueuedPromptEdit(text)}
-        onFinishQueuedPromptEdit={(text) => { void store.finishQueuedPromptEdit(text); }}
+        onChangeQueuedPromptEdit={quoteComposer.changeQueuedPromptEdit}
+        onFinishQueuedPromptEdit={quoteComposer.finishQueuedPromptEdit}
         onDeleteQueuedPrompt={(id) => store.deleteQueuedPrompt(id)}
         onReorderQueuedPrompts={(ids) => store.reorderQueuedPrompts(ids)}
         onSendQueuedPromptNow={handleSendQueuedPromptNow}
@@ -2235,10 +2240,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const messageEdit = store?.messageEdit;
   const messageEditPending = store?.reverting ?? false;
   const conversationAgentName = store ? sessionAgentNames.nameFor(store.sessionId) ?? null : null;
+  const quotes = useSessionMessageQuotes(store, editorApiRef);
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
       onConversationReply: sourceMessage.reveal,
+      onMessageTextMount: quotes.onMessageTextMount,
       flashMessageId: sourceMessage.flashMessageId,
       conversationAgentName: () => conversationAgentName,
       conversationAgentSession: () => store?.sessionId ?? null,
@@ -2266,27 +2273,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // ⚠️ 只写草稿，**不发送**。接成 submitPrompt 就把「取回指令」偷换成「重发」——
       // 而重发不是重试（出错的那一轮可能已经写过文件、调过工具），
       // 那正是 #3498 拒绝交付的那个会骗人的按钮。见 ChatCommands.onRestorePrompt。
-      onRestorePrompt: (arg) => {
-        if (!store) return;
-        store.setDraftText(arg.text);
-        editorApiRef.current?.setText(arg.text);
-        editorApiRef.current?.focus('end');
-      },
-      // 「继续」——上游 stopped-run 的 Continue。与上面那颗**刚好相反**：这颗是真发送。
-      // 能这么接是因为 `cancel` 之后会话还活着，且 agent 的上下文里带着刚被切断的那半截输出
-      // ⇒ 发一条「接着往下」就是字面意义上的继续，而不是把出错那一轮的原指令重放一遍
-      // （后者才是 onRestorePrompt 明令禁止接成发送的那件事）。逐句理由见 ChatCommands。
-      onContinueTurn: () => {
-        if (!store) return;
-        const text = translate('transcript.continueTurnPrompt');
-        // ⚠️ 「一条指令该发还是该排队」在本仓已经有一条既定规则，就在这个文件里：
-        // composer 空闲时 `submitPrompt`、在跑时 `queuePrompt`（handleSubmit /
-        // handleSubmitWhileWorking）。这颗按钮长在一条**已经结算**的行上，而那一行会一直留在
-        // 屏幕上 —— 用户完全可能在后面又起了一轮之后才回头点它。所以这里照抄那条规则，
-        // ❌ 不另立一套：无条件 submit 会把一条指令塞进一个正在跑的会话。
-        if (store.affordances.isWorking) store.queuePrompt(text);
-        else store.submitPrompt(text);
-      },
+      onRestorePrompt: quotes.restorePrompt,
+      onContinueTurn: () => continueSessionTurn(store, translate('transcript.continueTurnPrompt')),
       // 计划审批卡上的选项（#7139）：与输入框上那条审批同一个答法。
       onResolvePermission: ({ requestId, optionId }) => store?.resolvePermission(requestId, optionId),
       // #7103 咕咕拒了这一轮的票:「回合失败」那一行按原因表说那一句、给那个按钮(与起会话失败同一张表)。
@@ -2391,7 +2379,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         if (store) dismissSubagent(store.sessionId, entryId);
       },
     }),
-    [store, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, quotes.onMessageTextMount, quotes.restorePrompt, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching
