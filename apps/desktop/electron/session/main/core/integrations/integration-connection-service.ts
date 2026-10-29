@@ -26,6 +26,7 @@ import {
   McpReauthorizationRequiredError,
   refreshMcpCredentials,
 } from './mcp-oauth-flow';
+import { platformCredentials } from './platform-credentials-instance';
 
 type ConnectResult =
   | { success: true; displayName?: string; displayDetail?: string }
@@ -421,6 +422,10 @@ export class IntegrationConnectionService {
   ): Promise<ConnectResult> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) return { success: false, error: `Unknown integration: ${integrationId}` };
+    // #921 凭据由平台保管:表单交给平台(它先向对方验过再存),本机只记一行,❌ 进本机凭据库。
+    if (platformCredentials.isPlatformProvider(integrationId)) {
+      return platformCredentials.connect(integrationId, input, { editing: !!editAccountId });
+    }
     let credentials = input;
     if (editAccountId) {
       try {
@@ -510,6 +515,7 @@ export class IntegrationConnectionService {
   async checkAccounts(integrationId: string): Promise<IntegrationAccountCheck[]> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) throw new Error(`Unknown integration: ${integrationId}`);
+    if (platformCredentials.isPlatformProvider(integrationId)) return platformCredentials.checkAccounts(integrationId);
     const accounts = await integrationCredentialStore.listAccounts(integrationId);
     return Promise.all(
       accounts.map(async (account): Promise<IntegrationAccountCheck> => {
@@ -529,6 +535,8 @@ export class IntegrationConnectionService {
   }
 
   async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string }> {
+    // #921 平台上删(一个人一份):所有设备一起断。
+    if (platformCredentials.isPlatformProvider(integrationId)) return platformCredentials.disconnect(integrationId);
     if (accountId) {
       // #7240 多账号里断开一个:只删这一个(提示「只会断开 %s」)。
       try {
@@ -573,6 +581,10 @@ export class IntegrationConnectionService {
         error: `Unknown integration: ${integrationId}`,
         capabilities,
       };
+    }
+    // #921 设备上没有凭据可验:问平台。存着但对方不认了 = 要重连(authorization_expired),❌ 说成登录问题。
+    if (platformCredentials.isPlatformProvider(integrationId)) {
+      return { ...(await platformCredentials.check(integrationId)), capabilities };
     }
 
     let account: IntegrationAccountRecord | null;

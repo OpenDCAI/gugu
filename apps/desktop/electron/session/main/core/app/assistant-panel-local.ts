@@ -10,6 +10,8 @@ import { automationsService } from '@main/core/automations/automations-service'
 import { providerAccountRegistry } from '@main/core/provider-accounts/provider-account-registry-instance'
 import { integrationPluginRegistry } from '@gugu/session-plugins/integrations'
 import { buildIntegrationListPayload } from '@main/core/integrations/integration-payload-builder'
+import { integrationConnectionService } from '@main/core/integrations/integration-connection-service'
+import { platformCredentials } from '@main/core/integrations/platform-credentials-instance'
 import { listAgents } from '@gugu/core'
 import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
@@ -48,6 +50,8 @@ export const assistantPanelLocal = {
     return Promise.all(volume.items.map(item => readUserLibraryEntry(kind,item.id)))
   },
   async integrations(ownerId: string,onVerified?: () => void) {
+    // #921 credentials the platform keeps: what another device connected or disconnected shows here too.
+    await platformCredentials.refresh({ maxAgeMs: 60_000 })
     return (await Promise.all(integrationPluginRegistry.getAll().map(async plugin => {
       const providerId = plugin.metadata.id
       const accounts = await providerAccountRegistry.listAccounts(providerId)
@@ -116,6 +120,12 @@ export const assistantPanelLocal = {
     }
     if (change.domain === 'integrations') {
       if (typeof data.providerId !== 'string' || typeof data.accountId !== 'string') throw new Error('PANEL_INTEGRATION_DATA_INVALID')
+      if (removed && platformCredentials.isPlatformProvider(data.providerId)) {
+        // #921 removing it here removes it on the platform, so every device of the person's is disconnected.
+        const result = await integrationConnectionService.disconnect(data.providerId)
+        if (!result.success) throw new Error('PANEL_INTEGRATION_DISCONNECT_FAILED')
+        return
+      }
       if (removed) { await providerAccountRegistry.removeAccount(data.providerId,data.accountId); return }
       if (data.isDefault === true) { await providerAccountRegistry.setDefaultAccount(data.providerId,data.accountId); return }
     }

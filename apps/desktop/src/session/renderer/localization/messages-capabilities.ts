@@ -791,6 +791,10 @@ export const enUSCapabilityMessages = {
   'integrations.disconnectLoseAccess': 'Agents will no longer be able to use your {name} data.',
   'integrations.credentialsDeleteNotice':
     'This only deletes what Gugu saved. To revoke the code itself, go to the account settings of that service.',
+  'integrations.platformCustodyNote':
+    "Gugu's platform keeps your {label}, so all your devices can use it. Disconnecting here disconnects every device; to revoke it, delete it in the {name} console.",
+  'integrations.platformDisconnectNotice':
+    ' Every device will be disconnected. To revoke the {credential} itself, delete it in the {name} console.',
   'integrations.connectedOn': 'Connected {date}',
   'integrations.checkingAccount': 'Checking…',
   'integrations.credentialsSubmit': 'Save and connect',
@@ -1600,6 +1604,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'integrations.disconnectConfirmTitle': '要断开与 {name} 的连接吗？',
   'integrations.disconnectLoseAccess': 'agent 将无法再访问你的 {name} 数据。',
   'integrations.credentialsDeleteNotice': '此操作仅删除咕咕保存的凭据。如需让授权码失效，请前往该服务的账号设置。',
+  'integrations.platformCustodyNote': '{label}由咕咕平台保管，你的所有设备都能用。在这里断开，所有设备都会断开；要作废它，请到{name}控制台删除。',
+  'integrations.platformDisconnectNotice': '所有设备都会断开。要作废{credential}本身，请到{name}控制台删除。',
   'integrations.connectedOn': '连接于 {date}',
   'integrations.checkingAccount': '正在检查…',
   'integrations.credentialsSubmit': '保存并连接',

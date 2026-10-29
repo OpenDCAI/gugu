@@ -13,31 +13,19 @@ const authFieldSchema = z.object({
   defaultValue: z.string().optional(),
 });
 
-/**
- * A vendor's hosted MCP that authorizes with the person's own key in the URL (AMap: `?key=`),
- * not OAuth. The key is one of the form's fields; the host builds the address from the stored
- * record on every call and forwards the vendor's tools to sessions unchanged.
- */
-const keyedMcpSchema = z.object({
-  serverUrl: z.string(),
-  /** The form field that holds the key. */
-  keyField: z.string(),
-  /** The query parameter the vendor reads the key from. */
-  keyQueryParam: z.string(),
-  /**
-   * One cheap read-only call that proves the key works. Some vendors (AMap) list their tools for
-   * any well-formed key and only reject it on a real call, so listing tools alone would connect a
-   * wrong key.
-   */
-  probe: z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).optional(),
-});
-
 const formMethodSchema = z.object({
   kind: z.literal('form'),
   fields: z.array(authFieldSchema).min(1),
   help: localizedTextSchema.optional(),
   helpUrl: z.string().optional(),
-  mcp: keyedMcpSchema.optional(),
+  /**
+   * #921 `'platform'`: the person types the credential once and the Gugu platform keeps it for them. The form goes
+   * to the platform, which checks it with the provider before storing it; every device of theirs (their cloud
+   * computer too) uses the provider's MCP tools through the platform's forwarder, and the credential never comes
+   * back to any device. The plugin declares its id and the fields only: the upstream address and where the
+   * credential goes on it live in the platform's provider table. Absent = kept in this device's credential store.
+   */
+  custody: z.literal('platform').optional(),
 });
 
 const oauthMethodSchema = z.object({
@@ -99,7 +87,6 @@ const authDescriptorSchema = z.object({
 
 export type IntegrationAuthField = z.infer<typeof authFieldSchema>;
 export type IntegrationAuthMethod = z.infer<typeof authMethodSchema>;
-export type IntegrationKeyedMcp = z.infer<typeof keyedMcpSchema>;
 export type IntegrationCliMethod = z.infer<typeof cliMethodSchema>;
 export type IntegrationCliTool = IntegrationCliMethod['tool'];
 export type IntegrationAuthDescriptor = z.infer<typeof authDescriptorSchema>;

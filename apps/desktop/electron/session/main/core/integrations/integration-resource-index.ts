@@ -1,12 +1,16 @@
 import { integrationPluginRegistry } from '@gugu/session-plugins/integrations'
 import { providerAccountRegistry } from '../provider-accounts/provider-account-registry-instance'
 import { cliMethodOf, connectedCliSkills } from './cli/cli-integrations'
+import { platformCredentials } from './platform-credentials-instance'
 import { integrationGivesSessionTools } from './session-integrations'
 import { log } from '@main/lib/logger'
 
 /** Runs beside the active account registry; metadata and CLI skill names,
- * without decrypting credentials or starting a provider command. */
+ * without decrypting credentials or starting a provider command. Credentials the
+ * platform keeps (#921) are asked of the platform first, so a connection made on
+ * another device of the person's is listed here too. */
 export async function configuredIntegrationIndex() {
+  await platformCredentials.refresh()
   const configured = await Promise.all(integrationPluginRegistry.getAll().map(async plugin => ({
     plugin, accounts: await providerAccountRegistry.listAccounts(plugin.metadata.id),
   })))

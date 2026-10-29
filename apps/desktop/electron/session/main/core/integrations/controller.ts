@@ -12,9 +12,15 @@ import {
   type MovableIntegrationAccount,
 } from './integration-move';
 import { buildIntegrationListPayload } from './integration-payload-builder';
+import { platformCredentials } from './platform-credentials-instance';
 
 const moveDeps: IntegrationMoveDeps = {
-  integrationIds: () => integrationPluginRegistry.getAll().map((plugin) => plugin.metadata.id),
+  // #921 平台保管的那几家不随助理搬:平台是按人存的,新家本来就连着。
+  integrationIds: () =>
+    integrationPluginRegistry
+      .getAll()
+      .map((plugin) => plugin.metadata.id)
+      .filter((integrationId) => !platformCredentials.isPlatformProvider(integrationId)),
   isCli: (integrationId) => cliMethodOf(integrationId) !== null,
   hasIntegration: (integrationId) => integrationPluginRegistry.get(integrationId) !== undefined,
   listAccounts: (integrationId) => integrationCredentialStore.listAccountsDetailed(integrationId),

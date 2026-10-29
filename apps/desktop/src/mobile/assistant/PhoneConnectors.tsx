@@ -7,7 +7,7 @@ import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/sess
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
 import { connectorState } from '@/session/renderer/features/assistant/assistant-connector-status'
 import { accountNoteFor } from '@/session/renderer/features/assistant/assistant-home-integrations'
-import { formMethodOf } from '@/session/renderer/features/integrations/integration-setup-model'
+import { formMethodOf, keptByPlatform } from '@/session/renderer/features/integrations/integration-setup-model'
 import type { IntegrationMetadata } from '@/session/renderer/features/integrations/integrations-provider'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { PluginIcon } from '@/session/renderer/lib/components/plugin-icon'
@@ -179,7 +179,7 @@ export function PhoneConnectorDetail({ assistant, homeDeviceId, machine, integra
                   body={
                     confirm?.accountId
                       ? t('connectors.disconnectAccountBody', { account: confirm?.label ?? '' })
-                      : `${t('connectors.disconnectBody', { name: view.item.name, assistant: name })}${credentialLike ? t('connectors.disconnectCredentials', { name: view.item.name }) : ''}`
+                      : `${t('connectors.disconnectBody', { name: view.item.name, assistant: name })}${keptByPlatform(view.item) ? t('connectors.disconnectPlatformCredentials', { name: view.item.name }) : credentialLike ? t('connectors.disconnectCredentials', { name: view.item.name }) : ''}`
                   }
                   confirmLabel={t('connectors.disconnect')}
                   failedText={t('connectors.disconnectFailed')}

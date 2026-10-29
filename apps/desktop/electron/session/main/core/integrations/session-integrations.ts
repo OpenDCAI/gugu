@@ -1,17 +1,15 @@
-import {
-  integrationPluginRegistry,
-  keyedMcpUrl,
-  mcpOAuthCredentialsSchema,
-  type IntegrationKeyedMcp,
-} from '@gugu/session-plugins/integrations';
+import { integrationPluginRegistry, mcpOAuthCredentialsSchema } from '@gugu/session-plugins/integrations';
 import type { IntegrationUpstream } from '../../../../integration-mcp-bridge';
 import { integrationCredentialStore } from './integration-credential-store-instance';
 import { integrationConnectionService } from './integration-connection-service';
 import { isMailIntegration, mailIntegrationTools } from './mail/mail-tools';
+import type { PlatformCredentialService } from './platform-credentials';
+import { platformCredentials } from './platform-credentials-instance';
 
 /**
  * 一家已连接、能以 MCP 工具交给 agent 的集成 —— 会话里给 agent 的就是这些。
- * 托管 MCP 那几家(含高德这种 key 拼地址的)转发给对方(`remote`);邮箱由咕咕自己答(`local`,#7240)。
+ * 托管 MCP 那几家转发给对方(`remote`);凭据由平台保管的(高德,#921)转发给平台的转发口(也是 `remote`);
+ * 邮箱由咕咕自己答(`local`,#7240)。
  */
 export type SessionIntegration = {
   integrationId: string;
@@ -24,16 +22,9 @@ function mcpOAuthServerUrl(integrationId: string): string | null {
   return method?.kind === 'mcp-oauth' ? method.serverUrl : null;
 }
 
-/** 用户自己的 key 拼进地址的托管 MCP(高德):表单那条连接方式上挂着 `mcp`。 */
-function keyedMcp(integrationId: string): IntegrationKeyedMcp | null {
-  const methods = integrationPluginRegistry.get(integrationId)?.capabilities.auth.methods ?? [];
-  for (const method of methods) if (method.kind === 'form' && method.mcp) return method.mcp;
-  return null;
-}
-
 /** Whether a connected integration hands an agent anything to call in a session: mail tools or a hosted MCP. */
 export function integrationGivesSessionTools(integrationId: string): boolean {
-  return isMailIntegration(integrationId) || keyedMcp(integrationId) !== null || mcpOAuthServerUrl(integrationId) !== null;
+  return isMailIntegration(integrationId) || mcpOAuthServerUrl(integrationId) !== null;
 }
 
 /**
@@ -42,8 +33,15 @@ export function integrationGivesSessionTools(integrationId: string): boolean {
  * 判据只有两条:这家能以工具交出去(托管 MCP / 邮箱),且**当下真的连着**。❌ 别把「装了这个插件」当成连着 ——
  * 那会给 agent 一台连不上的 server,而工具清单一旦进了模型前缀就改不了了。
  */
-export async function connectedSessionIntegrations(): Promise<SessionIntegration[]> {
+export async function connectedSessionIntegrations(
+  platform: PlatformCredentialService = platformCredentials
+): Promise<SessionIntegration[]> {
   const entries: SessionIntegration[] = [];
+  // #921 平台保管的那几家连没连,以平台为准:开会话前现问一次(问不到用上一次的答复)—— 别的设备连上 / 断开的,
+  // 这条会话就跟上了。之后会话里那台的工具清单定死在模型前缀里,中途断开由转发口当场说「没连」。
+  if (integrationPluginRegistry.getAll().some((plugin) => platform.isPlatformProvider(plugin.metadata.id))) {
+    await platform.refresh({ maxAgeMs: 0 });
+  }
   for (const plugin of integrationPluginRegistry.getAll()) {
     const integrationId = plugin.metadata.id;
     if (isMailIntegration(integrationId)) {
@@ -59,23 +57,10 @@ export async function connectedSessionIntegrations(): Promise<SessionIntegration
       });
       continue;
     }
-    const keyed = keyedMcp(integrationId);
-    if (keyed) {
-      if (!(await integrationCredentialStore.isConfigured(integrationId))) continue;
-      entries.push({
-        integrationId,
-        upstream: {
-          kind: 'remote',
-          endpoint: async (signal) => {
-            signal?.throwIfAborted();
-            const account = await integrationConnectionService.getFreshAccount(integrationId);
-            signal?.throwIfAborted();
-            // 断开连接 / key 没了 ⇒ keyedMcpUrl 明确抛错,❌ 拼一个不带 key 的地址让对方去猜。
-            if (!account) throw new Error(`${integrationId} is not connected in Gugu any more; reconnect it.`);
-            return { url: keyedMcpUrl(keyed, account.credentials), headers: {} };
-          },
-        },
-      });
+    if (platform.isPlatformProvider(integrationId)) {
+      if (!(await platform.isConnected(integrationId))) continue;
+      // 地址是平台的转发口、令牌是本人此刻的会话令牌,每次调用现取;凭据由平台挂上,❌ 在这台设备上。
+      entries.push({ integrationId, upstream: { kind: 'remote', endpoint: (signal) => platform.mcpEndpoint(integrationId, signal) } });
       continue;
     }
     const serverUrl = mcpOAuthServerUrl(integrationId);

@@ -273,6 +273,9 @@ function FormSetup({ item, rpc, onConnected }: { item: IntegrationMetadata; rpc:
         )
       })}
       {method.help ? <p className="ta-page-sub ta-pad">{method.help}</p> : null}
+      {method.custody === 'platform' ? (
+        <p className="ta-page-sub ta-pad">{t('connectors.setup.platformCustody', { label: secretLabel ?? method.fields[0]?.label ?? '', name: item.name })}</p>
+      ) : null}
       {method.helpUrl ? (
         <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.helpUrl ?? '')} data-testid="assistant-connector-guide">
           <ExternalLink />
