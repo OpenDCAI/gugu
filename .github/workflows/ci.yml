@@ -262,7 +262,7 @@ jobs:
       - name: Native browser handoff and page protocol in real Electron
         env:
           GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
-        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/browser/browser-user-agent.real-electron.test.ts apps/desktop/electron/session/main/core/browser/page-protocol.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection.real-electron.test.ts
+        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/browser/browser-user-agent.real-electron.test.ts apps/desktop/electron/session/main/core/browser/page-protocol.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection.real-electron.test.ts apps/desktop/electron/session/main/core/extensions/projection-image.real-electron.test.ts
       # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
       # off by a line on Linux), so this browser project stays here.
       - uses: ./.github/actions/setup-playwright
