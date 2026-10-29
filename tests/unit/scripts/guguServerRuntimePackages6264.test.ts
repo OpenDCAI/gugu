@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ADAPTER_BRIDGE_ENTRIES,
+  APP_ROOT_PACKAGE_FILES,
   ADAPTER_PACKAGES,
   assertRuntimeSpecifiersResolve,
   externalDependencySpec,
@@ -43,7 +44,7 @@ function serverLayout(chunk: string, packages: string[]): { root: string; app: s
   const app = join(root, 'versions', '0.2.114', 'app');
   writeFile(join(app, 'dist-electron', 'registry-abc.js'), chunk);
   mkdirSync(join(app, 'node_modules'), { recursive: true });
-  for (const entry of packages) writeFile(join(app, 'node_modules', entry), 'module.exports = {}\n');
+  for (const entry of packages) writeFile(join(app, 'node_modules', entry), entry.endsWith('.json') ? '{}\n' : 'module.exports = {}\n');
   return { root, app };
 }
 
@@ -62,6 +63,9 @@ const ADAPTER_ENTRIES = [
   'pi-acp/dist/index.js',
   'zcode-acp-server/dist/cli.js',
 ];
+// 宿主从应用根读的配对表;完整的 server 包里它和桥一起在。
+const COMPAT_FILE = '@gugu-acp/compat/package.json';
+const APP_ROOT_FILES = [...ADAPTER_ENTRIES, COMPAT_FILE];
 
 describe('runtimeResolvedSpecifiers', () => {
   it('只取裸包说明符:改了名的 _require$N 也认,Promise.resolve / 相对路径 / 内置模块不算', () => {
@@ -97,6 +101,15 @@ describe('server 包的运行时清单', () => {
     expect(RUNTIME_PACKAGES).toEqual(expect.arrayContaining([...ADAPTER_PACKAGES, 'better-sqlite3', 'node-pty']));
   });
 
+  it('Claude 桥的配对表进包:是根依赖、在 RUNTIME_PACKAGES 里,且就是宿主读的那个包', () => {
+    expect(APP_ROOT_PACKAGE_FILES).toEqual([COMPAT_FILE]);
+    expect(rootPackage.dependencies['@gugu-acp/compat']).toBeTruthy();
+    expect(RUNTIME_PACKAGES).toContain('@gugu-acp/compat');
+    const deps = readFileSync(join(repoRoot, 'apps/desktop/electron/session/main/core/agents/acp-bridge/claude-bridge-deps.ts'), 'utf8');
+    expect(deps).toContain("const COMPAT_PACKAGE = '@gugu-acp/compat';");
+    expect(deps).toContain('req(`${COMPAT_PACKAGE}/package.json`)');
+  });
+
   it('#7199 云电脑上 agent 的浏览器工具(@playwright/mcp)也进包:与桌面同一个根依赖', () => {
     expect(rootPackage.dependencies['@playwright/mcp']).toBeTruthy();
     expect(RUNTIME_PACKAGES).toContain('@playwright/mcp');
@@ -112,24 +125,29 @@ describe('server 包的运行时清单', () => {
 
 describe('assertRuntimeSpecifiersResolve(出包闸,server 安装目录布局)', () => {
   it('适配器入口都在包里:通过,并报出解析到的清单', () => {
-    const { app } = serverLayout(REGISTRY_CHUNK, ADAPTER_ENTRIES);
-    expect(assertRuntimeSpecifiersResolve(app)).toEqual(ADAPTER_ENTRIES);
+    const { app } = serverLayout(REGISTRY_CHUNK, APP_ROOT_FILES);
+    expect(assertRuntimeSpecifiersResolve(app)).toEqual([COMPAT_FILE, ...ADAPTER_ENTRIES].sort());
   });
 
   it('#6394 之后 chunk 里没有字面量:照样按声明逐条查,缺 claude 适配器时点名失败(❌ 静默放行)', () => {
-    const complete = serverLayout(DECLARATIVE_CHUNK, ADAPTER_ENTRIES);
-    expect(assertRuntimeSpecifiersResolve(complete.app)).toEqual(ADAPTER_ENTRIES);
-    const missing = serverLayout(DECLARATIVE_CHUNK, ADAPTER_ENTRIES.slice(1));
+    const complete = serverLayout(DECLARATIVE_CHUNK, APP_ROOT_FILES);
+    expect(assertRuntimeSpecifiersResolve(complete.app)).toEqual([COMPAT_FILE, ...ADAPTER_ENTRIES].sort());
+    const missing = serverLayout(DECLARATIVE_CHUNK, APP_ROOT_FILES.slice(1));
     expect(() => assertRuntimeSpecifiersResolve(missing.app)).toThrow(/claude-agent-acp\/dist\/index\.js\(acp\.bridge\).*包里没有/);
   });
 
   it('缺 claude 适配器(0.2.113 的样子):点名失败', () => {
-    const { app } = serverLayout(REGISTRY_CHUNK, ADAPTER_ENTRIES.slice(1));
+    const { app } = serverLayout(REGISTRY_CHUNK, APP_ROOT_FILES.slice(1));
     expect(() => assertRuntimeSpecifiersResolve(app)).toThrow(/claude-agent-acp\/dist\/index\.js.*包里没有/);
   });
 
+  it('缺配对表 @gugu-acp/compat(0.2.58 的 server 包):点名失败 —— 宿主读不到它就只用随包的桥', () => {
+    const { app } = serverLayout(DECLARATIVE_CHUNK, ADAPTER_ENTRIES);
+    expect(() => assertRuntimeSpecifiersResolve(app)).toThrow(/@gugu-acp\/compat\/package\.json\(app root\).*包里没有/);
+  });
+
   it('只在上层目录的 node_modules 里有(构建机的仓库根):仍然判失败 —— 用户机器上没有那一层', () => {
-    const { root, app } = serverLayout(REGISTRY_CHUNK, ADAPTER_ENTRIES.slice(1));
+    const { root, app } = serverLayout(REGISTRY_CHUNK, APP_ROOT_FILES.slice(1));
     writeFile(join(root, 'node_modules', ADAPTER_ENTRIES[0]!), 'module.exports = {}\n');
     expect(() => assertRuntimeSpecifiersResolve(app)).toThrow(/claude-agent-acp.*解析到包外/);
   });
