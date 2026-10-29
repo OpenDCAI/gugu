@@ -6,7 +6,8 @@ import { cssColorToHex, cssVar } from '@renderer/utils/cssVars';
 // 六组柔色的取值在 tokens.css(--fc-cover-<组>-<a|b|base>,两套主题同值:封面是项目的身份色)。
 // 下面的 saturated() 要按十六进制算饱和度,所以渲染时读出实际色值,❌ 把 var() 字符串交给它。
 const HUES = [1, 2, 3, 4, 5, 6].map((n) => (['a', 'b', 'base'] as const).map((part) => `--fc-cover-${n}-${part}`));
-const tokenHex = (name: string) => cssColorToHex(cssVar(name));
+// 没有样式环境(服务端 / node 里渲染的测试)时什么也画不出来,给空串。
+const tokenHex = (name: string) => (typeof getComputedStyle === 'function' ? cssColorToHex(cssVar(name)) : '');
 function hash32(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {

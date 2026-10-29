@@ -26,7 +26,8 @@ export function cssColorToHex(cssColor: string): string {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return cssColor;
+  // No canvas (jsdom has a context without pixel reads): hand the colour back unchanged, as documented above.
+  if (!ctx || typeof ctx.getImageData !== 'function') return cssColor;
   ctx.fillStyle = cssColor.trim();
   ctx.fillRect(0, 0, 1, 1);
   const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
