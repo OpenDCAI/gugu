@@ -406,6 +406,20 @@ describe('credentials the platform keeps (#921)', () => {
     ]);
   });
 
+  it('never rejects: a provider list that cannot be read is a failed ask, not a crash of whoever asked', async () => {
+    const fixture = await openRegistryFixture('empty');
+    opened.push(fixture);
+    const service = new PlatformCredentialService({
+      client: () => null,
+      accounts: fixture.registry,
+      providers: () => {
+        throw new TypeError("Cannot read properties of undefined (reading 'auth')");
+      },
+      log: { info: () => undefined, warn: () => undefined },
+    });
+    await expect(service.refresh({ maxAgeMs: 0 })).resolves.toBe(false);
+  });
+
   it('moves only the account #649 saved (the default one); any other local row is left as it is', async () => {
     const platform = fakePlatform();
     const d = await device(platform, 'D');
