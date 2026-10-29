@@ -953,24 +953,34 @@ export async function recordHistoryPage(input: {
  * 补投照旧、标「可能已收到」—— ❌ 当成「一条都没收到」。
  */
 export async function recordedDeliveryIds(conversationId: string): Promise<string[] | null> {
+  const turns = await recordTurns(conversationId);
+  if (!turns) return null;
+  const ids = new Set<string>();
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.kind !== 'message' || item.role !== 'user') continue;
+      for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
+        if (segment.facts?.messageId) ids.add(segment.facts.messageId);
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * #980 这条会话在 agent 自己的记录里的全部回合,读到此刻的文件尾。`null` = 这里读不出来(没有记录、读失败)。
+ * 与手机、助理读的是同一份时间线(同一份存档,只读文件新长出来的那一截)。
+ */
+export async function recordTurns(conversationId: string): Promise<TimelineSnapshot['turns'] | null> {
   const acquired = await acquire(conversationId);
   if (!acquired.ok) return null;
   try {
     if (acquired.value.standIn) return null;
     const timeline = acquired.value.timeline;
     await timeline.catchUp();
-    const ids = new Set<string>();
-    for (const turn of timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns) {
-      for (const item of turn.items) {
-        if (item.kind !== 'message' || item.role !== 'user') continue;
-        for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
-          if (segment.facts?.messageId) ids.add(segment.facts.messageId);
-        }
-      }
-    }
-    return [...ids];
+    return timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
   } catch (error) {
-    log.warn('[session-timeline] recorded deliveries unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
+    log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
     return null;
   } finally {
     release(acquired.value);

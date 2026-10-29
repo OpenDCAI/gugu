@@ -1,6 +1,6 @@
 import type { AcpRuntimeStartInput, PromptInput } from '@gugu/session-core/acp';
+import { log } from '@main/lib/logger';
 import { sessionRecordHarnessForProvider } from '@main/core/session-timeline/locate';
-import { storedTurnIndexBase } from '@main/core/sessions/session-turn-store';
 
 export type ResumeHistoryFacts = Pick<AcpRuntimeStartInput, 'replayHistory' | 'recordedDeliveryIds' | 'turnIndexBase'>;
 
@@ -9,6 +9,8 @@ type Deps = {
   storedQueue: () => Promise<Array<Pick<PromptInput, 'origin'>> | null>;
   recordedDeliveryIds?: (conversationId: string) => Promise<string[] | null>;
   turnIndexBase?: (conversationId: string) => Promise<number>;
+  /** 起之前先把记录里有、库里还没有的那几轮补进库(编程模式里刚跑完的、咕咕外面跑的)。 */
+  fillFromRecord?: (conversationId: string) => Promise<unknown>;
 };
 
 /**
@@ -26,13 +28,25 @@ export async function resumeHistoryFacts(input: AcpRuntimeStartInput, deps: Deps
   const none: ResumeHistoryFacts = { replayHistory: undefined, recordedDeliveryIds: undefined, turnIndexBase: undefined };
   if (!input.providerSessionId || input.forkFromProviderSessionId) return none;
   if (!sessionRecordHarnessForProvider(input.providerId)) return none;
-  const queued = [...(input.initialQueue ?? []), ...((await deps.storedQueue()) ?? [{ origin: 'communication' as const }])];
-  const deliveriesWaiting = queued.some((prompt) => prompt.origin === 'communication');
   const readDeliveries = deps.recordedDeliveryIds
     ?? (async (id: string) => (await import('@main/core/session-timeline/service')).recordedDeliveryIds(id));
-  const [recordedDeliveryIds, turnIndexBase] = await Promise.all([
-    deliveriesWaiting ? readDeliveries(input.sessionId) : Promise.resolve([]),
-    (deps.turnIndexBase ?? storedTurnIndexBase)(input.sessionId),
-  ]);
-  return { replayHistory: false, recordedDeliveryIds, turnIndexBase };
+  const fill = deps.fillFromRecord
+    ?? (async (id: string) => (await import('@main/core/sessions/record-backfill')).syncStoredHistoryFromRecord(id));
+  const readTurnIndexBase = deps.turnIndexBase
+    ?? (async (id: string) => (await import('@main/core/sessions/session-turn-store')).storedTurnIndexBase(id));
+  try {
+    const queued = [...(input.initialQueue ?? []), ...((await deps.storedQueue()) ?? [{ origin: 'communication' as const }])];
+    const deliveriesWaiting = queued.some((prompt) => prompt.origin === 'communication');
+    // 补库在前:之后的轮从补完的库尾接着数。补不成只是少几轮历史,❌ 挡住这次启动。
+    await fill(input.sessionId).catch(() => undefined);
+    const [recordedDeliveryIds, turnIndexBase] = await Promise.all([
+      deliveriesWaiting ? readDeliveries(input.sessionId) : Promise.resolve([]),
+      readTurnIndexBase(input.sessionId),
+    ]);
+    return { replayHistory: false, recordedDeliveryIds, turnIndexBase };
+  } catch (error) {
+    // 回合从哪接着数都定不下来时,不重放就可能撞号 ⇒ 这一次照旧重放:慢,但对。
+    log.warn('[acp-start] resume facts unavailable; resuming with replay', { sessionId: input.sessionId, error: String(error) });
+    return none;
+  }
 }

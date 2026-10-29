@@ -148,6 +148,50 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
 }
 
 /**
+ * #980 记录补库与运行时落库走**同一条**按会话排队的写链:补的时候插不进一轮运行时的提交,运行时也插不进来,
+ * 补进来的几轮因此总是接在当时的库尾。
+ */
+export function withStoredTurns<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
+  const previous = persistenceTails.get(sessionId) ?? Promise.resolve();
+  const result = previous.then(run, run);
+  const tail = result.then(() => undefined, () => undefined);
+  persistenceTails.set(sessionId, tail);
+  void tail.then(() => {
+    if (persistenceTails.get(sessionId) === tail) persistenceTails.delete(sessionId);
+  });
+  return result;
+}
+
+/** #980 库尾往前读,由新到旧,最多 `limit` 行。只在写链里调(`withStoredTurns`)。 */
+export async function readStoredTailNow(sessionId: string, limit: number): Promise<TranscriptTurn[]> {
+  const rows = await db
+    .select({ data: sessionTurns.data })
+    .from(sessionTurns)
+    .where(eq(sessionTurns.sessionId, sessionId))
+    .orderBy(desc(sessionTurns.seq))
+    .limit(limit);
+  return rows.map((row) => JSON.parse(row.data) as TranscriptTurn);
+}
+
+/**
+ * #980 把 agent 记录里的一轮接在库尾。只在写链里调(`withStoredTurns`)。
+ * `turn_id` 记 `record:` 开头的记录侧 id:这一行**不来自引擎的哪一轮**,界面按引擎 turn id 去重时不会把它认成谁。
+ */
+export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTurn): Promise<void> {
+  const next = await nextSeq(sessionId);
+  await db
+    .insert(sessionTurns)
+    .values({
+      id: `${sessionId}:${next}`,
+      sessionId,
+      seq: next,
+      turnId: `record:${turn.id}`,
+      data: JSON.stringify(renumberStoredTurn(turn, sessionId, next)),
+    })
+    .onConflictDoNothing();
+}
+
+/**
  * #980 运行时回合序号的下一个起点。库里每一行记着它来自引擎的哪一轮(`turn_id` = `${会话}:turn:${序号}`),
  * 取其中最大的序号 + 1。接回会话不重放时运行时从这里接着数 —— 从 0 数会撞上上一次运行留在库里的同名回合,
  * 界面按 turn_id 认「这一轮已经落库」,撞上的那一轮就被当成重复藏起来。旧版本写的行记的是库内 id(`:turn:sN`),不算。
