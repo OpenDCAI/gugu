@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path'
 
 type Row = Record<string, unknown>
 type Kind = '设备' | '项目' | '能力' | '设备资料' | '记忆' | '定时' | '连接应用'
-// The assistant has no shell: a connected CLI application is used through a delegated task.
-const INTEGRATION_READ = 'catalog_list；命令行应用派任务（session_spawn）'
+// The assistant has no shell: a connected application is used as its state says, through a delegated task.
+const INTEGRATION_READ = '按 state 用（派任务用 session_spawn）'
 /** A connection's state includes how the assistant may use it, so a resumed session hears about a new or changed route. */
 function integrationState(use: unknown, note: unknown): string {
   const route = use && typeof use === 'object' ? use as Row : undefined
