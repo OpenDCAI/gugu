@@ -133,7 +133,7 @@ describe('并排:同一种两页时内容不挪地方', () => {
     const divider = () => dom.window.document.querySelector<HTMLElement>('[data-pair-divider]');
     expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
     try {
-      act(() => tabFullscreen.toggle(pane, a));
+      act(() => pane.tabFill(b)!.toggle());
       const fullscreen = dom.window.document.querySelector<HTMLElement>('[data-tab-fullscreen]')!;
       expect(fullscreen.style.position).toBe('fixed');
       expect(fullscreen.style.zIndex).toBe('var(--z-pane-fullscreen)');
