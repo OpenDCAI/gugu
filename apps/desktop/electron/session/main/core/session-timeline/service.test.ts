@@ -577,6 +577,18 @@ describe('session timeline service', () => {
     expect(await service.toolImage({ conversationId: 'no-such-conv', itemId: 'tool-1', index: 0 })).toMatchObject({ ok: false, error: { code: 'session_not_found' } });
   });
 
+  // #980:存档装回来的轮里图只剩位置,快照里找不到;有 `toolImage` 口的时间线由它从记录里读回来,读不回来照实转达。
+  it('时间线自己会取图(存档里只存位置)⇒ 问它,不在快照里找', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    fake.timeline.toolImage = async ({ itemId, index }) => itemId === 'restored' && index === 0
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: `picture #${index} of tool item ${itemId} could not be read back from its record` };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 0 })).toEqual({ ok: true, value: shot });
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
+  });
+
   it('结算只成功一次：后答的一端拿到那条既有结算，provider 只被调一次', async () => {
     const { timeline } = makeTimeline();
     service.setSessionTimelineFactory(async () => timeline);

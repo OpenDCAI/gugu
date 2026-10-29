@@ -903,8 +903,11 @@ export function older(input: {
  * 走的是和 `older` 同一条路(设备 RPC → 会话时间线的口),server 宿主上也是这一份。
  */
 export async function toolImage(input: SessionpageSessionToolImageRequest): Promise<SessionTimelineResult<ToolImage>> {
+  // 存档装回来的轮里图只剩位置,要由时间线从记录里读回来(#980);没有这个口的(代读时间线)照旧在快照里找。
   const found = await withTimeline(input.conversationId, (timeline) =>
-    findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
+    timeline.toolImage
+      ? timeline.toolImage({ itemId: input.itemId, index: input.index })
+      : findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
   );
   if (!found.ok) return found;
   return found.value.ok ? { ok: true, value: found.value.image } : fail(found.value.code, found.value.message);
