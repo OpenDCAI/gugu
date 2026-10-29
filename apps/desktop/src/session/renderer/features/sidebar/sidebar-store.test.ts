@@ -103,13 +103,13 @@ describe('SidebarStore project ordering', () => {
       lastInteractedAt: '2026-01-01T00:00:01.000Z', agentStatus: 'needs_user', parentSessionId: parent,
     }]);
     const store = new SidebarStore(projectManagerWithSessions([
-      { id: row, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [parent] },
+      // 同群并成一行:行落在最早建的那个上(groupRowOrder)。
+      { id: row, createdAt: '2025-12-31T00:00:00.000Z', sessionIds: [parent] },
       { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [child] },
     ]));
     store.machines = {
       machineOf: () => null, label: () => null, homeDir: () => null,
       projectGroupOf: () => 'shared-project-chat',
-      projectGroupRepresentativeOf: (id) => id === row,
     };
     try {
       // Both page registries are unique. The aggregation reads the child through
@@ -485,6 +485,22 @@ describe('SidebarStore project ordering', () => {
     expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('legacy-conv');
   });
 
+  it('#609 a workspace this computer keeps (kind workspace: ~, the assistant\'s directories) is no project row; its sessions are Tasks', () => {
+    sessionRegistry.acquire('home-task', 'home-workspace', [
+      { id: 'home-conv', projectId: 'home-workspace', providerId: 'claude', title: 'in ~', lastInteractedAt: '2026-01-01T00:00:05.000Z', runtime: 'pty', agentStatus: 'idle' },
+    ]);
+    const manager = projectManagerWithSessions([
+      { id: 'home-workspace', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: ['home-task'] },
+      { id: 'code', createdAt: '2026-01-02T00:00:00.000Z', sessionIds: [] },
+    ]);
+    (manager.projects.get('home-workspace') as unknown as { data: { kind: string } }).data = { kind: 'workspace' };
+    const store = new SidebarStore(manager);
+
+    expect(store.orderedProjects.map((project) => project.id)).toEqual(['code']);
+    expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('home-conv');
+    sessionRegistry.release('home-task');
+  });
+
   it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
@@ -736,7 +752,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
   beforeEach(() => listed.clear());
 
   function managerWithPaths(
-    projects: { id: string; path: string; sessionIds: string[]; name?: string }[]
+    projects: { id: string; path: string; sessionIds: string[]; name?: string; kind?: 'workspace' }[]
   ): SidebarProjectManager {
     return {
       projects: new Map(
@@ -746,7 +762,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
             id: project.id,
             name: project.name ?? null,
             createdAt: '2026-01-01T00:00:00.000Z',
-            data: { path: project.path },
+            data: { path: project.path, kind: project.kind },
             mountedProject: {
               sessionManager: {
                 sessions: new Map(
@@ -790,32 +806,38 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     ] as never);
   }
 
-  it('那台机器任务工作区里已有的会话挂到它的主目录项目下,❌ 出现在「任务」列表', () => {
+  it('#609 那台机器的任务工作区、迁成 workspace 的主目录项目都不单列,会话与本机的一起平铺在「任务」里', () => {
     acquire('rt-old', REMOTE_SESSION_HOME, 'rc-old');
+    acquire('rt-home', 'd22-home', 'rc-home');
+    acquire('lt-mine', IMPLICIT_SESSION_HOME_PROJECT_ID, 'lc-mine');
     const store = new SidebarStore(
       managerWithPaths([
-        { id: 'd22-home', path: '/root', sessionIds: [] },
+        { id: 'd22-home', path: '/root', sessionIds: ['rt-home'], kind: 'workspace' },
         { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-old'] },
+        { id: IMPLICIT_SESSION_HOME_PROJECT_ID, path: '/me/task-home', sessionIds: ['lt-mine'] },
       ])
     );
     store.machines = machines;
     store.expandAllProjects();
 
-    expect(store.orderedProjects.map((p) => p.id)).toEqual(['d22-home']);
-    expect(store.homeLayout.homeRows.has('d22-home')).toBe(true);
-    const conv = store.sidebarRows.find((row) => row.kind === 'conversation');
-    // 行挂在「~」下,但打开它仍按它自己的项目(那台机器的任务工作区)走 —— 会话照样在原目录跑。
-    expect(conv).toMatchObject({ sessionId: 'rc-old', projectId: REMOTE_SESSION_HOME });
-    expect(store.rowProjectIdOf(REMOTE_SESSION_HOME)).toBe('d22-home');
-    expect(store.standaloneSessionEntries).toEqual([]);
-    // 对照:不认机器(= 老行为)时,这条会话就掉进「任务」列表。
-    const legacy = new SidebarStore(
-      managerWithPaths([
-        { id: REMOTE_SESSION_HOME, path: '/x', sessionIds: ['rt-old'] },
-      ])
-    );
-    expect(legacy.standaloneSessionEntries.map((e) => e.sessionId)).toEqual(['rc-old']);
-    sessionRegistry.release('rt-old');
+    expect(store.orderedProjects).toEqual([]);
+    expect(store.standaloneSessionEntries.map((e) => e.sessionId).sort()).toEqual(['lc-mine', 'rc-home', 'rc-old']);
+    expect(store.rowOfSession(REMOTE_SESSION_HOME, 'rc-old')).toBeNull();
+    expect(store.rowOfSession('d22-home', 'rc-home')).toBeNull();
+    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBeNull();
+    // 对照:没迁过的老 server 上,主目录项目还是 kind=project —— 就是一个普通项目行(❌「~」)。
+    const legacy = new SidebarStore(managerWithPaths([{ id: 'd22-home', path: '/root', sessionIds: ['rt-home'], name: 'root' }]));
+    legacy.machines = machines;
+    expect(legacy.orderedProjects.map((p) => p.id)).toEqual(['d22-home']);
+    expect(legacy.projectLabel('d22-home')).toBe('root');
+    // 同名判据只比画出来的行:与一个同名的 workspace 不算同名(❌ 平白挂上路径)。
+    const withTwinWorkspace = new SidebarStore(managerWithPaths([
+      { id: 'local-root', path: '/root', sessionIds: [], name: 'root' },
+      { id: 'd22-home', path: '/root', sessionIds: [], name: 'root', kind: 'workspace' },
+    ]));
+    withTwinWorkspace.machines = machines;
+    expect(withTwinWorkspace.hasNameTwin('local-root')).toBe(false);
+    for (const id of ['rt-old', 'rt-home', 'lt-mine']) sessionRegistry.release(id);
   });
 
   // #7341 第二步:同一个项目在本机与 d22 上各有一个本地项目,绑在同一个项目群上 ⇒ 侧栏合成一行。
@@ -850,23 +872,6 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('那台机器还没有主目录项目:它的任务工作区代位成「~」那一行', () => {
-    acquire('rt-stand', REMOTE_SESSION_HOME, 'rc-stand');
-    const store = new SidebarStore(
-      managerWithPaths([
-        { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-stand'] },
-      ])
-    );
-    store.machines = machines;
-    store.expandAllProjects();
-
-    expect(store.orderedProjects.map((p) => p.id)).toEqual([REMOTE_SESSION_HOME]);
-    expect(store.homeLayout.standIns.get(REMOTE_SESSION_HOME)).toBe('d22');
-    expect(store.sidebarRows.some((row) => row.kind === 'conversation' && row.sessionId === 'rc-stand')).toBe(true);
-    expect(store.standaloneSessionEntries).toEqual([]);
-    sessionRegistry.release('rt-stand');
-  });
-
   it('#7199 个人助理自己的会话不进任务区;它派的照常在、成了根,并认得出是它派的', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
@@ -877,9 +882,8 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       managerWithPaths([{ id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-asst', 'rt-kid', 'rt-other'] }])
     );
     store.machines = machines;
-    store.expandAllProjects();
     store.expandedSessionIds.add('rc-asst');
-    const shown = () => store.sidebarRows.flatMap((row) => (row.kind === 'conversation' ? [`${row.sessionId}@${row.depth}`] : []));
+    const shown = () => store.standaloneSessionEntries.map((entry) => `${entry.sessionId}@${entry.depth}`);
 
     // 对照:还不知道助理是谁时,它那条在、子 agent 挂在它下面。
     expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
@@ -941,7 +945,6 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       managerWithPaths([
         { id: 'proj-a', path: '/me/a', sessionIds: ['pa', 'pa2'], name: 'Alpha' },
         { id: 'proj-b', path: '/me/b', sessionIds: ['pb'], name: 'Beta' },
-        { id: 'd22-home', path: '/root', sessionIds: [] },
         { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-home'] },
       ])
     );
@@ -957,12 +960,11 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.rowOfSession('proj-b', 'pb')).toBe('proj-a');
     expect(store.nestedProjectLabel('proj-b', 'proj-a')).toBe('Beta');
     expect(store.nestedProjectLabel('proj-a', 'proj-a')).toBeNull();
-    // 别的机器、没选项目(任务工作区并进「~」那一行):只标机器,这里不标项目。
-    // 别的机器的任务工作区并进它的「~」那一行,标的就是那一行。
-    expect(store.nestedProjectLabel(REMOTE_SESSION_HOME, 'proj-a')).toBe('~');
+    // #609 别的机器、没选项目(那台机器的任务工作区):不是项目,只标机器、❌ 标项目名。
+    expect(store.nestedProjectLabel(REMOTE_SESSION_HOME, 'proj-a')).toBeNull();
     // 机器标记悬停里写的项目名:不论跟父会话比,都是它自己那一行的名字。
     expect(store.projectLabel('proj-a')).toBe('Alpha');
-    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBe('~');
+    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBeNull();
     for (const sessionId of ['pa', 'pb', 'pa2', 'rt-home']) sessionRegistry.release(sessionId);
   });
 

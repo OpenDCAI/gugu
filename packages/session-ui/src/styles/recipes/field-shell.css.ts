@@ -22,7 +22,7 @@ export const fieldShellBase = style({
   transition: 'color 150ms, box-shadow 150ms, border-color 150ms',
   outline: 'none',
   selectors: {
-    '&::placeholder': { color: vars.foregroundPassive },
+    '&::placeholder': { color: vars.foregroundMuted }, // placeholder 是信息:可读次级字(≥4.5),❌ passive
     '&:hover': { borderColor: vars.border1 },
     '&:disabled, &[data-disabled]': {
       pointerEvents: 'none',

@@ -9,6 +9,7 @@
 //
 // 设备维度的数据与 per-user 记忆都在 gugu 侧（identity.gugu_devices + identity.user_settings），
 // 经 window.__GUGU_CREATE_CONTEXT__ 桥送进来；这里只负责渲染与回调。
+import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import { AlertTriangle, ChevronDown, Clock, Folder, Plus, Search, Users, X } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -36,7 +37,6 @@ import { sessionComposerTrayTriggerClassName } from './session-composer-styles';
 import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { machineRegistry } from '@renderer/lib/machine-routing';
-import { HOME_PROJECT_LABEL, sameFolder } from '@renderer/features/remote-hosts/machine-home';
 
 /**
  * 当前设备上可用的项目 = 这台电脑上已挂载的项目。托盘只展示这一份，别处不再自己过滤一遍。
@@ -114,6 +114,7 @@ export const ComposerProjectPicker = observer(function ComposerProjectPicker({
       )
     : projects;
   const displayName = selectedId ? (projectDisplayName(getProjectStore(selectedId)) ?? translate('task.projectFallbackName')) : null;
+  const twins = nameTwinIds(projects.map((p) => ({ id: p.id, name: projectDisplayName(p) })));
 
   return (
     <DropdownMenu>
@@ -154,9 +155,13 @@ export const ComposerProjectPicker = observer(function ComposerProjectPicker({
                 ) : null
               ) : (
                 visibleProjects.map((p) => (
-                  <DropdownMenuItem key={p.id} onClick={() => onSelect(p.id)}>
+                  <DropdownMenuItem key={p.id} onClick={() => onSelect(p.id)} title={twins.has(p.id) ? p.data?.path : undefined}>
                     <Folder className="size-3.5" />
                     <span className="truncate">{projectDisplayName(p) ?? p.id}</span>
+                    {/* 同名的(两台机器上各有一个「repo」)带上路径区分,与侧栏同一个判据;不同名不带。 */}
+                    {twins.has(p.id) ? (
+                      <small className="ml-auto min-w-0 max-w-[55%] shrink truncate pl-3 text-foreground-passive">{p.data?.path}</small>
+                    ) : null}
                   </DropdownMenuItem>
                 ))
               )}
@@ -202,12 +207,11 @@ function NewProjectSubmenu({
  * #6264 所选机器是另一台时的项目选择:**同一个托盘按钮、同一种菜单**(搜索 → 列表 → 底部动作),
  * 内容换成那台机器的 —— 这台桌面上最近在那台机器用过的文件夹、那台机器上已有的项目;底部同一个
  * 「新建项目 ›」,建在那台机器上(目录选择器由宿主画,见 remoteHostsStore.pickFolder)。
- * 取值是那台机器上的目录路径;不选(null)= 那台机器的主目录项目「~」(behavior gugu-server:别的机器上的会话
- * 一律属于那台机器上的某个项目),所以列表顶上那一项是「~」,❌「未选择项目」。
+ * 取值是那台机器上的目录路径;不选(null)= 那台机器的任务工作区(#609,与本机一样「未选择项目」,会话列在「任务」里)。
+ * 人亲手选了那台机器的主目录(~)就是在那里建项目(owner 10-28),与别的文件夹一样。
  */
 export function ComposerRemoteProjectPicker({
   selectedPath,
-  homePath = null,
   projects,
   recentPaths = [],
   loading,
@@ -218,8 +222,6 @@ export function ComposerRemoteProjectPicker({
   machine
 }: {
   selectedPath: string | null;
-  /** 那台机器的主目录(还没问到 = null);「~」那一项就是它,列表里不再重复列它。 */
-  homePath?: string | null;
   projects: Array<{ id: string; name: string; path: string }>;
   /** 这台桌面上最近在那台机器用过的文件夹(新的在前)。 */
   recentPaths?: readonly string[];
@@ -235,13 +237,13 @@ export function ComposerRemoteProjectPicker({
 }) {
   const { translate } = useSessionMessages();
   const [query, setQuery] = useState('');
-  const entries = remoteProjectEntries(projects, recentPaths).filter((entry) => !sameFolder(entry.path, homePath));
+  const entries = remoteProjectEntries(projects, recentPaths);
   const visible = filterRemoteProjectEntries(entries, query);
   const recent = visible.filter((entry) => entry.recent);
   const others = visible.filter((entry) => !entry.recent);
-  const label = selectedPath && !sameFolder(selectedPath, homePath)
+  const label = selectedPath
     ? projects.find((project) => project.path === selectedPath)?.name ?? folderName(selectedPath)
-    : HOME_PROJECT_LABEL;
+    : translate('task.projectNone');
   const renderEntry = (entry: RemoteProjectEntry) => (
     <DropdownMenuItem key={entry.path} onClick={() => onSelect(entry.path)} title={entry.path}>
       {entry.recent ? <Clock className="size-3.5" /> : <Folder className="size-3.5" />}
@@ -265,12 +267,9 @@ export function ComposerRemoteProjectPicker({
       <DropdownMenuContent side="top" className="min-w-72 p-0">
         <TrayMenuSearch value={query} onChange={setQuery} placeholder={translate('task.projectSearchPlaceholder')} />
         <div className="max-h-72 overflow-y-auto py-1">
-          <DropdownMenuItem onClick={() => onSelect(null)} title={homePath ?? undefined}>
+          <DropdownMenuItem onClick={() => onSelect(null)}>
             <Folder className="size-3.5" />
-            <span className="min-w-0 truncate">{HOME_PROJECT_LABEL}</span>
-            {homePath ? (
-              <small className="ml-auto min-w-0 max-w-[55%] shrink truncate pl-3 text-foreground-passive">{homePath}</small>
-            ) : null}
+            <span className="min-w-0 truncate">{translate('task.projectNone')}</span>
           </DropdownMenuItem>
           {recent.length > 0 ? (
             <DropdownMenuGroup>

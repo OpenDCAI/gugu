@@ -34,6 +34,7 @@ import { deviceMachineFor, deviceMachines, useDeviceMachineSections } from '../.
 import { machineKeyOf } from '../contacts/contactsByDevice'
 import { DeviceMachineConfigurations } from './DeviceMachineConfigurations'
 import { DeviceMachineArchive } from './DeviceMachineArchive'
+import { useDeviceRemoval } from '../settings/useDeviceRemoval'
 
 export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice, panelNavigation = false }: {
   panelNavigation?: boolean
@@ -57,6 +58,8 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const currentComputer = computer?.device
   const currentPhone = phone?.device
   const { state: thisActions } = useThisDeviceState()
+  // 一台机器的多个版本:与「设置 › 设备」同一个移除动作(版本列表上逐个移除,当前这台除外)。
+  const { configurationActions, dialogs } = useDeviceRemoval(machines)
   const [localOpen, setLocalOpen] = useState<string | null>(null)
   const open = onOpenDevice ? openedDeviceId ?? null : localOpen
   const setOpen = onOpenDevice ?? setLocalOpen
@@ -64,7 +67,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   const openedMachine = deviceMachineFor(machines, open)
   const opened = openedMachine?.device
   if ((thisPhone && open === 'this-phone') || (openedMachine?.current && opened && isPhoneDevice(opened))) {
-    if (onOpenDevice) return <><DeviceMachineConfigurations devices={phone?.configurations} /><PhoneDeviceActionsPage /></>
+    if (onOpenDevice) return <><DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />{dialogs}</>
     return (
       <SettingsPage data-testid="assistant-this-phone-actions">
         <div className="flex items-center gap-2">
@@ -74,17 +77,18 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
           </Button>
           <div className="text-[length:var(--font-title)] font-medium">{t('devices.assistantPage.phoneTitle')}</div>
         </div>
-        <DeviceMachineConfigurations devices={phone?.configurations} /><PhoneDeviceActionsPage />
+        <DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />
+        {dialogs}
       </SettingsPage>
     )
   }
   if (thisComputer && open === 'this-computer') return computer
-    ? <DeviceActionsPage device={computer.device} configurations={computer.configurations} isThisDevice={computer.device.is_current_device === true} panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
+    ? <><DeviceActionsPage device={computer.device} configurations={computer.configurations} configurationActions={configurationActions} isThisDevice={computer.device.is_current_device === true} panelNavigation={panelNavigation} onBack={() => setOpen(null)} />{dialogs}</>
     : <ThisDeviceActions panelNavigation={panelNavigation} onBack={() => setOpen(null)} />
-  if (opened) return <DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
+  if (opened) return <><DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} configurationActions={configurationActions} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />{dialogs}</>
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
-  /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说、也不能点。 */
+  /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说。 */
   const grants = (device: Device): string | null => {
     if (device.is_current_device && !isPhoneDevice(device)) {
       if (!thisActions) return t('devices.assistantPage.reading')
@@ -101,7 +105,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
     const summary = isPhoneDevice(device) ? null : grants(device)
     const configurationCount = deviceMachineFor(machines, device.device_id)!.configurations.length
     return <DeviceItem key={machineKeyOf(device)} device={device} kind={deviceKind(device, cloudId)} summary={summary}
-      configurationCount={configurationCount} onOpen={summary !== null || configurationCount > 1 ? () => setOpen(device.device_id) : undefined} />
+      configurationCount={configurationCount} onOpen={() => setOpen(device.device_id)} />
   }
   const showComputer = thisComputer && (!computer || activeKeys.has(computer.key))
   const showPhone = thisPhone && (!phone || activeKeys.has(phone.key))
@@ -136,7 +140,7 @@ function DeviceItem({
   kind: DeviceRowKind
   summary: string | null
   configurationCount: number
-  onOpen?: () => void
+  onOpen: () => void
 }) {
   const { t } = useTranslation('settings')
   const lit = device.is_online
@@ -167,7 +171,7 @@ function DeviceItem({
           <span className="min-w-0">{[status, showKind ? t(`devices.kind.${kind}`) : null, summary, configurationCount > 1 ? t('devices.configurationCount', { count: configurationCount }) : null].filter(Boolean).join(' · ')}</span>
         </span>
       )}
-      control={(availability || onOpen) ? (
+      control={(
         <span className="flex items-center gap-2">
           {availability && (
             <Chip
@@ -177,9 +181,9 @@ function DeviceItem({
               {t(availability === 'allDay' ? 'devices.assistantPage.allDay' : 'devices.assistantPage.notAllDay')}
             </Chip>
           )}
-          {onOpen && <ChevronRight size={16} />}
+          <ChevronRight size={16} />
         </span>
-      ) : undefined}
+      )}
       onClick={onOpen}
     />
   )

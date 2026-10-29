@@ -16,9 +16,17 @@ export type FileStorage = {
   retention: (typeof FILE_RETENTIONS)[number]
   /** 项目群里的图片发送时上传,留多久。 */
   image_retention: (typeof IMAGE_RETENTIONS)[number]
+  /**
+   * 标成「临时」的文件留多久(owner 10-28:数据层与图片分开存,设置上共用一个控件)。项目群用机器主人的这一格,其他群用上传者自己的。
+   */
+  temporary_retention: (typeof IMAGE_RETENTIONS)[number]
 }
 
-export const DEFAULT_FILE_STORAGE: FileStorage = { proactive_upload: false, temporary_transfer: true, retention: '7d', image_retention: '7d' }
+/** 上传时(agent 或人)给这份文件定的分类:临时(到期删云端副本)或一直保留。不给 = 照这个群的规矩。 */
+export const FILE_KEEPS = ['temporary', 'permanent'] as const
+export type FileKeep = (typeof FILE_KEEPS)[number]
+
+export const DEFAULT_FILE_STORAGE: FileStorage = { proactive_upload: false, temporary_transfer: true, retention: '7d', image_retention: '7d', temporary_retention: '7d' }
 
 /**
  * 账号设置里那一格 → 生效值。认识的键写坏了 throw(❌ 当默认值悄悄用):后端的 CHECK 本来就写不进去。
@@ -33,7 +41,8 @@ export function parseFileStorage(config: Record<string, unknown>): FileStorage {
   for (const key of Object.keys(DEFAULT_FILE_STORAGE)) if (stored[key] !== undefined) next[key] = stored[key]
   if (typeof next.proactive_upload !== 'boolean' || typeof next.temporary_transfer !== 'boolean'
     || !FILE_RETENTIONS.includes(next.retention as FileStorage['retention'])
-    || !IMAGE_RETENTIONS.includes(next.image_retention as FileStorage['image_retention'])) {
+    || !IMAGE_RETENTIONS.includes(next.image_retention as FileStorage['image_retention'])
+    || !IMAGE_RETENTIONS.includes(next.temporary_retention as FileStorage['temporary_retention'])) {
     throw new Error('user_settings.file_storage is malformed')
   }
   return next as FileStorage

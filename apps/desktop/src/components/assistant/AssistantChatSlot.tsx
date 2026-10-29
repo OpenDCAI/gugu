@@ -27,7 +27,6 @@ import { useVoiceNoteHandler } from './useVoiceNoteHandler'
 
 export type AssistantChatHandlers = {
   onOpenUserChat?: (target: MemberProfileChatTarget) => void
-  onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>
   onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 

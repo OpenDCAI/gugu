@@ -122,7 +122,7 @@ describe('身份写法与 session: 走同一条投递', () => {
     expect(graphMessage).toHaveBeenCalledWith([OTHER_SESSION, OTHER_AGENT_SESSION], 'hello', {})
     expect(result.recipients).toEqual([
       { to: `session:${OTHER_SESSION}`, status: 'delivered', message_id: `m-${OTHER_SESSION}` },
-      { to: `user:${OTHER}`, session_id: `session:${OTHER_AGENT_SESSION}`, status: 'delivered', message_id: `m-${OTHER_AGENT_SESSION}` },
+      { to: `user:${OTHER}`, session_id: OTHER_AGENT_SESSION, status: 'delivered', message_id: `m-${OTHER_AGENT_SESSION}` },
     ])
   })
 

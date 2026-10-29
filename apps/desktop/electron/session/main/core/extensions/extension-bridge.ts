@@ -49,7 +49,7 @@ import type {
   ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, isLocal, placeKey, placeOf, sessionIdOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -236,7 +236,7 @@ export function checkReadingsOf(webContentsId: number): CheckReadings | null {
  * with its own tools (owner 10-14). One it cannot open is refused, as the save would be.
  */
 async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, args: Record<string, unknown>): Promise<void> {
-  if (verb === 'filesDownload' && !isLocal(fileRefOf(args.ref))) {
+  if (verb === 'filesDownload' && args.ref !== undefined && !isLocal(fileRefOf(args.ref))) {
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {
@@ -987,7 +987,7 @@ function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<
  * A session brought up the way a click on its row in the task list brings it, from any page of gugu — the way an agent's
  * banner brings its session up (notificationFocusSessionChannel): `showSession`, and a session's `compose`.
  */
-export async function bringSessionUp(session: { sessionId: string; projectId: string }): Promise<void> {
+export async function bringSessionUp(session: { sessionId: string; projectId: string; beside?: true }): Promise<void> {
   const [{ events }, { notificationFocusSessionChannel }] = await Promise.all([import('@main/lib/events'), import('@shared/events/appEvents')]);
   events.emit(notificationFocusSessionChannel, session);
 }
@@ -1581,7 +1581,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           },
           draftInChat: async (detail) => { await deliver(thePage(caller), { kind: 'compose', detail }); },
           draftInSession: async (session, text) => {
-            await bringSessionUp({ sessionId: session.id, projectId: session.projectId });
+            // Opened the one way a session is opened, then the draft in its composer.
+            const opened = await (await import('./gugu-links')).openLink({ kind: 'session', sessionId: session.id, projectId: session.projectId });
+            if (opened.kind === 'failed') throw new Error(`The session did not open: ${opened.reason}${opened.detail ? ` (${opened.detail})` : ''}`);
             await deliver(thePage(caller), { kind: 'compose', sessionId: session.id, text });
           },
           from: await operatorSession(caller),
@@ -1782,6 +1784,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!Array.isArray(picked)) throw Object.assign(new Error('files.upload takes files, or none to pick'), { code: 'invalid' });
       // 子文件夹: the folder they go in, when the call names one.
       if (picked.length === 0) return [];
+      if (args.keep !== undefined) return await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder, args.keep);
       return args.folder === undefined
         ? await files.uploadAppFiles(page, place, picked, args.sourceMessageIds)
         : await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder);
@@ -1850,10 +1853,19 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         import('@main/core/extensions/extension-bridge-relay'),
       ]);
       // `peek` (G1): the session's own page beside the page that asked, in its slot — found the same way.
-      const bringUp = (args as { peek?: unknown }).peek === true
-        ? async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); }
-        : bringSessionUp;
-      await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+      if ((args as { peek?: unknown }).peek === true) {
+        const bringUp = async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); };
+        await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+        return undefined;
+      }
+      // Otherwise it opens the one way every session is opened (gugu-links.openLink); its failure in this API's codes.
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink({ kind: 'session', sessionId: sessionIdOf(args.id) });
+      if (outcome.kind === 'failed') {
+        throw Object.assign(new Error(outcome.reason === 'no-session'
+          ? `Session ${sessionIdOf(args.id)} is not on this computer or in your task list`
+          : `The task page did not answer (${outcome.detail ?? outcome.reason}): try again once it shows`), { code: outcome.reason === 'no-session' ? 'not-found' : 'failed' });
+      }
       return undefined;
     }
 

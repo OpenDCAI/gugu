@@ -53,18 +53,30 @@ it('a read that does not say (one file at a time) leaves keep out rather than sa
 
 it('keeps one file\'s current copy as whoever acts: the person, or the agent the page works as', async () => {
   const files = createAppFiles(platform);
-  await files.keep(page, { ref: { id: item }, how: 'permanent' });
+  await files.keep(page, { refs: [{ id: item }], how: 'permanent' });
   expect(rpc).toHaveBeenLastCalledWith('file_storage_mark_as', { p_refs: [{ item_id: item }], p_action: 'permanent', p_as: person });
-  await files.keep({ ...page, asAgent: agent }, { ref: { id: item }, how: 'temporary' });
+  await files.keep({ ...page, asAgent: agent }, { refs: [{ id: item }], how: 'temporary' });
   expect(rpc).toHaveBeenLastCalledWith('file_storage_mark_as', { p_refs: [{ item_id: item }], p_action: 'temporary', p_as: agent });
+});
+
+it('keeps several in one call, and says how many the database changed', async () => {
+  const files = createAppFiles(platform);
+  rpc.mockClear();
+  // The rig has one file (workspace_get_as), named twice here; the door answers 1 changed.
+  const kept = await files.keep(page, { refs: [{ id: item }, { id: item, chat }], how: 'temporary' });
+  const marks = rpc.mock.calls.filter(([name]) => name === 'file_storage_mark_as');
+  expect(marks).toHaveLength(1);
+  expect(marks[0]![1]).toMatchObject({ p_refs: [{ item_id: item }, { item_id: item }], p_action: 'temporary' });
+  expect(kept).toEqual({ changed: 1 });
+  await expect(files.keep(page, { refs: [], how: 'temporary' })).rejects.toMatchObject({ code: 'invalid' });
 });
 
 it('asks nothing of the database for a way it does not know, and says the door\'s refusals as codes', async () => {
   const files = createAppFiles(platform);
-  await expect(files.keep(page, { ref: { id: item }, how: 'release' })).rejects.toMatchObject({ code: 'invalid' });
+  await expect(files.keep(page, { refs: [{ id: item }], how: 'release' })).rejects.toMatchObject({ code: 'invalid' });
   expect(rpc.mock.calls.some(([name]) => name === 'file_storage_mark_as')).toBe(false);
   refusal = { message: 'Only the person who uploaded a file can change how long it is kept', hint: 'file_transfer_denied' };
-  await expect(files.keep(page, { ref: { id: item }, how: 'permanent' })).rejects.toMatchObject({ code: 'denied' });
+  await expect(files.keep(page, { refs: [{ id: item }], how: 'permanent' })).rejects.toMatchObject({ code: 'denied' });
   refusal = { message: 'This file has no cloud copy', hint: 'file_transfer_invalid' };
-  await expect(files.keep(page, { ref: { id: item }, how: 'permanent' })).rejects.toMatchObject({ code: 'invalid' });
+  await expect(files.keep(page, { refs: [{ id: item }], how: 'permanent' })).rejects.toMatchObject({ code: 'invalid' });
 });

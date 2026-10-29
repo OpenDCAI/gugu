@@ -1,6 +1,6 @@
 import type { AssistantWorkOutboxContext, AssistantWorkRpcClient } from './assistantWorkOutbox'
 
-type NoticeClaim={anchor_message_id:string;coordinator_device_id:string;lease_token:string;lease_remaining_ms:number}
+type NoticeClaim={anchor_message_id:string;coordinator_device_id:string;lease_token:string;lease_remaining_ms:number;wake_attempts?:number}
 /** Wake credits, leases and backoff live on the original cloud event, including across restarts. */
 export function createAssistantWorkNoticeWakePump(deps:{
   context():Promise<AssistantWorkOutboxContext|null>
@@ -8,6 +8,8 @@ export function createAssistantWorkNoticeWakePump(deps:{
   wake(home:string,signal:AbortSignal):Promise<unknown>
   request(home:string,signal:AbortSignal):Promise<unknown>
   warn(detail:{code:string}):void
+  /** A claimed notice is claimable again in `ms` (the claim already set its backoff; no event announces it). */
+  retryIn?(ms:number):void
 }) {
   let flight:Promise<void>|null=null
   let stopped=false
@@ -30,6 +32,8 @@ export function createAssistantWorkNoticeWakePump(deps:{
     for(const item of response.items) {
       if(!item.anchor_message_id||!item.lease_token||!item.coordinator_device_id||!Number.isFinite(item.lease_remaining_ms)) throw new Error('Invalid notice claim')
       const group=groups.get(item.coordinator_device_id)??[];group.push(item);groups.set(item.coordinator_device_id,group)
+      // The claim set available_at = now + 30 s × 2^(attempts before it), at most 900 s (assistant_work_notice_wake_claim).
+      if(Number.isInteger(item.wake_attempts)&&item.wake_attempts!>0) deps.retryIn?.(Math.min(900,30*2**(item.wake_attempts!-1))*1000)
     }
     const homes=[...groups.entries()]
     await Promise.all([0,1].map(async()=>{

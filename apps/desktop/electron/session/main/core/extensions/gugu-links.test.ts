@@ -68,6 +68,7 @@ function deps(overrides: Partial<LinkOpenDeps> = {}) {
     isEnabled: () => true,
     locale: () => 'en-US',
     sessionProject: async (sessionId) => (sessionId === 's1' ? 'p1' : null),
+    agentSession: async (agentId) => (agentId === 'agent-1' ? { sessionId: 's1' } : null),
     reveal: vi.fn(async () => {}),
     openApp: vi.fn(async (_id, _tab, chat) => chat ? { chat } : 'own'),
     resourceChat: async (id) => id,
@@ -163,6 +164,23 @@ describe('resource links share one parser and opener', () => {
     const nowhere = deps().value;
     await expect(openLinkWith(nowhere, 'gugu://session/elsewhere')).resolves.toMatchObject({ kind: 'failed', reason: 'no-session' });
     expect(nowhere.bringUp).not.toHaveBeenCalled();
+  });
+
+  it('an agent named instead of its session opens that session the same way; an agent with none is said, nothing opened', async () => {
+    const value = deps().value;
+    await expect(openLinkWith(value, { kind: 'session', agentId: 'agent-1' })).resolves.toMatchObject({ kind: 'opened', target: { kind: 'session', sessionId: 's1' } });
+    expect(value.openResource).toHaveBeenCalledWith({ kind: 'session', sessionId: 's1' });
+    expect(value.bringUp).toHaveBeenCalledWith({ projectId: 'p1', sessionId: 's1' });
+    const none = deps().value;
+    await expect(openLinkWith(none, { kind: 'session', agentId: 'agent-x' })).resolves.toMatchObject({ kind: 'failed', reason: 'no-session' });
+    expect(none.bringUp).not.toHaveBeenCalled();
+  });
+
+  it('hands what the opener knew (machine, project) to the task list, and a task card\'s beside to the bring-up', async () => {
+    const value = deps({ sessionProject: vi.fn(async () => 'p-far') }).value;
+    await openLinkWith(value, { kind: 'session', sessionId: 's-far', deviceId: 'dev-b', projectId: 'p-far', beside: true });
+    expect(value.sessionProject).toHaveBeenCalledWith('s-far', { deviceId: 'dev-b', projectId: 'p-far' });
+    expect(value.bringUp).toHaveBeenCalledWith({ projectId: 'p-far', sessionId: 's-far', beside: true });
   });
 
   it('delivers to the actual place the App opened, including an App already placed in a task', async () => {

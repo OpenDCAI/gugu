@@ -16,8 +16,9 @@ function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z
   const deliver = vi.fn(async (row: ReturnType<typeof event>, _signal: AbortSignal) => ({ status: 'admitted' as const, messageId: row.message_id }))
   const warn = vi.fn()
   const unavailable = vi.fn(async (_ctx: typeof context, _failure: {code:string}, _signal: AbortSignal) => undefined)
-  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, unavailable, now: () => localNow })
-  return { pump, rpc, deliver, warn, unavailable, setNow: (value:number) => {localNow=value} }
+  const retryIn = vi.fn()
+  const pump = createAssistantWorkOutboxPump({ context: async () => context, rpc, deliver, warn, unavailable, retryIn, now: () => localNow })
+  return { pump, rpc, deliver, warn, unavailable, retryIn, setNow: (value:number) => {localNow=value} }
 }
 afterEach(() => { vi.useRealTimers() })
 describe('one account work outbox', () => {
@@ -195,4 +196,17 @@ it('warns again for a new failure on the next Beijing day, but not another error
   f.setNow(Date.parse('2026-10-26T16:01:00Z'));failure()
   await f.pump.kick()
   expect(f.unavailable).toHaveBeenCalledTimes(2)
+})
+describe('retries no event announces', () => {
+  it('reports a failed delivery\'s backoff, so the retry is claimed when it is due (no event announces it)', async () => {
+    const f = fixture([event({ failed_attempts: 2, attempts: 3 })])
+    f.deliver.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: 'SESSION_RUNTIME_FAILED' }))
+    await f.pump.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({ p_stage: 'retry', p_retry_after_seconds: 20 }), context)
+    expect(f.retryIn).toHaveBeenCalledWith(20_000)
+  })
+  it('a delivered event schedules no retry', async () => {
+    const f = fixture(); await f.pump.kick()
+    expect(f.retryIn).not.toHaveBeenCalled()
+  })
 })

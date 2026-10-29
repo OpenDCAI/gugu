@@ -56,7 +56,7 @@ div.gg-settings-body {
   line-height: var(--lh-caption);
   color: var(--muted-fg);
 }
-.gg-settings-note[data-tone='danger'] { color: var(--danger); }
+.gg-settings-note[data-tone='danger'] { color: var(--danger-fg); }
 
 .gg-settings-group {
   display: flex;
@@ -241,7 +241,7 @@ div.gg-settings-body > * {
   line-height: var(--lh-caption);
   color: var(--muted-fg);
 }
-.gg-settings-actions-note[data-tone='danger'] { color: var(--danger); }
+.gg-settings-actions-note[data-tone='danger'] { color: var(--danger-fg); }
 
 /* 整张卡就一句话 + 一个动作(开通咕咕、叫醒它):左对齐、留足内边距。 */
 div.gg-settings-empty {

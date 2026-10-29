@@ -1194,22 +1194,20 @@ describe('项目→群 映射:并发不丢条目、读失败必出声', () => {
     await forgetProjectGroupId('proj-alpha', 'owner-A', env)
     expect(await readProjectGroupId('proj-alpha', 'owner-A', env)).toBeNull()
   })
-  it('同机项目共群时,目标项目的代表身份随绑定持久化且撤销不误删', async () => {
+  it('同机项目共群:映射只记「项目 → 群」,撤销一个不误删另一个;旧文件里的 representatives 读时不认、写时去掉', async () => {
     const { rememberProjectGroupId, listProjectGroupIds, forgetProjectGroupId } = await import(MAPPING)
     const env = { GUGU_HOME: home } as NodeJS.ProcessEnv
+    await writeFile(join(home, 'taskpage-project-groups.json'), JSON.stringify({ owners: {}, unowned: {}, representatives: { [OWNER]: { 'chat-shared': 'z-target' } } }))
     await rememberProjectGroupId('z-target', 'chat-shared', OWNER, env)
     await rememberProjectGroupId('a-source', 'chat-old', OWNER, env)
     await rememberProjectGroupId('a-source', 'chat-shared', OWNER, env)
     expect(await listProjectGroupIds(OWNER, env)).toEqual([
-      { projectId: 'z-target', chatId: 'chat-shared', representative: true },
-      { projectId: 'a-source', chatId: 'chat-shared', representative: false },
+      { projectId: 'z-target', chatId: 'chat-shared' },
+      { projectId: 'a-source', chatId: 'chat-shared' },
     ])
     await forgetProjectGroupId('a-source', OWNER, env)
-    expect(await listProjectGroupIds(OWNER, env)).toEqual([
-      { projectId: 'z-target', chatId: 'chat-shared', representative: true },
-    ])
-    await rememberProjectGroupId('a-source', 'chat-old', OWNER, env)
-    expect((await listProjectGroupIds(OWNER, env)).find((row: { projectId: string; representative: boolean }) => row.projectId === 'a-source')?.representative).toBe(true)
+    expect(await listProjectGroupIds(OWNER, env)).toEqual([{ projectId: 'z-target', chatId: 'chat-shared' }])
+    expect(JSON.parse(await readFile(join(home, 'taskpage-project-groups.json'), 'utf8'))).not.toHaveProperty('representatives')
   })
 })
 const FOOTPRINT = '../../../../apps/desktop/electron/sessionpage/agent-local-footprint'
@@ -1376,7 +1374,7 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
       listGroupAgentsElsewhere: async () => { throw new Error('network down') },
     })).rejects.toThrow(/check other machines before archiving: network down/)
     expect(archived()).toEqual([])
-    expect(await listProjectGroupIds('owner-1', env()), '映射留着,下次触发再判').toEqual([{ projectId: 'proj-alpha', chatId: groupId, representative: true }])
+    expect(await listProjectGroupIds('owner-1', env()), '映射留着,下次触发再判').toEqual([{ projectId: 'proj-alpha', chatId: groupId }])
     expect(roster, '回收其余部分照常做完(完整但响亮)').toHaveLength(0)
   })
 
@@ -1415,7 +1413,7 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
     expect(res.archivedGroups).toBe(0)
     expect(archived()).toEqual([])
     expect(checker, '本机就判得出来,不必问云端').not.toHaveBeenCalled()
-    expect(await listProjectGroupIds('owner-1', env())).toEqual([{ projectId: 'proj-beta', chatId: groupId, representative: true }])
+    expect(await listProjectGroupIds('owner-1', env())).toEqual([{ projectId: 'proj-beta', chatId: groupId }])
   })
 
   describe('listGroupAgentsOnOtherDevices(默认的那一问)', () => {
@@ -1465,6 +1463,31 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
 // 放在文件最后:它要一个从没读出过非空清单的回收器进程(那是模块级事实,前面的用例早把它置真了),
 // resetModules 之后的模块不该再被别的用例继承。
 describe('#3969 新进程第一次归档唯一的任务', () => {
+  it('retains identity, name and seats through archive reconciliation, restart and restored provisioning', async () => {
+    const { provisionSessionpageAgentForSession } = await import(SUT)
+    const { reconcileSessionpageAgents } = await import(REAPER)
+    const input = { sessionId: 'conv-kept', providerId: 'codex', surface: 'tui' as const, cwd: '/w/kept', projectId: 'proj-alpha' }
+    const original = await provisionSessionpageAgentForSession(input, deps)
+    await settleCloud()
+    const name = roster[0].name
+    const members = [...groups[0].members]
+    const inventory = { getAuth: deps.getAuth, resolveDeviceId: deps.resolveDeviceId,
+      getInventory: async () => ({ sessionIds: ['conv-kept'], projectIds: ['proj-alpha'] }), env: { GUGU_HOME: home } }
+    expect((await reconcileSessionpageAgents(inventory)).reapedAgents).toBe(0)
+    vi.resetModules()
+    const restarted = await import(REAPER)
+    expect((await restarted.reconcileSessionpageAgents(inventory)).reapedAgents).toBe(0)
+    const provision = await import(SUT)
+    const restored = await provision.provisionSessionpageAgentForSession(input, deps)
+    await settleCloud()
+    expect(restored?.guguAgentUserId).toBe(original?.guguAgentUserId)
+    expect(roster[0].name).toBe(name); expect(roster).toHaveLength(1)
+    expect(groups[0].members).toEqual(members); expect(removedIdentities).toEqual([])
+    const fresh = await provision.provisionSessionpageAgentForSession({ ...input, sessionId: 'conv-new', cwd: '/w/new' }, deps)
+    await settleCloud()
+    expect(fresh?.guguAgentUserId).not.toBe(original?.guguAgentUserId)
+    expect(roster).toHaveLength(2); expect(groups[0].members).toHaveLength(members.length + 1)
+  })
   it('没点名的空清单不按缺席摘;被点名的死任务照样摘', async () => {
     vi.resetModules()
     const { provisionSessionpageAgentForSession } = await import(SUT)

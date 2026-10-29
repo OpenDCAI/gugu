@@ -10,6 +10,7 @@ import {
   buildStandardCommand,
   miseDependency,
   passthroughMcpAdapter,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import {
@@ -128,14 +129,14 @@ export const plugin = definePlugin(
     },
     // 托管安装(npm backend):本体是 JS(`bin/codebuddy` → `dist/codebuddy.js`),node-pty 等原生件是
     // optionalDependencies,按本机平台挑。npm `bin` 同时发 `codebuddy` / `cbc` / `codebuddy-code`。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'codebuddy',
       aliases: ['cbc', 'codebuddy-code'],
       backend: 'npm',
       package: '@tencent-ai/codebuddy-code',
       node: MANAGED_NODE_VERSION,
       installDocs: 'https://www.codebuddy.ai/docs/cli/quickstart',
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // 记忆文件 —— `CODEBUDDY.md`(发行包里 19 处,与 Claude 的 CLAUDE.md 同一个位置)。
     memory: {
       kind: 'files',

@@ -34,8 +34,8 @@ const folder = (workspaceId: string, kind: ProjectFolder['kind'], path: string):
   sessionIds: [],
   attachedAt: null,
 });
-const ROOT = { ...folder('ws-root', 'root', '/www/gugu'), offline: false };
-const WT = { ...folder('ws-wt', 'attached', '/www/gugu-wt'), offline: false };
+const ROOT = { ...folder('ws-root', 'root', '/www/gugu'), offline: false, deviceId: null };
+const WT = { ...folder('ws-wt', 'attached', '/www/gugu-wt'), offline: false, deviceId: null };
 
 const menuItems = () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.textContent?.trim());
 

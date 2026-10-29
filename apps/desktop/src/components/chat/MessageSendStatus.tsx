@@ -6,13 +6,27 @@
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MessageSendState } from '@gugu/core/shared/types/chat'
+import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
 import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
-export function MessageSendStatus({ state, messageId, reason }: { state: MessageSendState; messageId: string; reason?: string | null }) {
+type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
+
+export function MessageSendStatus(props: Props) {
+  const { t } = useTranslation('messaging')
+  const { identitiesById } = useChatStore('identitiesById')
+  return <>
+    {props.blocks?.map((block) => <span key={block.agent_user_id} data-agent-delivery-block="agent_archived" data-agent-id={block.agent_user_id}
+      className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
+      {identitiesById[block.agent_user_id]?.display_name ? `${identitiesById[block.agent_user_id].display_name} · ` : ''}{t('message.sendStatus.archived')}
+    </span>)}
+    <MessageTransportStatus {...props} />
+  </>
+}
+
+function MessageTransportStatus({ state, messageId, reason }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -44,7 +58,7 @@ export function MessageSendStatus({ state, messageId, reason }: { state: Message
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer',
             background: 'transparent', padding: '1px 4px', borderRadius: 'var(--radius-control)', flexShrink: 0,
-            color: 'var(--danger)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
+            color: 'var(--danger-fg)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
           }}
         >
           <svg width="13" height="13" viewBox="0 0 15 15" fill="none" style={{ display: 'block' }}>

@@ -2,11 +2,12 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PhoneProfile } from '../../../apps/desktop/src/mobile/assistant/PhoneProfile'
 import type { PhonePageProps } from '../../../apps/desktop/src/mobile/assistant/MobileAssistantApp'
-import { clickElement, createReactHarness } from '../../support/testHarness'
+import { clickElement, createReactHarness, typeInto } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ updateAgentProfile: vi.fn() }) }))
 vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ status: 'not_open', list: null }) }))
-vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'offline-mac', label: '离线 Mac' }], phones: [], loading: false, error: null }) }))
+const rename = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'offline-mac', label: '离线 Mac' }], phones: [], loading: false, error: null, rename }) }))
 vi.mock('../../../apps/desktop/src/components/devices/AssistantDevicesPage', () => ({ AssistantDevicesPage: () => <div data-testid="device-content" /> }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneToday', () => ({ usePhoneToday: () => ({ state: 'ok', data: null }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneProfileData', async original => ({
@@ -56,5 +57,19 @@ it.each([['devices', '设备'], ['devices:this-phone', '这台手机'], ['device
   await h.render(<PhoneProfile {...props} />)
   expect([...h.container.querySelectorAll('h1')].map(heading => heading.textContent)).toEqual([title])
   expect(h.container.querySelector('[data-testid="device-content"]')).not.toBeNull()
-  expect(h.container.querySelector('button')).toBeNull()
+  // No inner back button; a device's own page carries only the rename entry.
+  expect([...h.container.querySelectorAll('button')].map(button => button.dataset.testid)).toEqual(sub === 'devices:offline-mac' ? ['settings-device-actions-rename'] : [])
+})
+
+it('renames the opened device from the phone page head through the devices store', async () => {
+  const props: PhonePageProps = { assistant: { id: 'a', display_name: '咕咕', avatar: null, created_at: null }, chatId: 'dm', ownerName: null,
+    homeDeviceId: null, cloudDeviceId: null, home: null, machine: { state: 'opening' }, askInChat: vi.fn(), sub: 'devices:offline-mac', go: vi.fn(), open: vi.fn() }
+  await h.render(<PhoneProfile {...props} />)
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="settings-device-actions-rename"]')!)
+  const input = h.container.querySelector<HTMLInputElement>('[data-testid="device-rename-input"]')!
+  expect(input.value).toBe('离线 Mac')
+  await typeInto(input, 'juma2')
+  await clickElement([...h.container.querySelectorAll<HTMLElement>('button')].find(button => button.textContent === '保存')!)
+  expect(rename).toHaveBeenCalledWith('offline-mac', 'juma2')
+  expect(h.container.querySelector('[data-testid="device-rename-input"]')).toBeNull()
 })

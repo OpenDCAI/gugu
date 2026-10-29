@@ -53,3 +53,13 @@ it('marks nothing in a chat that is not bound to a machine', async () => {
   const entries = await createAppFiles(platform).groupFiles(chat);
   expect(entries.every((entry) => entry.storedOn === undefined)).toBe(true);
 });
+
+it('says whether the reader\'s own machine is on: its file opens once it is', async () => {
+  policy = { host_device_id: 'device', host_account_id: person };
+  label.mockResolvedValueOnce({ data: { label: 'Studio Mac', status: 'offline' } as never, error: null });
+  const off = await createAppFiles(platform).groupFiles(chat);
+  expect(off.find((entry) => entry.id === 'local')?.storedOn).toEqual({ machine: 'Studio Mac', owner: 'Me', mine: true, online: false });
+  label.mockResolvedValueOnce({ data: { label: 'Studio Mac', status: 'online' } as never, error: null });
+  const on = await createAppFiles(platform).groupFiles(chat);
+  expect(on.find((entry) => entry.id === 'local')?.storedOn).toMatchObject({ online: true });
+});

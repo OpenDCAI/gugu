@@ -120,6 +120,14 @@ describe('project groups (会话页一侧)', () => {
     expect(result).toEqual(ok(expect.arrayContaining([{ projectId: 'project-a', chatId: 'chat-of-project-a' }])));
   });
 
+  it('#609 workspace 不问:它从前绑的群成了普通群,照常列在「聊天」里', async () => {
+    fixture.sqlite.exec(`UPDATE projects SET kind = 'workspace' WHERE id = 'project-b'`);
+    const { host, calls } = fakeHost();
+    setProjectGroupHost(host);
+    await listProjectGroupBindings();
+    expect(calls).toEqual([{ op: 'list', projectIds: ['project-a'] }]);
+  });
+
   it('预留群:交给宿主的是项目名与没归档的会话;改了才叫渲染层重读,结果里不带 changed', async () => {
     const { host, calls } = fakeHost();
     setProjectGroupHost(host);

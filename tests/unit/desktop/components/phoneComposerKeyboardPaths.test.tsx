@@ -50,7 +50,7 @@ async function mount(kind: 'group' | 'dm' | 'agent' | 'task') {
   function Chat() {
     const base = useDevicesStore()
     return <DevicesContext.Provider value={{ ...base, devices: [device('machine', [], { projects: [{
-      localProjectId: 'project', name: 'Project', rootPath: '/project', createdAt: '2026-10-26T00:00:00Z', chatId: 'chat', groupRepresentative: true,
+      localProjectId: 'project', name: 'Project', rootPath: '/project', createdAt: '2026-10-26T00:00:00Z', chatId: 'chat',
       folders: [{ workspaceId: 'workspace', kind: 'root', path: '/project', attachedAt: null }],
     }] })] }}><ChatMessageComposer chatId="chat" isGroupChat={kind !== 'dm'} onSend={delivered} onSendAttachments={attached} /></DevicesContext.Provider>
   }

@@ -10,6 +10,7 @@ import { createFileResolver, type FileContext, type FileRef, type FileRevision }
 import { PROJECT_FILE_READ, createProjectFileReader, localProjectFileProvider } from './projectFileHost'
 import { ownSshFileProvider, type HeldFileSshLinks } from './projectFileSsh'
 import { createProjectTransferHost } from './projectFileTransferHost'
+import { createVersionHandoffHost } from './projectFileVersionHandoffHost'
 import { findProjectFileByName, type ProjectFileVersionLookup } from './sessionpage/sessionpage-project-groups'
 import type { setAccountFileResolver } from './session/main/core/extensions/account-token'
 import { createProjectFilePublisher } from './projectFilePublication'
@@ -55,8 +56,9 @@ export function createDesktopFileAccess(deps: {
     return options?.localOnly ? resolve(fileRef, reader, { localOnly: true }) : resolve(fileRef, reader)
   }
   const sshHandlers: DeviceRpcHandlers = { [PROJECT_FILE_READ]: async (payload, ctx) => ({ result: await read(payload as Parameters<typeof read>[0], ctx.request.user_id) }) }
-  const publish = createProjectFilePublisher({ identity, root: deps.root, rpc: deps.rpc, env: deps.env })
-  return { providers, resolve, resolveAccount, read, drain, publish,
+  const publish = createProjectFilePublisher({ identity, root: deps.root, rpc: deps.rpc, env: deps.env, endpoint: () => endpoint() })
+  const handoffs = createVersionHandoffHost({ identity, endpoint, publish })
+  return { providers, resolve, resolveAccount, read, drain, handoffs, publish,
     handlers: (transport: 'ssh' | 'realtime'): DeviceRpcHandlers => transport === 'ssh' ? sshHandlers : {},
     async download(ref: FileRef, name: string, actorId: string) {
       const { accountId } = await identity(), file = await resolve(ref, { accountId, actorId })

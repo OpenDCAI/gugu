@@ -6,17 +6,27 @@ import { assistantPanelLibraryHost } from '../../apps/desktop/src/components/ass
 
 function fixture() {
   const native = vi.fn(async () => ({ success: true })), subscribe = vi.fn(() => vi.fn()), ready = vi.fn(async () => ({}))
+  const wait = vi.fn(async () => ({ status: 'pending' }))
   const base = { key: 'native',remote: { online: false },
-    integrations: { connect: native,authorize: native,cliLoginStart: native,cliToolPrepare: native,cliLoginProgress: native,cancelAuthorization: native,
+    integrations: { connect: native,authorize: native,cliLoginStart: native,cliToolPrepare: native,cliLoginWait: wait,cliLoginProgress: native,cancelAuthorization: native,
       list: native,accounts: native,checkAllConnections: native,checkConfiguredConnections: ready },
     github: { auth: native,authCancel: native,listAccounts: native,importCliAccounts: native,onEvent: subscribe },
   } as unknown as LibraryHost
   const panel = { ownerId: 'owner',assistantId: 'assistant',assertCurrent: vi.fn(async () => {}),
     collection: vi.fn(async () => []),snapshot: vi.fn(async () => ({ application: [] })),body: vi.fn(),change: vi.fn(),save: vi.fn(),
   } as unknown as AssistantPanelFiles
-  const prepare = vi.fn(async () => {})
-  return { native,subscribe,panel,prepare,ready,host: assistantPanelLibraryHost(base,panel,prepare) }
+  const prepare = vi.fn(async (_signal?: AbortSignal) => {})
+  return { native,wait,subscribe,panel,prepare,ready,host: assistantPanelLibraryHost(base,panel,prepare) }
 }
+
+it.each(['server_outdated', 'client_outdated', 'forbidden', 'unauthorized'])('preserves %s from the rejecting control layer without starting authorization', async code => {
+  const f = fixture()
+  const refusal = Object.assign(new Error('The cloud host needs an update'), { code })
+  f.ready.mockRejectedValue(refusal)
+  await expect(f.host.integrations.cliToolPrepare('feishu')).rejects.toBe(refusal)
+  expect(f.ready).toHaveBeenCalledOnce()
+  expect(f.native).not.toHaveBeenCalled()
+})
 
 it('does not start a CLI download/login until control RPC actually acknowledges the read', async () => {
   const f = fixture()
@@ -28,6 +38,42 @@ it('does not start a CLI download/login until control RPC actually acknowledges 
   release()
   await login
   expect(f.native).toHaveBeenCalledOnce()
+})
+
+it('stops a cancelled cold wake before probing or starting the tool', async () => {
+  const f = fixture()
+  const abort = new AbortController()
+  let finish!: () => void
+  f.prepare.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const run = f.host.integrations.cliToolPrepare('feishu', abort.signal)
+  await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce())
+  expect(f.prepare.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal)
+  abort.abort()
+  finish()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.ready).not.toHaveBeenCalled()
+  expect(f.native).not.toHaveBeenCalled()
+})
+
+it('cancels login-start preparation through the host cancellation action', async () => {
+  const f = fixture()
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const run = f.host.integrations.cliLoginStart('feishu')
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledOnce())
+  await f.host.integrations.cancelAuthorization('feishu')
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.native).not.toHaveBeenCalled()
+})
+
+it('cancels an unanswered control read without waiting for the readiness timeout', async () => {
+  const f = fixture()
+  const abort = new AbortController()
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const run = f.host.integrations.cliToolPrepare('feishu', abort.signal)
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledOnce())
+  abort.abort()
+  await expect(run).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.native).not.toHaveBeenCalled()
 })
 
 it('reads application and account metadata while the host is asleep without touching native APIs', async () => {
@@ -86,4 +132,82 @@ it('wakes a sleeping home before the first install question and says so plainly 
   await f.host.integrations.cliToolPrepare('feishu')
   expect(f.prepare).toHaveBeenCalledTimes(2)
   expect(f.native).toHaveBeenCalledTimes(2)
+})
+
+it('rechecks and wakes the home after a prepared control connection stops answering', async () => {
+  const f = fixture()
+  await f.host.integrations.cliToolPrepare('feishu')
+  f.native.mockRejectedValueOnce(new Error('host fell asleep'))
+  await expect(f.host.integrations.cliToolPrepare('feishu')).rejects.toThrow('host fell asleep')
+  await f.host.integrations.cliToolPrepare('feishu')
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.ready).toHaveBeenCalledTimes(2)
+  expect(f.prepare.mock.invocationCallOrder[1]).toBeLessThan(f.native.mock.invocationCallOrder[2])
+})
+
+it('resumes an active authorization rejected before attach and only retries its status read', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(Object.assign(new Error('The host is asleep'), { code: 'unreachable' }))
+  await expect(f.host.integrations.cliLoginWait('feishu')).resolves.toEqual({ status: 'pending' })
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.wait).toHaveBeenCalledTimes(2)
+  expect(f.prepare.mock.invocationCallOrder[1]).toBeLessThan(f.wait.mock.invocationCallOrder[1])
+  expect(f.native).toHaveBeenCalledOnce() // Never repeat the non-idempotent login start.
+})
+
+it('continues the same authorization read through the transport handoff after resume', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(new Error('Host fell asleep')).mockRejectedValueOnce(new Error('Channel switching'))
+  await expect(f.host.integrations.cliLoginWait('feishu')).resolves.toEqual({ status: 'pending' })
+  expect(f.wait).toHaveBeenCalledTimes(3)
+  expect(f.prepare).toHaveBeenCalledTimes(2)
+  expect(f.native).toHaveBeenCalledOnce()
+})
+
+it.each(['server_outdated', 'forbidden', 'unauthorized'])('keeps an authorization status refusal %s without a wake retry', async code => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  const refusal = Object.assign(new Error('Host rejected the request'), { code })
+  f.wait.mockRejectedValueOnce(refusal)
+  await expect(f.host.integrations.cliLoginWait('feishu')).rejects.toBe(refusal)
+  expect(f.prepare).toHaveBeenCalledOnce()
+  expect(f.wait).toHaveBeenCalledOnce()
+})
+
+it('does not resume an authorization cancelled while its status read was pending', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  let reject!: (error: Error) => void
+  f.wait.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+  const read = f.host.integrations.cliLoginWait('feishu')
+  await vi.waitFor(() => expect(f.wait).toHaveBeenCalledOnce())
+  await f.host.integrations.cancelAuthorization('feishu')
+  reject(new Error('Host went offline'))
+  await expect(read).rejects.toThrow()
+  expect(f.prepare).toHaveBeenCalledOnce()
+  expect(f.wait).toHaveBeenCalledOnce()
+})
+
+it('reports the actual resume refusal instead of keeping an authorization waiting', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(new Error('Host went offline'))
+  const refusal = new Error('Cloud resume was rejected')
+  f.prepare.mockRejectedValueOnce(refusal)
+  await expect(f.host.integrations.cliLoginWait('feishu')).rejects.toBe(refusal)
+  expect(f.wait).toHaveBeenCalledOnce()
+})
+
+it('stops resume preparation when the active authorization is cancelled', async () => {
+  const f = fixture()
+  await f.host.integrations.cliLoginStart('feishu')
+  f.wait.mockRejectedValueOnce(new Error('Host went offline'))
+  f.ready.mockImplementationOnce(() => new Promise(() => {}))
+  const read = f.host.integrations.cliLoginWait('feishu')
+  await vi.waitFor(() => expect(f.ready).toHaveBeenCalledTimes(2))
+  await f.host.integrations.cancelAuthorization('feishu')
+  await expect(read).rejects.toMatchObject({ name: 'AbortError' })
+  expect(f.wait).toHaveBeenCalledOnce()
 })

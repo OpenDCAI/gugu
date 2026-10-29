@@ -9,7 +9,7 @@ import {
   createUnverifiedSessionBundleBehavior,
   UNVERIFIED_SESSION_BUNDLE_DELIVERY,
 } from '../../helpers/session-bundle';
-import { buildStandardCommand, miseDependency } from '@gugu/session-core/agents/plugins/helpers';
+import { BARE_VERSION_LINE, buildStandardCommand, miseDependency } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { icon } from './icon';
 
@@ -119,7 +119,7 @@ export const plugin = definePlugin(
     },
     // 托管安装:`cline` 这个包只是个启动器,程序体在 `@cline/cli-<platform>-<arch>` 里
     // (六格齐全;bun 编的那一族把 `win32` 叫 `windows`,所以平台包名要写明)。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'cline',
       package: 'cline',
       platformPackages: {
@@ -132,7 +132,7 @@ export const plugin = definePlugin(
         'linux-x64': 'bin/cline', 'linux-arm64': 'bin/cline',
         'win32-x64': 'bin/cline.exe', 'win32-arm64': 'bin/cline.exe',
       },
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     /**
      * agent memory —— cline **CLI** 自己会去读的规则文件。
      *

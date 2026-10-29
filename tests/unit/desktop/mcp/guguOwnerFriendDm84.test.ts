@@ -70,6 +70,7 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
   }
   const restGet = async (path: string) => {
     reads.push(path)
+    if (path.startsWith('message_agent_delivery_blocks?')) return []
     if (path.startsWith('friendships?')) return [{ user_a_id: FRIEND, user_b_id: OWNER }]
     if (path.startsWith('chat_members?chat_id=in.(')) {
       const ids = decodeURIComponent(path.slice('chat_members?chat_id=in.('.length, path.indexOf(')'))).split(',')

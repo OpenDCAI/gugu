@@ -247,6 +247,9 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     getToolImage(input: { sessionId: string; itemId: string; index: number }) {
       return ok(runtime.getToolImage(input.sessionId, input.itemId, input.index));
     },
+    getStoredQueue(input: { sessionId: string }): Array<Pick<PromptInput, 'text' | 'origin'>> {
+      return runtime.getStoredQueue(input.sessionId);
+    },
     getHistory(input: {
       sessionId: string;
       before?: number;

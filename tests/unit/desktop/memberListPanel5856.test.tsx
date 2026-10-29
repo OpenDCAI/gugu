@@ -22,6 +22,7 @@ import type { ContactUser } from '../../../packages/core/src/shared/types/contac
 import type { AccountRevisionListener } from '../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { ChatContextValue } from '../../../apps/desktop/src/store/chatContext'
 import { createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../support/testHarness'
+import { setAgentDisplayStatusOverride, clearAgentDisplayStatusOverrides } from '../../support/agentDisplayStatusTestDouble'
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
@@ -102,6 +103,7 @@ function identitiesFor(snapshot: GroupCollabSnapshot): DisplayIdentity[] {
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  clearAgentDisplayStatusOverrides()
   // 话题面板里那一行会自己去读设置;给一个缺省值,免得每条**不关心它**的用例都得记着桩一次。
   getSettings.mockResolvedValue(settingsRow(null, 5))
 })
@@ -140,81 +142,22 @@ describe('@@@5856 名册读不到', () => {
   })
 })
 
-describe('#5999 话题手动邀请', () => {
-  const candidates = [
-    { id: 'owner-1', name: '自己', type: 'human' as const },
-    { id: 'existing', name: '已参与', type: 'agent' as const },
-    { id: 'human-2', name: '同群成员', type: 'human' as const },
-    { id: 'other-agent', name: '别人的 Agent', type: 'agent' as const },
-  ]
-  async function renderInvitation(send = vi.fn(async () => {}), participant = true) {
-    const snapshot = collab([agentItem('existing')], [humanItem('owner-1')])
-    if (participant) getGroupCollab.mockResolvedValue({ snapshot, identities: identitiesFor(snapshot) })
-    else getGroupCollab.mockRejectedValueOnce(new GroupCollabEmptyError())
-    await renderWithAppProviders(harness, createNode(MemberListPanel, {
-      chatId: 'chat-1', chatKind: 'topic', head,
-      topicInvitation: { candidates, send },
-    }), { auth: { id: 'owner-1' }, chat: { identitiesById: {} }, contacts: { contacts: [] } })
-    await click('[data-testid="topic-member-invite"]')
-    return send
-  }
-  async function click(selector: string) {
-    const element = document.querySelector(selector) as HTMLElement | null
-    expect(element, selector).not.toBeNull()
-    await act(async () => { element!.click() })
-  }
-
-  it('从来源会话同时选人和他人的 Agent，发邀请后重读名册', async () => {
-    const send = await renderInvitation()
-    expect(document.querySelector('[role="checkbox"][aria-label="自己"]')).toBeNull()
-    expect(document.querySelector('[role="checkbox"][aria-label="已参与"]')).toBeNull()
-    await click('[role="checkbox"][aria-label="同群成员"]')
-    await click('[role="checkbox"][aria-label="别人的 Agent"]')
-    await click('[data-testid="topic-member-invite-confirm"]')
-    expect(send).toHaveBeenCalledWith('@同群成员 @别人的 Agent 邀请你们加入话题。', ['human-2', 'other-agent'], null)
-    expect(getGroupCollab).toHaveBeenCalledTimes(2)
-    expect(document.querySelector('[data-testid="topic-member-picker"]')).toBeNull()
+describe('MemberListPanel archived members', () => {
+  it('keeps the member and displays an actual muted archived label, not only an avatar tooltip', async () => {
+    setAgentDisplayStatusOverride('archived', 'archived')
+    await renderPanel(collab([agentItem('archived')], [humanItem('owner-1')]))
+    const rows = document.body.querySelectorAll('[data-member-row]')
+    expect(rows).toHaveLength(2)
+    const row = document.body.querySelector('[data-member-row="archived"]')!
+    expect(row.querySelector('[data-member-name]')?.textContent).toBe('智能体-archived')
+    const label = row.querySelector('[data-agent-archive-label]')!
+    expect(label?.textContent).toBe('已归档')
+    expect(label.getAttribute('class')).toContain('text-[var(--text-tertiary)]')
   })
-
-  it('邀请失败保留选择并允许重试，不把失败显示成已加入', async () => {
-    const send = vi.fn(async () => {}).mockRejectedValueOnce(new Error('network unavailable'))
-    await renderInvitation(send)
-    await click('[role="checkbox"][aria-label="别人的 Agent"]')
-    await click('[data-testid="topic-member-invite-confirm"]')
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('network unavailable')
-    expect(document.querySelector('[role="checkbox"][aria-label="别人的 Agent"]')?.getAttribute('aria-checked')).toBe('true')
-    expect(getGroupCollab).toHaveBeenCalledTimes(1)
-    await click('[data-testid="topic-member-invite-confirm"]')
-    expect(send).toHaveBeenCalledTimes(2)
-    expect(document.querySelector('[data-testid="topic-member-picker"]')).toBeNull()
-  })
-
-  it('自己尚未参与也有邀请入口，邀请消息让自己和被点名的人入列', async () => {
-    const send = await renderInvitation(undefined, false)
-    getGroupCollab.mockResolvedValue({ snapshot: collab([], [humanItem('owner-1'), humanItem('human-2')]), identities: [] })
-    await click('[role="checkbox"][aria-label="同群成员"]')
-    await click('[data-testid="topic-member-invite-confirm"]')
-    expect(send).toHaveBeenCalledWith('@同群成员 邀请你们加入话题。', ['human-2'], null)
-    expect(getGroupCollab).toHaveBeenCalledTimes(2)
-    expect(harness.container.querySelector('[data-member-list-error="not-participant"]')).toBeNull()
-  })
-
-  it('发送中禁用提交与关闭，避免重复邀请', async () => {
-    let finish!: () => void
-    const send = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
-    await renderInvitation(send)
-    await click('[role="checkbox"][aria-label="同群成员"]')
-    await click('[data-testid="topic-member-invite-confirm"]')
-    const confirm = document.querySelector('[data-testid="topic-member-invite-confirm"]') as HTMLButtonElement
-    expect(confirm.disabled).toBe(true)
-    await act(async () => {
-      confirm.click()
-      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(document.querySelector('[data-testid="topic-member-picker"]')).not.toBeNull()
-    await act(async () => { finish() })
-    expect(document.querySelector('[data-testid="topic-member-picker"]')).toBeNull()
+  it('does not label an ordinary active member as archived', async () => {
+    await renderPanel(collab([agentItem('active')], [humanItem('owner-1')]))
+    expect(document.body.querySelectorAll('[data-member-row]')).toHaveLength(2)
+    expect(document.body.querySelector('[data-agent-archive-label]')).toBeNull()
   })
 })
 

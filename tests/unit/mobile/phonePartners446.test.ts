@@ -14,12 +14,12 @@ import {
   runningCount,
 } from '../../../apps/desktop/src/mobile/partners/partnersModel'
 
-function project(localProjectId: string, name: string, createdAt: string, chatId: string | null, groupRepresentative = false): DeviceProject {
-  return { localProjectId, name, rootPath: `/work/${name}`, createdAt, chatId, groupRepresentative, folders: [] }
+function project(localProjectId: string, name: string, createdAt: string, chatId: string | null): DeviceProject {
+  return { localProjectId, name, rootPath: `/work/${name}`, createdAt, chatId, folders: [] }
 }
 
-function device(deviceId: string, projects: DeviceProject[]): Pick<Device, 'device_id' | 'projects'> {
-  return { device_id: deviceId, projects }
+function device(deviceId: string, projects: DeviceProject[], is_online?: boolean): Pick<Device, 'device_id' | 'projects'> & Partial<Pick<Device, 'is_online'>> {
+  return { device_id: deviceId, projects, is_online }
 }
 
 function contact(id: string, fields: Partial<ContactUser> = {}): ContactUser {
@@ -34,11 +34,11 @@ function session(conversationId: string, projectId: string, fields: Partial<Sess
 describe('partnerProjects', () => {
   it('merges the local projects bound to one group across machines into one project', () => {
     const projects = partnerProjects([
-      device('mac', [project('p-mac', 'gugu', '2026-10-02T00:00:00.000Z', 'chat-gugu', true)]),
-      device('server', [project('p-server', 'gugu-server', '2026-10-01T00:00:00.000Z', 'chat-gugu')]),
+      device('mac', [project('p-mac', 'gugu', '2026-10-02T00:00:00.000Z', 'chat-gugu')], true),
+      device('server', [project('p-server', 'gugu-server', '2026-10-01T00:00:00.000Z', 'chat-gugu')], false),
     ])
     expect(projects).toHaveLength(1)
-    // 名字与封面跟代表的那一个;建的时间取最早那台。
+    // 名字与封面跟桌面侧栏合并那一行的同一个(groupRowOrder:连着的那台先于离线的);建的时间取最早那台。
     expect(projects[0]).toMatchObject({ key: 'chat-gugu', chatId: 'chat-gugu', name: 'gugu', coverId: 'p-mac', createdAt: '2026-10-01T00:00:00.000Z' })
     expect(projects[0].members).toEqual([{ deviceId: 'mac', localProjectId: 'p-mac' }, { deviceId: 'server', localProjectId: 'p-server' }])
   })
@@ -60,7 +60,7 @@ describe('partnerProjects', () => {
     expect(projects.map((row) => row.name)).toEqual(['early', 'mid', 'late'])
   })
 
-  it('takes the earliest project for name and cover when no machine marks a representative', () => {
+  it('takes the earliest project for name and cover when the machines are equally reachable', () => {
     const [merged] = partnerProjects([
       device('a', [project('pa', 'second', '2026-10-02T00:00:00.000Z', 'c')]),
       device('b', [project('pb', 'first', '2026-10-01T00:00:00.000Z', 'c')]),

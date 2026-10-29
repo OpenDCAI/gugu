@@ -101,7 +101,7 @@ class Runtime {
   private gl: GuguGL | null = null
   /** 用到过的角色(GL 重建时按它重载素材) */
   private chars = new Set<CharacterId>()
-  /** 无 WebGL 时整张贴的定格图:只在真走 2D 退路时才去取(有 WebGL 时不多载这一张) */
+  /** GL 素材未到齐或上下文不可用时整张贴的定格图；同一角色只取一次。 */
   private flats = new Map<CharacterId, HTMLImageElement>()
   /** GL 素材这次没载下来的角色:先走 2D 定格(❌ 整只空白),过一会儿再试 */
   private texFailed = new Set<CharacterId>()
@@ -122,6 +122,11 @@ class Runtime {
   private glInstalledAt = 0
   /** 供 UI 读：当前是否走 GPU 网格（false = 退路） */
   usingGL = false
+
+  constructor() {
+    // 先备好首帧用的定格；GL 仍等第一次注册角色时才启动、加载。
+    if (typeof Image !== 'undefined') this.flatOf(CHARACTER_BY_ID[DEFAULT_CHARACTER])
+  }
 
   private start() {
     if (this.starting) return
@@ -245,6 +250,7 @@ class Runtime {
   private ensureSprite(ch: Character) {
     if (this.chars.has(ch.id)) return
     this.chars.add(ch.id)
+    this.flatOf(ch)
     this.loadTextures(ch)
   }
 
@@ -253,6 +259,7 @@ class Runtime {
     let img = this.flats.get(ch.id)
     if (!img) {
       img = new Image()
+      img.onload = this.wake
       img.src = ch.flat
       this.flats.set(ch.id, img)
     }
@@ -345,9 +352,8 @@ class Runtime {
     let nextWake = Infinity
     for (const h of this.handles) {
       if (!h.visible || h.ctx.isContextLost?.()) continue
-      // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
+      // GL 素材未到齐时先画定格；同一张画布保留它，等本体和装扮都到齐后再换 GL。
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
-      if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue
       const sprite = gl ? null : this.flatOf(h.ch)
       const o = {
         w: h.canvas.width,

@@ -2,7 +2,7 @@
    在产物里谁先谁后不固定,同权重时输了,工具栏层就会吃掉全屏指针、根的 z-index 会压住 toast。
    底色两种主题都是黑:遮罩和投影同类,不是面色(docs/ui-visual-spec.md §6.5)。 */
 .pswp.gg-image-viewer {
-  --pswp-bg: rgb(0 0 0);
+  --pswp-bg: var(--image-bg);
   --pswp-placeholder-bg: color-mix(in oklab, var(--color-white) 8%, transparent);
   --pswp-root-z-index: var(--z-overlay);
   --pswp-error-text-color: color-mix(in oklab, var(--color-white) 72%, transparent);

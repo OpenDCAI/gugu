@@ -17,8 +17,3 @@ export function assistantTaskDirectory(
     return read.sessions.map((summary) => ({ deviceId: device.device_id, summary, live: device.is_online && !read.cached && read.connected === true }))
   })
 }
-
-export function assistantTaskDeviceLabel(devices: readonly Device[], deviceId: string): string | null {
-  const device = devices.find((candidate) => candidate.device_id === deviceId)
-  return device?.is_current_device ? null : device?.label ?? null
-}

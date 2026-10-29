@@ -19,6 +19,7 @@ import { ArrowDownToLine, ChevronDown, ChevronRight, Monitor, Server } from '@/l
 import { Button } from '../ui/Button'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
 import { PhoneGlyph } from './assistantDeviceUi'
+import { qrColors } from '../../lib/qrColors'
 
 type Platform = 'mac' | 'windows' | 'linux' | 'android'
 
@@ -143,7 +144,7 @@ function DownloadQr({ url }: { url: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
-    QRCode.toDataURL(url, { width: 112, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } }).then(
+    QRCode.toDataURL(url, { width: 112, margin: 1, color: qrColors() }).then(
       (value) => { if (alive) setDataUrl(value) },
       () => { if (alive) setDataUrl(null) },
     )

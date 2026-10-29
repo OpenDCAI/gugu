@@ -5,10 +5,8 @@ import { getPluginMetadata } from '@main/core/agents/plugin-registry';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
-import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { AgentEvent } from '@shared/core/agents/agentEvents';
-import { notificationFocusSessionChannel } from '@shared/events/appEvents';
 import { sessionAgentNotificationCopy } from './notification-copy';
 
 const activeNotifications = new Set<Notification>();
@@ -92,10 +90,8 @@ export async function maybeShowNotification(event: AgentEvent, notice: SessionAg
       if (!win) return;
 
       releaseNotification();
-      events.emit(notificationFocusSessionChannel, {
-        projectId: event.projectId,
-        sessionId: event.sessionId,
-      });
+      // The window first (a banner's click comes from outside it), then the one way a session is opened.
+      void import('../extensions/gugu-links').then(({ openLink }) => openLink({ kind: 'session', sessionId: event.sessionId, projectId: event.projectId }));
     });
 
     notification.show();

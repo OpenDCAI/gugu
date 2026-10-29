@@ -116,21 +116,24 @@ export async function installGrant(
  * After the install landed: what it gives (`installGrant`) is written — every agent here for a first install, the chat's row
  * for one asked for a chat. Nothing else is written, so an install never takes away what another computer or the App page gave.
  * The chat's row is the account's, written over the network: when that fails the App is installed all the same (this computer's
- * half is what decides here) and the failure is logged, never a failed install that can no longer be retried as a first one.
+ * half is what decides here), never a failed install that can no longer be retried as a first one — and that chat is handed
+ * back, for the person and the agent to be told it was not given it (null: nothing was left out).
  */
-export async function recordInstallGrant(extensionId: string, grant: InstallGrant | null): Promise<void> {
-  if (!grant) return;
+export async function recordInstallGrant(extensionId: string, grant: InstallGrant | null): Promise<{ id: string; name: string } | null> {
+  if (!grant) return null;
   const identity = extensionsService().identityOf(extensionId);
-  if (!identity) return;
+  if (!identity) return null;
   if (grant.first) {
     extensionsService().setGivenHere(identity, [HERE_ALL]);
-    return;
+    return null;
   }
   try {
     const { token, userId } = await me();
     await setEnablement(token, userId, grant.chat.id, identity, true);
+    return null;
   } catch (error) {
     log.warn({ extensionId, chatId: grant.chat.id, error: error instanceof Error ? error.message : String(error) }, 'installed, but the chat it was asked for was not given it');
+    return grant.chat;
   }
 }
 

@@ -48,6 +48,8 @@ vi.mock('@main/core/agents/plugin-registry', () => ({
 
 const { agentHookService } = await import('../agent-hooks/agent-hook-service');
 const { agentStatusWriter } = await import('./agent-status-writer');
+const { readInterruptedTurn } = await import('./interrupted-turns');
+const { mapSessionRowToSession } = await import('@main/core/sessions/utils');
 
 const tmuxName = (sessionId: string) => makeTmuxSessionName(makePtySessionId('p1', sessionId, sessionId));
 
@@ -62,7 +64,7 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
     fixture.sqlite
       .prepare(
         `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', 'claude', ?, ?, 0)`
+         VALUES (?, 'p1', 'C', 'claude', ?, ?, 1)`
       )
       .run(id, runtime, agentStatus);
 
@@ -94,16 +96,36 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
 
     expect(status('in-tmux').status).toBe('working');
     expect(status('in-tmux-asking').status).toBe('needs_user');
-    expect(status('pty-gone')).toEqual({ status: 'idle', detail: 'plain' });
-    expect(status('acp')).toEqual({ status: 'idle', detail: 'plain' });
+    expect(status('pty-gone')).toEqual({ status: 'error', detail: null });
+    expect(status('acp')).toEqual({ status: 'error', detail: null });
     expect(status('idle').status).toBe('idle');
+  });
+
+  it('an interrupted turn is an error the person has not seen, with why the host stopped; the next start clears the why', async () => {
+    await agentStatusWriter.settleAfterRestart(new Set(), 'update');
+
+    const seen = fixture.sqlite.prepare(`SELECT agent_status_seen AS seen FROM sessions WHERE id = 'acp'`).get() as { seen: number };
+    expect(seen.seen).toBe(0);
+    expect(readInterruptedTurn('acp')).toBe('update');
+    expect(readInterruptedTurn('idle')).toBeNull();
+    const row = await fixture.db.query.sessions.findFirst({ where: (t, { eq }) => eq(t.id, 'acp') });
+    expect(mapSessionRowToSession(row!)).toMatchObject({ agentStatus: 'error', interruptedBy: 'update' });
+
+    await agentStatusWriter.restart({ sessionId: 'acp', projectId: 'p1' });
+    expect(status('acp').status).toBe('working');
+    expect(readInterruptedTurn('acp')).toBeNull();
+  });
+
+  it('no word left by the last exit = it did not shut down cleanly', async () => {
+    await agentStatusWriter.settleAfterRestart(new Set());
+    expect(readInterruptedTurn('acp')).toBe('unclean');
   });
 
   it('no tmux sessions (tmux off, or no tmux server): everything in flight is settled, as before', async () => {
     await agentStatusWriter.settleAfterRestart(new Set());
 
     for (const id of ['in-tmux', 'in-tmux-asking', 'pty-gone', 'acp']) {
-      expect(status(id)).toEqual({ status: 'idle', detail: 'plain' });
+      expect(status(id)).toEqual({ status: 'error', detail: null });
     }
   });
 });

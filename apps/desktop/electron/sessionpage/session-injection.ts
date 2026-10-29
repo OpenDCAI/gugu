@@ -23,6 +23,7 @@ import type {
 } from '@gugu/core/local/agent/agentInboxReader'
 import { createLogger } from '../lib/logger'
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions'
+import { SessionArchivedError, type SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 import { agentStatusFeed, type AgentStatusFeed } from './agent-status-feed'
 
 function deliveryLogger() {
@@ -157,6 +158,8 @@ export class SessionpageLocalDeliveryRouter {
     private readonly targets: readonly SessionpageDeliveryTarget[],
     private readonly options: {
       waitUntilReady?: () => Promise<void>;
+      archivalState?: (sessionId: string) => SessionArchivalState | null;
+      messageRefused?: (sessionId: string, messageId: string, createdAt: string) => boolean;
       /** 宿主按原 conversation 重开(`ensureEmdashSession`)。 */
       wakeSession?: (sessionId: string) => Promise<unknown>;
       /** 这条会话由本机起的引擎进程此刻在不在(`session-process.ts` 的唯一事实);在 = 唤醒什么也起不了。 */
@@ -167,6 +170,20 @@ export class SessionpageLocalDeliveryRouter {
 
   async waitUntilReady(): Promise<void> {
     await this.options.waitUntilReady?.()
+  }
+
+  sessionArchivalForAgent(agentUserId: string): SessionArchivalState | null {
+    const sessionId = this.sessionIdForAgent(agentUserId)
+    return sessionId ? this.options.archivalState?.(sessionId) ?? null : null
+  }
+
+  sessionMessageRefusedForAgent(agentUserId: string, messageId: string, createdAt: string): boolean {
+    const sessionId = this.sessionIdForAgent(agentUserId)
+    return sessionId ? this.options.messageRefused?.(sessionId, messageId, createdAt) ?? false : false
+  }
+
+  private assertNotArchived(sessionId: string): void {
+    if (this.options.archivalState?.(sessionId)?.archivedAt) throw new SessionArchivedError()
   }
 
   /**
@@ -188,6 +205,7 @@ export class SessionpageLocalDeliveryRouter {
 
   private async wakeSessionOnce(sessionId: string): Promise<'reopened' | 'already-running'> {
     await this.waitUntilReady()
+    this.assertNotArchived(sessionId)
     let outcome: 'reopened' | 'already-running' = 'already-running'
     if (!this.options.processRunning?.(sessionId)) {
       if (!this.options.wakeSession) {
@@ -344,6 +362,7 @@ export class SessionpageLocalDeliveryRouter {
     message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
     log: { route: string; agentUserId?: string },
   ): Promise<boolean | SessionpageTurnReceipt> {
+    this.assertNotArchived(sessionId)
     const owner = await this.deliveryTargetForSession(sessionId)
     const capability = owner ? await sessionInjectionCapabilityForSession(owner.target, owner.deliveryKey) : null
     if (!owner || !capability) {
@@ -365,6 +384,7 @@ export class SessionpageLocalDeliveryRouter {
       },
       'session-page inbox injection route selected',
     )
+    this.assertNotArchived(sessionId)
     const accepted = await owner.target.tryInjectSessionMessage(owner.deliveryKey, message)
     if (typeof accepted === 'object' && accepted.queued && !accepted.turnId) {
       throw new Error(
@@ -461,6 +481,8 @@ export function createSessionpageDeliveryBridge(
       ownerOf(agentUserId)?.deliveryToolNames
       ?? null,
     deliveryTiming: (agentUserId) => localDelivery.deliveryTimingForAgent(agentUserId),
+    sessionArchival: (agentUserId) => localDelivery.sessionArchivalForAgent(agentUserId),
+    sessionMessageRefused: (agentUserId, messageId, createdAt) => localDelivery.sessionMessageRefusedForAgent(agentUserId, messageId, createdAt),
     // #3641 上下文标识 = 会话 id + provider 原生 session id。provider 换了一条新 session(上下文清空)
     // ⇒ 标识变 ⇒ 群规重达;同一条 session 的 resume 保留上下文,标识不变。
     ...(options.providerSessionIdForSession

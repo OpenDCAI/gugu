@@ -11,7 +11,7 @@ vi.mock('@/lib/deviceProjects',() => ({ listMyDeviceProjects: state.read }))
 vi.mock('@/store/devicesContext',() => ({ useDevicesStore: () => ({ devices: [{ device_id: 'mac',label: 'apple 的 MacBook',is_online: false },{ device_id: 'fc',label: 'FC验收Mac',is_online: false }],loading: false,error: null,refresh: state.refresh }) }))
 vi.mock('@/session/shared/remote-sessions/session-directory',() => ({ useLiveDeviceSessions: state.native,deviceSessionsOf: state.native }))
 let harness: ReturnType<typeof createReactHarness>
-const project = (id: string,name: string) => ({ localProjectId: id,name,rootPath: '/fixture',createdAt: '2026-10-26',chatId: null,groupRepresentative: false,folders: [] })
+const project = (id: string,name: string) => ({ localProjectId: id,name,rootPath: '/fixture',createdAt: '2026-10-26',chatId: null,folders: [] })
 beforeEach(() => { harness = createReactHarness(); state.native.mockClear(); state.read.mockReset().mockResolvedValue({ mac: [project('mac-business','Mac project'),project('gugu','咕咕')],fc: [project('fc-business','FC project')] }) })
 afterEach(() => harness.cleanup())
 it('lists every account project while both devices are asleep and opens an empty project entry', async () => {

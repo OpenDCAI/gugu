@@ -62,7 +62,7 @@ export const asClass = {
   profileNameWrap: 'gg-as-profile-name-wrap relative [&>input]:!pr-8',
   profileNameChevron:
     'gg-as-profile-name-chev pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--faint-fg)]',
-  profileError: 'gg-as-profile-error !mt-1.5 text-[length:var(--font-body)] text-[var(--danger)]',
+  profileError: 'gg-as-profile-error !mt-1.5 text-[length:var(--font-body)] text-[var(--danger-fg)]',
   tasksH2:
     'gg-as-tasks-h2 !mb-1 !mt-[22px] text-[length:var(--font-caption)] font-semibold tracking-[.02em] text-[var(--faint-fg)]',
   tasksEmpty:
@@ -83,7 +83,7 @@ export const asClass = {
     'gg-as-share-act-av h-8 w-8 shrink-0 overflow-hidden rounded-[var(--radius-capsule)] bg-[var(--muted)]',
   shareRowName: 'gg-as-share-act-row-name text-[length:var(--font-body)] font-[500]',
   shareEmpty: 'gg-as-share-act-empty text-[length:var(--font-body)] text-[var(--faint-fg)] !px-0 !py-3',
-  shareError: 'gg-as-share-act-error !mt-2 text-[length:var(--font-body)] text-[var(--danger)]',
+  shareError: 'gg-as-share-act-error !mt-2 text-[length:var(--font-body)] text-[var(--danger-fg)]',
   shareBusy: 'gg-as-share-act-busy !mt-2 text-[length:var(--font-body)] text-[var(--muted-fg)]',
   shareExt: 'gg-as-share-act-ext !px-0.5 !py-1.5',
   shareExtCard:

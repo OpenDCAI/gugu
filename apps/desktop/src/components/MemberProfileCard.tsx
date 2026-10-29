@@ -55,9 +55,9 @@ const profileManageLabelClass = 'gg-pop-manage-label text-[length:var(--font-bod
 const profileManageSelectClass = 'gg-pop-manage-sel max-w-[52%] shrink-0 cursor-pointer rounded-lg border border-[var(--border-strong)] bg-[var(--bg-primary)] px-2 py-1.5 text-[length:var(--font-body)] text-[var(--text-primary)] outline-none [font-family:inherit] focus:border-[var(--accent)] disabled:cursor-default disabled:opacity-60'
 // @@@2322 危险项 hover 归 --danger-tint(spec:状态反馈唯一允许的色相);rest 底 #ef44440d 是静止装饰 tint,
 // 无对应 token(--danger-tint 是 hover 档)、观感逐值保持 → 保留字面值。
-const profileManageDangerClass = 'gg-pop-manage-danger !mt-0.5 w-full cursor-pointer rounded-lg border-0 bg-[var(--danger-tint)] !py-2.5 text-[length:var(--font-body)] font-medium text-[var(--danger)] [font-family:inherit] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease)] hover:bg-[var(--danger-tint)] disabled:cursor-default disabled:opacity-50'
+const profileManageDangerClass = 'gg-pop-manage-danger !mt-0.5 w-full cursor-pointer rounded-lg border-0 bg-[var(--danger-tint)] !py-2.5 text-[length:var(--font-body)] font-medium text-[var(--danger-fg)] [font-family:inherit] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease)] hover:bg-[var(--danger-tint)] disabled:cursor-default disabled:opacity-50'
 // @@@2247 - inline error line for a failed manage mutation, rendered inside the card portal (danger tint).
-const profileManageErrorClass = 'gg-pop-manage-error mt-0.5 text-[length:var(--font-caption)] leading-[1.4] text-[var(--danger)]'
+const profileManageErrorClass = 'gg-pop-manage-error mt-0.5 text-[length:var(--font-caption)] leading-[1.4] text-[var(--danger-fg)]'
 
 function listenModeButtonClass(active: boolean): string {
   return cn(profileListenButtonBaseClass, active ? profileListenButtonActiveClass : profileListenButtonInactiveClass)

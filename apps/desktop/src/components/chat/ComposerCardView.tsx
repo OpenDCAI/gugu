@@ -124,7 +124,7 @@ export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, t
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-document)] border border-[var(--border)]">
           {mark}
         </span>
-        <span className="text-[var(--font-body)] font-semibold">{title}</span>
+        <span className="min-w-0 truncate text-[var(--font-body)] font-semibold">{title}</span>
         <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
       </span>
       <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{text}</span>
@@ -145,9 +145,9 @@ export function TaskCardHandedTo({ agentName, agentAvatar, agentUserId, note, ma
   return (
     <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
       <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
-      <span className="flex shrink-0 items-center gap-1">
+      <span className="flex min-w-0 items-center gap-1">
         <Avatar name={agentName} avatarUrl={agentAvatar} seed={agentUserId} isAgent harnessBadge={false} size={16} still />
-        <b className="font-medium text-[var(--text-secondary)]">{agentName}</b>
+        <b className="truncate font-medium text-[var(--text-secondary)]">{agentName}</b>
       </span>
       <span className="min-w-0 truncate">{note}</span>
       <span className="ml-auto flex shrink-0 items-center">{mark}</span>
@@ -161,7 +161,7 @@ export function TaskCardHandedTo({ agentName, agentAvatar, agentUserId, note, ma
  */
 export function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
-  if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
+  if (!status || status === 'pending' || status === 'removed' || status === 'archived' || status === 'offline') return null
   if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />
   const presentation = presentAgentStatus({
     reading: status === 'parked' ? { status: 'working', detail: 'parked' } : { status, detail: null },
