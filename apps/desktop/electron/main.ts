@@ -2039,7 +2039,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles() }, onSubscribed: () => drainProjectFiles(),
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
+      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2290,6 +2291,7 @@ const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider()
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
+function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
