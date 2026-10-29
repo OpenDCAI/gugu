@@ -283,6 +283,9 @@ jobs:
         working-directory: apps/desktop/native/projection-media
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.0'
@@ -304,6 +307,11 @@ jobs:
           test -x "$GUGU_TEST_CHROMIUM"
           go test -race -tags 'browser helper' -count=3 -timeout=5m ./...
           go vet -tags 'browser helper' ./...
+          export GUGU_PROJECTION_FFMPEG
+          GUGU_PROJECTION_FFMPEG=$(command -v ffmpeg)
+          for round in 1 2 3; do
+            node --test node/host.node-test.mjs node/host-browser.node-test.mjs node/signaling.node-test.mjs
+          done
   session-browser:
     name: Session browser project
     # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
