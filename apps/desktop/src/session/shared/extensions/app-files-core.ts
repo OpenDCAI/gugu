@@ -1,6 +1,7 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
 import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
+import { NextVersionHandoffRefused } from '@gugu/core/cloud/fileVersionHandoff';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
@@ -60,7 +61,7 @@ import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClie
 /** A refusal of `gugu.files`: `code` and `detail` are what an App branches on (bridge-protocol.ts `ErrorDetail`), the message is for people. */
 export class AppFileError extends Error {
   constructor(
-    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken',
+    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken' | 'unavailable',
     message: string,
     readonly detail?: ErrorDetail,
   ) {
@@ -87,8 +88,8 @@ export interface FilesPlatform {
   /** Installed identity, never an identity supplied by the App page. */
   appIdentity?(extensionId: string): OwnerIdentity | null;
   /**
-   * The host's project file publisher: null when this is not the machine a project chat keeps its files on (or the chat
-   * uploads them), so the ordinary uploader decides. `next` makes it that file's next version, from the version named.
+   * The shared project file publisher: `next` is published on the host or handed to it from another machine. Null when
+   * the ordinary uploader should decide. `next` names the file and the version the edit started from.
    */
   publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
     options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
@@ -495,10 +496,18 @@ const ATTACHMENTS_CODES: Readonly<Record<string, AppFileError['code']>> = {
 const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/;
 
 /**
- * That refusal said for people, or null when `error` is another one: whose computer keeps the file, that only an agent
- * there can change it, and that nothing was changed — never the layers' words for it ("published by the host").
+ * Host refusals said for people: a handoff that could not finish names the machine and can be retried; a host-only
+ * operation names whose computer keeps the file. Null for other failures.
  */
 async function keptOnHostError(token: string, row: ItemRow, actor: string, identities: Identities, error: unknown): Promise<AppFileError | null> {
+  if (error instanceof NextVersionHandoffRefused) {
+    const { host_label, host_account_id, status } = error.outcome;
+    const [owner] = host_account_id ? await identities(token, [host_account_id]).catch(() => []) : [];
+    const computer = owner?.name ? `${owner.name}'s computer` : 'another computer';
+    const where = host_label?.trim() ? `"${host_label.trim()}" (${computer})` : computer;
+    const why = status === 'host_offline' ? 'is offline' : 'did not take the new version in time';
+    return new AppFileError('unavailable', `${row.filename} was not changed: ${where} keeps this project chat's files and ${why}. Nothing was changed. Try again once that computer is online.`, { reason: status });
+  }
   if (!KEPT_ON_HOST.test(error instanceof Error ? error.message : String(error))) return null;
   const on = (await storedOnOf(token, [{ ...row, kind: 'file', pointer: null }], identities, actor).catch(() => null))?.get(row.chat_id);
   const where = !on ? 'another computer'
@@ -1133,8 +1142,7 @@ export function createAppFiles(platform: FilesPlatform) {
       if (row.version !== expected) throw replacedSinceError(row.filename, row.version, expected);
       const contentType = file.contentType || row.content_type;
       const actor = surface.asAgent ?? userId;
-      // A project chat that keeps its files on this machine: its next version stays here too, published by the host
-      // (gugu-supabase file_device_publish, from the version read). Null anywhere else: the cloud path below decides.
+      // The shared publisher writes on the host or hands the new version to it. Null: the ordinary cloud path decides.
       let published: ItemRow | null = null;
       try {
         published = await platform.publishFile?.(row.chat_id, { name: row.filename, contentType, bytes: file.bytes }, row.parent_id, actor,
