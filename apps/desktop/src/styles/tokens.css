@@ -496,6 +496,11 @@
   --z-raised: 1;           /* 内容浮起：sticky 段头、卡片压住装饰层 */
   --z-float: 10;           /* 面板内抽屉/角标/覆盖面（backdrop 与内容同层，DOM 序定上下） */
   --z-overlay-local: 50;   /* 面板内浮层：emoji picker、斜杠命令、@ 提及 */
+  /* Workspace surfaces share a stacking context; only the fullscreen guest rises above its opaque pane. */
+  --z-pane-resident: 10;
+  --z-pane-divider: 20;
+  --z-pane-fullscreen: 30;
+  --z-pane-fullscreen-resident: 40;
   /* 全局段（fixed/portal 层）：*/
   --z-chrome: 1000;        /* 窗口 chrome：WindowControls（win/linux 自绘钮） */
   --z-modal: 2000;         /* 模态层：Sheet 及 backdrop+卡片式对话框 */

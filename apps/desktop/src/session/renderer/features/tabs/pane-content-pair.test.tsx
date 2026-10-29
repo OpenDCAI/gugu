@@ -127,24 +127,23 @@ describe('并排:同一种两页时内容不挪地方', () => {
     expect(mounts.get(b)).toBe(2);
   });
 
-  it('keeps fullscreen above ordinary panes but below the resident App surface without remounting', () => {
+  it('uses the shared fullscreen layer and restores the divider without remounting', () => {
     const { pane, a, b } = mountTwo('page');
-    // The resident guest precedes the pane in their shared stacking context.
-    const resident = dom.window.document.createElement('div');
-    resident.style.cssText = 'position:fixed;z-index:30';
-    dom.window.document.body.prepend(resident);
+    act(() => pane.splitTab(b, 'right'));
+    const divider = () => dom.window.document.querySelector<HTMLElement>('[data-pair-divider]');
+    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
     try {
       act(() => tabFullscreen.toggle(pane, a));
       const fullscreen = dom.window.document.querySelector<HTMLElement>('[data-tab-fullscreen]')!;
       expect(fullscreen.style.position).toBe('fixed');
-      expect(Number(fullscreen.style.zIndex)).toBeGreaterThan(10); // Ordinary pane dividers.
-      expect(Number(fullscreen.style.zIndex)).toBeLessThan(Number(resident.style.zIndex));
+      expect(fullscreen.style.zIndex).toBe('var(--z-pane-fullscreen)');
+      expect(divider()).toBeNull();
       expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
     } finally {
       act(() => tabFullscreen.exit());
-      resident.remove();
     }
     expect(dom.window.document.querySelector('[data-tab-fullscreen]')).toBeNull();
+    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
     expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
   });
 

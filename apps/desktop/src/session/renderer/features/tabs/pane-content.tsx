@@ -50,8 +50,7 @@ const FULLSCREEN_STYLE = {
   bottom: 'anchor(bottom)',
   left: 'anchor(left)',
   right: 'anchor(right)',
-  // Resident App guests live outside this pane on the fixed z-30 layer.
-  zIndex: 20,
+  zIndex: 'var(--z-pane-fullscreen)',
 } as CSSProperties;
 
 export const PaneContent = observer(function PaneContent({
@@ -373,10 +372,10 @@ const PairDivider = observer(function PairDivider({
       data-pair-divider=""
       className={
         vertical
-          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
-          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
+          ? 'absolute inset-x-0 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
+          : 'absolute inset-y-0 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
       }
-      style={vertical ? { top: at } : { left: at }}
+      style={{ ...(vertical ? { top: at } : { left: at }), zIndex: 'var(--z-pane-divider)' }}
       onPointerDown={onPointerDown}
       onDoubleClick={() => { pane.setPairRatio(null); sizing?.onReset(); }}
     />

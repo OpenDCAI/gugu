@@ -18,10 +18,8 @@ import { ExtensionGuestBinding } from './extension-guest-binding';
  * composer 视图,Workspace 整棵卸载,挂在它里面的页会跟着销毁(L3 第 3 步;报告 5 §1.5)。
  * 落点不止会话格:dock、群右栏也向同一张页认领(extension-view-store 的认领栈)。
  *
- * 为什么不放在会话页的树里:内嵌网页在页面树里换个位置就会整页重载。要做到
- * 「切会话那一格纹丝不动」(behavior tab-extensions),页就得住在会话树之外、由宿主
- * 把它摆到当前会话那一格的位置上 —— 切会话只是挪一下、告诉它现在给谁看,不重建。
- *
+ * 网页换父节点会重载:页常驻在会话树外,只跟随当前认领槽摆位、换使用者(behavior tab-extensions)。
+ * 根测量容器不建堆叠上下文:每张 guest 与 divider/pane 都读 tokens.css 的同一层级表。
  * 一格都没在屏上时页藏起来但活着(后台那份状态本来也不靠它),因为下一次它要**立刻**出现,
  * 而不是再准备一次。但它只在**第一次有格要它**时才建(从入口打开、以后的 dock):
  * ❌ 装好就起一张谁也没要的隐藏页(摩擦单 F3)。
@@ -49,7 +47,7 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
     <div
       ref={layerRef}
       data-slot="extension-view-layer"
-      className="pointer-events-none fixed inset-0 z-30"
+      className="pointer-events-none absolute inset-0"
     >
       {[...extensionViewStore.residentPages.values()].map((page) => {
         const contribution = enabled.get(page.kind);
@@ -346,6 +344,9 @@ const ExtensionPage = observer(function ExtensionPage({
             box.style.width = `${clip.width}px`;
             box.style.height = `${clip.height}px`;
             box.style.visibility = shown ? 'visible' : 'hidden';
+            box.style.zIndex = ancestorsOf(claim.element).some((element) => element.hasAttribute('data-tab-fullscreen'))
+              ? 'var(--z-pane-fullscreen-resident)'
+              : 'var(--z-pane-resident)';
             if (managed) box.style.opacity = shown ? '1' : '0';
             box.inert = !shown;
             const inner = innerRef.current;
