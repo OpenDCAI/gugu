@@ -1,5 +1,6 @@
 import { DndContext } from '@dnd-kit/core';
 import { observer } from 'mobx-react-lite';
+import { SessionModeMenu } from './session-mode-menu';
 import { Fragment, useEffect } from 'react';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host';
@@ -326,6 +327,7 @@ const SessionBlockActions = observer(function SessionBlockActions({ atScreenEdge
         />
       ) : null}
       {/* #7167 聊天 / 编程 / 通用 —— 这一块最右(多块时在「关闭这一块」左边)。 */}
+      {sessionId ? <SessionModeMenu sessionId={sessionId} /> : null}
       {/* 屏上不止一块时:从这屏拿走(左边列表里还在)。单独成窗时这里是「放回咕咕」。 */}
       {multi && blockId ? <CloseBlockButton blockId={blockId} /> : null}
       {windowId ? <PutBackButton windowId={windowId} /> : null}

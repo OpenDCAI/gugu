@@ -231,6 +231,12 @@ export default {
       "project": "项目",
       "harness": "Harness",
       "model": "模型",
+      "view": "模式",
+      "sessionView": {
+        "label": "模式",
+        "code": { "name": "终端", "desc": "在终端里跑，看到的是 harness 自己的界面" },
+        "general": { "name": "通用", "desc": "聊天式界面，手机上能完整看回复与审批" }
+      },
       "permission": {
         "plan": { "name": "只出方案", "desc": "只想不动手，不真的执行工具" },
         "read-only": { "name": "只读", "desc": "能看不能改，动手前问你;你在 harness 自己设置里放行过的工具除外" },

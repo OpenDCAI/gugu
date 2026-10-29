@@ -11,6 +11,7 @@ import {
   lastUsedDropped,
   reconcileModel,
   selectHarness,
+  selectSessionView,
   selectedModelName,
 } from '@/mobile/agent-watch/create-session-form'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
@@ -188,5 +189,18 @@ describe('phone creation in the shared form', () => {
     expect(createBlocker(phone, defaultSelection(phone))).toBeNull()
     const unreadable = { ...phone, harnesses: [{ ...phone.harnesses[0]!, chatAvailable: false }] }
     expect(createBlocker(unreadable, defaultSelection(unreadable))).toBe('no_usable_harness')
+  })
+})
+
+
+describe('manual Terminal choice (#944)', () => {
+  it('keeps Work as the default even when the previous task used Terminal', () => {
+    expect(initialSelection({ ...options, lastUsed: { projectId: 'p1', harness: 'codex', sessionView: 'code', model: null, permissionMode: null, effort: null } })).not.toHaveProperty('sessionView')
+  })
+  it('resets runtime-specific model choices and removes an unsupported choice when changing harness', () => {
+    const picked = selectSessionView({ ...defaultSelection(options), model: 'own-model', effort: 'high' }, 'code')
+    expect(picked).toMatchObject({ sessionView: 'code', model: null, effort: null })
+    expect(selectSessionView(picked, 'code')).toBe(picked)
+    expect(selectHarness(picked, 'claude', options)).not.toHaveProperty('sessionView')
   })
 })

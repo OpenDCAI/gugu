@@ -11,6 +11,8 @@ import { createNode, createReactHarness, deferred } from '../../support/testHarn
 
 type ComposerClient = ReturnType<typeof useAui>['composer']
 const state = vi.hoisted(() => ({ owner: 'creation-navigation', composer: null as ComposerClient | null }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/use-host-terminal-enabled', () => ({ useHostTerminalEnabled: () => ({ enabled: false, refresh: () => undefined }) }))
+
 const rpc = vi.hoisted(() => ({ options: vi.fn(), models: vi.fn(), create: vi.fn() }))
 vi.mock('../../../apps/desktop/src/store/auth', async (original) => ({
   ...(await original<typeof import('../../../apps/desktop/src/store/auth')>()),

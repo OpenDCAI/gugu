@@ -14,6 +14,7 @@ import {
   harnessBlockReason,
   harnessUsable,
   selectHarness,
+  selectSessionView,
   selectedEffortName,
   selectedModelName,
   type CreateSelection,
@@ -49,6 +50,8 @@ export function CreateOptionsPill({
   models,
   modelsState,
   phoneHost = false,
+  terminalEnabled = false,
+  onOpen,
 }: {
   options: SessionpageSessionCreateOptions
   selection: CreateSelection
@@ -60,10 +63,12 @@ export function CreateOptionsPill({
   models: SessionpageSessionCreateModels | null
   modelsState: 'idle' | 'loading' | 'ready' | 'failed'
   phoneHost?: boolean
+  terminalEnabled?: boolean
+  onOpen?: () => void
 }) {
   const { t } = useTranslation('main')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
-  const [view, setView] = useState<'project' | 'harness' | 'permission' | 'model' | 'effort' | null>(null)
+  const [view, setView] = useState<'project' | 'harness' | 'view' | 'permission' | 'model' | 'effort' | null>(null)
   const harnessOption = options.harnesses.find((h) => h.id === selection.harness) ?? null
   const label = createPillLabel(options, selection, models, phoneHost ? tFlow('phoneAgent') : undefined)
 
@@ -84,7 +89,7 @@ export function CreateOptionsPill({
         data-testid="agent-watch-create-options-open"
         aria-haspopup="dialog"
         aria-expanded={view !== null}
-        onClick={() => setView(phoneHost ? 'model' : 'project')}
+        onClick={() => { onOpen?.(); setView(phoneHost ? 'model' : 'project') }}
       >
         <span className="gg-aw-pill-text">{label}</span>
         <ChevronDown />
@@ -114,7 +119,20 @@ export function CreateOptionsPill({
               <div className="gg-aw-sheet-side" />
             </div>
 
-            {view === 'permission' ? (
+            {view === 'view' ? (
+              terminalEnabled ? <ChoiceList
+                dimension="view"
+                choices={(harnessOption?.sessionViews ?? []).map((id) => ({
+                  id, name: t(`agentWatch.create.sessionView.${id}.name`),
+                  desc: t(`agentWatch.create.sessionView.${id}.desc`),
+                }))}
+                selected={selection.sessionView ?? 'general'}
+                onPick={(id) => {
+                  if (id) onChange(selectSessionView(selection, id as 'code' | 'general'))
+                  backToRoot()
+                }}
+              /> : null
+            ) : view === 'permission' ? (
               <ChoiceList
                 dimension="permission"
                 defaultChoice={{ name: t('agentWatch.create.modelDefault'), desc: t('agentWatch.create.permissionDefaultHint') }}
@@ -240,7 +258,11 @@ export function CreateOptionsPill({
                   </span>
                   <ChevronRight />
                 </Button>}
-                {/* 展示(编程/通用)不在这里选:那台电脑按自己的「终端」开关定。 */}
+                {!phoneHost && terminalEnabled && harnessOption && harnessOption.sessionViews.length > 1 ? (
+                  <SummaryRow dimension="view" label={t('agentWatch.create.sessionView.label')}
+                    value={t(`agentWatch.create.sessionView.${selection.sessionView ?? 'general'}.name`)}
+                    onClick={() => setView('view')} />
+                ) : null}
                 {/* 权限档:这家声明了才摆(桌面同一条:不摆不存在的档)。 */}
                 {!phoneHost && harnessOption && harnessOption.permissionModes.length > 0 ? (
                   <SummaryRow

@@ -289,7 +289,7 @@ export function fetchCreateOptions(deviceId: string): Promise<SessionpageSession
   return value(rpc(deviceId).sessionTimeline.sessionCreateOptions())
 }
 
-/** 选定 harness 在那台机器上能跑哪些模型。`sessionView` 给 null = 那台电脑按自己的「终端」开关定。 */
+/** 选定 harness 在那台机器上能跑哪些模型。`sessionView` 给 null = 默认通用。 */
 export function fetchCreateModels(
   deviceId: string,
   harness: string,

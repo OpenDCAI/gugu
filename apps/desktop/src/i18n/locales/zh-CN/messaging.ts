@@ -29,6 +29,13 @@ export default {
       "retry": "重试"
     },
     "taskpage": {
+      "mode": {
+        "menu": "模式：{{mode}}",
+        "code": "终端",
+        "general": "通用",
+        "switchToCode": "切换为终端模式",
+        "switchToGeneral": "切换为通用模式"
+      },
       "permission": {
         "allow": "允许",
         "queuePosition": "（第 {{current}} 条，共 {{total}} 条）",

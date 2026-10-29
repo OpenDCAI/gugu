@@ -16,6 +16,7 @@ import { SessionOptionsPill } from '@/mobile/agent-watch/SessionOptionsPill';
 import { CreateOptionsPill } from '@/mobile/agent-watch/CreateOptionsPill';
 import type { CreateSelection } from '@/mobile/agent-watch/create-session-form';
 import '@/i18n';
+import '@/i18n/registerMainCatalog';
 import '@/styles/tokens.css';
 import '@/mobile/agent-watch/agent-watch.css';
 
@@ -86,9 +87,9 @@ const MODELS = {
 } as unknown as Parameters<typeof CreateOptionsPill>[0]['models'];
 
 /** 新建页那一层:选择留在页面状态里,胶囊只回报。 */
-function CreatePage() {
+function CreatePage({ terminalEnabled = false }: { terminalEnabled?: boolean }) {
   const [selection, setSelection] = useState<CreateSelection>({ projectId: 'p1', harness: 'codex', model: null, permissionMode: null, effort: null });
-  return <CreateOptionsPill options={OPTIONS} selection={selection} onChange={setSelection} busy={false} models={MODELS} modelsState="ready" />;
+  return <CreateOptionsPill terminalEnabled={terminalEnabled} options={OPTIONS} selection={selection} onChange={setSelection} busy={false} models={MODELS} modelsState="ready" />;
 }
 
 it('create options: picking a model, then a thinking level, then a project keeps the sheet open; the summary shows each new value', async () => {
@@ -188,4 +189,22 @@ it('session options: a sheet closed while a pick is in flight stays closed when 
   machine.release!();
   await until('the machine answered (the pill now reads model-2)', () => q(pill)?.textContent?.includes('model-2') === true);
   expect(q(sheet), 'the sheet the person closed stays closed').toBeNull();
+});
+
+
+it('only offers manual modes when the selected host enables Terminal, without changing the default', async () => {
+  mount(<CreatePage />);
+  await click('[data-testid="agent-watch-create-options-open"]');
+  const drill = '[data-testid="agent-watch-create-options-drill"][data-dimension="view"]';
+  await until('root options open', () => q('.gg-aw-summary-group') !== null);
+  expect(q(drill)).toBeNull();
+  root!.render(<CreatePage terminalEnabled />);
+  await until('host setting exposes manual mode', () => q(drill) !== null);
+  await click(drill);
+  expect(q('[data-dimension="view"][data-option-id="general"]')?.getAttribute('aria-checked')).toBe('true');
+  await click('[data-dimension="view"][data-option-id="code"]');
+  await until('the selected mode is shown on the root', () => q(drill) !== null);
+  expect(q(`${drill} .gg-aw-summary-value`)?.textContent).toMatch(/Terminal|终端/);
+  root!.render(<CreatePage terminalEnabled={false} />);
+  await until('disabling Terminal hides the switch', () => q(drill) === null);
 });

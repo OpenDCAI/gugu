@@ -24,6 +24,7 @@ import { forgetPhoneSessionCreate, readPhoneSessionCreate, rememberPhoneSessionC
 import { AgentWatchScreen } from './AgentWatchChrome'
 import { LiveGlyph } from './StatusGlyph'
 import { CreateOptionsPill } from './CreateOptionsPill'
+import { useHostTerminalEnabled } from './use-host-terminal-enabled'
 import { useMachineLabel } from './useMachineLabel'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
@@ -95,6 +96,7 @@ export function CreateSessionPage({
   const ownerId = useAuth().user?.id ?? null
   const phone = isPhoneDevice(device)
   const online = device.is_online && (!phone || isAgentHostDevice(device))
+  const { enabled: terminalEnabled, refresh: refreshTerminal } = useHostTerminalEnabled(device.device_id, online && !phone)
   const draft = useRef<ReturnType<typeof bindCreationDraft> | null>(null)
   // Completion still settles the real request after leaving; only this page may navigate or alter its composer.
   const page = useMemo(() => ({ active: true, deviceId: device.device_id, ownerId }), [device.device_id, ownerId])
@@ -141,9 +143,18 @@ export function CreateSessionPage({
     return () => { cancelled = true }
   }, [device.device_id, online, reloadKey, phone, ownerId])
 
+  useEffect(() => {
+    if (!terminalEnabled) setSelection((current) => {
+      if (!current.sessionView) return current
+      const { sessionView: _view, ...rest } = current
+      return { ...rest, model: null, effort: null }
+    })
+  }, [terminalEnabled])
+
   // 目录跟着 harness 走；复用这次读数定默认，不另发可用性探针。
-  // 展示不由手机选:那台电脑按自己的「终端」开关定。
+  // 只有宿主终端开关打开时才允许本次手选;不指定仍走通用。
   const harness = selection.harness
+  const sessionView = terminalEnabled ? selection.sessionView ?? null : null
   const model = selection.model
   useEffect(() => {
     if (!online || !harness) { setModels(null); setModelsState('idle'); return }
@@ -153,7 +164,7 @@ export function CreateSessionPage({
     setModels((prev) => (prev && prev.harness === harness ? prev : null))
     setModelsState('loading')
     const readModels = phone ? fetchPhoneCreateModels : fetchCreateModels
-    readModels(device.device_id, harness, null, model)
+    readModels(device.device_id, harness, sessionView, model)
       .then((next) => {
         if (cancelled) return
         setModels(next)
@@ -162,7 +173,7 @@ export function CreateSessionPage({
       })
       .catch(() => { if (!cancelled) setModelsState('failed') })
     return () => { cancelled = true }
-  }, [device.device_id, online, harness, model, reloadKey, phone, options])
+  }, [device.device_id, online, harness, sessionView, model, reloadKey, phone, options])
 
   const blocker = options ? createBlocker(options, selection) : null
   const readingModelDefault = !modelTouched.current && (!models || models.harness !== harness) && modelsState !== 'failed'
@@ -209,6 +220,7 @@ export function CreateSessionPage({
           projectId: selection.projectId!,
           harness: selection.harness!,
           prompt: text,
+          ...(sessionView ? { sessionView } : {}),
           ...(selection.model ? { model: selection.model } : {}),
           ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
           ...(selection.effort ? { effort: selection.effort } : {}),
@@ -389,10 +401,12 @@ export function CreateSessionPage({
                 options ? (
                   <CreateOptionsPill
                     phoneHost={phone}
+                    terminalEnabled={terminalEnabled}
+                    onOpen={refreshTerminal}
                     options={options}
                     selection={selection}
                     onChange={(next, modelPicked) => {
-                      modelTouched.current = next.harness === selection.harness && (modelTouched.current || modelPicked === true)
+                      modelTouched.current = next.harness === selection.harness && next.sessionView === selection.sessionView && (modelTouched.current || modelPicked === true)
                       setTouched(true)
                       setSelection(next)
                     }}

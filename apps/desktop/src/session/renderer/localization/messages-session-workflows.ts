@@ -240,6 +240,8 @@ export const enUSSessionWorkflowMessages = {
   'task.sessionMenu': 'Task menu',
   'task.newSessionMemoryNotSaved': 'Couldn’t save defaults',
   'task.manualReload': 'Restart this task',
+  'task.switchToGeneralView': 'Switch to Work mode',
+  'task.switchToCodeView': 'Switch to Terminal mode',
   'task.modeMenu': 'Mode: {mode}',
   'task.modeChatNeedsIdentity': "Chat mode isn’t available for this task yet",
   'task.unpin': 'Unpin',
@@ -491,7 +493,12 @@ export const enUSSessionWorkflowMessages = {
   // "Chat UI" / "TUI" / pty / acp 这类实现术语不见用户(product spec)。
   // ⚠️ 这一层是**产品的词**,底下那条轴的**值的词**仍是 pty / acp(落库字段与测试锚点)——
   // 两套词的分工写在 conversation-type-control.tsx 抬头,改文案不该动到测试。
-  'taskConfig.sessionViewCode': 'Code',
+  'taskConfig.sessionView': 'Mode',
+  'taskConfig.sessionViewGeneralOnly': '{name} only offers Work mode',
+  'taskConfig.sessionViewGeneralRequiredHere': 'Started from here, {name} runs in Work mode',
+  'taskConfig.sessionViewRemoteNeedsSsh': 'Work only here. For Terminal, add this machine with Remote SSH in Settings → Devices.',
+  'taskConfig.sessionViewCodeOnly': "{name}'s Work mode isn't wired up yet, so it runs in Terminal mode",
+  'taskConfig.sessionViewCode': 'Terminal',
   'taskConfig.sessionViewGeneral': 'Work',
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   // 「没装 / 没配默认 / id 退役」三条已于 2026-09-17 退成空态,不再有文案 —— 理由见
@@ -869,6 +876,8 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.sessionMenu': '会话菜单',
   'task.newSessionMemoryNotSaved': '未能保存默认选项',
   'task.manualReload': '重启本会话',
+  'task.switchToGeneralView': '切换为通用模式',
+  'task.switchToCodeView': '切换为终端模式',
   'task.modeMenu': '模式：{mode}',
   'task.modeChatNeedsIdentity': '此任务暂不支持聊天模式',
   'task.unpin': '取消置顶',
@@ -1092,7 +1101,12 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskConfig.grokPermissionFullAccess': '仅完全访问',
   'taskConfig.grokPermissionWarning':
     'Grok 1.0.13 会直接执行工具，结构上始终是完全访问，不提供逐次审批。完全访问会映射为 always-approve；需审批的模式会被拒绝。',
-  'taskConfig.sessionViewCode': '编程',
+  'taskConfig.sessionView': '模式',
+  'taskConfig.sessionViewGeneralOnly': '{name} 只提供通用模式',
+  'taskConfig.sessionViewGeneralRequiredHere': '从这里发起时,{name} 只能用通用模式',
+  'taskConfig.sessionViewRemoteNeedsSsh': '这里仅支持「通用」。要用「终端」，请在 设置 → 设备 中用远程 SSH 添加这台机器。',
+  'taskConfig.sessionViewCodeOnly': '{name} 的通用模式尚未接通,先用终端模式',
+  'taskConfig.sessionViewCode': '终端',
   'taskConfig.sessionViewGeneral': '通用',
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   'providerSelection.noTaskpageSession': '{name} 还不能在这里开会话,请换一个智能体。',

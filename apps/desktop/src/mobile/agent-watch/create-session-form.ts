@@ -3,6 +3,7 @@ import type {
   SessionpageHarnessOption,
   SessionpagePermissionMode,
   SessionpageSessionCreateModels,
+  SessionpageSessionView,
   SessionpageSessionCreateOptions,
   SessionpageSessionCreateResult,
   SessionpageSessionSummary,
@@ -27,6 +28,8 @@ export type CreateSelection = {
    * 目录探不出来(harness 没登录、咕咕那组不在场)时人照样能建会话。
    */
   model: string | null
+  /** Explicit choice only; omitted keeps the host default (Work). */
+  sessionView?: SessionpageSessionView
   /** 咕咕权限档;null = 这家的默认。取值须在所选 harness 的 permissionModes 里。 */
   permissionMode: SessionpagePermissionMode | null
   /** 推理档 id(目录 efforts 里的);null = 引擎默认。换 harness 必清。 */
@@ -86,7 +89,7 @@ export type LastUsedItem = 'project' | 'harness' | 'permissionMode' | 'model' | 
  * 进页面时的预选(behavior mobile-session-view「新建会话沿用上次的选择」):那台机器报了上次那一套,
  * 就逐格沿用;沿用不了的格回到 `defaultSelection` 的那一格。
  * 模型与推理档先照搬 —— 目录要在那台机器上现探(几秒),到了由 `reconcileModel` 核,不在就回默认。
- * 展示(编程 / 通用)不由手机选:那台电脑按自己的「终端」开关定(手机建的请求不带 sessionView)。
+ * 展示不沿用上次的终端模式;默认通用,只有宿主开了终端设置才提供本次手选。
  */
 export function initialSelection(options: SessionpageSessionCreateOptions): CreateSelection {
   const fallback = defaultSelection(options)
@@ -137,7 +140,15 @@ export function selectHarness(
     selection.permissionMode && option?.permissionModes.includes(selection.permissionMode)
       ? selection.permissionMode
       : null
-  return { ...selection, harness, permissionMode, model: null, effort: null }
+  const next = { ...selection, harness, permissionMode, model: null, effort: null }
+  if (next.sessionView && !option?.sessionViews.includes(next.sessionView)) delete next.sessionView
+  return next
+}
+
+/** The model catalogue belongs to the selected runtime; changing mode resets its choices. */
+export function selectSessionView(selection: CreateSelection, view: SessionpageSessionView): CreateSelection {
+  if (selection.sessionView === view) return selection
+  return { ...selection, sessionView: view, model: null, effort: null }
 }
 
 /**

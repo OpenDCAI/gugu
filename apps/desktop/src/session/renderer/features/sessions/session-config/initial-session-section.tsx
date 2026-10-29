@@ -45,6 +45,8 @@ import { openComposerImage } from '@/lib/imageViewer';
 import { rememberedProviderOf, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
+import { SessionViewControl } from './session-view-control';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { resolveLegLoginGate } from './vendor-login-prompt';
@@ -514,9 +516,10 @@ export function useInitialSessionState(
   /** 正在编辑一条已存记录(自动化)—— 它的 agent 是那条记录的属性,❌ 不写进全局的「我上次选的」。 */
   const editingStoredRecord = initialProvider !== undefined;
   // 新会话一律通用;「终端」开关只管终端能不能用(终端页签与入口),❌ 决定新会话的展示(owner 10-28)。
-  // 只有编辑一条已存的自动化时,由那条记录自己的展示覆盖(`setSessionView`,❌ 写回任何全局设置)。
+  // 本次手选只在终端开关打开时生效;编辑已有自动化则保留那条记录自己的展示,不写全局。
   const [sessionViewOverride, setSessionViewOverride] = useState<SessionView | null>(null);
-  const sessionViewPreference = sessionViewOverride ?? DEFAULT_SESSION_VIEW;
+  const terminalEnabled = useTerminalEnabled();
+  const sessionViewPreference = terminalEnabled || editingStoredRecord ? sessionViewOverride ?? DEFAULT_SESSION_VIEW : DEFAULT_SESSION_VIEW;
   // #6264 远端创建框:只经云端连着的机器只有聊天界面那条腿(终端画面走不了云端消息通道),
   // 所以钉在它上面 —— 显示「编程」却建出「通用」就是界面说假话。
   // 在这台桌面上用 SSH 装上的机器和本机一样两种都给(behavior「别的机器上的编程只给用 SSH 装上的机器」)。
@@ -1930,10 +1933,16 @@ export function InitialSessionField({
   // ⚠️ 这一格从前**根本没接**这个回调 —— 于是新建会话页的 chip 一枚都点不开,而那正是他每天
   // 打开就看见的那一面。
   const [attachmentViewer, setAttachmentViewer] = useState<ComposerAttachment | null>(null);
+  const terminalEnabled = useTerminalEnabled();
+  const sessionViewControl = terminalEnabled && state.sessionViewOffered ? (
+    <SessionViewControl value={state.sessionView} onChange={state.setSessionView}
+      lock={state.sessionViewLock} agentName={selectedAgentName} disabled={!state.provider} />
+  ) : undefined;
 
   const toolbarExtra =
-    platformNotice || harnessNotice || grokPermissionNotice ? (
+    sessionViewControl || platformNotice || harnessNotice || grokPermissionNotice ? (
       <>
+        {sessionViewControl}
         {harnessNotice}
         {platformNotice}
         {platformRetry}

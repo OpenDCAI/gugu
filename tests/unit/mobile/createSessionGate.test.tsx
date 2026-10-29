@@ -10,6 +10,8 @@ import type { CreateSelection } from '../../../apps/desktop/src/mobile/agent-wat
 import { createNode, createReactHarness, deferred } from '../../support/testHarness'
 import { readComposer, writeComposer } from '../../support/composerEditor'
 
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/use-host-terminal-enabled', () => ({ useHostTerminalEnabled: () => ({ enabled: false, refresh: () => undefined }) }))
+
 const rpc = vi.hoisted(() => ({ options: vi.fn(), models: vi.fn(), create: vi.fn() }))
 vi.mock('../../../apps/desktop/src/store/auth', async (original) => ({
   ...(await original<typeof import('../../../apps/desktop/src/store/auth')>()),

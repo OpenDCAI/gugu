@@ -29,6 +29,13 @@ export default {
       "retry": "Retry"
     },
     "taskpage": {
+      "mode": {
+        "menu": "Mode: {{mode}}",
+        "code": "Terminal",
+        "general": "Work",
+        "switchToCode": "Switch to Terminal mode",
+        "switchToGeneral": "Switch to Work mode"
+      },
       "permission": {
         "allow": "Allow",
         "queuePosition": "({{current}} of {{total}})",

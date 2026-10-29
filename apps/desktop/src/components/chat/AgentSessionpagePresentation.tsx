@@ -13,7 +13,7 @@ import { readSessionpageSessionStartupFailureBridge } from '../../lib/sessionpag
 import { rendererLogger } from '../../lib/log'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { NoticeButton, SessionpageNoticeBar } from './SessionpageNoticeBar'
-import { Button } from '../ui/Button'
+import { AgentModeMenu } from './AgentModeMenu'
 import { MobileAgentOpenTask } from '@/mobile/agent-watch/MobileAgentOpenTask'
 import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
 import { AgentPermissionBand } from './AgentPermissionBand'
@@ -24,7 +24,8 @@ import { agentQuestionDraftKey } from '../../lib/agentQuestion'
 import { useToast } from '../toastContext'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
 import { useDevicesStore } from '../../store/devicesContext'
-import { followLink } from '../../lib/guguLinks'
+import { followLink, openLink } from '../../lib/guguLinks'
+import { readSessionpageViewRequestBridge } from '../../lib/sessionpageViewRequestBridge'
 
 const sessionpageLog = rendererLogger('chat/sessionpage-presentation')
 
@@ -91,6 +92,20 @@ export function useAgentSessionpagePresentation(
   const handleOpen = useCallback(() => {
     if (openSessionId) followLink({ kind: 'session', sessionId: openSessionId })
   }, [openSessionId])
+  const [opening, setOpening] = useState(false)
+  const handleOpenMode = useCallback(async (view?: 'code' | 'general') => {
+    if (!openSessionId || opening) return
+    if (!view) { handleOpen(); return }
+    setOpening(true)
+    try {
+      if (!await openLink({ kind: 'session', sessionId: openSessionId })) throw new Error(t('main:shell.errors.taskBridgeUnavailable'))
+      const bridge = readSessionpageViewRequestBridge()
+      if (!bridge) throw new Error(t('main:shell.errors.taskBridgeUnavailable'))
+      bridge.request(openSessionId, view)
+    } catch (error) {
+      toast(t('agent.taskpage.openFailed', { reason: messageForUser(error) }), 'error')
+    } finally { setOpening(false) }
+  }, [handleOpen, openSessionId, opening, t, toast])
 
   const handleOpenFileLink = useCallback((path: string) => {
     const agentUserId = agentChat?.peer_user_id
@@ -151,16 +166,8 @@ export function useAgentSessionpagePresentation(
   const openAction = mobile
     ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
     : agentChat && openSessionId ? (
-      <Button
-        variant="ghost"
-        data-testid="agent-open-task"
-        data-sessionpage-open-target={openSessionId}
-        onClick={handleOpen}
-        className="window-no-drag-region shrink-0 gap-2"
-      >
-        <ExternalLink size={16} />
-        <span>{t('agent.taskpage.open')}</span>
-      </Button>
+      <AgentModeMenu taskView={projection.context?.view ?? null} busy={opening} sessionId={openSessionId}
+        onOpen={(view) => { void handleOpenMode(view) }} />
     ) : null
 
   // 会话页会话事实在当前 DM 的两种显形共用一条通知条(composer 上方的槽位):review 门(status)与启动失败(alert)。

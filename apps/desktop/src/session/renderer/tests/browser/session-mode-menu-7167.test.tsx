@@ -1,0 +1,159 @@
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
+import { until } from '../../../../../../../tests/support/awaitCondition';
+import { i18n } from '@/i18n';
+import { AppWindow, Terminal } from '@/lib/icons';
+import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
+import { SessionModeMenu, SessionModeMenuView, type SessionModeEntry } from '@renderer/features/sessions/view/session-mode-menu';
+import '@gugu/session-ui/styles/global';
+import '@gugu/session-ui/theme/theme.css';
+import '@gugu/session-ui/theme/semantic.css';
+import '@gugu/session-ui/styles/base.css';
+import '@/styles/tokens.css';
+import '@renderer/index.css';
+const mode = vi.hoisted(() => ({ enabled: false }));
+vi.mock('@renderer/features/settings/use-terminal-enabled', () => ({ useTerminalEnabled: () => mode.enabled }));
+vi.mock('@renderer/features/sessions/view/session-actions', () => ({
+  useSessionViewSwitch: () => ({ view: 'general', lockOf: () => null, request: () => undefined }),
+}));
+
+// #7167 模式按钮:真 Chromium、真 Base UI 菜单与提示。owner 定的几条在这里判结果,❌ 判类名:
+//   · 停一下就开(openOnHover),选了就收;
+//   · 选不了的那行留在原地、变淡,停上去说原因,点了不动(❌ 藏起来,❌ 点了没反应也不说为什么);
+//   · 宽度随内容,❌ 照抄「排序方式」的 192;
+//   · 正在用的和动作分开(10-14「终端和通用一般是二选一」「尽量不要让用户误触」):分隔线上面是正在用的那种(打勾),
+//     下面只有动作「切换为另一种」。❌ 两种并排成一样的单选,❌ 在它们头上挂一行说明。
+//   · gugu-dev#181:只剩通用 / 终端,❌ 「聊天」那一行(私聊页不再单独存在)。
+
+const NO_SSH = '这台机器不是用 SSH 添加的，用不了终端模式';
+const views = (codeLock: string | null = null): SessionModeEntry[] => [
+  { mode: 'code', Icon: Terminal, label: '终端', lock: codeLock },
+  { mode: 'general', Icon: AppWindow, label: '通用', lock: null },
+];
+
+describe('SessionModeMenuView (#7167)', () => {
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+  let previousLanguage = 'en-US';
+  const onPick = vi.fn();
+
+  const render = (current: 'code' | 'general' = 'general', codeLock: string | null = null) => {
+    root!.render(
+      <SessionLocalizationProvider>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 8 }}>
+          <SessionModeMenuView current={current} views={views(codeLock)} onPick={onPick} />
+        </div>
+      </SessionLocalizationProvider>
+    );
+  };
+  /** 菜单里从上到下:单选的那行记 `place:<模式>`,动作记 `action:<模式>`,分隔线记 'sep'。 */
+  const popup = () => document.querySelector<HTMLElement>('[data-slot="dropdown-menu-content"]');
+  const layout = () => {
+    const menu = popup()!;
+    return [...menu.querySelectorAll<HTMLElement>('[data-testid^="session-mode-"], [data-slot="dropdown-menu-separator"]')].map((el) =>
+      el.dataset.slot === 'dropdown-menu-separator'
+        ? 'sep'
+        : `${el.getAttribute('role') === 'menuitemradio' ? 'place' : 'action'}:${el.dataset.testid!.replace('session-mode-', '')}`
+    );
+  };
+  const trigger = () => document.querySelector<HTMLElement>('[data-testid="session-mode-trigger"]')!;
+  const row = (mode: string) => document.querySelector<HTMLElement>(`[data-testid="session-mode-${mode}"]`);
+  const openByHover = async () => {
+    await userEvent.hover(trigger());
+    await until('menu opened by hovering', () => popup() !== null);
+  };
+
+  beforeEach(async () => {
+    previousLanguage = i18n.language;
+    await i18n.changeLanguage('zh-CN');
+    await page.viewport(900, 500);
+    onPick.mockReset();
+    container = document.createElement('div');
+    container.className = 'emlight gugu-skin bg-background';
+    document.body.classList.add('emlight', 'gugu-skin');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage(previousLanguage);
+    document.body.classList.remove('emlight', 'gugu-skin');
+    root?.unmount();
+    container?.remove();
+    root = null;
+    container = null;
+  });
+
+  it('shows the real session mode entry only while Terminal is enabled', async () => {
+    const draw = () => root!.render(<SessionLocalizationProvider><div data-mode-gate-ready>
+      <SessionModeMenu key={String(mode.enabled)} sessionId="mode-test" />
+    </div></SessionLocalizationProvider>);
+    mode.enabled = false;
+    draw();
+    await until('the gated host mounted', () => document.querySelector('[data-mode-gate-ready]') !== null);
+    expect(document.querySelector('[data-testid="session-mode-trigger"]')).toBeNull();
+    mode.enabled = true;
+    draw();
+    await until('enabled Terminal exposes the mode switch', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    mode.enabled = false;
+    draw();
+    await until('turning Terminal off hides the switch', () => document.querySelector('[data-testid="session-mode-trigger"]') === null);
+  });
+
+  it('shows the current mode, opens on hover, checks the current row, and fits its content', async () => {
+    render();
+    await until('trigger mounted', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    expect(trigger().textContent).toBe('通用');
+    // 平时不铺底(与同排「换模型」那颗同一档)。
+    expect(getComputedStyle(trigger()).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    await openByHover();
+    expect(row('general')!.hasAttribute('data-checked')).toBe(true);
+    expect(popup()!.getBoundingClientRect().width).toBeLessThan(180);
+  });
+
+  it('above the divider: only the mode in use (checked), no chat; below it: only the switch to the other mode', async () => {
+    render('general');
+    await until('trigger mounted', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    await openByHover();
+    expect(layout()).toEqual(['place:general', 'sep', 'action:code']);
+    expect(row('general')!.hasAttribute('data-checked')).toBe(true);
+    expect(row('code')!.textContent).toBe('切换为终端模式');
+    // 菜单里没有一行说明文字:代价由确认框在点下去时说。
+    expect(popup()!.querySelector('[data-slot="dropdown-menu-label"]')).toBeNull();
+  });
+
+  it('when the task runs in Code, Code is the place and the switch goes to General', async () => {
+    render('code');
+    await until('trigger mounted', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    expect(trigger().textContent).toBe('终端');
+    await openByHover();
+    expect(layout()).toEqual(['place:code', 'sep', 'action:general']);
+    expect(row('code')!.hasAttribute('data-checked')).toBe(true);
+    expect(row('general')!.textContent).toBe('切换为通用模式');
+  });
+
+  it('picking an open row reports it and closes the menu', async () => {
+    render();
+    await until('trigger mounted', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    await openByHover();
+    await userEvent.click(row('code')!);
+    expect(onPick).toHaveBeenCalledWith('code');
+    await until('menu closed after picking', () => row('code') === null);
+  });
+
+  it('a switch that this machine cannot do stays in place, dimmed, and says why', async () => {
+    render('general', NO_SSH);
+    await until('trigger mounted', () => document.querySelector('[data-testid="session-mode-trigger"]') !== null);
+    await openByHover();
+    const action = row('code')!;
+    expect(action.hasAttribute('data-disabled')).toBe(true);
+    expect(Number(getComputedStyle(action).opacity)).toBeLessThan(1);
+    await userEvent.hover(action);
+    await until('reason tooltip shown', () =>
+      [...document.querySelectorAll('[data-slot="tooltip-content"]')].some((tip) => tip.textContent === NO_SSH)
+    );
+    await userEvent.click(action, { force: true });
+    expect(onPick).not.toHaveBeenCalled();
+  });
+});

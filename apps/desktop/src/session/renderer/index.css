@@ -1720,6 +1720,11 @@ html[data-gugu-dragging] :is(webview, iframe) {
   display: none;
 }
 
+/* The mode control yields its label alongside the model control in a narrow tab strip. */
+.session-tab-bar[data-strip-narrow] [data-testid="session-mode-trigger"] [data-slot="session-mode-label"] {
+  display: none;
+}
+
 /* 一块左上的 ⋮⋮(spec session-page「一屏几块」,照 Zen 分屏块的拖柄):平时只留位置,指着页签条才淡淡显出来,
    指着它时深一档,整块描一圈 —— 告诉你抓的是整块。点是两列三行的小圆点,不是图标。 */
 .screen-block-grip {

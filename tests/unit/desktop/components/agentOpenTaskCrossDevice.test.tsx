@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness, deferred, waitForCondition } from '../../../support/testHarness'
 import { presentationOfDisplayStatus } from '../../../support/agentDisplayStatusTestDouble'
 
 /**
@@ -14,12 +14,16 @@ const state = vi.hoisted(() => ({
   local: null as string | null,
   row: null as { deviceId: string; session: { conversationId: string } } | null,
   online: true,
+  terminal: false,
 }))
+const modeBridge = vi.hoisted(() => ({ request: vi.fn(), open: vi.fn() }))
+vi.mock('@renderer/features/settings/use-terminal-enabled', () => ({ useTerminalEnabled: () => state.terminal }))
+vi.mock('../../../../apps/desktop/src/lib/sessionpageViewRequestBridge', () => ({ readSessionpageViewRequestBridge: () => modeBridge }))
 const followLink = vi.hoisted(() => vi.fn(() => true))
-vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ followLink }))
+vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ followLink, openLink: modeBridge.open }))
 vi.mock('../../../../apps/desktop/src/hooks/useSessionpageAgentProjection', () => ({
   useSessionpageAgentProjection: () => (state.local
-    ? { kind: 'mapped', error: null, agentUserId: 'agent-1', context: { projectId: 'p', sessionId: state.local, platformRecovery: null, projectionError: null } }
+    ? { kind: 'mapped', error: null, agentUserId: 'agent-1', context: { projectId: 'p', sessionId: state.local, view: 'general', platformRecovery: null, projectionError: null } }
     : { kind: 'unmapped', error: null, context: null, agentUserId: 'agent-1' }),
 }))
 vi.mock('@/mobile/agent-watch/useAgentSessionRow', () => ({ useAgentSessionRow: () => state.row }))
@@ -40,7 +44,7 @@ function Probe() {
   return <div>{openAction}</div>
 }
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); followLink.mockClear(); state.local = null; state.row = null; state.online = true })
+beforeEach(() => { harness = createReactHarness(); followLink.mockClear(); state.local = null; state.row = null; state.online = true; state.terminal = false; modeBridge.request.mockReset(); modeBridge.open.mockReset() })
 afterEach(() => harness.cleanup())
 const button = () => harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-open-task"]')
 
@@ -64,4 +68,20 @@ it('[positive control] an agent on this computer opens its own session through t
   await harness.render(createNode(Probe, {}))
   await act(async () => { button()!.click() })
   expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'local-conv' })
+})
+
+
+it('navigates through the common session link before requesting the other mode', async () => {
+  state.local = 'local-conv'
+  state.terminal = true
+  const opened = deferred<boolean>()
+  modeBridge.open.mockReturnValue(opened.promise)
+  await harness.render(createNode(Probe, {}))
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="agent-mode-trigger"]')!)
+  await waitForCondition(() => document.querySelector('[data-testid="agent-mode-code"]') !== null, 'mode action opened')
+  await clickElement(document.querySelector<HTMLElement>('[data-testid="agent-mode-code"]')!)
+  expect(modeBridge.open).toHaveBeenCalledWith({ kind: 'session', sessionId: 'local-conv' })
+  expect(modeBridge.request).not.toHaveBeenCalled()
+  await act(async () => { opened.resolve(true); await opened.promise })
+  expect(modeBridge.request).toHaveBeenCalledExactlyOnceWith('local-conv', 'code')
 })

@@ -237,6 +237,12 @@ export default {
       "project": "Project",
       "harness": "Harness",
       "model": "Model",
+      "view": "Mode",
+      "sessionView": {
+        "label": "Mode",
+        "code": { "name": "Terminal", "desc": "Runs in a terminal; you see the harness's own UI" },
+        "general": { "name": "Work", "desc": "Chat-style; replies and approvals show fully on the phone" }
+      },
       "permission": {
         "plan": { "name": "Plan only", "desc": "Think it through without running tools" },
         "read-only": { "name": "Read-only", "desc": "Can look but not change; asks before acting, except for tools you have allowed in the harness's own settings" },

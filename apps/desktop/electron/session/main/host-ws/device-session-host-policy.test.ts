@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { remoteInvokePolicy, remoteInvokePolicyForCaller } from './device-session-host';
 
 describe('remote invoke policy', () => {
+  it('lets the phone read the host Terminal setting through the existing settings route', () => {
+    expect(remoteInvokePolicy('appSettings.get', ['terminal'])).toBe(true);
+  });
   it('refuses the on-screen report from another desktop: it would overwrite what this machine shows', () => {
     expect(remoteInvokePolicy('sessions.reportSessionsOnScreen')).toBe(false);
     expect(remoteInvokePolicy('sessions.getSessions')).toBe(true);

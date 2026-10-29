@@ -12,7 +12,7 @@ import {
 
 /**
  * 设置 → 通用里的「终端」开关(本机的 `terminal.enabled`)。关着:终端的入口与界面一律不出现,新会话走通用;
- * 开着:和以前一样,新会话走编程。只管人看不看得到终端 —— ❌ 拿它去拦 agent 自己的 pty 会话。
+ * 开着:显示手动切换入口;新会话仍默认通用。只管人看不看得到终端 —— ❌ 拿它去拦 agent 自己的 pty 会话。
  * 读的永远是**本机**这一份(❌ 走 useSettingsHost:机器设置页选了别的机器时,这里仍说本机给不给人看终端)。
  * 还没读到 / 还没定值都按关算。
  */
@@ -21,7 +21,7 @@ export function useTerminalEnabled(): boolean {
     queryKey: appSettingsMetaQueryKey('terminal'),
     queryFn: () => requestAppSettingsMeta('terminal'),
     staleTime: APP_SETTINGS_STALE_TIME_MS,
-  });
+  }, queryClient);
   return data?.value.enabled === true;
 }
 
