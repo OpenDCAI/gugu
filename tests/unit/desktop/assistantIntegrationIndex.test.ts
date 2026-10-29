@@ -4,15 +4,25 @@ const data = vi.hoisted(() => ({
   listAccounts: vi.fn(async (provider: string) => data.connected.has(provider) ? [{ accountId: 'default', updatedAt: 1000, isDefault: true }] : []),
   resolveSecret: vi.fn(() => { throw new Error('Must not decrypt credentials') }),
 }))
+// #921 a credential the platform keeps: asking the platform first brings in what another device connected.
+const platform = vi.hoisted(() => ({
+  keepsAmap: false,
+  refresh: vi.fn(async () => { if (platform.keepsAmap) data.connected.add('amap'); return true }),
+  /** The platform lists the account as needing a reconnect, or the provider rejected this device's old key. */
+  amapNeedsReconnect: false,
+  needsReconnect: vi.fn((provider: string) => provider === 'amap' && platform.amapNeedsReconnect),
+}))
 vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry: { getAll: () => [
   { metadata: { id: 'dingtalk', name: '钉钉' } }, { metadata: { id: 'feishu', name: '飞书' } }, { metadata: { id: 'email', name: '邮箱' } },
   { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
+  { metadata: { id: 'amap', name: '高德地图' } },
 ] } }))
-// Mail hands its tools to sessions; GitHub only links issues and gives an agent nothing to call.
+// Mail and AMap (the platform's forwarder, #921) hand their tools to sessions; GitHub only links issues and gives an agent nothing to call.
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/session-integrations', () => ({
-  integrationGivesSessionTools: (integrationId: string) => integrationId === 'email',
+  integrationGivesSessionTools: (integrationId: string) => ['email', 'amap'].includes(integrationId),
 }))
 vi.mock('../../../apps/desktop/electron/session/main/core/provider-accounts/provider-account-registry-instance', () => ({ providerAccountRegistry: data }))
+vi.mock('../../../apps/desktop/electron/session/main/core/integrations/platform-credentials-instance', () => ({ platformCredentials: platform }))
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/cli/cli-integrations', () => ({
   cliMethodOf: (id: string) => ['dingtalk', 'feishu', 'wecom'].includes(id) ? { kind: 'cli' } : null,
   connectedCliSkills: async (configured: (id: string) => Promise<boolean>) => [
@@ -53,4 +63,25 @@ it('never marks a connected CLI application issue-only while its skills cannot b
   data.connected.add('wecom')
   expect((await configuredIntegrationIndex()).find(row => row.id === 'wecom:default')).not.toHaveProperty('note')
   data.connected.delete('wecom')
+})
+
+it('lists an integration the platform keeps for the person even when this device never connected it (#921)', async () => {
+  expect(data.connected.has('amap')).toBe(false)
+  platform.keepsAmap = true // another device connected it
+  const rows = await configuredIntegrationIndex()
+  expect(platform.refresh).toHaveBeenCalled()
+  expect(rows.find(row => row.id === 'amap:default')).toMatchObject({ name: '高德地图', isDefault: true })
+  expect(rows.find(row => row.id === 'amap:default')).not.toHaveProperty('note')
+})
+
+it('an account that needs a reconnect is not offered as usable: the assistant hears it needs the person on the connection page (#921)', async () => {
+  platform.keepsAmap = true
+  platform.amapNeedsReconnect = true
+  try {
+    const row = (await configuredIntegrationIndex()).find(row => row.id === 'amap:default')
+    expect(row).toMatchObject({ name: '高德地图', note: '高德地图要重新连接，现在用不了；到连接页重新填 Key' })
+    expect(row).not.toHaveProperty('use')
+  } finally {
+    platform.amapNeedsReconnect = false
+  }
 })

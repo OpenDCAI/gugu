@@ -500,6 +500,13 @@ function IntegrationSetupForm({
           );
         })}
         {method.help ? <p className="text-xs leading-5 text-foreground-muted">{method.help}</p> : null}
+        {method.custody ? (
+          <p className="text-xs leading-5 text-foreground-muted">
+            {method.custody === 'platform'
+              ? translate('integrations.platformCustodyNote', { label: secretLabel ?? method.fields[0]?.label ?? '', name: metadata.name })
+              : translate('integrations.localCustodyNote', { label: secretLabel ?? method.fields[0]?.label ?? '' })}
+          </p>
+        ) : null}
         {method.helpUrl ? (
           <Button
             type="button"
