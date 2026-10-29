@@ -1245,6 +1245,22 @@ input::placeholder {
   }
 }
 
+/* A working agent's badge: two rings pulse three times, the second half a cycle later, then rest as a still ring
+   (their base style). A rhythm, not a transition between states, so it is not a --dur-* value. */
+.av-status__pulse {
+  animation: av-status-pulse 1.4s ease-out 3;
+}
+
+.av-status__pulse--delay {
+  animation-delay: 0.7s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .av-status__pulse {
+    animation: none;
+  }
+}
+
 @keyframes gg-thread-up {
   from {
     opacity: 0;
