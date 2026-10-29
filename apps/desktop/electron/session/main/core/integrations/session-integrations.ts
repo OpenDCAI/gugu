@@ -31,6 +31,11 @@ function keyedMcp(integrationId: string): IntegrationKeyedMcp | null {
   return null;
 }
 
+/** Whether a connected integration hands an agent anything to call in a session: mail tools or a hosted MCP. */
+export function integrationGivesSessionTools(integrationId: string): boolean {
+  return isMailIntegration(integrationId) || keyedMcp(integrationId) !== null || mcpOAuthServerUrl(integrationId) !== null;
+}
+
 /**
  * 新开一条会话时,哪些集成该递给 agent。
  *

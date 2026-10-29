@@ -40,7 +40,7 @@ export interface RecordedPromptResult {
 export interface RecordedPermissionRequest {
   kind: 'permission_request';
   sessionId: string;
-  /** The raw RequestPermissionRequest params. */
+  /** Decoded permission facts, including the complete native subject. */
   request: unknown;
   /** The optionId chosen by auto-approval, or null for cancel. */
   resolvedOptionId: string | null;

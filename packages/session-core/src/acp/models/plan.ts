@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { entityContentSchema } from './entity-content';
 
 export const SESSION_PLAN_ID = 'session-plan';
 
@@ -27,7 +28,14 @@ export const planStateSchema = z.object({
   id: z.string(),
   /** Latest full plan snapshot; providers replace the whole list on each update. */
   entries: z.array(planEntrySchema),
+  /** A markdown/file/future plan body is retained, rather than dropped. */
+  body: entityContentSchema.optional(),
+  _meta: z.record(z.string(), z.unknown()).nullable().optional(),
   /** Epoch ms when the reducer last received a plan update. */
   updatedAt: z.number(),
 });
 export type PlanState = z.infer<typeof planStateSchema>;
+
+/** Plans are session entities identified by provider id, not one global slot. */
+export const sessionPlansSchema = z.record(z.string(), planStateSchema);
+export type SessionPlans = z.infer<typeof sessionPlansSchema>;

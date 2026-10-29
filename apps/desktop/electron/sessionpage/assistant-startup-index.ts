@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import type { AssistantLocalSource } from './assistant-local-index'
 import { ASSISTANT_INDEX_LIMIT, boundedAssistantIndex } from './assistant-index-format'
+import { createLogger } from '../lib/logger'
+
+const log = createLogger('assistant-index')
 
 const deviceSchema = z.object({
   device_id: z.string(), label: z.string().nullable(), platform: z.string().nullable(),
@@ -59,7 +62,11 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
         }),
       ])
       return { status: 'read', value: parse(raw) }
-    } catch {
+    } catch (error) {
+      // Why a source is unknown (unsupported action, timeout, parse): metadata only, never the response.
+      log.warn({ action: action.action, ...(typeof action.kind === 'string' ? { kind: action.kind } : {}),
+        ...(typeof action.device === 'string' ? { device: action.device } : {}),
+        reason: (error instanceof Error ? error.message : String(error)).slice(0, 300) }, 'Assistant resource read unavailable')
       return { status: 'unavailable' }
     } finally { clearTimeout(timer) }
   }
@@ -71,7 +78,9 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
       source: z.enum(['assistant_memory', 'assistant_personality', 'assistant_files', 'integrations']),
       status: z.enum(['read', 'unavailable']), read: z.string(),
       items: z.array(z.object({ id: z.string(), name: z.string(), path: z.string().optional(), modifiedAt: z.string(),
-        size: z.number().optional(), isDefault: z.boolean().optional() })).optional(),
+        size: z.number().optional(), isDefault: z.boolean().optional(),
+        use: z.object({ note: z.string(), delegate: z.object({ tool: z.string() }), task_skills: z.array(z.string()) }).optional(),
+        note: z.string().optional() })).optional(),
     })).parse(value), deps.localSources)
     result.push(json({ source: 'assistant_local_index', read: '个人助理本机资源索引，失败时按各来源重读。',
       ...(local.status === 'read' ? { status: 'read', items: [] } : unavailable) }))

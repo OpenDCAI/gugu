@@ -1,4 +1,5 @@
 import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
+import { useMessageQuote } from '@/hooks/useMessageQuote'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +7,7 @@ import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { ChevronLeft, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
@@ -247,8 +249,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     })
     return () => cancelAnimationFrame(frame)
   }, [focusComposerToken, mobile])
-  const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string; source: MessageItem } | null>(null)
-  const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
+  const { quote: activeQuote, setQuote: setQuoted, onQuote } = useMessageQuote(topic.chatId, id => memberProfiles[id ?? '']?.displayName ?? '', t('chatArea.attachment'), quotePrefixOf)
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
@@ -258,8 +259,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
-    () => visibleDeliveryMessages(displayedMessages).map((message) => ({ type: 'message' as const, message })),
-    [displayedMessages],
+    () => (isFiltering ? visibleDeliveryMessages(displayedMessages) : projectTurnFailureMessages(visibleDeliveryMessages(displayedMessages))).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages, isFiltering],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
@@ -304,12 +305,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onShowReadReceipt,
     onReaction: onReaction ?? noop,
     onShowMessage: showMessage,
-    onQuote: (msg) => setQuoted({
-      forChatId: topic.chatId,
-      messageId: msg.id, source: msg,
-      senderName: memberProfiles[msg.sender_user_id ?? '']?.displayName ?? '',
-      content: quotePrefixOf(msg),
-    }),
+    onQuote,
     onForward: onForward ?? noop,
     onDelete: onDelete ?? noop,
     onVisible: (message) => { if (visible !== false) history.markMessageVisible(message) },
@@ -326,7 +322,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible, isFiltering, searchQuery])
 
   useBackLayer(onClose, mobile && !inTab)
   const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />

@@ -135,6 +135,8 @@ export const diffRowClasses = {
     background: `color-mix(in srgb, ${vars.diffDeleted} 10%, transparent)`,
     borderLeft: `3px solid ${vars.diffDeleted}`,
   }),
+  hunk: style({ display: 'flex', borderLeft: '3px solid transparent', opacity: 0.65 }),
+  meta: style({ display: 'flex', borderLeft: '3px solid transparent', opacity: 0.65 }),
   context: style({
     display: 'flex',
     borderLeft: '3px solid transparent',

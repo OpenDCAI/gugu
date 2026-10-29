@@ -1,3 +1,4 @@
+import type { TerminalState } from '@gugu/session-core/acp/client';
 /**
  * Render-unit primitives — the flat virtualization model.
  *
@@ -30,7 +31,7 @@
 
 import type { Component } from 'solid-js';
 import type { ChatTranslator } from '@session-chat/localization';
-import type { AcpPermissionRequest, ChatItem, PlanState, SyntheticItem, TerminalExit, SessionCondition } from '@session-chat/model';
+import type { AcpPermissionRequest, ChatItem, SessionPlans, SyntheticItem, SessionCondition } from '@session-chat/model';
 import type { BackgroundTasks } from '@session-chat/state/chat-state';
 import type { ChatCaches } from './caches';
 import type { MeasureCtx, RenderCtx } from './define';
@@ -83,6 +84,8 @@ export type RenderUnit<D = unknown> = {
   chrome?: GroupChrome;
   /** Agent conversation block ownership; process steps and reply keep one chronological owner. */
   conversationProcessOwner?: string;
+  /** Nested measured rows owned by a bounded native viewport. */
+  children?: readonly RenderUnit[];
   /** The fold toggles this unit is emitted behind, outermost first (set only under `revealAllFolds`). */
   folds?: readonly FoldGate[];
 };
@@ -127,13 +130,14 @@ export type SegmentCtx = {
   caches: ChatCaches;
   expanded: (id: string) => boolean;
   active: boolean;
-  plan: () => PlanState | null;
+  /** Latest logical turn across committed and active tiers; its empty acknowledgement remains visible. */
+  latestTurnId?: string;
+  plan: () => SessionPlans | null;
   translate: ChatTranslator;
   pendingToolCallIds: () => Set<string>;
   /** 这次调用正在等的那条审批请求（计划审批卡拿它画选项）；没在等 ⇒ undefined。 */
   permissionFor?: (toolCallId: string) => AcpPermissionRequest | undefined;
-  terminalOutputText: (terminalId: string) => string | null;
-  terminalExitStatus: (terminalId: string) => TerminalExit | null;
+  terminalSnapshot: (terminalId: string) => TerminalState | null;
   /**
    * 这条会话此刻的状态（引擎没装 / 要登录 / 连接断了 …）。
    * 只有**最后一档**（active 档）读它 —— 它是贴在列表末尾的一行，不是历史。
@@ -301,4 +305,15 @@ export function stampGroupRoles(units: RenderUnit[]): void {
     else if (i === units.length - 1) units[i].groupRole = 'last';
     else units[i].groupRole = 'middle';
   }
+}
+
+/** Source-item lookup includes rows inside a native process viewport. */
+export function unitContainsItem(unit: RenderUnit | undefined, id: string): boolean {
+  return !!unit && (unit.itemId === id || !!unit.children?.some(child => unitContainsItem(child, id)));
+}
+
+/** Include nested leaf ids in the committed tier's source-navigation index. */
+export function* unitItemIds(unit: RenderUnit): IterableIterator<string> {
+  yield unit.itemId;
+  for (const child of unit.children ?? []) yield* unitItemIds(child);
 }

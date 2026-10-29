@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
  * #6582 —— 后台命令的终态改的是**起它的那一轮**,而那一轮之后已经又提交过别的轮。
  *
@@ -62,16 +63,16 @@ async function launchThenAnotherTurn(sessionId: string, agentInitiatedTurns?: 'c
   };
 
   await turn('poll CI in the background', async () => {
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: SESSION,
-      update: { sessionUpdate: 'tool_call', toolCallId: 'call_bg', title: 'poll CI', kind: 'execute', status: 'completed' } as SessionUpdate,
+      event: decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call_bg', title: 'poll CI', kind: 'execute', status: 'completed' } as SessionUpdate),
     });
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: SESSION,
-      update: { sessionUpdate: 'async_task_progress', asyncTaskId: 'bg-1', toolCallId: 'call_bg' } as unknown as SessionUpdate,
+      event: decodeSessionUpdate({ sessionUpdate: 'async_task_progress', asyncTaskId: 'bg-1', toolCallId: 'call_bg' } as unknown as SessionUpdate),
     });
   });
-  await turn('anything else?', () => client.sessionUpdate({ sessionId: SESSION, update: text('still waiting on CI') }));
+  await turn('anything else?', () => client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('still waiting on CI')) }));
 
   expect(committed.map((entry) => entry.source)).toEqual(['live', 'live']);
   const launchTurn = committed[0]!.turn;
@@ -88,7 +89,7 @@ describe('#6582 后台命令终态回填到更早的那一轮', () => {
     );
 
     expect(rt.getSessionState('conv-idle').backgroundCommandTaskIds, '在跑时运行时报出它的任务 id').toEqual(['bg-1']);
-    await client.sessionUpdate({ sessionId: SESSION, update: completed });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(completed) });
 
     const pushedAgain = committed.slice(2);
     expect(pushedAgain.map((entry) => [entry.source, entry.turn.id]), '补推的是起命令那一轮,不是最后一轮').toEqual([
@@ -99,7 +100,7 @@ describe('#6582 后台命令终态回填到更早的那一轮', () => {
     expect(rt.getSessionState('conv-idle').backgroundCommandTaskIds).toEqual([]);
 
     // 之后的流式事件不改已提交的轮 ⇒ 不再补推(❌ 每个事件都把库里的轮重写一遍)。
-    await client.sessionUpdate({ sessionId: SESSION, update: text('CI is green') });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('CI is green')) });
     expect(committed).toHaveLength(3);
   });
 
@@ -107,8 +108,8 @@ describe('#6582 后台命令终态回填到更早的那一轮', () => {
     const { client, committed, turn, launchTurnId } = await launchThenAnotherTurn('conv-mid-turn');
 
     await turn('check the release', async () => {
-      await client.sessionUpdate({ sessionId: SESSION, update: text('checking') });
-      await client.sessionUpdate({ sessionId: SESSION, update: completed });
+      await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('checking')) });
+      await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(completed) });
       expect(committed.map((entry) => entry.source), '当场补推,不等这一轮收口').toEqual(['live', 'live', 'backfill']);
     });
 

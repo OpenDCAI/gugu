@@ -1,3 +1,4 @@
+import type { QuoteSelection } from './messageQuoteContent'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
@@ -99,7 +100,7 @@ export interface MessageListRowProps {
   // @@@1345 点击已读圆环 → 父层弹「谁已读/谁未读」名单(稳定回调，避免 reader 列表作对象 prop 破 memo)。
   onShowReadReceipt: ((messageId: string, anchor: HTMLElement) => void) | undefined
   onShowMessage?: (id: string) => void
-  onQuote: (msg: MessageItem) => void
+  onQuote: (msg: MessageItem, selection?: QuoteSelection) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   onVisible: (msg: MessageItem) => void
@@ -388,7 +389,7 @@ export function MessageList({
   return (
     <div style={frameStyle}>
       {/* 每换一条线(resetKey)换一个滚动容器:落点、贴底电平、锚定都从这条线自己的第一帧开始。 */}
-      <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-image-gallery="" style={scrollerStyle}>
+      <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-message-avatars={rowProps.isAgentChat ? undefined : 'true'} data-image-gallery="" style={scrollerStyle}>
         <div ref={contentRef}>
           {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} bubbleMemberProfiles={bubbleMemberProfiles} showReplyQuote={quoteIds.has(row.message.id)} />)}
           {end >= rows.length ? footer : null}

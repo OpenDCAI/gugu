@@ -10,6 +10,7 @@
 // 帧就是会话页宿主协议(host-ws-protocol)的帧,装进 JSON 信封(frameToCarrier);超过 PIECE_CHARS 的帧分片。
 //
 // 成本:每条连接双向各一拍心跳(20s);一条帧的往返 = 一次设备 RPC(同一微任务里的帧合成一条)。
+import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract';
 import {
   createPieceJoiner,
   createSeqOrderer,
@@ -182,6 +183,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     desktop: DesktopHello | null,
     asker: DeviceRpcAskerContext | undefined,
     callerId: string | undefined,
+    peerProtocol: number | undefined,
   ): void => {
     clients.get(client)?.close('replaced');
     const refreshReport = reportDesktop(desktop);
@@ -243,6 +245,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       remote: `device:${client.slice(0, 8)}`,
       policy: remoteInvokePolicyForCaller(callerId),
       outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
+      ...(peerProtocol !== undefined ? { peerProtocol } : {}),
     });
   };
   const readClient = (payload: unknown): string | null => {
@@ -272,7 +275,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           },
         };
       }
-      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id);
+      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id, protocol ?? undefined);
       return { result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } };
     },
     [SESSION_HOST_RPC.frame]: (payload) => {
@@ -290,12 +293,15 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     [SESSION_HOST_RPC.call]: async (payload, ctx) => {
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
-      const body = (payload ?? {}) as { channel?: unknown; args?: unknown };
+      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown };
       if (typeof body.channel !== 'string' || !Array.isArray(body.args)) {
         return { error: { code: 'invalid_payload', message: 'channel 与 args 是必填的' } };
       }
       try {
-        return { result: { value: (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null } };
+        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null;
+        // A caller before protocol 15 never said its protocol here: absent = older (protocol14FileChanges, delete on next bump).
+        const peer = typeof body.protocol === 'number' ? body.protocol : FILE_PATCH_PROTOCOL - 1;
+        return { result: { value: protocol14FileChanges(value, peer, 'to-peer'), protocol: REMOTE_PROTOCOL_VERSION } };
       } catch (error) {
         const failed = serializeHostWsError(error);
         return { error: { code: failed.code ?? 'call_failed', message: failed.message } };

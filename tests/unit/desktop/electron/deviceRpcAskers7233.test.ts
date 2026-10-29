@@ -117,8 +117,8 @@ describe('报到:宿主订上那个发问端的线,在那条上回', () => {
 
   it('报到报的协议比这台机器要的旧 / id 不合法:在共用 topic 上拒(client_outdated / invalid_payload),❌ 开线', () => {
     const host = fakeHost()
-    host.attach('askerAAAA1111', 'old', 8)
-    host.askers.attach({ type: 'taskhost.attach', request_id: 'bad', user_id: 'u1', payload: { asker: 'has:colon', protocol: 9 } })
+    host.attach('askerAAAA1111', 'old', 10)
+    host.askers.attach({ type: 'taskhost.attach', request_id: 'bad', user_id: 'u1', payload: { asker: 'has:colon', protocol: REMOTE_PROTOCOL_VERSION } })
     expect(host.shared).toEqual([
       expect.objectContaining({ request_id: 'old', error: expect.objectContaining({ code: 'client_outdated' }) }),
       expect.objectContaining({ request_id: 'bad', error: expect.objectContaining({ code: 'invalid_payload' }) }),

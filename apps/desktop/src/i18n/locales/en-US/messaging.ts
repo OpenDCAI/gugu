@@ -64,6 +64,18 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "card": {
+        "generic": "Reply not completed",
+        "authentication": "Model authorization refused",
+        "network": "Cannot reach the model service",
+        "timeout": "No response in time",
+        "offline": "The device disconnected",
+        "rateLimited": "Too many requests",
+        "nextMessage": "The next message will retry automatically",
+        "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
+        "recovered_other": "{{name}}: {{count}} earlier failed replies · recovered",
+        "settings": "Open settings"
+      },
       "state": {
         "exhausted": "out of credits",
         "weekly": "weekly limit reached",
@@ -408,13 +420,10 @@ export default {
       }
     },
     "attachmentContextMissing": "Could not send the attachment because the chat is no longer available",
+    "attachmentSendTimedOut": "Attachment send timed out.",
     "attachmentPersistenceFailed": "Could not save {{fileName}}",
     "attach": "Add",
     "cancelQuote": "Cancel reply",
-    "commands": {
-      "clear": "Clear the composer",
-      "shrug": "Insert ¯\\_(ツ)_/¯"
-    },
     "disabled": "You cannot send messages in this chat",
     "exitWhisper": "Exit whisper mode",
     "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
@@ -427,12 +436,11 @@ export default {
     "mentionAll": "Everyone",
     "mentionMembers": "Mention a member",
     "mentionNoMatch": "No matching members",
-    "placeholder": "Write a message… Type / for commands",
+    "placeholder": "Write a message…",
     "mobilePlaceholder": "Message",
     "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
     "sendFailed": "Could not send: {{reason}}",
-    "slashCommands": "Slash commands",
     "verb": {
       "task": "New task"
     },
@@ -747,6 +755,8 @@ export default {
     },
     "retracted": "Message retracted",
     "sendStatus": {
+      "unknown": "Awaiting confirmation",
+      "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
       "archived": "Recipient is archived. Not delivered.",
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",

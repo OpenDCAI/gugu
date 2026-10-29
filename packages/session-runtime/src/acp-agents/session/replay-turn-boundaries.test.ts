@@ -6,7 +6,6 @@ import { SessionCell } from './cell';
 function cell() {
   const value = new SessionCell({ sessionId: 'replay', projectId: 'project', providerId: 'claude', acpSessionId: 'provider',
     agent: new FakeAcpAgent(), logger: noopLogger, resolveAttachment: async () => ({ data: '', mimeType: 'image/png' }) });
-  value.setReportsState(true);
   return value;
 }
 
@@ -17,13 +16,13 @@ describe('replayed native turn boundaries', () => {
     value.push({ kind: 'message', role: 'user', messageId: 'u', text: 'Launch background tasks' });
     value.push({ kind: 'message', role: 'assistant', messageId: 'a', text: 'Launched' });
     for (const [id, text] of [['followup-1', 'First result'], ['followup-2', 'Second result']]) {
-      value.push({ kind: 'agent_state', state: 'idle' });
-      value.push({ kind: 'agent_state', state: 'running' });
+      value.push({ kind: 'agent_state', source: 'agent', state: 'idle' });
+      value.push({ kind: 'agent_state', source: 'agent', state: 'running' });
       expect(value.sessionState.lifecycle).toBe('replaying');
       value.push({ kind: 'message', role: 'assistant', messageId: id, text });
     }
-    value.push({ kind: 'agent_state', state: 'idle' });
-    value.push({ kind: 'agent_state', state: 'idle' });
+    value.push({ kind: 'agent_state', source: 'agent', state: 'idle' });
+    value.push({ kind: 'agent_state', source: 'agent', state: 'idle' });
     value.endReplay();
     const history = value.history();
     expect(history.active).toBeNull();
@@ -39,8 +38,8 @@ describe('replayed native turn boundaries', () => {
     value.beginReplay();
     value.push({ kind: 'message', role: 'user', messageId: 'u', text: 'Inspect' });
     value.push({ kind: 'message', role: 'assistant', messageId: 'a', text: 'First' });
-    value.push({ kind: 'agent_state', state: 'requires_action' });
-    value.push({ kind: 'agent_state', state: 'running' });
+    value.push({ kind: 'agent_state', source: 'agent', state: 'requires_action' });
+    value.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     value.push({ kind: 'message', role: 'assistant', messageId: 'a', text: ' second' });
     value.endReplay();
     expect(value.history().committed).toHaveLength(1);

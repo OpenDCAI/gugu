@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acpRuntimeApiContract } from '@gugu/session-core/acp';
 import { defineContract } from '@gugu/session-wire';
@@ -10,8 +11,8 @@ import { createAcpProcedures } from '../api/procedures';
 const runtimes: AcpRuntime[] = [];
 afterEach(async () => { for (const runtime of runtimes.splice(0)) await runtime.dispose(); });
 
-async function setup(reportsState = false) {
-  const h = makeAcpHarness({ reportsState });
+async function setup(nativeState = false) {
+  const h = makeAcpHarness({ nativeState });
   const rt = new AcpRuntime(h.deps);
   runtimes.push(rt);
   expect((await rt.startSession(makeStartInput())).success).toBe(true);
@@ -72,10 +73,10 @@ describe('resume and reclaim admission', () => {
     h.agent.prompt.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
     const admission = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
     await h.agent.called('prompt');
-    await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+    await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
       sessionUpdate: 'agent_message_chunk', messageId: 'native-answer',
       content: { type: 'text', text: 'Working' },
-    } as SessionUpdate });
+    } as SessionUpdate) });
     const accepted = await admission;
     expect(accepted.declined).toBe(false);
     fail(Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Session not found' } }));
@@ -171,9 +172,9 @@ describe('bounded native admission', () => {
     try {
       const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
       await vi.advanceTimersByTimeAsync(59_000);
-      await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+      await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk', messageId: 'first-output', content: { type: 'text', text: 'Working' },
-      } as SessionUpdate });
+      } as SessionUpdate) });
       const receipt = await pending;
       await vi.advanceTimersByTimeAsync(120_000);
       expect(h.agent.cancel).not.toHaveBeenCalled();
@@ -188,14 +189,14 @@ describe('bounded native admission', () => {
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     vi.useFakeTimers();
     try {
-      let receipt: Awaited<ReturnType<typeof api.promptDetached>> | undefined;
+      let settled = false;
       const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
-      void pending.then(value => { receipt = value; });
+      void pending.then(() => { settled = true; }, () => { settled = true; });
       await vi.advanceTimersByTimeAsync(60_001);
-      expect(receipt, 'a silent native prompt cannot hold the inbox admission forever').toBeDefined();
-      if (!receipt) return;
-      expect(receipt.declined).toBe(false);
-      await expect(api.waitPromptDetached({ requestId: receipt.requestId })).rejects.toThrow('timed out');
+      expect(settled, 'a silent native prompt cannot hold the inbox admission forever').toBe(true);
+      // No native receipt: never admitted, so the delivery is not consumed and can be sent again after teardown.
+      await expect(pending).rejects.toThrow('timed out');
+      await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith('SIGTERM'));
       expect(h.agent.cancel).toHaveBeenCalledTimes(1);
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
       expect(rt.sessionLiveModels('conv-1')).toBeNull();
@@ -218,23 +219,20 @@ it('keeps the recovery signal when a missing provider process is still stopping'
   } finally { child.emitExit(0); vi.useRealTimers(); }
 });
 
-it('counts a declared native running state as admission, without requiring output text', async () => {
+it('counts the native receipt as admission; later silence is never timed out', async () => {
   const { h, api } = await setup(true);
-  const finish = Promise.withResolvers<{ stopReason: 'end_turn' }>();
-  h.agent.prompt.mockImplementationOnce(() => finish.promise);
+  h.agent.prompt.mockImplementationOnce(async (_params: unknown, dispatch: { requestId: string; message: { text: string } }) => {
+    await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
+    await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'message', role: 'user', messageId: 'native', text: dispatch.message.text, contentMode: 'replace' } });
+    return { status: 'accepted', requestId: dispatch.requestId, messageId: 'native' };
+  });
   vi.useFakeTimers();
   try {
-    let receipt: Awaited<ReturnType<typeof api.promptDetached>> | undefined;
-    const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
-    void pending.then(value => { receipt = value; });
-    await vi.advanceTimersByTimeAsync(1);
-    await h.client().sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } as unknown as SessionUpdate });
-    await vi.advanceTimersByTimeAsync(1);
-    expect(receipt).toBeDefined();
+    const accepted = await api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
+    expect(accepted.declined).toBe(false);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(h.agent.cancel).not.toHaveBeenCalled();
-    finish.resolve({ stopReason: 'end_turn' });
-    const accepted = await pending;
+    await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' } });
     await api.waitPromptDetached({ requestId: accepted.requestId });
-  } finally { finish.resolve({ stopReason: 'end_turn' }); vi.useRealTimers(); }
+  } finally { vi.useRealTimers(); }
 });

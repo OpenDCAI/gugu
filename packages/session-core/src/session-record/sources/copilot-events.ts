@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 
-import type { ContentBlock, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 
 import type { RecordBoundary, RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import { isFile } from './find-file';
@@ -11,6 +11,7 @@ import {
   boundaryEntry,
   parseTimestamp,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -60,17 +61,17 @@ function decode(event: Record<string, unknown>): RecordEntry[] {
       if (typeof data.source === 'string' && data.source.startsWith('agent-')) return [];
       const text = typeof data.content === 'string' ? data.content : '';
       if (!text) return [];
-      return [{ key: key(0), ...stamp, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text }, messageId: key(0) } }];
+      return [{ key: key(0), ...stamp, event: { kind: 'message', role: 'user', messageId: key(0), text } }];
     }
     case 'assistant.message': {
       if (data.parentToolCallId !== undefined) return [];
       const out: RecordEntry[] = [];
-      const push = (update: SessionUpdate) => out.push({ key: key(out.length), ...stamp, update });
+      const push = (event: NormalizedEvent) => out.push({ key: key(out.length), ...stamp, event });
       if (typeof data.reasoningText === 'string' && data.reasoningText) {
-        push({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: data.reasoningText }, messageId: key(0) });
+        push({ kind: 'thinking', messageId: key(0), text: data.reasoningText });
       }
       if (typeof data.content === 'string' && data.content) {
-        push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: data.content }, messageId: key(0) });
+        push({ kind: 'message', role: 'assistant', messageId: key(0), text: data.content });
       }
       const requests = Array.isArray(data.toolRequests) ? data.toolRequests : [];
       for (const value of requests) {
@@ -90,17 +91,12 @@ function decode(event: Record<string, unknown>): RecordEntry[] {
       const text = failed
         ? (asRecord(data.error)?.message ?? asRecord(data.result)?.content)
         : asRecord(data.result)?.content;
-      const content: ContentBlock[] = typeof text === 'string' && text ? [{ type: 'text', text }] : [];
       return [
         {
           key: key(0),
           ...stamp,
-          update: {
-            sessionUpdate: 'tool_call_update',
-            toolCallId: data.toolCallId,
-            status: failed ? 'failed' : 'completed',
-            ...(content.length > 0 ? { content: content.map((block) => ({ type: 'content' as const, content: block })) } : {})
-          }
+          event: toolCallResult(data.toolCallId, failed ? 'failed' : 'completed',
+            typeof text === 'string' && text ? { text } : {})
         }
       ];
     }

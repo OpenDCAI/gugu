@@ -26,8 +26,8 @@ importers:
   .:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
-        specifier: npm:@gugu-acp/claude-agent-acp@1.5.0
-        version: '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
+        specifier: npm:@gugu-acp/claude-agent-acp@1.5.2
+        version: '@gugu-acp/claude-agent-acp@1.5.2(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
       '@agentclientprotocol/sdk':
         specifier: 1.9.0
         version: 1.9.0(zod@4.4.3)
@@ -35,8 +35,8 @@ importers:
         specifier: 0.3.293
         version: 0.3.293(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
       '@gugu-acp/compat':
-        specifier: 1.0.12
-        version: 1.0.12
+        specifier: 1.0.14
+        version: 1.0.14
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.29.0(zod@4.4.3)
@@ -696,9 +696,6 @@ importers:
       '@visactor/vchart':
         specifier: ^2.1.7
         version: 2.1.7
-      boring-avatars:
-        specifier: 2.0.4
-        version: 2.0.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       docx-preview:
         specifier: 0.4.0
         version: 0.4.0
@@ -878,8 +875,8 @@ importers:
   packages/session-plugins:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
-        specifier: npm:@gugu-acp/claude-agent-acp@1.5.0
-        version: '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
+        specifier: npm:@gugu-acp/claude-agent-acp@1.5.2
+        version: '@gugu-acp/claude-agent-acp@1.5.2(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
       '@agentclientprotocol/sdk':
         specifier: 1.9.0
         version: 1.9.0(zod@4.4.3)
@@ -2953,13 +2950,13 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  '@gugu-acp/claude-agent-acp@1.5.0':
-    resolution: {integrity: sha512-tZTbTIqD1ZmgiJIMlaQirdScswF4IrrXX//v1XNdCbjm222gSa5mQXU5zYKwwmP4zdic+Fi18sa1Qq9Orbfn6Q==}
+  '@gugu-acp/claude-agent-acp@1.5.2':
+    resolution: {integrity: sha512-O3XwyZAMo9DgZOIzuLnz8Oi5psIAAvSjL2OtR+sNnqaVUsMEdnzcHWT6rrMqXkIDe6TSpt5D+pIkEX8eVN2uQw==}
     engines: {node: '>=22'}
     hasBin: true
 
-  '@gugu-acp/compat@1.0.12':
-    resolution: {integrity: sha512-bsfUbj+kA6he54dZ71jc0vtLD6Cn4KagvBGnzgEod7Ud2hsv1n6k1KiZ5s7NALsO2nr9texXuVNrCWik72yYNA==}
+  '@gugu-acp/compat@1.0.14':
+    resolution: {integrity: sha512-MfAp3yGQhihq62ZqL38sVScRyy84zLu7kp7CHjJBxQRIu+NxebzIzPJpgl6IAso7Fi0GHLCzz1Z7YN+pxDQkYg==}
 
   '@gugu-acp/files-core@0.1.0':
     resolution: {integrity: sha512-5V7KGpdhYospds8VLq50zNrppfkqFGg5xl20jEx4KwtsHC7MPcWVDzJwDZg8xOmQm9xb6eGQJnx2vzfJ0T/ScQ==}
@@ -6937,12 +6934,6 @@ packages:
   boolean@3.2.0:
     resolution: {integrity: sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw==}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-
-  boring-avatars@2.0.4:
-    resolution: {integrity: sha512-xhZO/w/6aFmRfkaWohcl2NfyIy87gK5SBbys8kctZeTGF1Apjpv/10pfUuv+YEfVPkESU/h2Y6tt/Dwp+bIZPw==}
-    peerDependencies:
-      react: '>=18.0.0'
-      react-dom: '>=18.0.0'
 
   bowser@1.9.4:
     resolution: {integrity: sha512-9IdMmj2KjigRq6oWhmwv1W36pDuA4STQZ8q6YO9um+x07xgYNCD3Oou+WP/3L1HNz7iqythGet3/p4wvc8AAwQ==}
@@ -14585,7 +14576,7 @@ snapshots:
     dependencies:
       graphql: 16.8.2
 
-  '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
+  '@gugu-acp/claude-agent-acp@1.5.2(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
     dependencies:
       '@agentclientprotocol/sdk': 2.0.0(zod@4.6.7)
       '@anthropic-ai/claude-agent-sdk': 0.3.303(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.6.7)
@@ -14595,7 +14586,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@gugu-acp/compat@1.0.12': {}
+  '@gugu-acp/compat@1.0.14': {}
 
   '@gugu-acp/files-core@0.1.0(yjs@13.6.33)':
     dependencies:
@@ -18918,11 +18909,6 @@ snapshots:
 
   boolean@3.2.0:
     optional: true
-
-  boring-avatars@2.0.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
-    dependencies:
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
 
   bowser@1.9.4: {}
 

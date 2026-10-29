@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { FakeAcpAgent, makeAcpHarness, makeStartInput } from '../acp-test-support';
+import { createRequestActivity } from '@gugu/session-core/acp';
 import { SessionCell } from '../session/cell';
 import { AcpRuntime } from './runtime';
 
@@ -25,9 +26,9 @@ const modelOptions = [{
 
 function makeCell() {
   const agent = new FakeAcpAgent();
-  const cell = new SessionCell({
+  const cell: SessionCell = new SessionCell({
     sessionId: 'review', projectId: 'review', providerId: 'claude', acpSessionId: 'review',
-    agent: agent.observed(), logger: noopLogger, resolveAttachment: async () => { throw new Error('No attachments'); },
+    agent: createRequestActivity(agent.observed() as never, ({ event }) => cell.push(event)).agent, logger: noopLogger, resolveAttachment: async () => { throw new Error('No attachments'); },
     liveSettings: { model: capability, permission: capability, effort: capability },
   });
   cell.applySessionReady();

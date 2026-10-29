@@ -98,16 +98,16 @@ describe('#6264 导入会话按机器切换', () => {
     expect(ipc.previewLocalSession).not.toHaveBeenCalled();
   });
 
-  it('选了 d22 再导入:会话建在 d22 上(原件在哪台就归哪台),❌ 导进本机;SSH 装上的机器照旧进终端', async () => {
+  it('选了 d22 再导入:会话建在 d22 上,默认进通用', async () => {
     const progress: number[] = [];
     const source = resolveImportSource('dev-d22', true);
-    expect(source.sessionView).toBe('code');
+    expect(source.sessionView).toBe('general');
     const outcomes = await runImport(source, [ROW], (n) => progress.push(n), String);
     expect(machine.calls).toEqual([
       {
         machine: 'dev-d22',
         verb: 'import',
-        params: { engine: 'codex', providerSessionId: 'sess-1', filePath: ROW.filePath, title: ROW.title, cwd: ROW.cwd },
+        params: { engine: 'codex', providerSessionId: 'sess-1', filePath: ROW.filePath, title: ROW.title, cwd: ROW.cwd, sessionView: 'general' },
       },
     ]);
     expect(ipc.importLocalSession).not.toHaveBeenCalled();
@@ -115,6 +115,21 @@ describe('#6264 导入会话按机器切换', () => {
       { kind: 'imported', row: ROW, projectId: 'p-d22', sessionId: 'c-d22' },
     ]);
     expect(progress).toEqual([1]);
+  });
+
+  it.each([[LOCAL_IMPORT_DEVICE, false], ['ssh-host', true], ['tunnel-host', false]] as const)('defaults import from %s to the general view', async (device, directTerminal) => {
+    ipc.importLocalSession.mockResolvedValue({ projectId: 'p', sessionId: 's', alreadyImported: false });
+    const source = resolveImportSource(device, directTerminal);
+    expect(source.sessionView).toBe('general');
+    await runImport(source, [ROW], () => {}, String);
+    const params = device === LOCAL_IMPORT_DEVICE ? ipc.importLocalSession.mock.calls[0]![0] : machine.calls[0]!.params;
+    expect(params).toMatchObject({ providerSessionId: ROW.providerSessionId, sessionView: 'general' });
+  });
+
+  it('passes the requested view through the import runner rather than relying on a transport default', async () => {
+    const importSession = vi.fn(async () => ({ projectId: 'p', sessionId: 's', workingDirectory: '/w', alreadyImported: false }));
+    await runImport({ importSession, sessionView: 'general' } as Parameters<typeof runImport>[0], [ROW], () => {}, String);
+    expect(importSession).toHaveBeenCalledWith(expect.objectContaining({ sessionView: 'general' }));
   });
 
   it('只经远程隧道连着的机器(没有终端):导入要「通用」,会话在聊天腿里续原会话,❌ 建一条打不开的终端会话', async () => {

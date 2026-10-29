@@ -64,6 +64,17 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "card": {
+        "generic": "回复没有完成",
+        "authentication": "模型服务拒绝了授权",
+        "network": "连不上模型服务",
+        "timeout": "太久没有响应",
+        "offline": "运行它的设备断开了",
+        "rateLimited": "请求太频繁",
+        "nextMessage": "下条消息会自动再试",
+        "recovered": "{{name}} 之前 {{count}} 次没有完成 · 已恢复",
+        "settings": "去设置"
+      },
       "state": {
         "exhausted": "额度已用完",
         "weekly": "周限额度已满",
@@ -408,13 +419,10 @@ export default {
       }
     },
     "attachmentContextMissing": "附件发送失败：当前对话已不可用",
+    "attachmentSendTimedOut": "附件发送超时。",
     "attachmentPersistenceFailed": "附件 {{fileName}} 保存失败。",
     "attach": "添加",
     "cancelQuote": "取消引用",
-    "commands": {
-      "clear": "清空输入框",
-      "shrug": "插入 ¯\\_(ツ)_/¯"
-    },
     "disabled": "当前对话不可发送",
     "exitWhisper": "退出悄悄话",
     "replyUnavailable": "原消息不可用，取消回复后可发送新消息。",
@@ -427,12 +435,11 @@ export default {
     "mentionAll": "所有人",
     "mentionMembers": "@ 提及成员",
     "mentionNoMatch": "没有匹配的成员",
-    "placeholder": "发送消息… 输入 / 唤起命令",
+    "placeholder": "发送消息…",
     "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
     "sendFailed": "发送失败：{{reason}}",
-    "slashCommands": "斜杠命令",
     "verb": {
       "task": "新任务"
     },
@@ -747,6 +754,8 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "unknown": "状态待确认",
+      "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
       "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",

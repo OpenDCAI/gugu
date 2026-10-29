@@ -312,6 +312,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
         settlements.set(itemId, { ...settlement, state: 'cancelled', resolvedAt: 3 });
       }
     },
+    syncTerminals: () => {},
     syncLiveReply: () => undefined,
     syncQueuedPrompts: (prompts) => {
       queuedPrompts = prompts.map(({ id, text }) => ({ id, text }));

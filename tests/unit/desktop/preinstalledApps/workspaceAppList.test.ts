@@ -49,7 +49,7 @@ const row = (id: string) => document.querySelector(`[data-id="${id}"]`) as HTMLE
 const kind = (name: string) => $('kinds').querySelector<HTMLButtonElement>(`[data-kind="${name}"]`)!
 const radios = () => [...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
 const item = (text: string) => [...$('menu').querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!
-const openMenu = (id: string) => row(id).querySelector<HTMLButtonElement>('.row-more')!.click()
+const openMenu = (id: string) => row(id).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
 const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 const banner = () => [$('banner'), $('list-banner')].filter((node) => !node.hidden).map((node) => node.textContent).join('')
 
@@ -111,16 +111,13 @@ describe('kinds and order', () => {
 
 describe('a row: its suffix, its size, how long its cloud copy has left, the machine it stays on', () => {
   test('the line says who, when and how big; the mark its suffix', () => {
-    expect([...row('spec').querySelector('.file-meta')!.children].map((c) => c.textContent)).toEqual(['张三', expect.stringMatching(/\d\d:\d\d/), '1.1 MB'])
+    expect([...row('spec').querySelector('.file-meta')!.children].map((c) => c.textContent)).toEqual([expect.stringMatching(/\d\d:\d\d/), '1.1 MB'])
     expect(row('spec').querySelector('.file-mark')!.textContent).toBe('PDF')
     expect(row('pack').querySelector('.file-mark')!.textContent).toBe('ZIP')
   })
 
   test('a copy kept for a while says how long, faintly; under a day it says hours; the day it goes on hover', () => {
-    const spec = row('spec').querySelector<HTMLElement>('.file-keep')!
-    expect(spec.textContent).toBe('临时 · 7 天')
-    expect(spec.title).toMatch(/清除云端副本$/)
-    expect(spec.hasAttribute('data-soon')).toBe(false)
+    expect(row('spec').querySelector('.file-keep'), 'more than three days: Details keeps the full retention').toBe(null)
     const clip = row('clip').querySelector<HTMLElement>('.file-keep')!
     expect(clip.textContent).toBe('临时 · 5 小时')
     expect(clip.hasAttribute('data-soon')).toBe(true)
@@ -129,7 +126,8 @@ describe('a row: its suffix, its size, how long its cloud copy has left, the mac
 
   test('a project file that stays on its machine names the machine; the rest on hover', () => {
     const host = row('shot').querySelector<HTMLElement>('.file-host')!
-    expect(host.textContent).toBe('R server')
+    expect(host.textContent).toBe('')
+    expect(host.querySelector('gugu-icon')?.getAttribute('name')).toBe('server')
     expect(host.title).toContain('R server')
   })
 })
@@ -137,8 +135,8 @@ describe('a row: its suffix, its size, how long its cloud copy has left, the mac
 describe('「设为临时 / 一直保留」 in the ⋯', () => {
   test('my upload: both ways offered, the current one ticked; choosing one keeps it so and reads the list again', async () => {
     openMenu('spec')
+    item('保留方式 ›').click()
     expect(radios().map((r) => [r.textContent, r.getAttribute('aria-checked'), r.disabled])).toEqual([['临时', 'true', false], ['一直保留', 'false', false]])
-    expect(item('在聊天中定位')).toBeTruthy()
     const reads = gugu.files.list.mock.calls.length
     item('一直保留').click()
     await until('the list read again', () => gugu.files.list.mock.calls.length > reads)
@@ -147,10 +145,12 @@ describe('「设为临时 / 一直保留」 in the ⋯', () => {
 
   test('someone else\'s upload, or a file that stays on its machine: shown, not choosable, why on hover', () => {
     openMenu('clip')
+    item('保留方式 ›').click()
     expect(radios().map((r) => r.disabled)).toEqual([true, true])
     expect(radios()[0]!.title).toBe('只有上传这份文件的人能改它保留多久。')
     pressEscape()
     openMenu('shot')
+    item('保留方式 ›').click()
     expect(radios().map((r) => [r.getAttribute('aria-checked'), r.disabled])).toEqual([['false', true], ['false', true]])
     expect(radios()[0]!.title).toContain('R server')
     pressEscape()
@@ -162,6 +162,7 @@ describe('「设为临时 / 一直保留」 in the ⋯', () => {
   test('a refusal is said on the list', async () => {
     gugu.files.keep.mockRejectedValueOnce(Object.assign(new Error('Only the person who uploaded a file can change how long it is kept'), { code: 'denied' }))
     openMenu('pack')
+    item('保留方式 ›').click()
     item('临时').click()
     await until('the refusal said', () => banner(), (said) => said === '只有上传这份文件的人能改它保留多久。')
   })
@@ -182,6 +183,7 @@ describe('a file that arrives while the folder is open', () => {
     await new Promise((done) => setTimeout(done, 900))
     expect(gugu.files.list.mock.calls.length, 'two changes, one read').toBe(reads + 1)
     openMenu('late')
+    item('保留方式 ›').click()
     expect(radios().map((r) => r.disabled)).toEqual([true, true])
     pressEscape()
   })

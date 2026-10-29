@@ -134,7 +134,7 @@ describe('filters', () => {
 
 describe('details', () => {
   test('⋯ › 详情: the file in full, where it is kept and until when, its versions; Escape closes it', async () => {
-    row('spec').querySelector<HTMLButtonElement>('.row-more')!.click()
+    row('spec').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
     item('详情').click()
     expect($('details').hidden).toBe(false)
     expect($('details').querySelector('.details-title')!.textContent).toBe('spec.pdf')
@@ -152,7 +152,7 @@ describe('details', () => {
   })
 
   test('a file kept on a machine says which, and whether it is on', () => {
-    row('ckpt').querySelector<HTMLButtonElement>('.row-more')!.click()
+    row('ckpt').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
     item('详情').click()
     expect(facts()['存放']).toBe('GF server · 离线')
     expect(facts()['保留']).toBe('没有云端副本')
@@ -176,8 +176,9 @@ describe('a machine that is off', () => {
 describe('the table (a wide pane)', () => {
   test('its head names the columns; the sortable ones sort the list', () => {
     const head = $('file-list').querySelector('.table-head')!
-    expect([...head.children].map((c) => c.textContent)).toEqual(['名称', '上传者', '修改时间', '大小'])
-    expect([...row('spec').querySelectorAll<HTMLElement>('.file-cell')].map((c) => c.dataset.cell)).toEqual(['who', 'when', 'size'])
+    expect([...head.querySelectorAll('[data-cell]')].map((c) => c.textContent)).toEqual(['名称', '修改时间', '大小'])
+    expect(head.querySelector('[role="checkbox"]')?.getAttribute('aria-label')).toBe('全选')
+    expect([...row('spec').querySelectorAll<HTMLElement>('.file-cell')].map((c) => c.dataset.cell)).toEqual(['when', 'size'])
     head.querySelector<HTMLButtonElement>('[data-cell="size"]')!.click()
     expect(ids()).toEqual(['ckpt', 'spec', 'clip', 'poster', 'shot'])
     $('file-list').querySelector<HTMLButtonElement>('.table-head [data-cell="when"]')!.click()

@@ -1,6 +1,7 @@
 import { acpRuntimeApiContract } from '@gugu/session-core/acp';
 import { createController, type EventStreamHost } from '@gugu/session-wire';
 import type { AcpRuntime } from '../runtime/runtime';
+import type { createHostPromptPreparation } from '../session/host-prompt-preparation';
 import { createAcpProcedures } from './procedures';
 
 /**
@@ -14,16 +15,24 @@ export function createAcpRuntimeController(
   runtime: AcpRuntime,
   platformSessionClosed: EventStreamHost<typeof acpRuntimeApiContract.platformSessionClosed>,
   turnCommitted: EventStreamHost<typeof acpRuntimeApiContract.turnCommitted>,
-  promptSteered: EventStreamHost<typeof acpRuntimeApiContract.promptSteered>
+  promptSteered: EventStreamHost<typeof acpRuntimeApiContract.promptSteered>,
+  preparation: {
+    requested: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationRequested>;
+    settled: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationSettled>;
+    bridge: ReturnType<typeof createHostPromptPreparation>;
+  }
 ) {
   const procedures = createAcpProcedures(runtime);
   return createController(acpRuntimeApiContract, {
     ...procedures,
     sessions: runtime.sessionsLiveHost(),
     session: runtime.sessionLiveHost(),
-    terminalOutput: (key) => runtime.terminalOutputLog(key.terminalId),
     platformSessionClosed,
     turnCommitted,
     promptSteered,
+    nativePromptPreparationRequested: preparation.requested,
+    nativePromptPreparationSettled: preparation.settled,
+    enableNativePromptPreparation: () => preparation.bridge.enable(),
+    resolveNativePromptPreparation: (input) => preparation.bridge.resolve(input),
   });
 }

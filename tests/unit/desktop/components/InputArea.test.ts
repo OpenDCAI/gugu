@@ -11,6 +11,8 @@ import { ContactsContext } from '../../../../apps/desktop/src/store/contactsCont
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { readComposer, writeComposer, selectComposer } from '../../../support/composerEditor'
 import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/mention'
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
 }))
@@ -50,6 +52,38 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('ChatMessageComposer', () => {
+  it.each([[true, 'native-range', false], [true, undefined, true], [false, undefined, true]] as const)('preserves native selection focus for automatic quotes (phone=%s, token=%s)', async (mobile, selectionId, focus) => {
+    mobileShellState.enabled = mobile
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(ChatMessageComposer, { onSend })) })
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0 })
+    const source = document.createTextNode('Beta')
+    document.body.append(source)
+    const range = document.createRange(); range.selectNodeContents(source)
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
+    await act(async () => { root.render(createElement(ChatMessageComposer, { onSend,
+      quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta', originalContent: 'Alpha Beta', selectionId, source: message({ id: 'source-1' }) },
+    })) })
+    const editor = container.querySelector('[contenteditable]')!
+    expect(document.activeElement === editor).toBe(focus)
+    if (!focus) expect(window.getSelection()?.toString()).toBe('Beta')
+    source.remove()
+  })
+
+  it.each([false, true])('sends a selected excerpt in the existing quote format while preserving its message ID (phone=%s)', async mobile => {
+    mobileShellState.enabled = mobile
+    const onSend = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(ChatMessageComposer, {
+        onSend,
+        quoteContent: { messageId: 'source-1', senderName: 'Ada', content: 'Beta paragraph\n\nFirst item', originalContent: 'Alpha paragraph\n\nBeta paragraph\n\nFirst item', source: message({ id: 'source-1' }) },
+      }))
+    })
+    await flush()
+    await typeInComposer('Please explain this part.')
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith('> [Ada]: Beta paragraph\n> \n> First item\n\nPlease explain this part.', expect.objectContaining({ replyToMessageId: 'source-1' }))
+  })
   it('keeps touch Enter for a new line and sends only through the visible control', async () => {
     mobileShellState.enabled = true
     const onSend = vi.fn<(content: string) => Promise<void>>(async () => {})
@@ -79,11 +113,11 @@ describe('ChatMessageComposer', () => {
     await act(async () => {
       writeComposer(textarea, '用户草稿 /clear')
     })
-    expect(textarea.getAttribute('data-placeholder')).toBe('发送消息… 输入 / 唤起命令')
+    expect(textarea.getAttribute('data-placeholder')).toBe('发送消息…')
     await act(async () => {
       setLocalePreference('en-US')
     })
-    expect(textarea.getAttribute('data-placeholder')).toBe('Write a message… Type / for commands')
+    expect(textarea.getAttribute('data-placeholder')).toBe('Write a message…')
     expect(readComposer(textarea)).toBe('用户草稿 /clear')
     expect(container.querySelector('button[aria-label="Send message"]')).not.toBeNull()
   })

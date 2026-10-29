@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AssistantDevicesPage } from '../../../apps/desktop/src/components/devices/AssistantDevicesPage'
 import { createReactHarness, clickElement, renderWithAppProviders } from '../../support/testHarness'
+import { useAssistantPanelPage } from '../../../apps/desktop/src/lib/assistantPanelPage'
 
 const state = vi.hoisted(() => ({ phones: [] as unknown[], devices: [] as unknown[], kind: 'capacitor' }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return state.kind }, capabilities: {} } }))
@@ -15,6 +16,20 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness(); state.phones = []; state.devices = []; state.kind = 'capacitor' })
 afterEach(() => harness.cleanup())
 const find = (id: string) => harness.container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
+
+it('returns from local phone permissions using the assistant toolbar without another back link', async () => {
+  const toolbar = createReactHarness()
+  function Toolbar() { const page = useAssistantPanelPage(); return page ? <button onClick={page.back}>Back</button> : null }
+  try {
+    await toolbar.render(<Toolbar />)
+    await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} panelNavigation />)
+    await clickElement(find('assistant-device-this-phone')!)
+    expect(find('local-phone-permissions')).not.toBeNull()
+    expect(find('assistant-devices-back')).toBeNull()
+    await clickElement(toolbar.container.querySelector('button')!)
+    expect(find('assistant-device-this-phone')).not.toBeNull()
+  } finally { toolbar.cleanup() }
+})
 
 it('opens phone permissions before this phone has registered a device row', async () => {
   await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} />)

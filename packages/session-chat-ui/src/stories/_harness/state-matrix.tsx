@@ -210,7 +210,8 @@ export function ToolNodeStateMatrix(props: ToolNodeStateMatrixProps) {
         } as ToolNode;
         const permission = matrixRow.awaitingPermission ? permissionFor(matrixItem) : null;
         state.session.setPermissions(permission ? [permission] : []);
-        state.session.setPlan(props.plan?.(matrixRow) ?? null);
+        const plan = props.plan?.(matrixRow);
+        state.session.setPlan(plan ? { [plan.id]: plan } : null);
         state.transcript.history.seed([
           {
             id: matrixTurnId(matrixRow.label),

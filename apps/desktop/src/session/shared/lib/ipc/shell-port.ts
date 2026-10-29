@@ -67,7 +67,7 @@ export interface SessionShellAgentName {
  */
 export interface SessionShellPeer {
   sessionId: string
-  identity: { users: { id: string; display_name: string; gugu_number: number | null } }
+  identity: { users: { id: string; display_name: string; gugu_number: number | null; session_archived_at?: string | null } }
   engine: string
 }
 

@@ -145,6 +145,8 @@ export default {
     "stillStarting": "{{name}} is still starting on this computer. Try again in a moment.",
     "failed": "Setting up didn't work. Please try again.",
     "retry": "Try again",
+    "ended": "The previous setup has ended. You can start a new one.",
+    "startNew": "Start a new setup",
     "resuming": "The last setup didn't finish; continuing with {{name}}…",
     "connectTitle": "Connect a few apps",
     "connectBody": "Once connected, {{name}} can read your calendar and send messages for you. You can also do it later under Connected apps.",

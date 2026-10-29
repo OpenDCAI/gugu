@@ -13,7 +13,7 @@ const editor = () => page.getByTestId('chat-composer')
 const picker = () => document.querySelector('[data-slot="composer-menu"][role="listbox"]')
 const text = () => editor().element().textContent
 
-describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) => {
+describe.each([1100, 390])('IM composer has no slash commands at viewport width %i', (width) => {
   beforeEach(async () => {
     setLocalePreference('en-US')
     onSend.mockClear()
@@ -48,11 +48,10 @@ describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) 
     }
   })
 
-  it('does not clear a draft when Enter has not selected a command', async () => {
+  it('opens no command menu for a slash and still sends the draft on Enter', async () => {
     await userEvent.keyboard('Keep this draft /')
-    await until('commands are shown', () => picker() !== null)
-    expect(picker()?.textContent).toContain('/clear')
-    expect(picker()?.querySelector('[aria-selected="true"]')).toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(picker()).toBeNull()
     await userEvent.keyboard('{Enter}')
     if (width > 720) {
       await until('ordinary Enter sends the draft', () => onSend.mock.calls.length === 1)
@@ -76,15 +75,5 @@ describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) 
       expect(editor().element().querySelector('br')).not.toBeNull()
       expect(onSend).not.toHaveBeenCalled()
     }
-  })
-
-  it('still executes a command after an explicit keyboard selection', async () => {
-    await userEvent.keyboard('Clear this only on purpose /')
-    await until('commands are shown', () => picker() !== null)
-    await userEvent.keyboard('{ArrowDown}')
-    await until('clear is selected', () => picker()?.querySelector('[aria-selected="true"]')?.textContent?.includes('/clear') === true)
-    await userEvent.keyboard('{Enter}')
-    await until('explicit clear empties the editor', () => text() === '')
-    expect(onSend).not.toHaveBeenCalled()
   })
 })
