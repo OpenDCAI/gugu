@@ -15,7 +15,7 @@ const current = '0.2.58-beta.1056.1'
 const target = '0.2.58-beta.1057.1'
 function server(update: Device['capabilities']['server_update'] = { state: 'ready', version: target }, version = current): Device {
   return { device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online', is_online: true,
-    last_seen_at: '2026-10-29T00:00:00Z', capabilities: { terminals: [], runtimes: [], host_kind: 'server', server_confirmed_restart: true, app_version: version, server_update: update } }
+    last_seen_at: '2026-10-29T00:00:00Z', capabilities: { terminals: [], runtimes: [], host_kind: 'server', server_confirmed_restart: true, app_version: version, server_update: { scope: 'account', ...update } } }
 }
 let container: HTMLDivElement
 let root: Root
@@ -57,6 +57,14 @@ describe('confirmed server update feedback', () => {
     await render(legacy)
     expect(node('update-now')).toBeNull()
     expect(retry).not.toHaveBeenCalled()
+  })
+
+  it('never offers an account restart for a supervisor update or an unknown update owner', async () => {
+    await render(server({ state: 'ready', version: target, scope: 'supervisor' }))
+    expect(node('update-now')).toBeNull()
+    await render(server({ state: 'ready', version: target, scope: undefined }))
+    expect(node('update-now')).toBeNull()
+    expect(restart).not.toHaveBeenCalled()
   })
 
   it('confirms once, keeps Restarting after the RPC ack, and finishes on the new version heartbeat', async () => {

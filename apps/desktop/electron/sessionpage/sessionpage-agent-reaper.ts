@@ -310,7 +310,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       await forgetDeadProjects(projectIds)
       console.log(`[sessionpage-reap] archived group ${chatId} (session-page project ${projects} is gone)`)
     } catch (err) {
-      deps.onFailure?.('group-reconcile', chatId, err)
+      deps.onFailure?.('group-reconcile', '', err)
       failures.push(`archive group ${chatId}: ${(err as Error).message}`)
     }
   }

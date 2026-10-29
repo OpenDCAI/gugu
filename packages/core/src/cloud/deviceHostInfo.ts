@@ -215,8 +215,9 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const accountText = accountDir ? readText(join(accountDir, SERVER_UPDATE_STATE_FILE)) : null
     const text = readText(join(home, 'data', SERVER_UPDATE_STATE_FILE))
     const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
-    const update = (accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null) ?? (text ? parseServerUpdateState(text, nowMs) : null)
-    if (update) info.server_update = update
+    const accountUpdate = accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null
+    const update = accountUpdate ?? (text ? parseServerUpdateState(text, nowMs) : null)
+    if (update) info.server_update = { ...update, scope: accountUpdate ? 'account' : 'supervisor' }
     try {
       const health = JSON.parse(readText(join(home, 'data', SUPERVISOR_HEALTH_FILE)) ?? '{}') as { confirmedRestart?: unknown; at?: unknown }
       if (health.confirmedRestart === true && typeof health.at === 'number' && nowMs - health.at >= 0 && nowMs - health.at < SERVER_ACTIVITY_STALE_MS) {

@@ -31,7 +31,7 @@ import {
   VERSION_RETRY_RPC,
   type DesktopHello,
 } from '@gugu/core/cloud/serverDesktopVersions';
-import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
+import { LEGACY_VERSION_RETRY_RPC, MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth';
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL, SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '@shared/core/agents/platform-model';
 import { SESSIONPAGE_SESSION_RELOAD_CHANNEL } from '@shared/core/agents/session-reload';
 import { SESSION_SHELL_CHANNELS } from '@shared/lib/ipc/shell-port';
@@ -317,6 +317,10 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
         : { error: { code: 'invalid_payload', message: 'A confirmed target version is required' } };
     },
     [VERSION_RETRY_RPC]: () =>
+      requestVersionRetry(process.env)
+        ? { result: { requested: true } }
+        : { error: { code: 'unavailable', message: 'not a gugu server' } },
+    [LEGACY_VERSION_RETRY_RPC]: () =>
       requestVersionRetry(process.env)
         ? { result: { requested: true } }
         : { error: { code: 'unavailable', message: 'not a gugu server' } },

@@ -145,6 +145,8 @@ export function formatBytes(bytes: number): string {
 /** #6264 设备行点「重试」换到匹配版本的那条设备调用(界面也要用,所以放在不碰文件系统的这里)。 */
 // A distinct verb cannot be interpreted by an older server as an unconfirmed busy override.
 export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
+/** Older clients use this verb. New servers treat it as idle-only, never as confirmation. */
+export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
 export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
 
 /**

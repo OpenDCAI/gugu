@@ -70,7 +70,8 @@ export function createServerVersionLifecycle(options: {
       const pin = readAccountVersionPin(account.dataDir)
       if (pin) { keep.add(pin.version); if (pin.previous) keep.add(pin.previous) }
     }
-    return pruneVersions(layout.versions, keep)
+    // install.sh publishes this lease BEFORE its target directory becomes visible. Recheck at deletion.
+    return pruneVersions(layout.versions, keep, version => fs.existsSync(path.join(layout.versions, '.prepared', version)))
   }
   return {
     hold(owner: string, version: string | null): void { if (version) held.set(owner, version); else held.delete(owner) },
@@ -87,6 +88,7 @@ export function createServerVersionLifecycle(options: {
     },
     switchAccount(data: string, version: string, previous: string | null, at: number): void {
       writeAccountVersionPin(data, { version, previous, at })
+      fs.rmSync(path.join(layout.versions, '.prepared', version), { force: true })
       touchVersion(layout.versions, version)
     },
     rollbackAccount(data: string, previous: string | null, at: number): void {
@@ -97,6 +99,7 @@ export function createServerVersionLifecycle(options: {
       if (!writeUpgradeMarker(layout.home, marker)) throw new Error('Cannot persist the upgrade rollback pointer')
       beforeSwitch()
       pointCurrent(layout.home, marker.toDir)
+      fs.rmSync(path.join(layout.versions, '.prepared', marker.to), { force: true })
     },
     reclaim,
   }

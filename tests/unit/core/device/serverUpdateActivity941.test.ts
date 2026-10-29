@@ -35,9 +35,9 @@ describe('server update activity reported by the account that is waiting', () =>
     const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_TASK_HOST_USER_DATA: '/srv/accounts/u/data' }
     const deps = { platform: () => 'linux', release: () => '6', arch: () => 'x64', uid: () => 1000, homedir: () => '/home/user', nowMs: () => now,
       readText: (path: string) => files[path] ?? null, statfs: () => ({ bavail: 10, blocks: 20, bsize: 4096 }) }
-    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ busy_agents: 2 })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ busy_agents: 2, scope: 'account' })
     delete files['/srv/accounts/u/data/server-update.json']
-    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: '0.2.58-beta.1057.1' })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: '0.2.58-beta.1057.1', scope: 'supervisor' })
   })
   it('reports fresh supervisor capability and the existing activity failure ledger', () => {
     const files: Record<string, string> = {

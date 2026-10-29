@@ -243,12 +243,14 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       // 与账号换版同一把尺(`-beta.N` 也比):0.2.51-beta.46.1 → 0.2.51-beta.48.1 是升级,只比主版本会当成同一版。
       if (compareServerVersions(manifest.version, layout.version) <= 0) {
         waitingWith = null
+        deps.lifecycle?.hold('supervisor-update', null)
         return void state.clear()
       }
       // #6264 这个版本在这台机器上起不来过(看门狗退回来的):不再自动升到它,等下一个版本。
       if (readBadVersions(layout.home)[manifest.version] !== undefined) {
         log.info('这个版本上次在这台机器上没站稳,跳过', { version: manifest.version })
         waitingWith = null
+        deps.lifecycle?.hold('supervisor-update', null)
         return void state.clear()
       }
       if (!fs.existsSync(path.join(layout.versions, manifest.version, 'bin', 'gugu-server'))) {
@@ -287,7 +289,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       log.warn('检查/下载新版本失败,下次再试', { error: error instanceof Error ? error.message : String(error) })
       // 在等空闲时取清单失败(断网一下):照旧等,下一轮再取;❌ 一次失败就把等待丢到半小时以后。
       if (waitingWith !== null) retryWhenIdle(waitingWith)
-      else state.clear()
+      else { state.clear(); deps.lifecycle?.hold('supervisor-update', null) }
     } finally {
       ticking = false
     }
@@ -305,6 +307,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
   timer.unref()
   return () => {
     stopped = true
+    deps.lifecycle?.hold('supervisor-update', null)
     clearTimeout(first)
     clearInterval(timer)
     if (retry !== null) clearTimeout(retry)

@@ -242,8 +242,10 @@ export function bypassStartMs(
  * 正在跑的会话的区间收掉。返回收掉的条数。
  */
 export function closeInterruptedRunIntervals(): number {
-  const rows = db.selectDistinct({ sessionId: sessionRunIntervals.sessionId }).from(sessionRunIntervals)
-    .where(isNull(sessionRunIntervals.endedAt)).all();
+  // Enumeration belongs to this optional recovery sweep, not database initialisation.
+  const rows = sessionBootTasks.runSync('run-interval-inventory', '', () =>
+    db.selectDistinct({ sessionId: sessionRunIntervals.sessionId }).from(sessionRunIntervals)
+      .where(isNull(sessionRunIntervals.endedAt)).all()) ?? [];
   let closed = 0;
   for (const { sessionId } of rows) {
     closed += sessionBootTasks.runSync('run-interval-recovery', sessionId, () => db.update(sessionRunIntervals)

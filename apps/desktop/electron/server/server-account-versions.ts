@@ -128,7 +128,7 @@ export function versionsToKeep(input: {
 }
 
 /** 按 versionsToKeep 清掉多出来的版本;返回删了哪些。 */
-export function pruneVersions(versionsDir: string, inUse: Iterable<string>): string[] {
+export function pruneVersions(versionsDir: string, inUse: Iterable<string>, protectedNow: (version: string) => boolean = () => false): string[] {
   let names: string[]
   try {
     names = fs.readdirSync(versionsDir)
@@ -145,7 +145,7 @@ export function pruneVersions(versionsDir: string, inUse: Iterable<string>): str
   const keep = versionsToKeep({ installed, inUse })
   const removed: string[] = []
   for (const { name } of installed) {
-    if (name.startsWith('.') || keep.has(name)) continue
+    if (name.startsWith('.') || keep.has(name) || protectedNow(name)) continue
     fs.rmSync(path.join(versionsDir, name), { recursive: true, force: true })
     removed.push(name)
   }

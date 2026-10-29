@@ -547,6 +547,7 @@ describe('reclamation uses explicit ownership only', () => {
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     // --keep-current:只装不切。
     install('0.1.0', ['--keep-current'])
+    expect(fs.existsSync(path.join(serverHome, 'versions', '.prepared', '0.1.0'))).toBe(true)
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     expect(fs.existsSync(path.join(serverHome, 'versions', '0.1.0', 'bin', 'gugu-server'))).toBe(true)
     fs.rmSync(dir, { recursive: true, force: true })

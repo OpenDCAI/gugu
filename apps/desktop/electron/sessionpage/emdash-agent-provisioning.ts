@@ -1740,7 +1740,7 @@ export async function registerExistingSessionpageAgents(
     }
     registerOfflineOwner()
     }
-    if (options.bootTasks) options.bootTasks.runSync('roster-rehydrate', cacheString(agent.cache, SESSION_CACHE_KEY) || agent.gugu_user_id, register)
+    if (options.bootTasks) options.bootTasks.runSync('roster-rehydrate', cacheString(agent.cache, SESSION_CACHE_KEY) || '', register)
     else { try { register() } catch { incomplete.push(agent.gugu_user_id) } }
   }
   if (incomplete.length) throw new Error(`session-page capability cache is incomplete or invalid for agent record(s): ${incomplete.join(', ')}`)
@@ -1777,7 +1777,7 @@ export async function unregisterForeignSessionpageAgents(
       unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
       released++
     }
-    if (bootTasks) bootTasks.runSync('roster-release', cacheString(agent.cache, SESSION_CACHE_KEY) || agent.gugu_user_id, release)
+    if (bootTasks) bootTasks.runSync('roster-release', cacheString(agent.cache, SESSION_CACHE_KEY) || '', release)
     else release()
   }
   return released

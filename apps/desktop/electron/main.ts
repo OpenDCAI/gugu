@@ -3689,12 +3689,12 @@ async function cloudComputerClient() {
  * S2b 读者触发装配:四个触发(nudge 在 device runtime 里;这里接②回合结束/③唤醒完成/④开机扫)
  * 都收敛到同一个 core 读者入口。deps 每次现装(token 会轮换);没登录就不拉(loud debug,不静默)。
  */
-function kickInboxForAgent(agentUserId: string, trigger: string): void {
+function kickInboxForAgent(agentUserId: string, trigger: string, bootTaskId = ''): void {
   // #7225 不等它的一脚:拿不到登录态(含续期被拒的 RuntimeAuthExpiredError)由 kickInboxWhenAuthed 记一行收掉。
   void kickInboxWhenAuthed({
     agentUserId,
     trigger,
-    onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', agentUserId, error) : undefined,
+    onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', bootTaskId, error) : undefined,
     getAuth: () => authProvider?.getAuth(),
     log: createLogger('agent-inbox'),
     kick: (auth) => {
@@ -6123,7 +6123,8 @@ app.whenReady().then(async () => {
         // #4277 只扫当前账号(与老行)的 agent —— 别家的行这个账号拉不到,只会扫出一行 400。
         const roster = agentsForOwner(await listAgents(process.env), await bootOwnerWithin(60_000))
         for (const agent of roster) {
-          if (agent.gugu_user_id) emdash.sessionBootTasks.runSync('inbox-wake', agent.gugu_user_id, () => kickInboxForAgent(agent.gugu_user_id, 'boot-scan'))
+          const taskId = cacheString(agent.cache, SESSION_CACHE_KEY) ?? ''
+          if (agent.gugu_user_id) emdash.sessionBootTasks.runSync('inbox-wake', taskId, () => kickInboxForAgent(agent.gugu_user_id, 'boot-scan', taskId))
         }
       })
       .catch((err) => createLogger('agent-inbox').warn({ err: (err as Error).message }, 'boot scan skipped'))
@@ -6420,7 +6421,7 @@ app.whenReady().then(async () => {
         writeFileSync(activityFile, JSON.stringify({
           busy: activity?.busy ?? false,
           busyAgents: activity?.busyAgents,
-          bootFailures: loadEmdashBridge()?.sessionBootTasks.snapshot(),
+          bootFailures: loadEmdashBridge()?.sessionpageBootFailures(),
           at: Date.now(),
           version: process.env.GUGU_TASK_HOST_VERSION ?? null,
           pid: process.pid,

@@ -110,6 +110,12 @@ else
 fi
 
 TARGET="$SERVER_HOME/versions/$VERSION"
+# Hand the prepared target to the supervisor's one lifecycle owner. The lease precedes publication,
+# including --keep-current's gap before a desktop reports/adopts this version.
+if [ "$KEEP_CURRENT" = 1 ]; then
+  mkdir -p "$SERVER_HOME/versions/.prepared"
+  : > "$SERVER_HOME/versions/.prepared/$VERSION"
+fi
 # 切换前在用的那个版本:留着(它可能正在跑,也是回退的去处)。
 PREV="$(readlink "$SERVER_HOME/current" 2>/dev/null | sed 's#^versions/##')"
 # Bootstrap stages packages only. The running supervisor owns all reclamation and rollback pointers.
@@ -149,7 +155,7 @@ else
   rm -rf "$TARGET"
   mv "$INNER" "$TARGET"
 fi
-# 「最近用过的 5 份」按目录时刻排:刚装 / 刚用上的这一版算最新(tar 解出来的目录时刻是打包时的)。
+# Retain the existing timestamp fact; reclamation is owned by the supervisor.
 touch "$TARGET"
 
 # 切换 current:先建临时软链,再改名覆盖。

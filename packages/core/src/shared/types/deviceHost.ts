@@ -41,6 +41,8 @@ export interface DeviceServerRollback {
  * downloading = 后台正在下新版本;ready = 新版本已下好,等这台机器上没有 agent 在干活时切过去。
  */
 export interface DeviceServerUpdate {
+  /** Only an account update can be restarted by that account's confirmed RPC. Missing on old hosts. */
+  scope?: 'account' | 'supervisor'
   /** failed:#6264 换成和桌面匹配的那一版没成(下载 / 试跑失败、换过去起不来),设备行给「更新没成功 · 重试」。 */
   state: 'downloading' | 'ready' | 'failed'
   version: string

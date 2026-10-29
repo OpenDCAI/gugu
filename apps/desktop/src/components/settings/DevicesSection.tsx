@@ -477,7 +477,7 @@ function DeviceRow({
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
   const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
-  const canRestart = serverSupportsConfirmedRestart(device.capabilities)
+  const canRestart = serverSupportsConfirmedRestart(device.capabilities) && model.update?.scope === 'account'
   if ((updateNow === 'ask' && (!canRestart || model.update?.state !== 'ready'))
     || (restarting && (model.version === restarting.version
       || (model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)

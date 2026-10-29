@@ -45,6 +45,19 @@ describe('one supervisor version lifecycle', () => {
     expect(createServerVersionLifecycle({ layout: layout() }).reclaim()).toEqual([])
     expect(fs.readdirSync(path.join(home, 'versions'))).toHaveLength(5)
   })
+  it('protects an installer-prepared target until an account adopts it through the same owner', () => {
+    recordVerifiedSupervisorVersion(home, marker())
+    const lifecycle = createServerVersionLifecycle({ layout: layout() })
+    const prepared = path.join(home, 'versions', '.prepared', '4.0.0')
+    fs.mkdirSync(path.dirname(prepared)); fs.writeFileSync(prepared, '')
+    expect(lifecycle.reclaim()).not.toContain('4.0.0')
+    const data = path.join(home, 'accounts', userId, 'data')
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'fixture')
+    lifecycle.switchAccount(data, '4.0.0', '3.0.0', now)
+    expect(fs.existsSync(prepared)).toBe(false)
+    expect(lifecycle.reclaim()).not.toContain('4.0.0')
+  })
   it('persists rollback before switching; the watchdog establishes the verified previous fact', () => {
     const lifecycle = createServerVersionLifecycle({ layout: layout() })
     const next = { from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions', '3.0.0'), toDir: path.join(home, 'versions', '4.0.0'), switchedAt: now }
