@@ -10,12 +10,10 @@ import {
   deviceRowModel,
   filterDevices,
   hasOtherMachines,
-  type BoundAgentsState,
   type DeviceFilter,
   type DeviceRowModel,
 } from '../../lib/deviceRowModel'
 import { rendererLogger } from '../../lib/log'
-import { useSshMachines } from '../../hooks/useSshMachines'
 import { useSshSignInStates } from '../../hooks/useSshSignInStates'
 import { useSshLinkProblems, useSshMachineIds, useSshUpgrades } from '../../hooks/useSshLinkProblems'
 import { sshLinkFacts } from '../../lib/sshLinkOnline'
@@ -43,8 +41,7 @@ import { InlineAction } from './addServer/InlineAction'
 import { supersededBy } from '../../lib/deviceSuperseded'
 import { consumeAddServerIntent } from '../../lib/addServerIntent'
 import { consumeDeviceActionsIntent } from '../../lib/deviceActionsIntent'
-import { DeviceRemoveDialog } from './DeviceRemoveDialog'
-import { ServerUninstallDialog } from './ServerUninstallDialog'
+import { useDeviceRemoval } from './useDeviceRemoval'
 import { SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 import { DeviceActionsPage } from './DeviceActionsPage'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
@@ -74,10 +71,6 @@ const META_SEP = "before:inline-block before:w-4 before:text-center before:conte
 
 const DEVICE_LIST_CLASS = 'flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]'
 
-type DialogState =
-  | { kind: 'remove'; device: Device; removing: boolean; failed: string }
-  | { kind: 'uninstall'; device: Device }
-
 export function DevicesSection({
   onUpgrade,
   fileStorage = false,
@@ -89,7 +82,7 @@ export function DevicesSection({
 } = {}) {
   const { t } = useTranslation('settings')
   const { toast } = useToast()
-  const { devices: deviceRows, phones, loading, error, refresh, rename, remove, listBoundAgents, cloudComputer } = useDevicesStore()
+  const { devices: deviceRows, phones, loading, error, refresh, rename, cloudComputer } = useDevicesStore()
   const allDevices = useMemo(() => [...deviceRows, ...(phones ?? [])], [deviceRows, phones])
   // #7199 个人助理住的那台云端宿主不在这一页(owner 10-15:用户看不到它住在哪);开通、叫醒、关闭都在「助理」App 里。
   const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? null
@@ -97,11 +90,9 @@ export function DevicesSection({
   const devices = useMemo(() => machines.map(machine => machine.device), [machines])
   // A reinstall or a new data directory leaves the old row behind: the online row that may have replaced it (a hint only).
   const replaced = useMemo(() => supersededBy(devices), [devices])
-  const { addresses, forget } = useSshMachines()
+  const { addressOf, openRemove, openUninstall, openVersions, configurationActions, dialogs } = useDeviceRemoval(machines)
 
   const deviceRename = useDeviceRename()
-  const [dialog, setDialog] = useState<DialogState | null>(null)
-  const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
   const canAddServer = desktopIpc() !== null
   // 从会话页新建框的「添加一台机器」进来时,直接把「选一种装法」的菜单打开(远程隧道没开放时只有一种,直接展开它)。
   const [addMenuFromIntent] = useState(() => consumeAddServerIntent() && canAddServer)
@@ -125,7 +116,6 @@ export function DevicesSection({
   const [storageOpen, setStorageOpen] = useState(fileStorage)
   const thisDevice = machines.find(machine => machine.current)?.configurations.find(device => device.is_current_device) ?? null
 
-  const addressOf = useCallback((deviceId: string) => addresses.get(deviceId) ?? null, [addresses])
   // 离线的 SSH 机器:问清是没开机 / 连不上,还是登录没了(照 VS Code Tunnels / Tailscale「Expired」)。
   const signIns = useSshSignInStates(devices, addressOf)
   // 远程 SSH 的机器:在线与否、要不要先登录,只看这台电脑到它的设备连接(与侧栏、顶上卡片同一个读数)。
@@ -148,81 +138,10 @@ export function DevicesSection({
     { value: 'offline' as const, label: t('devices.filter.offline', { n: devices.length - onlineCount }) },
   ], [t, devices.length, onlineCount])
 
-  const loadAgents = useCallback(async (device: Device) => {
-    setAgents({ agents: [], loading: true, cascadeChecked: false })
-    try {
-      const list = await listBoundAgents(device.device_id)
-      setAgents({ agents: list, loading: false, cascadeChecked: false })
-    } catch (err) {
-      // 列不出来 ⇒ 按「没有」走非级联移除:真有的话库会拦下(DEVICE_HAS_AGENTS),确认页报「没能移除」,
-      // ❌ 不会在没让人看过清单的情况下把智能体一起删掉。
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'list bound agents failed')
-      setAgents({ agents: [], loading: false, cascadeChecked: false })
-    }
-  }, [listBoundAgents])
-
-  const openRemove = useCallback((device: Device) => {
-    setDialog({ kind: 'remove', device, removing: false, failed: '' })
-    void loadAgents(device)
-  }, [loadAgents])
-
-  const openUninstall = useCallback((device: Device) => {
-    setDialog({ kind: 'uninstall', device })
-    void loadAgents(device)
-  }, [loadAgents])
-
-  /** 移除 = 这个账号不再用这台机器;用 SSH 装上的,这台电脑也不再记得怎么连过去。 */
-  const removeDevice = useCallback(async (device: Device): Promise<void> => {
-    try {
-      await remove(device.device_id, { cascade: agents.agents.length > 0 })
-      await forget(device.device_id)
-    } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'remove device failed')
-      throw err
-    }
-  }, [remove, forget, agents.agents.length])
-
-  const confirmRemove = useCallback(async () => {
-    if (dialog?.kind !== 'remove') return
-    const device = dialog.device
-    setDialog({ kind: 'remove', device, removing: true, failed: '' })
-    try { await removeDevice(device); setDialog(null) }
-    catch (error) { setDialog({ kind: 'remove', device, removing: false, failed: messageForUser(error) }) }
-  }, [dialog, removeDevice])
-
   const copyAddress = useCallback(async (address: string) => {
     try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
     catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
-
-  const managementDialogs = <>
-      {dialog?.kind === 'remove' && (
-        <DeviceRemoveDialog
-          device={dialog.device}
-          removesVersion={(deviceMachineFor(machines, dialog.device.device_id)?.configurations.length ?? 1) > 1}
-          model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
-          replacedBy={replaced.get(dialog.device.device_id) ?? null}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          removing={dialog.removing}
-          failed={dialog.failed}
-          onCancel={() => setDialog(null)}
-          onConfirm={() => void confirmRemove()}
-        />
-      )}
-
-      {dialog?.kind === 'uninstall' && (
-        <ServerUninstallDialog
-          device={dialog.device}
-          address={addressOf(dialog.device.device_id) ?? dialog.device.label}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          onRemove={() => removeDevice(dialog.device)}
-          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: '' })}
-          onClose={() => setDialog(null)}
-        />
-      )}
-  </>
 
   if (storageOpen) return <FileStorageSection onBack={() => setStorageOpen(false)} />
 
@@ -230,8 +149,8 @@ export function DevicesSection({
   const actionsDevice = actionsMachine?.device
   if (actionsDevice) {
     return <><DeviceActionsPage device={actionsDevice} configurations={actionsMachine?.configurations}
-      configurationActions={{ remove: openRemove, uninstall: openUninstall, canUninstall: device => !!addressOf(device.device_id) && device.capabilities.host_kind === 'server' }}
-      isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />{managementDialogs}</>
+      configurationActions={configurationActions}
+      isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />{dialogs}</>
   }
 
   const renderRow = (device: Device) => (
@@ -247,6 +166,7 @@ export function DevicesSection({
       onCancelRename={deviceRename.cancel}
       onCopyAddress={(address) => void copyAddress(address)}
       onRemove={() => openRemove(device)}
+      onRemoveVersions={() => openVersions(device)}
       replacedBy={replaced.get(device.device_id) ?? null}
       onUninstall={() => openUninstall(device)}
       onOpenActions={() => setActionsFor(device.device_id)}
@@ -353,7 +273,7 @@ export function DevicesSection({
         </div>
       )}
 
-      {managementDialogs}
+      {dialogs}
 
     </SettingsPage>
   )
@@ -512,6 +432,7 @@ function DeviceRow({
   onCancelRename,
   onCopyAddress,
   onRemove,
+  onRemoveVersions,
   replacedBy,
   onUninstall,
   onOpenActions,
@@ -533,6 +454,8 @@ function DeviceRow({
   onCancelRename: () => void
   onCopyAddress: (address: string) => void
   onRemove: () => void
+  /** ≥2 个版本时的「移除」:打开版本列表,逐个移除(当前这台除外)。 */
+  onRemoveVersions: () => void
   /** The online row this one may have been replaced by (lib/deviceSuperseded): said, with a way to remove it. */
   replacedBy: Device | null
   onUninstall: () => void
@@ -762,6 +685,14 @@ function DeviceRow({
                 <MenuItem data-testid="settings-device-copy-address" icon={<Copy size={16} />} onClick={() => onCopyAddress(sshAddress)}>
                   {t('devices.menu.copyAddress')}
                 </MenuItem>
+              )}
+              {configurationCount > 1 && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem danger data-testid="settings-device-remove-versions" icon={<Unplug size={16} />} onClick={onRemoveVersions}>
+                    {t('devices.menu.removeVersions')}
+                  </MenuItem>
+                </>
               )}
               {model.kind !== 'this' && configurationCount === 1 && (
                 <>

@@ -43,7 +43,7 @@ export const ALLOWED_FILES = [
   { re: /session-chat-ui\/src\/styles\/theme\.css\.ts$/, why: 'session-chat-ui 主题契约的明暗取值' },
   { re: /\/highlight\/bundled-themes\.ts$/, why: '代码高亮配色(shiki 主题),按主题成对给出' },
   { re: /\/components\/agentAvatar\//, why: 'agent 头像的绘制引擎与服饰调色板:身份色,不随主题变' },
-  { re: /\/BoringAgentAvatar\.tsx$/, why: '头像调色板:身份色' },
+  { re: /\/lib\/agentAvatarPalette\.ts$/, why: 'agent 默认头像(beam)的调色板:身份色,不随主题变' },
   { re: /\/notionistsBlend\.ts$/, why: '头像插画的混色' },
   { re: /\/sharePosterCanvas\.ts$/, why: '分享海报/二维码画在 canvas 上,导出的图必须固定黑白' },
   { re: /\/ChannelBrandIcon\.tsx$/, why: '微信 / 飞书 / 钉钉的品牌色' },
