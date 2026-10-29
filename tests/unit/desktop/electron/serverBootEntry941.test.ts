@@ -20,6 +20,7 @@ async function boot(fail: string, fatal = false) {
   const registered = vi.fn()
   const statusHooks: Array<(event: unknown) => void> = []
   const sessionHooks = new Map<string, (id: string) => void>()
+  const rows: Record<string, Array<{ id: string }>> = { sessions: [], projects: [] }
   const noop: unknown = new Proxy(function () { return noop }, {
     get(_target, key) {
       if (key === 'then') return undefined
@@ -31,6 +32,10 @@ async function boot(fail: string, fatal = false) {
   const fault = (operation: string) => () => { if (fail === operation) throw new Error(`refused ${operation}`) }
   const overrides: Record<string, Record<string, unknown>> = {
     './core/boot-tasks': { sessionBootTasks: tasks },
+    '@main/db/schema': { sessions: { name: 'sessions' }, projects: { name: 'projects' } },
+    '@main/db/client': { db: { select: () => ({ from: (table: { name: string }) => ({
+      where: () => ({ all: () => rows[table.name] }),
+    }) }) } },
     electron: { app: { getPath: () => home, isPackaged: true }, session: { defaultSession: { resolveProxy: () => 'DIRECT' } } },
     '@main/db/initialize': { initializeDatabase: async () => { if (fatal) throw new Error('database init failed') } },
     '../../migrations/task-to-session': { runTaskToSessionOnce: async () => null },
@@ -65,7 +70,7 @@ async function boot(fail: string, fatal = false) {
   runInNewContext(compiled.outputText, { require: load, module, exports: module.exports, process, console, Buffer, setTimeout, clearTimeout, setInterval, clearInterval, __dirname: path.dirname(entry) })
   try {
     await module.exports.bootSessionHostCore({ hostIpc: { ipcMain: {} }, browserFeatures: false, scheduleDiscovery: async () => {} })
-    return { tasks, registered, statusHooks, sessionHooks, failures: module.exports.sessionpageBootFailures() }
+    return { tasks, registered, statusHooks, sessionHooks, rows, readFailures: module.exports.sessionpageBootFailures, failures: module.exports.sessionpageBootFailures() }
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 }
 
@@ -93,5 +98,14 @@ describe('real session host boot entry', () => {
     result.tasks.record('outbox-drain', 'task', 'refused')
     for (const callback of result.statusHooks) callback({ sessionId: 'task', reading: { status: 'idle', detail: 'done' } })
     expect(result.tasks.snapshot()).toEqual([])
+  })
+  it('clears disappeared tasks without discarding a still-existing project recovery failure', async () => {
+    const result = await boot('')
+    result.tasks.record('outbox-drain', 'deleted-task', 'refused')
+    result.tasks.record('project-open', 'existing-project', 'project refused')
+    result.rows.projects.push({ id: 'existing-project' })
+    expect(result.readFailures()).toEqual([{ operation: 'project-open', taskId: 'existing-project', message: 'project refused' }])
+    result.rows.projects.length = 0
+    expect(result.readFailures()).toEqual([])
   })
 })

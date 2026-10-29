@@ -23,16 +23,18 @@ export class SessionBootTasks {
 
   snapshot(): SessionBootFailure[] { return [...this.failures.values()] }
 
+  clear(operation: string, taskId: string): void { this.failures.delete(`${operation}:${taskId}`) }
+
   clearTask(taskId: string): void {
     for (const [key, failure] of this.failures) if (failure.taskId === taskId) this.failures.delete(key)
   }
 
   runSync<T>(operation: string, taskId: string, work: () => T): T | undefined {
-    try { const result = work(); this.failures.delete(`${operation}:${taskId}`); return result } catch (error) { this.record(operation, taskId, error); return undefined }
+    try { const result = work(); this.clear(operation, taskId); return result } catch (error) { this.record(operation, taskId, error); return undefined }
   }
 
   async run<T>(operation: string, taskId: string, work: () => T | Promise<T>): Promise<T | undefined> {
-    try { const result = await work(); this.failures.delete(`${operation}:${taskId}`); return result } catch (error) { this.record(operation, taskId, error); return undefined }
+    try { const result = await work(); this.clear(operation, taskId); return result } catch (error) { this.record(operation, taskId, error); return undefined }
   }
 }
 

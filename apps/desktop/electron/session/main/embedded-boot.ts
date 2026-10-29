@@ -109,7 +109,7 @@ import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
 import { backupBeforeSessionNaming, runSessionNamingOnce } from '../../migrations/session-naming'
 import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
-import { sessions, workspaces as workspacesTable } from '@main/db/schema'
+import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
 import {
@@ -676,7 +676,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   installSessionsGoneFeed()
   onSessionsGone((scope) => {
     agentStatusWriter.forget(scope)
-    if ('sessionId' in scope) sessionBootTasks.clearTask(scope.sessionId)
+    sessionBootTasks.clearTask('sessionId' in scope ? scope.sessionId : scope.projectId)
   })
   agentStatusWriter.on('agent:status', ({ sessionId, reading }) => {
     if (reading.status === 'idle' && reading.detail === 'done') sessionBootTasks.clearTask(sessionId)
@@ -1850,7 +1850,7 @@ export async function openAllEmdashProjects(): Promise<void> {
       sessionBootTasks.record('project-open', project.id, result.reason)
     } else if (!result.value.success) {
       sessionBootTasks.record('project-open', project.id, result.value.error)
-    }
+    } else sessionBootTasks.clear('project-open', project.id)
   })
 }
 
@@ -2511,8 +2511,11 @@ export function sessionpageBootFailures() {
   const ids = failures.map(failure => failure.taskId).filter(Boolean)
   if (ids.length) {
     try {
-      const live = new Set(db.select({ id: sessions.id }).from(sessions)
-        .where(and(inArray(sessions.id, ids), isNull(sessions.archivedAt))).all().map(row => row.id))
+      const live = new Set([
+        ...db.select({ id: sessions.id }).from(sessions)
+          .where(and(inArray(sessions.id, ids), isNull(sessions.archivedAt))).all().map(row => row.id),
+        ...db.select({ id: projectsTable.id }).from(projectsTable).where(inArray(projectsTable.id, ids)).all().map(row => row.id),
+      ])
       for (const id of ids) if (!live.has(id)) sessionBootTasks.clearTask(id)
     } catch { /* A failed optional read retains bounded diagnostics, never blocks the heartbeat. */ }
   }
