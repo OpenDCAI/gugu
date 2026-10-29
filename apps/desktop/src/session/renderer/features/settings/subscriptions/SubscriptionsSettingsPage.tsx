@@ -173,11 +173,35 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
   );
 }
 
-/** 被拒(有会话正在工作)是平常事,用安静的字色说;真出错才红。 */
+/** 被拒(有会话正在工作)是平常事,用安静的字色说,旁边给一键「关掉并切换」;真出错才红。 */
 function SwitchNoticeLine({ notice }: { notice: SwitchNotice }) {
-  return notice.tone === 'gentle'
-    ? <p className="subscription-note" role="status">{notice.text}</p>
-    : <p className="subscription-error" role="alert">{notice.text}</p>;
+  const { translate } = useSessionMessages();
+  if (notice.tone !== 'gentle') return <p className="subscription-error" role="alert">{notice.text}</p>;
+  if (notice.progress !== undefined) {
+    const { closed, total } = notice.progress ?? { closed: 0, total: 0 };
+    return (
+      <div className="subscription-switch-progress" role="status">
+        <div className="subscription-quota-label">
+          <span>{notice.text}</span>
+          {total > 0 && <span data-testid="subscription-close-progress-count">{closed} / {total}</span>}
+        </div>
+        <div className="subscription-meter" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={closed}
+          data-testid="subscription-close-progress">
+          <i style={{ width: total > 0 ? `${(closed / total) * 100}%` : '0%' }} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="subscription-switch-refusal">
+      <p className="subscription-note" role="status">{notice.text}</p>
+      {notice.closeAndSwitch && (
+        <Button variant="outline" size="sm" data-testid="subscription-close-and-switch" onClick={notice.closeAndSwitch}>
+          {translate('subscriptions.connections.closeAndSwitch')}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function UsageBlock({
