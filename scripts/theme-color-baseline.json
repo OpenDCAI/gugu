@@ -6,61 +6,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/extensions/panel/app-store.css",
-    "count": 11
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/integrations/integration-setup-modal.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/mcp/components/mcp-session-panel-adapter.tsx",
-    "count": 3
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/projects/components/main-panel/project-folder-card.css",
-    "count": 6
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/projects/components/main-panel/project-folder-cover.tsx",
-    "count": 19
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-list-switch.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-session-title.css.ts",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/lib/components/app-icon.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/lib/ui/dialog.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/lib/ui/sheet.tsx",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "apps/desktop/src/session/renderer/lib/vendor/cua-cursor-motion/render.ts",
-    "count": 2
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "packages/session-ui/src/react/components/chat-composer/chat-composer.css.ts",
     "count": 1
   },
