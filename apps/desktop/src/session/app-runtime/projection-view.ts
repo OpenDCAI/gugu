@@ -1,4 +1,4 @@
-import type { ProjectionFrame, ProjectionInput } from '@shared/extensions/projection-protocol';
+import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, type ProjectionFrame, type ProjectionInput } from '@shared/extensions/projection-protocol';
 import { ProjectionInputNotSent } from './projection-input-queue';
 import { projectionClient } from './projection-client';
 import type { ProjectionHost } from './projection-source';
@@ -55,7 +55,7 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
       if (result.status === 'unknown') pause(new Error(result.reason));
       else options.error?.(new Error(result.reason));
     }, error => {
-      if (text && pendingText.has(text.id)) pendingText.set(text.id, { ...text, reason: String(error) });
+      if (text && pendingText.has(text.id)) pendingText.set(text.id, { ...text, state: error instanceof ProjectionInputNotSent ? 'not-sent' : 'unconfirmed', reason: error instanceof ProjectionInputNotSent ? PROJECTION_NOT_SENT : PROJECTION_UNCONFIRMED });
       if (error instanceof ProjectionInputNotSent) options.error?.(error);
       else pause(error);
     });

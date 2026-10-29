@@ -1,7 +1,8 @@
+import { log } from '@main/lib/logger';
 import { sessionEvents } from '../sessions/session-events';
 import { projectEvents } from '../projects/project-events';
 import { randomUUID } from 'node:crypto';
-import { projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
+import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
 import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
@@ -29,7 +30,7 @@ export class ExtensionProjectionBridge {
   private readonly epochs = new Map<number, number>();
   private readonly watches = new Map<string, string>();
 
-  constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string | undefined> = async () => undefined) {
+  constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string>) {
     this.resources = new ExtensionProjections(({ extensionId }) => authorize(extensionId));
   }
 
@@ -194,8 +195,10 @@ export class ExtensionProjectionBridge {
         return { status: 'applied' };
       } catch (error) {
         if ((args.packet as { type?: unknown })?.type !== 'input') throw error;
-        return { status: error instanceof ProjectionInputFailure && error.uncertain ? 'unknown' : 'rejected',
-          reason: error instanceof Error ? error.message : String(error) };
+        if (error instanceof ProjectionInputFailure && error.outcome) return error.outcome;
+        log.warn('Projection input failed', { error });
+        return error instanceof ProjectionInputFailure && error.uncertain
+          ? { status: 'unknown', reason: PROJECTION_UNCONFIRMED } : { status: 'rejected', reason: PROJECTION_NOT_SENT };
       }
     }
     throw new Error('Unknown projection call');
@@ -244,10 +247,8 @@ export const extensionProjections = new ExtensionProjectionBridge((id) => {
   service.get(id);
   if (!service.isEnabled(id) || !service.hasCapability(id, 'agents:tools')) throw new Error('App program access was revoked');
 }, async sessionId => {
-  const { agentSessionContext } = await import('./extension-agent-context');
-  const context = await agentSessionContext(sessionId);
-  if (!context) throw new Error('Projection task is no longer on this computer');
-  return context.projectId;
+  const { projectionTaskProject } = await import('./projection-task');
+  return projectionTaskProject(sessionId);
 });
 
 // These hooks run synchronously, before another input can be admitted; a round finishing is not a task ending.

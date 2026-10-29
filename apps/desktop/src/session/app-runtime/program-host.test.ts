@@ -60,7 +60,6 @@ describe('gugu in a program', () => {
     const api = gugu.projection as { create(driver: { input(): Promise<void>; disconnect(): Promise<void>; refresh(): void; close(): void }): Promise<{
       id: string; publish(frame: unknown): Promise<number>;
     }> };
-    let source: { id: string; publish(frame: unknown): Promise<number> };
     let published: Promise<number> | undefined;
     const created = programCall.run('projection-tool-call', () => api.create({ input: async () => {}, disconnect: async () => {},
       refresh: () => { published = source.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }); }, close() {},
@@ -68,7 +67,7 @@ describe('gugu in a program', () => {
     const creation = await nextCall(0);
     expect(creation).toMatchObject({ method: 'projectionCreate', call: 'projection-tool-call' });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: creation.id, ok: true, value: { id: 'projection-resource' } });
-    source = await created;
+    const source = await created;
     const before = sent.length;
     deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
     const publication = await nextCall(before);

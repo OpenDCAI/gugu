@@ -1,4 +1,4 @@
-import type { ProjectionInputOutcome, ProjectionViewerPacket } from '@shared/extensions/projection-protocol';
+import { PROJECTION_UNCONFIRMED, type ProjectionInputOutcome, type ProjectionViewerPacket } from '@shared/extensions/projection-protocol';
 type Packet = Extract<ProjectionViewerPacket, { type: 'input' }>;
 type Entry = { packet: Packet; sent?: () => void; promise: Promise<ProjectionInputOutcome>; resolve(value: ProjectionInputOutcome): void };
 export class ProjectionInputNotSent extends Error {}
@@ -44,7 +44,7 @@ export class ProjectionInputQueue {
           if (result.status === 'unknown') this.clear();
           entry.resolve(result);
         }
-        catch (error) { this.clear(); entry.resolve({ status: 'unknown', reason: error instanceof Error ? error.message : String(error) }); }
+        catch { this.clear(); entry.resolve({ status: 'unknown', reason: PROJECTION_UNCONFIRMED }); }
       }
     } finally { this.busy = false; }
   }

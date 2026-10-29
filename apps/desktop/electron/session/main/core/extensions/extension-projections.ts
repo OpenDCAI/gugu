@@ -19,7 +19,7 @@ export interface ProjectionSource {
 }
 
 export class ProjectionInputFailure extends Error {
-  constructor(message: string, readonly uncertain: boolean) { super(message); }
+  constructor(message: string, readonly uncertain: boolean, readonly outcome?: ProjectionInputOutcome) { super(message); }
 }
 
 type Resource = {
@@ -138,7 +138,7 @@ export class ExtensionProjections {
           resource.driver = viewer.generation;
           started = true;
           const outcome = await resource.source.input(packet.input, { frame, signal, viewer: viewer.generation });
-          if (outcome && outcome.status !== 'applied') throw new ProjectionInputFailure(outcome.reason, outcome.status === 'unknown');
+          if (outcome && outcome.status !== 'applied') throw new ProjectionInputFailure(outcome.reason, outcome.status === 'unknown', outcome);
           signal.throwIfAborted();
         }).finally(() => { resource.queued -= 1; });
         // One source's native input is ordered; a different source is never held behind it.

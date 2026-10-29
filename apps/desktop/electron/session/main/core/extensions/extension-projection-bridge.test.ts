@@ -18,7 +18,7 @@ const turn = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 afterEach(() => { revokeExtensionProgramAccess(owner.extensionId); vi.useRealTimers(); });
 
 function setup() {
-  const bridge = new ExtensionProjectionBridge(() => {});
+  const bridge = new ExtensionProjectionBridge(() => {}, async () => 'project-test');
   let sourceEvent: Parameters<NonNullable<ProjectionHost['onProjectionSource']>>[0] = noop;
   const sourceCaller = program(event => { if (event.type === 'projectionSource') sourceEvent(event.event); });
   const call = (verb: string, args: Record<string, unknown>) => bridge.call(sourceCaller, verb, args);
@@ -145,7 +145,7 @@ describe('App program → dedicated host resource → bound App page', () => {
     const second = send(b, 'b', 1, 'input');
     await turn();
     bridge.closePage(a.pageId);
-    await expect(first).resolves.toMatchObject({ status: 'unknown', reason: expect.stringMatching(/closed/i) });
+    await expect(first).resolves.toMatchObject({ status: 'unknown', reason: 'Input may have been applied. Check the target before trying again.' });
     expect(inputSignal!.aborted).toBe(true);
     expect(calls).toHaveLength(1);
     release();

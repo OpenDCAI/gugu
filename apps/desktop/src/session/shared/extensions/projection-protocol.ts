@@ -1,6 +1,8 @@
 /** Local preview feed and shared input semantics. Remote video uses the media track, never this bitmap feed. */
 export const PROJECTION_FRAME_BYTES = 512 * 1024;
 export const PROJECTION_TEXT_LENGTH = 64 * 1024;
+export const PROJECTION_NOT_SENT = 'Input was not sent. Refresh the view and try again.';
+export const PROJECTION_UNCONFIRMED = 'Input may have been applied. Check the target before trying again.';
 
 export type ProjectionFrame = {
   /** Increasing within this source. A reconnect requires a newly published frame. */

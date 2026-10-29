@@ -21,10 +21,11 @@ describe.skipIf(!electron)('shared local projection with real Electron', () => {
     await build({ entryPoints: [path.join(support, 'projection-renderer.ts')], outfile: path.join(temporary, 'viewer.js'),
       bundle: true, platform: 'browser', format: 'iife', plugins: [shared] });
     const stubs: Record<string, string> = {
+      '@main/lib/logger': 'export const log={warn(){}}',
       './extensions-root': 'export function extensionsService(){return {get(){},isEnabled(){return true},hasCapability(){return true}}}',
       '../sessions/session-events': 'export const sessionEvents={on(){}}',
       '../projects/project-events': 'export const projectEvents={on(){}}',
-      './extension-agent-context': 'export async function agentSessionContext(){return {projectId:"fixture-project"}}',
+      './projection-task': 'export async function projectionTaskProject(){return "fixture-project"}',
       './app-programs-elsewhere': 'export function knownSessionMachine(){return undefined}',
     };
     await build({ entryPoints: [path.join(support, 'projection-electron.ts')], outfile: path.join(temporary, 'main.cjs'),

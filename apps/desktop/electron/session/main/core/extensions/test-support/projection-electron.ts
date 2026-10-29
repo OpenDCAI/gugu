@@ -23,7 +23,7 @@ async function until(work: () => Promise<boolean>) {
 }
 
 void app.whenReady().then(async () => {
-  const bridge = new ExtensionProjectionBridge(() => {});
+  const bridge = new ExtensionProjectionBridge(() => {}, async () => 'fixture-project');
   const windows: BrowserWindow[] = [];
   const source = new BrowserWindow({ show: false, width: 640, height: 480, webPreferences: { backgroundThrottling: false } });
   const other = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
