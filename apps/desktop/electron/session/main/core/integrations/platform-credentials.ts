@@ -72,6 +72,8 @@ export type PlatformCredentialDeps = {
   providers: () => readonly PlatformCustodyProvider[];
   log: Log;
   now?: () => number;
+  /** 问「哪些连着」最多等多久(默认 5 s)。 */
+  listTimeoutMs?: number;
 };
 
 export type PlatformConnectResult =
@@ -181,13 +183,15 @@ export class PlatformCredentialService {
   private readonly migrationFailures = new Map<string, number>();
   /** 上一次没搬成的原因(平台的码):连接页据此说「这会儿用不了」,而不是什么都不说。 */
   private readonly migrationFailureCode = new Map<string, string>();
-  /** 人刚点了「检查」:下一次往上搬不等退避的那一格(只这一次,退避照旧往上涨)。 */
-  private readonly askedByPerson = new Set<string>();
 
   constructor(private readonly deps: PlatformCredentialDeps) {}
 
   private now(): number {
     return this.deps.now?.() ?? Date.now();
+  }
+
+  private get listTimeoutMs(): number {
+    return this.deps.listTimeoutMs ?? LIST_TIMEOUT_MS;
   }
 
   private provider(integrationId: string): PlatformCustodyProvider | null {
@@ -288,7 +292,7 @@ export class PlatformCredentialService {
     let snapshot: Snapshot;
     let listed: PlatformIntegrationProvider[];
     try {
-      listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
+      listed = await client.list(AbortSignal.timeout(this.listTimeoutMs));
       snapshot = new Map(providers.map((provider) => [
         provider.id,
         new Map((listed.find((row) => row.provider === provider.id)?.accounts ?? []).map((account) => [account.accountId, account.connected])),
@@ -356,8 +360,6 @@ export class PlatformCredentialService {
     listed: PlatformIntegrationProvider | undefined,
     known: Map<string, boolean>
   ): Promise<void> {
-    // 人点的「检查」只管这一轮:有没有要搬的都用掉,❌ 留到以后。
-    const asked = this.askedByPerson.delete(provider.id);
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
       // #649 只存过默认那一个账号;别的本机行不是它存的,原样不动。
       if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
@@ -371,7 +373,8 @@ export class PlatformCredentialService {
         await this.dropDisconnected(provider.id, row);
         continue;
       }
-      if (!asked && (this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
+      // 资源库、详情页的「看一眼」(切回窗口、每 30 s)都走这里:等不到下一格就不传,❌ 每看一眼都让平台再试一把 key。
+      if ((this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
       // 平台没列这一家:它现在收不了,❌ 传。
       if (!listed) {
         this.backOff(provider.id, { code: 'not_listed', status: 0 });
@@ -412,18 +415,24 @@ export class PlatformCredentialService {
     }
   }
 
-  /** 人点了「检查」:这一家(不给 = 平台保管的每一家)下一次往上搬不等退避的那一格,只这一次。 */
-  checkedByPerson(integrationId?: string): void {
-    const ids = integrationId ? [integrationId] : this.deps.providers().map((provider) => provider.id);
-    for (const id of ids) if (this.isPlatformProvider(id)) this.askedByPerson.add(id);
-  }
-
-  /** 连接时这台没等到回话:平台的列表里这一家默认账号已经连着,就是存下了。 */
-  private async keptAfterAll(client: PlatformIntegrationsClient, integrationId: string): Promise<boolean> {
+  /**
+   * 连接时这台没等到回话:平台列表里这一家默认账号连着、**而且是这次 PUT 发出之后存的**,才算存下了
+   * (❌ 把编辑前那把旧 key 的「连着」当成新的)。「之后」用平台的钟比:重读应答的 `Date` 头(整秒,补 1 s),
+   * 减去这台从发出 PUT 到开始重读过了多久(一段时长,与这台的钟快慢无关)= 这次 PUT 最晚在平台钟上的哪一刻发出;
+   * 平台存它的时刻(`updatedAt`)晚于这一刻才算。没有 `Date` 头就不推断,照实说连不上。
+   */
+  private async keptAfterAll(client: PlatformIntegrationsClient, integrationId: string, sentAt: number): Promise<boolean> {
+    const sinceSent = this.now() - sentAt;
     try {
-      const listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
-      return (listed.find((row) => row.provider === integrationId)?.accounts ?? []).some(
-        (account) => account.accountId === DEFAULT_INTEGRATION_ACCOUNT_ID && account.connected
+      const { providers, platformNow } = await client.listWithClock(AbortSignal.timeout(this.listTimeoutMs));
+      if (platformNow === null) return false;
+      const sentBy = platformNow + 1_000 - sinceSent;
+      return (providers.find((row) => row.provider === integrationId)?.accounts ?? []).some(
+        (account) =>
+          account.accountId === DEFAULT_INTEGRATION_ACCOUNT_ID &&
+          account.connected &&
+          account.updatedAt !== null &&
+          Date.parse(account.updatedAt) > sentBy
       );
     } catch {
       return false;
@@ -602,6 +611,7 @@ export class PlatformCredentialService {
       const secrets = provider.fields.flatMap((field) => (field.secret && fields[field.id] ? [fields[field.id]!] : []));
       // 408 = 请求没及时送到平台:同一个 PUT 再发一次(它是幂等的),❌ 让人当重试。
       for (let attempt = 1; ; attempt += 1) {
+        const sentAt = this.now();
         try {
           await client.saveCredential(integrationId, fields, { connect: 'manual' });
           this.availability = 'present';
@@ -615,7 +625,7 @@ export class PlatformCredentialService {
             return { keepHere: true };
           }
           // 这台先放手了(或网断了):平台可能已经存下,先重读一次列表再说。
-          if (failure.code === 'network' && (await this.keptAfterAll(client, integrationId))) {
+          if (failure.code === 'network' && (await this.keptAfterAll(client, integrationId, sentAt))) {
             this.availability = 'present';
             break;
           }

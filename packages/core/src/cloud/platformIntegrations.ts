@@ -110,6 +110,11 @@ export class PlatformForwarderBusyError extends Error {
   }
 }
 
+/** `AbortSignal.timeout(…)` 到点时的原因。 */
+function isTimeout(reason: unknown): boolean {
+  return (reason as { name?: unknown } | null)?.name === 'TimeoutError'
+}
+
 /** `retry-after`:秒数,或一个 HTTP 日期;读不出来 = null。 */
 function retryAfterSeconds(header: string | null): number | null {
   const value = header?.trim()
@@ -137,6 +142,8 @@ export function isPlatformServiceMissing(error: unknown): boolean {
 
 export type PlatformIntegrationsClient = {
   list(signal?: AbortSignal): Promise<PlatformIntegrationProvider[]>
+  /** 同一个读,外加平台答话时它自己的钟(应答的 `Date` 头,毫秒,整秒精度);没给这个头 = null。 */
+  listWithClock(signal?: AbortSignal): Promise<{ providers: PlatformIntegrationProvider[]; platformNow: number | null }>
   /** 连接页:`{ connect: 'manual' }`;#649 搬上来的 key:`{ migration }`。 */
   saveCredential(
     provider: string,
@@ -209,7 +216,12 @@ export function createPlatformIntegrationsClient(options: {
     ...(options.anonKey ? { apikey: options.anonKey } : {}),
   })
   const providerPath = (provider: string) => `${options.baseUrl}/integrations/${encodeURIComponent(provider)}`
-  const request = async (method: 'GET' | 'PUT' | 'DELETE', url: string, body?: unknown, signal?: AbortSignal): Promise<string> => {
+  const request = async (
+    method: 'GET' | 'PUT' | 'DELETE',
+    url: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<{ raw: string; platformNow: number | null }> => {
     const init: Record<string, string> = await headers()
     if (body !== undefined) init['Content-Type'] = 'application/json'
     const timeout = AbortSignal.timeout(timeoutMs)
@@ -224,13 +236,17 @@ export function createPlatformIntegrationsClient(options: {
       })
       raw = await response.text()
     } catch (error) {
-      if (signal?.aborted) throw error
+      // 调用方有意取消:原样还给它。调用方自己限的时到了,和这里的超时一样是「没等到回话」——
+      // ❌ 把运行时那句英文(The operation was aborted due to timeout)交出去。
+      if (signal?.aborted && !isTimeout(signal.reason)) throw error
       const where = url.slice(options.baseUrl.length)
       if (timeout.aborted) throw new CloudComputerError(0, 'network', `${method} ${where} got no answer within ${Math.round(timeoutMs / 1000)} s`)
+      if (signal?.aborted) throw new CloudComputerError(0, 'network', `${method} ${where} got no answer in time`)
       throw new CloudComputerError(0, 'network', error instanceof Error ? error.message : String(error))
     }
     if (!response.ok) throw cloudComputerErrorFromResponse(response.status, raw)
-    return raw
+    const date = Date.parse(response.headers.get('date') ?? '')
+    return { raw, platformNow: Number.isFinite(date) ? date : null }
   }
   const json = (raw: string, what: string): unknown => {
     try {
@@ -239,11 +255,16 @@ export function createPlatformIntegrationsClient(options: {
       throw badResponse(what)
     }
   }
+  const listWithClock = async (signal?: AbortSignal) => {
+    const { raw, platformNow } = await request('GET', `${options.baseUrl}/integrations`, undefined, signal)
+    return { providers: parsePlatformIntegrations(json(raw, '/integrations')), platformNow }
+  }
   return {
-    list: async (signal) => parsePlatformIntegrations(json(await request('GET', `${options.baseUrl}/integrations`, undefined, signal), '/integrations')),
+    list: async (signal) => (await listWithClock(signal)).providers,
+    listWithClock,
     saveCredential: async (provider, fields, source, signal) => {
       const body = 'connect' in source ? { fields, connect: 'manual' } : { fields, migration: { savedAt: source.migration.savedAt } }
-      const saved = json(await request('PUT', `${providerPath(provider)}/credential`, body, signal), 'PUT credential') as Record<string, unknown> | null
+      const saved = json((await request('PUT', `${providerPath(provider)}/credential`, body, signal)).raw, 'PUT credential') as Record<string, unknown> | null
       if (saved?.connected !== true) throw badResponse('PUT credential')
       return { connected: true, updatedAt: timestamp(saved.updatedAt), checkedAt: timestamp(saved.checkedAt) }
     },
