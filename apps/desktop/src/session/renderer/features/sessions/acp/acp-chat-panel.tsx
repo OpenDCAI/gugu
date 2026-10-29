@@ -98,7 +98,7 @@ import {
   imageAttachmentRoute,
   imagePromptAttachments,
 } from './composer-image-attachments';
-import { isHeicLikeFile, isUnstableDropPath } from '@renderer/lib/pty/terminal-image-paths';
+import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
 import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
@@ -302,7 +302,7 @@ function fileUploadSource(store: AcpChatStore, file: File): UploadSource {
   const originalPath =
     composerAttachmentSource({
       originalPath: rawPath,
-      isUnstableDropPath: isUnstableDropPath(rawPath),
+      mustCopy: mustCopyRatherThanReference(rawPath),
       isHeicLike: isHeicLikeFile(file),
     }) === 'reference'
       ? rawPath
@@ -332,7 +332,7 @@ async function uploadImageFile(
   // 原路径仍然交上去,但只当来历:发给 agent 的 mention 指向谁由另一条腿决定。
   const originalPath = localPathOf(store, file);
   const provenance =
-    originalPath.length > 0 && !isUnstableDropPath(originalPath) && !isHeicLikeFile(file)
+    originalPath.length > 0 && !mustCopyRatherThanReference(originalPath) && !isHeicLikeFile(file)
       ? originalPath
       : undefined;
   try {
