@@ -30,8 +30,13 @@ export function useSessionSourceMessage(store: AcpChatStore | null | undefined, 
     if (!current) return [];
     if (loading.current?.store === current) return loading.current.promise;
     const currentView = view.current;
-    const promise = current.loadOlderHistory().then(turns => {
-      if (mounted.current && latest.current === current && view.current === currentView && turns.length) currentView?.loadOlder(turns);
+    const promise = current.loadOlderHistory().then(async turns => {
+      if (mounted.current && latest.current === current && view.current === currentView && currentView && turns.length) {
+        currentView.loadOlder(turns);
+        // History is committed before the virtual list publishes its rows and height map.
+        // Let that layout frame finish before resolving an anchor or starting its flash.
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      }
       return turns;
     });
     loading.current = { store: current, promise };

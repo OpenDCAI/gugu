@@ -34,6 +34,7 @@
  *   Mismatch check is suppressed while animating (expected mid-tween).
  */
 
+import '@session-chat/styles/source-message-flash.css';
 import { useDebug } from '@session-chat/components/contexts/debug-context';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import type { ChatCaches } from '@session-chat/core/caches';

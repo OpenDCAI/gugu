@@ -1,7 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatView, TranscriptTurn } from '@gugu/session-chat-ui';
+import { createChatView, createChatContext, createChatState, buildChatTheme, DEFAULT_CONFIG, type ChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../features/sessions/acp/acp-chat-store';
 import { useSessionSourceMessage } from '../../features/sessions/acp/use-session-source-message';
 import { until } from '../../../../../../../tests/support/awaitCondition';
@@ -48,6 +48,39 @@ describe('session quote navigation', () => {
       root.unmount();
       host.remove();
     }
+  });
+  it('centers a source after real history rows have been prepended and laid out', async () => {
+    const context = createChatContext({ theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true }) });
+    const state = createChatState(context);
+    state.transcript.history.seed([turn('latest', 20)]);
+    const pages = [[turn('middle', 19)], Array.from({ length: 12 }, (_, i) => ({ ...turn(i === 8 ? 'source' : `older-${i}`, i), items: [...turn(i === 8 ? 'source' : `older-${i}`, i).items, { kind: 'message' as const, id: `answer-${i}`, seq: 1, role: 'assistant' as const, text: 'An earlier response' }] }))];
+    const store = { chatState: state, get canLoadOlderHistory() { return pages.length > 0; },
+      loadOlderHistory: async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); return pages.shift() ?? []; } } as unknown as AcpChatStore;
+    let actions!: ReturnType<typeof useSessionSourceMessage>;
+    function Harness() {
+      const parent = useRef<HTMLDivElement>(null), view = useRef<ChatView | null>(null);
+      actions = useSessionSourceMessage(store, view, vi.fn());
+      useEffect(() => {
+        view.current = createChatView({ context, state, parent: parent.current!, stickToBottom: false });
+        return () => view.current?.dispose();
+      }, []);
+      return <><button onClick={() => actions.reveal('source')}>Quote</button><div ref={parent} style={{ width: 600, height: 300 }} /></>;
+    }
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      root.render(<Harness />);
+      await until('real chat view is mounted', () => !!host.querySelector('[data-chat-scroll]'));
+      host.querySelector('button')!.click();
+      await until('source has been revealed', () => actions.flashMessageId === 'source');
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const scroll = host.querySelector<HTMLElement>('[data-chat-scroll]')!;
+      const row = host.querySelector<HTMLElement>('[data-item-id="source"]')!;
+      expect(row).not.toBeNull();
+      expect(scroll.scrollTop).toBeGreaterThan(0);
+      expect(row.getBoundingClientRect().top).toBeGreaterThanOrEqual(scroll.getBoundingClientRect().top);
+      expect(row.getBoundingClientRect().bottom).toBeLessThanOrEqual(scroll.getBoundingClientRect().bottom);
+    } finally { root.unmount(); host.remove(); }
   });
   it('shares a pending top-edge page and leaves a disposed view untouched', async () => {
     let finish!: (turns: TranscriptTurn[]) => void;
