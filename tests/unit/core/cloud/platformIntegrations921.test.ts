@@ -27,15 +27,17 @@ function client(respond: (method: string, url: string, body: unknown) => Respons
 
 describe('platform integrations client (#921)', () => {
   it('lists, saves and deletes a credential on the paths the platform serves, with the person’s token', async () => {
-    const listed = { providers: [{ provider: 'amap', accounts: [{ accountId: 'default', connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }] }] }
+    const listed = { providers: [{ provider: 'amap', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z', disconnectedAt: null }] }] }
     const { calls, c } = client((method) => {
       if (method === 'GET') return json(listed)
       if (method === 'PUT') return json({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
       return new Response(null, { status: 204 })
     })
-    // An answer without `state` (an older platform) still reads: the state follows `connected`. Without
-    // `disconnectedAt` anywhere, this platform reports no disconnections at all (null, not "none").
-    await expect(c.list()).resolves.toEqual([{ provider: 'amap', accounts: [{ ...listed.providers[0]!.accounts[0]!, state: 'connected' }], disconnectedAt: null }])
+    await expect(c.list()).resolves.toEqual([{
+      provider: 'amap',
+      accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }],
+      disconnectedAt: {},
+    }])
     await expect(c.saveCredential('amap', { apiKey: 'k-123' })).resolves.toEqual({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
     await expect(c.deleteCredential('amap')).resolves.toBeUndefined()
     expect(calls.map((x) => `${x.method} ${x.url.replace(BASE, '')} ${x.body === undefined ? '' : JSON.stringify(x.body)}`.trim())).toEqual([
@@ -109,14 +111,14 @@ describe('platform integrations client (#921)', () => {
   it('reads each account’s state: reconnect is a kept row that needs a reconnect; not_connected is no row at all', async () => {
     const { c } = client(() => json({ providers: [
       { provider: 'amap', accounts: [
-        { accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' },
-        { accountId: 'spare', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null },
+        { accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z', disconnectedAt: null },
+        { accountId: 'spare', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null, disconnectedAt: null },
       ] },
-      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }] },
+      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null, disconnectedAt: null }] },
     ] }))
     expect(await c.list()).toEqual([
-      { provider: 'amap', accounts: [{ accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }], disconnectedAt: null },
-      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }], disconnectedAt: null },
+      { provider: 'amap', accounts: [{ accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }], disconnectedAt: {} },
+      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }], disconnectedAt: {} },
     ])
   })
 
@@ -130,8 +132,17 @@ describe('platform integrations client (#921)', () => {
     ] }))
     expect(await c.list()).toEqual([
       { provider: 'amap', accounts: [{ accountId: 'spare', connected: true, state: 'connected', updatedAt: null, checkedAt: null }], disconnectedAt: { default: '2026-10-29T03:00:00.000Z' } },
-      { provider: 'didi', accounts: [], disconnectedAt: null },
+      { provider: 'didi', accounts: [], disconnectedAt: {} },
     ])
+  })
+
+  it('an answer that lacks state or disconnectedAt is a bad answer, not a guess', async () => {
+    const full = { accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null, disconnectedAt: null }
+    for (const missing of ['state', 'disconnectedAt'] as const) {
+      const { [missing]: _dropped, ...account } = full
+      const { c } = client(() => json({ providers: [{ provider: 'amap', accounts: [account] }] }))
+      await expect(c.list()).rejects.toMatchObject({ code: 'bad_response' })
+    }
   })
 
   it('a #649 key goes up marked as a migration, with its save time; an explicit connect carries no marker', async () => {

@@ -46,13 +46,11 @@ function fakePlatform() {
     down: false,
     /** Holds the next `GET /integrations` until released. */
     holdGet: null as null | Promise<void>,
-    /** A platform from before disconnections were recorded: no `disconnectedAt`, `migration` ignored. */
-    older: false,
   };
   /** The person disconnects on some device (what `DELETE …/credential` does on the platform). */
   const disconnect = (provider: string) => {
     saved.delete(provider);
-    if (!state.older) disconnected.set(provider, new Date(Date.UTC(2026, 9, 29, 3, 0, disconnections++)).toISOString());
+    disconnected.set(provider, new Date(Date.UTC(2026, 9, 29, 3, 0, disconnections++)).toISOString());
   };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -74,7 +72,7 @@ function fakePlatform() {
             ...(amap
               ? { accountId: 'default', connected: !amap.rejected, state: amap.rejected ? 'reconnect' : 'connected', updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' }
               : { accountId: 'default', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null }),
-            ...(state.older ? {} : { disconnectedAt: disconnected.get('amap') ?? null }),
+            disconnectedAt: disconnected.get('amap') ?? null,
           }],
         }],
       });
@@ -84,7 +82,7 @@ function fakePlatform() {
       state.onPut?.();
       if (state.putFault) return Response.json({ error: state.putFault.code, message: 'Try again later.' }, { status: state.putFault.status });
       const put = JSON.parse(raw) as { fields?: { apiKey?: string }; migration?: { savedAt: string | null } };
-      if (put.migration && !state.older) {
+      if (put.migration) {
         // A key moved up from a device never overwrites what the platform keeps, and never undoes a disconnection.
         if (saved.has(credential[1]!)) return Response.json({ error: 'already_connected', message: 'Already connected.' }, { status: 409 });
         const at = disconnected.get(credential[1]!);
@@ -140,6 +138,12 @@ async function device(platform: Platform, name: string, clock = { now: 1_000_000
   return { fixture, service, token, logs };
 }
 
+/** The device's background look at the platform (app start, sign-in change, the library or panel opening). */
+async function lookedInTheBackground(d: { service: InstanceType<typeof PlatformCredentialService> }) {
+  expect(await d.service.refresh({ maxAgeMs: 0 })).toBe(true);
+}
+
+/** What a session that starts now on this device is handed for AMap. */
 async function amapEntry(service: InstanceType<typeof PlatformCredentialService>) {
   const entries = await connectedSessionIntegrations(service);
   return entries.find((entry) => entry.integrationId === 'amap') ?? null;
@@ -189,6 +193,7 @@ describe('credentials the platform keeps (#921)', () => {
     const a = await device(platform, 'A');
     const b = await device(platform, 'B');
     await a.service.connect('amap', { apiKey: GOOD });
+    await lookedInTheBackground(b);
 
     expect(await amapEntry(b.service)).not.toBeNull();
     expect(await b.service.check('amap')).toEqual({ connected: true });
@@ -202,6 +207,7 @@ describe('credentials the platform keeps (#921)', () => {
     const a = await device(platform, 'A');
     const b = await device(platform, 'B');
     await a.service.connect('amap', { apiKey: GOOD });
+    await lookedInTheBackground(b);
     const entry = await amapEntry(b.service);
     if (!entry) throw new Error('AMap should be handed to the session');
 
@@ -219,11 +225,12 @@ describe('credentials the platform keeps (#921)', () => {
     expect(forwarded.every((request) => !request.raw.includes(GOOD))).toBe(true);
   });
 
-  it('disconnecting on one device removes the tools on another at its next session', async () => {
+  it('disconnecting on one device removes the tools on another from its next look at the platform', async () => {
     const platform = fakePlatform();
     const a = await device(platform, 'A');
     const b = await device(platform, 'B');
     await a.service.connect('amap', { apiKey: GOOD });
+    await lookedInTheBackground(b);
     const open = await amapEntry(b.service);
     if (!open) throw new Error('AMap should be handed to the session');
 
@@ -236,6 +243,7 @@ describe('credentials the platform keeps (#921)', () => {
       'amap is not connected in Gugu any more; reconnect it.'
     );
     // The next session on that device gets no AMap tools, and its library stops listing AMap.
+    await lookedInTheBackground(b);
     expect(await amapEntry(b.service)).toBeNull();
     expect(await b.fixture.registry.listAccounts('amap')).toEqual([]);
   });
@@ -245,6 +253,7 @@ describe('credentials the platform keeps (#921)', () => {
     const a = await device(platform, 'A');
     const b = await device(platform, 'B');
     await a.service.connect('amap', { apiKey: GOOD });
+    await lookedInTheBackground(b);
     const open = await amapEntry(b.service);
     if (!open) throw new Error('AMap should be handed to the session');
     platform.saved.get('amap')!.rejected = true;
@@ -397,7 +406,27 @@ describe('credentials the platform keeps (#921)', () => {
     expect(d.fixture.secretStore.secrets.size).toBe(0);
   });
 
-  it('a failed ask is not repeated by every look for a while; opening a session still asks again', async () => {
+  it('a session starts on what the device already knows: it never waits for the platform', async () => {
+    const platform = fakePlatform();
+    const a = await device(platform, 'A');
+    await a.service.connect('amap', { apiKey: GOOD });
+    const never = await device(platform, 'N');
+    let release!: () => void;
+    platform.state.holdGet = new Promise<void>((resolve) => (release = resolve));
+    const waited = (ms: number) => new Promise<'waited'>((resolve) => setTimeout(() => resolve('waited'), ms));
+
+    try {
+      // Connected here: the tools come from the platform's answer this device already mirrors.
+      expect(await Promise.race([amapEntry(a.service).then((entry) => entry?.integrationId ?? null), waited(1_000)])).toBe('amap');
+      // Never used AMap: nothing to wait for either.
+      expect(await Promise.race([amapEntry(never.service), waited(1_000)])).toBeNull();
+    } finally {
+      platform.state.holdGet = null;
+      release();
+    }
+  });
+
+  it('a failed ask is not repeated by every look for a while; a forced look still asks again', async () => {
     const platform = fakePlatform();
     const clock = { now: 1_000_000 };
     const d = await device(platform, 'D', clock);
@@ -503,18 +532,18 @@ describe('credentials the platform keeps (#921)', () => {
       expect(puts(platform, 'B-session-1')).toHaveLength(1);
     });
 
-    it('another device connected first: nothing is overwritten, the local copy goes, and AMap reads as connected through the platform', async () => {
+    it('A stores a newer key between B’s look and B’s upload: the newer key survives, B’s copy goes, AMap reads as connected through the platform', async () => {
       const platform = fakePlatform();
       const clock = { now: 1_000_000 };
       const b = await device(platform, 'B', clock);
       await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
-      // Another device connects its own key between B's look and B's upload.
+      // A connects its newer key after B's look and before B's upload reaches the platform.
       platform.state.onPut = () => {
-        if (!platform.saved.has('amap')) platform.saved.set('amap', { apiKey: 'the-other-device-key', rejected: false });
+        if (!platform.saved.has('amap')) platform.saved.set('amap', { apiKey: 'a-newer-key-from-A', rejected: false });
       };
 
       await b.service.refresh({ maxAgeMs: 0 });
-      expect(platform.saved.get('amap')?.apiKey).toBe('the-other-device-key');
+      expect(platform.saved.get('amap')?.apiKey).toBe('a-newer-key-from-A');
       expect(b.fixture.secretStore.secrets.size).toBe(0);
       const [row] = await b.fixture.registry.listAccounts('amap');
       expect(row?.meta?.credentialSource).toBe('platform');
@@ -523,6 +552,47 @@ describe('credentials the platform keeps (#921)', () => {
       clock.now += 10 * 60_000;
       await b.service.refresh({ maxAgeMs: 0 });
       expect(puts(platform, 'B-session-1')).toHaveLength(1);
+    });
+
+    it.each([
+      ['rejects the old key (422)', BAD, null],
+      ['finds the old key malformed (400)', GOOD, { status: 400, code: 'invalid_fields' }],
+    ] as const)('the provider %s on the way up: the local copy goes, no retry, and the connection page asks for a new key', async (_case, key, fault) => {
+      const platform = fakePlatform();
+      const clock = { now: 1_000_000 };
+      const b = await device(platform, 'B', clock);
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: key }) });
+      platform.state.putFault = fault;
+
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(b.fixture.secretStore.secrets.size).toBe(0);
+      const rejected = { connected: false, errorType: 'key_rejected', error: '高德地图 rejected this key; enter it again.' };
+      expect(await b.service.check('amap')).toEqual(rejected);
+      expect(await b.service.checkAccounts('amap')).toEqual([{ accountId: 'default', ...rejected }]);
+      expect(await amapEntry(b.service)).toBeNull();
+      for (let round = 0; round < 4; round += 1) {
+        clock.now += 10 * 60_000;
+        await b.service.refresh({ maxAgeMs: 0 });
+      }
+      expect(puts(platform, 'B-session-1')).toHaveLength(1);
+      expect(JSON.stringify(b.logs)).not.toContain(key);
+
+      // Entering a key again connects as usual.
+      platform.state.putFault = null;
+      expect(await b.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
+      expect(await b.service.check('amap')).toEqual({ connected: true });
+    });
+
+    it('only the network and the platform’s own 5xx keep the key on the device and back off', async () => {
+      const platform = fakePlatform();
+      const clock = { now: 1_000_000 };
+      const b = await device(platform, 'B', clock);
+      await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+      platform.state.putFault = { status: 503, code: 'upstream_unavailable' };
+
+      await b.service.refresh({ maxAgeMs: 0 });
+      expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+      expect(await b.service.check('amap')).toEqual({ connected: false });
     });
 
     it('a credential the platform keeps that needs a reconnect is not overwritten by a #649 key either', async () => {
@@ -549,25 +619,8 @@ describe('credentials the platform keeps (#921)', () => {
       expect(await b.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
       expect(puts(platform, 'B-session-1').map((request) => request.body)).toEqual([{ fields: { apiKey: GOOD } }]);
       expect(platform.disconnected.has('amap')).toBe(false);
+      await lookedInTheBackground(a);
       expect(await amapEntry(a.service)).not.toBeNull();
-    });
-
-    it('an older platform that reports no disconnections: a #649 key goes up only when the platform keeps no credential at all', async () => {
-      const platform = fakePlatform();
-      platform.state.older = true;
-      const first = await device(platform, 'C1');
-      await first.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
-      await first.service.refresh({ maxAgeMs: 0 });
-      expect(platform.saved.get('amap')?.apiKey).toBe(GOOD);
-
-      // Kept, but no longer working: still a credential, so a second device's old key does not replace it.
-      platform.saved.set('amap', { apiKey: GOOD, rejected: true });
-      const second = await device(platform, 'C2');
-      await second.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
-      await second.service.refresh({ maxAgeMs: 0 });
-      expect(puts(platform, 'C2-session-1')).toEqual([]);
-      expect(platform.saved.get('amap')?.rejected).toBe(true);
-      expect(second.fixture.secretStore.secrets.size).toBe(0);
     });
   });
 });

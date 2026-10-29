@@ -14,6 +14,7 @@ describe('connectorState', () => {
   it('distinguishes expired authorization from a service or network failure', () => {
     expect(connectorState(true, status(false, 'authorization_expired'))).toBe('needsReauth');
     expect(connectorState(true, status(false, 'auth_failed'))).toBe('needsReauth');
+    expect(connectorState(true, status(false, 'key_rejected'))).toBe('needsReauth');
     expect(connectorState(true, status(false, 'rate_limited'))).toBe('checkFailed');
     expect(connectorState(true, status(false, 'host_unreachable'))).toBe('checkFailed');
     expect(connectorState(true, status(true), new Error('refresh failed'))).toBe('checkFailed');

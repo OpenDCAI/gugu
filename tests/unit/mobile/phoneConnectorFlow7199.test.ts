@@ -182,6 +182,8 @@ describe('failureKey / connectorHealth / 小件', () => {
     expect(connectorHealth({ connected: true })).toBe('ok')
     expect(connectorHealth({ connected: false, errorType: 'authorization_expired' })).toBe('reauth')
     expect(connectorHealth({ connected: false, errorType: 'auth_failed' })).toBe('reauth')
+    // #921 平台不认 #649 搬上来的那把 key:要重新填一把。
+    expect(connectorHealth({ connected: false, errorType: 'key_rejected' })).toBe('reauth')
     expect(connectorHealth({ connected: false, errorType: 'rate_limited' })).toBe('issue')
     expect(connectorHealth({ connected: false })).toBe('issue')
     expect(connectorHealth(undefined)).toBe('unknown')
