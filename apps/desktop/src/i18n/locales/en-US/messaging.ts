@@ -72,7 +72,8 @@ export default {
         "offline": "The device disconnected",
         "rateLimited": "Too many requests",
         "nextMessage": "The next message will retry automatically",
-        "recovered": "{{name}}: {{count}} earlier failed replies · recovered",
+        "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
+        "recovered_other": "{{name}}: {{count}} earlier failed replies · recovered",
         "settings": "Open settings"
       },
       "state": {
