@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Avatar } from '../../../../apps/desktop/src/components/Avatar'
-import { AGENT_AVATAR_PALETTES, agentAvatarPalette } from '../../../../apps/desktop/src/components/BoringAgentAvatar'
+import { AGENT_AVATAR_PALETTES, agentAvatarPalette } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
 import { boringAgentAvatarDataUri } from '../../../../apps/desktop/src/lib/boringAgentAvatar'
 import { SessionAvatar } from '../../../../apps/desktop/src/mobile/agent-watch/StatusGlyph'
 import { runtime } from '../../../../apps/desktop/src/components/agentAvatar/engine/runtime'
