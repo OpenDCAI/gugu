@@ -19,7 +19,7 @@ export function AnnotateSendBar({ actions }: { actions: Actions }) {
       <label className="ia-include"><Switch checked={actions.includeNotes} onCheckedChange={actions.setIncludeNotes} disabled={actions.busy} />{t('includeNotes')}</label>
       <div className="ia-send-buttons">
         <Button disabled={actions.busy} onClick={() => void actions.putInComposer()}>{t('compose')}</Button>
-        {actions.canSend ? <Button variant="primary" disabled={actions.busy} onClick={() => void actions.send()}>{t('sendTo', { name: actions.chatName })}<span className="ia-shortcut">⌘↩</span></Button> : null}
+        {actions.canSend ? <Button variant="primary" disabled={actions.busy} onClick={() => void actions.send()}>{actions.sendLabel}<span className="ia-shortcut">⌘↩</span></Button> : null}
       </div>
     </> : <p className="ia-source-note">{t('noSource')}</p>}
   </div>
