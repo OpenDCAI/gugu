@@ -27,7 +27,7 @@ const store = vi.hoisted(() => ({
 vi.mock('./platform-credentials-instance', () => ({ platformCredentials: platform }));
 vi.mock('./integration-credential-store-instance', () => ({ integrationCredentialStore: store }));
 
-const network = vi.fn(async () => {
+const network = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
   throw new Error('This test has no network: AMap must not be called from the device.');
 });
 vi.stubGlobal('fetch', network);
