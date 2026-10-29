@@ -79,7 +79,7 @@ it('an account that needs a reconnect is not offered as usable: the assistant he
   platform.amapNeedsReconnect = true
   try {
     const row = (await configuredIntegrationIndex()).find(row => row.id === 'amap:default')
-    expect(row).toMatchObject({ name: '高德地图', note: '高德地图要重新连接，现在用不了；请他到连接页处理' })
+    expect(row).toMatchObject({ name: '高德地图', note: '高德地图要重新连接，现在用不了；到连接页重新填 Key' })
     expect(row).not.toHaveProperty('use')
   } finally {
     platform.amapNeedsReconnect = false
