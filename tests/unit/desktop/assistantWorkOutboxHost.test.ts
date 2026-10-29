@@ -68,8 +68,13 @@ describe('account delivery host',()=>{
     const local=fixture();const localHost=createAssistantWorkOutboxHost(local.deps);await localHost.kick();localHost.stop()
     expect(local.deliverLocal).toHaveBeenCalledWith(expect.objectContaining({message_id:'message'}),expect.any(AbortSignal))
   })
-  it('transmits only a cloud reference, after the remote wake path',async()=>{
-    const f=fixture('phone');const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
+  it('does not delegate an empty online claim, then wakes an eligible offline target before sending its reference',async()=>{
+    const f=fixture('phone');const eligible=f.rpc.getMockImplementation()!
+    let offline=false
+    f.rpc.mockImplementation(async name=>name==='assistant_work_outbox_claim'&&!offline?{data:{events:[]},error:null}:eligible(name))
+    const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
+    expect(f.prepareRemote).not.toHaveBeenCalled();expect(f.requestRemote).not.toHaveBeenCalled()
+    offline=true;await host.kick()
     expect(f.requestRemote).toHaveBeenCalledWith('phone','assistantWork.deliver',{assistant_id:'assistant',work_id:'work',message_id:'message'},expect.any(AbortSignal))
     expect(f.prepareRemote.mock.invocationCallOrder[0]).toBeLessThan(f.requestRemote.mock.invocationCallOrder[0]!)
     expect(f.deliverLocal).not.toHaveBeenCalled();host.stop()

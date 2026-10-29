@@ -13,12 +13,12 @@ function fixture(events:WorkReconciliationEvent[]=[dispatch]) {
   return {...f,rpc,reconciler:createAssistantWorkReconciler(f)}
 }
 describe('unfinished delivery reconciliation',()=>{
-  it('names the expired dispatch device and reuses one verified notice after repeated reconciliation',async()=>{
+  it.each(['dispatch','completed'])('names the expired %s device and reuses one verified notice after repeated reconciliation',async kind=>{
     const f=fixture([])
-    f.abandoned.mockResolvedValue([{kind:'dispatch',message_id:'expired',work_id:'work',assistant_user_id:'assistant',from_device_id:'cloud',to_device_id:'phone',to_device_label:'离线测试电脑',to_session_id:'child',abandoned_reason_code:'DELIVERY_EXPIRED'}] as never)
+    f.abandoned.mockResolvedValue([{kind,message_id:'expired',work_id:'work',assistant_user_id:'assistant',from_device_id:'cloud',to_device_id:'phone',to_device_label:'离线测试电脑',to_session_id:'child',abandoned_reason_code:'DELIVERY_EXPIRED'}] as never)
     await f.reconciler.kick();await f.reconciler.kick()
     expect(f.notify).toHaveBeenCalledOnce()
-    expect(f.notify).toHaveBeenCalledWith(expect.anything(),expect.any(String),'「天气表格」发给「离线测试电脑」设备的活没送到：已超过 24 小时。')
+    expect(f.notify).toHaveBeenCalledWith(expect.anything(),expect.any(String),`「天气表格」发给「离线测试电脑」设备的${kind==='dispatch'?'活':'回报'}没送到：已超过 24 小时。`)
     expect(f.verifyOwnerPost).toHaveBeenCalled()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_owner_delivered',expect.objectContaining({p_message_id:'expired',p_receipt_kind:'abandonment_notice',p_owner_message_id:'notice'}))
   })

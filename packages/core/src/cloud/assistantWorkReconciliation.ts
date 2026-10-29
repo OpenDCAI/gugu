@@ -63,8 +63,8 @@ export function createAssistantWorkReconciler(deps:{
     const key=await deps.stableId(`work-notice:${ctx.assistantId}:${work.work_id}:${noticeKind}:${category}`)
     if(!await current(ctx)) return
     const label=event.to_device_label?.trim()
-    const text=kind==='abandonment_notice'&&event.kind==='dispatch'&&event.abandoned_reason_code==='DELIVERY_EXPIRED'
-      ? `「${work.title}」发给${label?`「${label}」`:'目标'}设备的活没送到：已超过 24 小时。`
+    const text=kind==='abandonment_notice'&&event.abandoned_reason_code==='DELIVERY_EXPIRED'
+      ? `「${work.title}」发给${label?`「${label}」`:'目标'}设备的${event.kind==='dispatch'?'活':'回报'}没送到：已超过 24 小时。`
       : `「${work.title}」有消息没能送到：${reason}。`
     // The committed idempotent owner message is the proof. Losing its RPC reply cannot produce another notice.
     let posted=postedNotices.get(key)
