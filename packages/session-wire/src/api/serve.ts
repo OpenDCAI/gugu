@@ -123,6 +123,8 @@ export function serve(
     replyRequest(
       id,
       async (signal) => {
+        const cancelUpload = () => uploadConsumer?.cancel();
+        signal.addEventListener('abort', cancelUpload, { once: true });
         try {
           return await runWithLogger(logger.child({ wireCallId: id, wirePath: path }), () =>
             controller.call(path, input, {
@@ -133,6 +135,7 @@ export function serve(
             })
           );
         } finally {
+          signal.removeEventListener('abort', cancelUpload);
           if (uploadConsumer && blobConsumers.has(uploadConsumer.channel)) {
             blobConsumers.delete(uploadConsumer.channel);
             uploadConsumer.cancel();
