@@ -1,6 +1,6 @@
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
-import { ASK_SOURCE_SPEC } from '../asks/sources';
+import { askSourceSpec } from '../asks/sources';
 import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
 import { desc, eq, isNull } from 'drizzle-orm';
@@ -449,7 +449,10 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
 function withdrawOrphanHostAsks(entry: TimelineEntry): void {
   const asked = hostAsks.get(entry.conversationId);
   for (const settlement of entry.timeline.getSnapshot({ limit: 1 }).settlements) {
-    if (settlement.state === 'pending' && settlement.origin && ASK_SOURCE_SPEC[settlement.origin.source].raisedBy === 'host' && !asked?.has(settlement.itemId)) {
+    if (settlement.state !== 'pending' || !settlement.origin) continue;
+    const source = askSourceSpec(settlement.origin.source);
+    // An archived request can outlive the feature that created its source.
+    if (!source || (source.raisedBy === 'host' && !asked?.has(settlement.itemId))) {
       entry.timeline.cancelSettlement(settlement.itemId);
     }
   }
@@ -1340,7 +1343,16 @@ export async function respond(
     // D-31 The host's own ask: settled here, on either kind of session — no runtime to hand it to.
     const current = settlementOf(timeline, input.itemId);
     if (current?.origin?.source === 'agent-question') return fail('answer_invalid', '请提交这道题的完整回答');
-    if (current?.origin && ASK_SOURCE_SPEC[current.origin.source].raisedBy === 'host') return respondAsk(timeline, input, current);
+    if (current?.origin) {
+      const source = askSourceSpec(current.origin.source);
+      if (!source) {
+        timeline.cancelSettlement(current.itemId);
+        const cancelled = settlementOf(timeline, current.itemId);
+        if (!cancelled) throw new Error('Cancelled request is missing from the timeline');
+        return { ok: true, value: { accepted: false, settlement: cancelled } };
+      }
+      if (source.raisedBy === 'host') return respondAsk(timeline, input, current);
+    }
     // 这条腿上根本没有结算口 ⇒ 抢之前就拒,❌ 抢成 resolved 推出去再放回(#6739)。
     const unavailable = permissionChannelError(target, input.kind);
     if (unavailable) return fail(unavailable.code, unavailable.message);

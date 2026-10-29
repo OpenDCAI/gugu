@@ -74,6 +74,8 @@ export interface SessionCapabilityBundle {
   extensionServerOrigins: readonly { name: string; extensionId: string }[]
   /** #7199 这台机器上 Browser Use App 装着、开着、许给 agent 工具(buildSessionBundle 读一次;交给各家物化器,见 core 那一格)。 */
   browserUse?: true
+  /** Disable harness-owned browser routes independently of App availability. */
+  disableNativeBrowser?: true
   /**
    * Remote hosts explicitly report that Browser Use is not available yet.
    * Absent for desktop sessions or hosts without the App probe.
@@ -444,9 +446,9 @@ export function setBrowserUseApp(probe: { installed: () => boolean; server: bool
 }
 
 /** The remote Browser Use implementation has been removed; installing the shell App cannot enable it. */
-function browserUseOf(): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule'> {
+function browserUseOf(personalAssistant: boolean): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule' | 'disableNativeBrowser'> {
   if (!browserUseApp) return {}
-  if (browserUseApp.server) return { browserRule: 'unavailable' }
+  if (browserUseApp.server) return { disableNativeBrowser: true, ...(!personalAssistant ? { browserRule: 'unavailable' as const } : {}) }
   try {
     return browserUseApp.installed() ? { browserUse: true } : {}
   } catch (error) {
@@ -542,7 +544,7 @@ export async function buildSessionBundle(
     extensionSkills: [...extensions.skills, ...integrationSkills],
     extensionApps: extensions.apps,
     extensionServerOrigins: extensions.origins,
-    ...browserUseOf(),
+    ...browserUseOf(deps.socialBridgeDeps.personalAssistant === true),
     mcpServers,
     // ⚠️ 这一行就是断过的那一跳。bootstrap 服务 pty 腿、恒为 `undefined`,
     //    ACP 腿的关闭集合必须在这里接回来;`[]` 原样递,❌ 不归一成 undefined。
@@ -820,6 +822,7 @@ function toCoreSessionBundle(bundle: SessionCapabilityBundle): CoreSessionCapabi
     packages: bundle.packages,
     extensionSkills: bundle.extensionSkills,
     ...(bundle.browserUse ? { browserUse: true as const } : {}),
+    ...(bundle.disableNativeBrowser ? { disableNativeBrowser: true as const } : {}),
   }
 }
 

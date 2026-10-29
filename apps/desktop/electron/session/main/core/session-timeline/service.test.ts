@@ -1296,6 +1296,16 @@ describe('session timeline service', () => {
       } finally { vi.useRealTimers(); }
     });
 
+    it.each(['browser-assistance', 'retired-host-feature', 'toString'])('cancels an unknown archived Ask source %s without making the session unreadable', async source => {
+      const { timeline } = makeTimeline();
+      timeline.syncPendingRequests([{ ...ask('removed-host-request'), origin: { source } } as unknown as Parameters<typeof timeline.syncPendingRequests>[0][number]]);
+      service.setSessionTimelineFactory(async () => timeline);
+      expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: {
+        settlements: [expect.objectContaining({ itemId: 'removed-host-request', state: 'cancelled' })],
+      } });
+      expect(await service.respond({ conversationId: 'conv-1', itemId: 'removed-host-request', kind: 'permission', optionId: 'install', by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
+    });
+
     it('one the archive brings back pending, asked by a process that is gone: over, never shown as still asked', async () => {
       // 10-06 A/B: B restarted with an ask out; the timeline came back from its archive with it pending and nothing here asking it.
       const { timeline } = makeTimeline();

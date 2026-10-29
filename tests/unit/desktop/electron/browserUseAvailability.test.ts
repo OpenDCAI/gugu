@@ -46,9 +46,15 @@ describe('Browser Use availability after removing the host remote implementation
       setBrowserUseApp({ server: true, installed: () => installed })
       const bundle = await bundleFor(personalAssistant)
       expect(bundle.browserUse).toBeUndefined()
-      expect(bundle.browserRule).toBe('unavailable')
-      const text = loadCodexAppServerCapabilities(bundle, ctx).developerInstructions ?? ''
-      expect(text).toContain(BROWSER_UNAVAILABLE_RULE)
+      expect(bundle.disableNativeBrowser).toBe(true)
+      expect(bundle.browserRule).toBe(personalAssistant ? undefined : 'unavailable')
+      const materialized = loadCodexAppServerCapabilities(bundle, ctx)
+      expect(materialized.extraArgs).toEqual(expect.arrayContaining([
+        'plugins.browser@openai-bundled.enabled=false', 'plugins.chrome@openai-bundled.enabled=false',
+      ]))
+      const text = materialized.developerInstructions ?? ''
+      if (personalAssistant) expect(text).not.toContain(BROWSER_UNAVAILABLE_RULE)
+      else expect(text).toContain(BROWSER_UNAVAILABLE_RULE)
       expect(text).not.toContain('browser_request_login')
       expect(text).not.toContain('browser_request_takeover')
       expect(text).not.toContain('call `app_install`')
@@ -65,6 +71,7 @@ describe('Browser Use availability after removing the host remote implementation
     const bundle = await bundleFor()
     expect(bundle.browserUse).toBe(installed ? true : undefined)
     expect(bundle.browserRule).toBeUndefined()
+    expect(bundle.disableNativeBrowser).toBeUndefined()
     expect(loadCodexAppServerCapabilities(bundle, ctx).developerInstructions).not.toContain(BROWSER_UNAVAILABLE_RULE)
   })
 })

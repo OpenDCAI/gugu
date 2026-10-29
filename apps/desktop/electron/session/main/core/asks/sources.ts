@@ -8,3 +8,8 @@ export const ASK_SOURCE_SPEC = {
   'agent-question': { waitKind: 'question', raisedBy: 'host' },
   'app-install': { waitKind: 'approval', raisedBy: 'host', timeoutMs: INSTALL_CONSENT_HUMAN_WINDOW_MS },
 } as const satisfies Record<AskSource, AskSourceSpec>;
+
+/** Archived records may name a source removed in a later release. */
+export function askSourceSpec(source: string): AskSourceSpec | undefined {
+  return Object.hasOwn(ASK_SOURCE_SPEC, source) ? ASK_SOURCE_SPEC[source as AskSource] : undefined;
+}
