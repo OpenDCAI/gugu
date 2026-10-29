@@ -50,9 +50,9 @@ export function TurnFailureCard({ reason, displayName, agentId, avatar, createdA
             {count > 1 ? <span className="tfc-count">×{count}</span> : null}
             {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDayTime(createdAt)}</time> : null}
           </div>
-          <button type="button" className="tfc-reason" aria-label={cause} onClick={() => setDetailOpen(true)}>
+          <Button variant="ghost" size="sm" className="tfc-reason block h-auto min-h-0 max-[719px]:min-h-0 p-0" aria-label={cause} onClick={() => setDetailOpen(true)}>
             {cause}{placement === 'stream' ? ` · ${t(presentation.nextMessageKey)}` : ''}
-          </button>
+          </Button>
           {placement === 'composer' ? (
             <div className="tfc-actions">
               {presentation.actions.map(action => action === 'retry' ? onRetry && (

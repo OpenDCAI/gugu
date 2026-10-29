@@ -66,7 +66,7 @@ export function AgentTurnFailureSlot({
     markNotified(failure)
   }, [failure, stateKind, displayName, wasNotified, markNotified])
   if (!chatId) return null
-  if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3.5 my-1.5 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
+  if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3 my-2 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
   const dismiss = () => {
