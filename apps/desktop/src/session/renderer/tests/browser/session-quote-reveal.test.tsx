@@ -28,20 +28,20 @@ describe('session quote navigation', () => {
     const root = createRoot(host);
     try {
       root.render(<Harness />);
-      await until(() => !!host.querySelector('button'));
+      await until('quote button is mounted', () => !!host.querySelector('button'));
       host.querySelector('button')!.click();
-      await until(() => actions.flashMessageId === 'source');
+      await until('loaded source receives the flash', () => actions.flashMessageId === 'source');
       expect(loadOlderHistory).toHaveBeenCalledTimes(2);
       expect(loadOlder).toHaveBeenCalledTimes(2);
       expect(scrollToItem).toHaveBeenLastCalledWith('source', { align: 'center' });
       expect(actions.flashMessageId).toBe('source');
       expect(missing).not.toHaveBeenCalled();
       actions.reveal('latest');
-      await until(() => actions.flashMessageId === 'latest');
+      await until('already-loaded source receives the flash', () => actions.flashMessageId === 'latest');
       expect(loadOlderHistory).toHaveBeenCalledTimes(2);
       expect(scrollToItem).toHaveBeenLastCalledWith('latest', { align: 'center' });
       actions.reveal('deleted');
-      await until(() => missing.mock.calls.length === 1);
+      await until('missing source is reported', () => missing.mock.calls.length === 1);
       expect(missing).toHaveBeenCalledOnce();
       expect(scrollToItem).toHaveBeenCalledTimes(2);
     } finally {
@@ -66,7 +66,7 @@ describe('session quote navigation', () => {
     const root = createRoot(host);
     try {
       root.render(<Harness />);
-      await until(() => !!host.querySelector('button'));
+      await until('pending quote button is mounted', () => !!host.querySelector('button'));
       host.querySelector('button')!.click();
       const shared = actions.loadOlder();
       expect(loadOlderHistory).toHaveBeenCalledOnce();
