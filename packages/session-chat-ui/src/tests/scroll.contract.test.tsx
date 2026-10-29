@@ -156,6 +156,30 @@ afterEach(() => {
 });
 
 describe('transcript scroll behaviour across the P3 row redraw', () => {
+  it('places an unread sent bubble below the viewport top, with its receipt and floating composer', async () => {
+    const receipt = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+    const turns: TranscriptTurn[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `turn-${index}`, seq: index, initiator: 'agent', outcome: { kind: 'done' }, items: [{
+        kind: 'mcp-tool-call', id: `call-${index}`, toolCallId: `call-${index}`, seq: 0,
+        title: 'Send', server: 'plugin_gugu-product_gugu', tool: 'message_send', status: 'done',
+        rawInput: JSON.stringify({ chat_id: '216189', text: `Unread ${index}` }),
+        outputText: `sent (id=msg:${receipt(index)})`,
+      }],
+    }));
+    const { ctx, view, host, scrollEl } = await mountTranscript(0, { composer: 'slot', height: 600, turns });
+    ctx.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
+    view.composerSlot!.style.height = '140px';
+    await settled(scrollEl);
+    const id = `call-12:sent:${receipt(12)}`;
+    view.scrollToItem(id, { align: 'start', offset: -8 });
+    const body = () => host.querySelector<HTMLElement>(`[data-agent-conversation-message="${id}"] [data-user-card]`);
+    await until('unread body is mounted', () => body() !== null);
+    await settled(scrollEl);
+    const bounds = body()!.getBoundingClientRect();
+    expect(bounds.top).toBeGreaterThanOrEqual(scrollEl.getBoundingClientRect().top);
+    expect(bounds.bottom).toBeLessThanOrEqual(view.composerSlot!.getBoundingClientRect().top);
+  });
+
   it('is scrollable at all — liveness control for the driver', async () => {
     const { scrollEl, view } = await mountTranscript(120);
 

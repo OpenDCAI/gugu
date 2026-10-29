@@ -39,7 +39,9 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     const itemId = dmTranscriptItem(current.first, aliases)
     if (itemId && current.placed !== itemId) {
       current.placed = itemId
-      view.current.setScrollMode({ kind: 'anchor', itemId, edge: 'top', offset: 0 })
+      // Address the message's first render unit through the item scroll API,
+      // leaving a small reading gap above its body and trailing receipt.
+      view.current.scrollToItem(itemId, { align: 'start', offset: -8 })
     }
   }, [shown, current, aliases])
   useLayoutEffect(() => {

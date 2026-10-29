@@ -11,7 +11,7 @@ import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/age
 import { turnFailureMarker } from '@gugu/core/shared/ui/systemNotice'
 import { dmRecord } from '../../../../apps/desktop/src/components/chat/agent-dm-record'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, turns: [] as TranscriptTurn[], settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), scrollToItem: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, turns: [] as TranscriptTurn[], settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
@@ -23,7 +23,7 @@ vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript
   if (probe.fail) throw new Error('Conversation render failure')
   probe.props = props
   const { onReady } = props
-  useEffect(() => { onReady?.({ find: probe.find, setScrollMode: probe.setScrollMode }) }, [onReady])
+  useEffect(() => { onReady?.({ find: probe.find, scrollToItem: probe.scrollToItem }) }, [onReady])
   return createElement('div', { 'data-shared-transcript': '' }, props.turns.flatMap(turn => turn.items.map(item => 'text' in item ? item.text : '')).join('\n'), props.composerContent)
 } }))
 import { AgentDmConversation } from '../../../../apps/desktop/src/components/chat/AgentDmConversation'
@@ -32,7 +32,7 @@ import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaP
 import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/ShellErrorBoundary'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.scrollToItem.mockClear(); probe.settlements = {}; probe.respond.mockReset(); vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} }) })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
@@ -130,7 +130,7 @@ it('opens at the first unread and does not let a transient tail frame read the h
   await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: unread, shown: true }), { chat: {
     activeChat: unread, activeChatId: dm.id, messages: rows, markMessageVisible, setFollowingTail,
   } })
-  expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: rows[0].id, edge: 'top', offset: 0 })
+  expect(probe.scrollToItem).toHaveBeenCalledWith(rows[0].id, { align: 'start', offset: -8 })
   const props = probe.props as { onAtBottomChange: (atBottom: boolean) => void; onVisibleItems: (ids: string[]) => void }
   props.onAtBottomChange(true)
   props.onVisibleItems(rows.slice(5).map(row => row.id))
