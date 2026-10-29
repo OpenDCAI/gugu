@@ -1,10 +1,13 @@
 // #921 平台保管凭据的客户端:管家 /integrations 的路径、方法、请求体、出错码;MCP 转发口地址与现取的令牌;
 // 转发口说「没存」/「对方拒了存着的凭据」时各给一句说得清的错(❌ 当成登录问题)。
 import { describe, expect, it, vi } from 'vitest'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
   createPlatformIntegrationsClient,
   isPlatformServiceMissing,
   PlatformCredentialRejectedError,
+  PlatformForwarderBusyError,
   PlatformIntegrationNotConnectedError,
 } from '@gugu/core/cloud/platformIntegrations'
 
@@ -30,7 +33,8 @@ describe('platform integrations client (#921)', () => {
       if (method === 'PUT') return json({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
       return new Response(null, { status: 204 })
     })
-    await expect(c.list()).resolves.toEqual(listed.providers)
+    // An answer without `state` (an older platform) still reads: the state follows `connected`.
+    await expect(c.list()).resolves.toEqual([{ provider: 'amap', accounts: [{ ...listed.providers[0]!.accounts[0]!, state: 'connected' }] }])
     await expect(c.saveCredential('amap', { apiKey: 'k-123' })).resolves.toEqual({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
     await expect(c.deleteCredential('amap')).resolves.toBeUndefined()
     expect(calls.map((x) => `${x.method} ${x.url.replace(BASE, '')} ${x.body === undefined ? '' : JSON.stringify(x.body)}`.trim())).toEqual([
@@ -99,5 +103,66 @@ describe('platform integrations client (#921)', () => {
       expect(isPlatformServiceMissing(error), code).toBe(false)
     }
     expect(isPlatformServiceMissing(new Error('offline'))).toBe(false)
+  })
+
+  it('reads each account’s state: reconnect is a kept row that needs a reconnect; not_connected is no row at all', async () => {
+    const { c } = client(() => json({ providers: [
+      { provider: 'amap', accounts: [
+        { accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' },
+        { accountId: 'spare', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null },
+      ] },
+      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }] },
+    ] }))
+    expect(await c.list()).toEqual([
+      { provider: 'amap', accounts: [{ accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }] },
+      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }] },
+    ])
+  })
+})
+
+/** The platform forwarder answering as AMap's MCP until a tool is called, then `onCall`. */
+function forwarder(onCall: () => Response) {
+  return (method: string, _url: string, body: unknown) => {
+    if (method !== 'POST') return new Response(null, { status: 405 })
+    const message = body as { id?: number; method?: string }
+    if (message.id === undefined) return new Response(null, { status: 202 })
+    if (message.method === 'initialize') {
+      return Response.json({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'amap', version: '1' } } })
+    }
+    if (message.method === 'tools/list') return Response.json({ jsonrpc: '2.0', id: message.id, result: { tools: [{ name: 'maps_weather', inputSchema: { type: 'object' } }] } })
+    return onCall()
+  }
+}
+
+/** A session's call through the real MCP transport: connect, list, then call a tool. */
+async function callAmapTool(onCall: () => Response) {
+  const { c } = client(forwarder(onCall))
+  const endpoint = await c.mcpEndpoint('amap')
+  const mcp = new Client({ name: 'test', version: '1' })
+  await mcp.connect(new StreamableHTTPClientTransport(new URL(endpoint.url), { requestInit: { headers: endpoint.headers }, fetch: endpoint.fetch }))
+  try {
+    await mcp.listTools()
+    return await mcp.callTool({ name: 'maps_weather', arguments: { city: '北京' } })
+  } finally {
+    await mcp.close()
+  }
+}
+
+describe('a forwarded call that the platform turns down (#921)', () => {
+  it('says “the saved credential was rejected; reconnect” on any call, not only on initialize', async () => {
+    const error = await callAmapTool(() => json({ error: 'credential_rejected', message: 'upstream said no' }, 409)).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PlatformCredentialRejectedError)
+  })
+
+  it.each([
+    ['too many calls open at once', 429, 'too_many_streams', '7', /try again in 7 s/],
+    ['rate-limited', 429, 'rate_limited', '3', /try again in 3 s/],
+    ['timed out', 408, 'request_timeout', null, /try again shortly/],
+  ] as const)('reads %s as temporary: try again later, never reconnect, sign-in or not connected', async (_case, status, code, retryAfter, wording) => {
+    const answer = () => new Response(JSON.stringify({ error: code, message: 'busy' }), { status, headers: retryAfter ? { 'retry-after': retryAfter } : {} })
+    const error = await callAmapTool(answer).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PlatformForwarderBusyError)
+    expect((error as Error).message).toMatch(wording)
+    expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401/i)
   })
 })

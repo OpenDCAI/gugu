@@ -19,7 +19,7 @@ const platform = vi.hoisted(() => ({
 }));
 const store = vi.hoisted(() => ({
   upsertAccount: vi.fn(async () => undefined),
-  getAccount: vi.fn(async () => null),
+  getAccount: vi.fn(async (): Promise<unknown> => null),
   delete: vi.fn(async () => undefined),
   listAccounts: vi.fn(async () => []),
 }));
@@ -110,5 +110,15 @@ describe('integrations whose credential the platform keeps (#921)', () => {
     expect(store.delete).toHaveBeenCalledWith('amap');
     expect(platform.disconnect).not.toHaveBeenCalled();
     expect(platform.check).not.toHaveBeenCalled();
+  });
+
+  it('checks the key on this computer when the first ask finds no platform service here', async () => {
+    // Before the ask custody still reads as platform; the ask itself finds the service missing.
+    platform.custody.mockReturnValueOnce('platform').mockReturnValue('local');
+    platform.check.mockResolvedValueOnce({ connected: false } as never);
+    store.getAccount.mockResolvedValue({ accountId: 'default', credentials: { apiKey: GOOD } });
+    network.mockImplementation(amapAnswers());
+
+    expect(await new IntegrationConnectionService().checkConnection('amap', CAPABILITIES)).toMatchObject({ connected: true });
   });
 });

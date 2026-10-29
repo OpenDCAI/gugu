@@ -39,6 +39,10 @@ function fakePlatform() {
     onPut: null as null | (() => void),
     /** absent = this installation has no such service (the gateway's 404); closed = not open to this person (503). */
     mode: 'open' as 'open' | 'absent' | 'closed',
+    /** The network is down: every request fails before it reaches the platform. */
+    down: false,
+    /** Holds the next `GET /integrations` until released. */
+    holdGet: null as null | Promise<void>,
   };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -46,14 +50,19 @@ function fakePlatform() {
     const raw = typeof init?.body === 'string' ? init.body : '';
     const path = url.pathname.replace('/functions/v1/cloud-computer', '');
     requests.push({ method, path, authorization: new Headers(init?.headers).get('authorization'), body: raw ? JSON.parse(raw) : undefined, raw: `${url}${raw}` });
+    if (state.down) throw new TypeError('fetch failed');
     if (state.mode === 'absent') return Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 });
     if (state.mode === 'closed') return Response.json({ error: 'not_open', message: 'Not open to you yet.' }, { status: 503 });
     if (path === '/integrations' && method === 'GET') {
+      if (state.holdGet) await state.holdGet;
       const amap = saved.get('amap');
       return Response.json({
         providers: [{
           provider: 'amap',
-          accounts: amap ? [{ accountId: 'default', connected: !amap.rejected, updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' }] : [],
+          // Every provider in the table is listed: `not_connected` with no times = nothing stored.
+          accounts: [amap
+            ? { accountId: 'default', connected: !amap.rejected, state: amap.rejected ? 'reconnect' : 'connected', updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' }
+            : { accountId: 'default', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null }],
         }],
       });
     }
@@ -91,13 +100,15 @@ afterEach(() => {
 });
 
 /** One of the person's devices: its own account table, signed in with its own session token. */
-async function device(platform: Platform, name: string, clock = { now: 1_000_000 }) {
+async function device(platform: Platform, name: string, clock = { now: 1_000_000 }, options: { noPlatform?: boolean } = {}) {
   const fixture = await openRegistryFixture('empty');
   opened.push(fixture);
   const token = { value: `${name}-session-1` };
   const logs: unknown[] = [];
   const service = new PlatformCredentialService({
-    client: () => createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => token.value, anonKey: 'anon', fetch: platform.fetchImpl }),
+    client: () => options.noPlatform
+      ? null
+      : createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => token.value, anonKey: 'anon', fetch: platform.fetchImpl }),
     accounts: fixture.registry,
     providers: platformCustodyProviders,
     log: { info: (...args: unknown[]) => logs.push(args), warn: (...args: unknown[]) => logs.push(args) },
@@ -298,6 +309,112 @@ describe('credentials the platform keeps (#921)', () => {
     local.accounts.set('amap', { apiKey: GOOD });
     expect(await amapEntry(d.service)).toBeNull();
     expect(d.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
+  });
+
+  it('a provider the platform lists as not_connected leaves no row on the device and gives no tools', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+
+    expect(await d.service.refresh({ maxAgeMs: 0 })).toBe(true);
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+    expect(await amapEntry(d.service)).toBeNull();
+    expect(await d.service.check('amap')).toEqual({ connected: false });
+  });
+
+  it.each([
+    ['timed out', 408, 'request_timeout', 'timed_out'],
+    ['rate-limited', 429, 'rate_limited', 'rate_limited'],
+  ] as const)('a connection the platform %s reads as temporary and keeps nothing', async (_case, status, code, errorType) => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    platform.state.putFault = { status, code };
+
+    const result = await d.service.connect('amap', { apiKey: GOOD });
+    expect(result).toMatchObject({ success: false, errorType });
+    expect(JSON.stringify(result)).not.toContain(GOOD);
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+    expect(d.fixture.secretStore.secrets.size).toBe(0);
+  });
+
+  it('with no platform configured at all, the key is kept on this computer from the first look, edits included', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D', undefined, { noPlatform: true });
+
+    expect(d.service.custody('amap')).toBe('local');
+    // Editing with the secret left blank goes the local way, which keeps the saved secret.
+    expect(await d.service.connect('amap', { apiKey: '' }, { editing: true })).toEqual({ keepHere: true });
+    expect(platform.requests).toEqual([]);
+  });
+
+  it('when the platform service goes away, what it had mirrored on this device goes too', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    await d.service.connect('amap', { apiKey: GOOD });
+    expect(await d.fixture.registry.listAccounts('amap')).toHaveLength(1);
+
+    platform.state.mode = 'absent';
+    await d.service.refresh({ maxAgeMs: 0 });
+    expect(d.service.custody('amap')).toBe('local');
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+  });
+
+  it('a #649 key can still be removed while the platform is not open to the person', async () => {
+    const platform = fakePlatform();
+    platform.state.mode = 'closed';
+    const d = await device(platform, 'D');
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+    expect(await d.service.disconnect('amap')).toEqual({ success: true });
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+    expect(d.fixture.secretStore.secrets.size).toBe(0);
+  });
+
+  it('a failed ask is not repeated by every look for a while; opening a session still asks again', async () => {
+    const platform = fakePlatform();
+    const clock = { now: 1_000_000 };
+    const d = await device(platform, 'D', clock);
+    platform.state.down = true;
+    const asks = () => platform.requests.filter((request) => request.method === 'GET').length;
+
+    expect(await d.service.refresh()).toBe(false);
+    expect(await d.service.refresh()).toBe(false);
+    expect(asks()).toBe(1);
+    await d.service.refresh({ maxAgeMs: 0 });
+    expect(asks()).toBe(2);
+    clock.now += 60_000;
+    await d.service.refresh();
+    expect(asks()).toBe(3);
+  });
+
+  it('after a sign-in change, a read does not take the answer of an ask made under the previous sign-in', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    let release!: () => void;
+    platform.state.holdGet = new Promise<void>((resolve) => (release = resolve));
+
+    const before = d.service.refresh({ maxAgeMs: 0 });
+    d.token.value = 'D-session-2';
+    d.service.invalidate();
+    const after = d.service.refresh({ maxAgeMs: 0 });
+    platform.state.holdGet = null;
+    release();
+    await Promise.all([before, after]);
+
+    expect(platform.requests.filter((request) => request.method === 'GET').map((request) => request.authorization)).toEqual([
+      'Bearer D-session-1',
+      'Bearer D-session-2',
+    ]);
+  });
+
+  it('moves only the account #649 saved (the default one); any other local row is left as it is', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D');
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'other', secret: JSON.stringify({ apiKey: BAD }) });
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+    await d.service.refresh({ maxAgeMs: 0 });
+    expect(platform.requests.filter((request) => request.method === 'PUT').map((request) => request.body)).toEqual([{ fields: { apiKey: GOOD } }]);
+    expect(d.fixture.secretStore.secrets.has('provider-credential:amap:other')).toBe(true);
   });
 });
 
