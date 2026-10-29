@@ -9,7 +9,10 @@ export const CONVERSATION_EXPAND_H = 24;
 /** 过程里 agent 中途说的话:一行灰字(设计稿 0 号),❌ 一个气泡。 */
 export const CONVERSATION_NARRATION_H = 32;
 
-export const conversationNarrationText = (text: string): string => text.replace(/\s+/g, ' ').slice(0, 160);
+export const conversationNarrationText = (text: string): string => {
+  const flat = text.replace(/\s+/g, ' ');
+  return flat.length > 160 ? `${flat.slice(0, 159)}…` : flat;
+};
 /** message_send 带了 reply_to_message_id 时气泡上方那一行引用「谁 · 摘要」。 */
 export const CONVERSATION_QUOTE_H = 22;
 

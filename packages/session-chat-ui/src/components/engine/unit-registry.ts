@@ -46,7 +46,7 @@ import { turnProcessUnitDef } from '@session-chat/components/rows/turn-process/t
 import { turnCompletionUnitDef } from '@session-chat/components/rows/turn-process/turn-completion.def';
 import { toolRunUnitDef } from '@session-chat/components/rows/tool-run/tool-run.def';
 import { createProcessStepsUnitDef } from '@session-chat/components/rows/conversation-process/process-steps.def';
-import { conversationStepUnitDef } from '@session-chat/components/rows/conversation-step/conversation-step.def';
+import { conversationStepData, conversationStepUnitDef } from '@session-chat/components/rows/conversation-step/conversation-step.def';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isPlanApprovalToolName, isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
 import type { GroupChrome, ItemSegmenter, SegmentCtx, SegmentItem, UnitDef } from '@session-chat/core/units';
@@ -189,7 +189,7 @@ function toolNodeSegment(kind: ToolNode['kind']): ItemSegmenter {
     segment(item, ctx) {
       const tool = item as ToolNode;
       if (ctx.agentConversation && tool.kind !== 'tool-group' && !isQuestionOrPlanToolName(toolCallName(tool))) {
-        const row = unit('conversation-step', tool, tool, { key: 'self' });
+        const row = unit('conversation-step', tool, conversationStepData(tool, ctx.translate), { key: 'self' });
         row.chrome = MESSAGE_CHROME;
         return [row];
       }
