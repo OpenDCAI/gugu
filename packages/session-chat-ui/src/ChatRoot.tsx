@@ -1000,15 +1000,14 @@ export function ChatRoot(props: ChatRootProps) {
       const ends = active
         ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
         : committed;
-      // An independently sent reply is a conversation bubble too. End the
-      // preceding instruction's sticky lane before it, as for a delivery.
-      // Otherwise opening at that reply's unread anchor pins the instruction
-      // over its body even though the body is inside the viewport.
+      // Native replies have the same boundary as sent replies: the preceding
+      // input must scroll clear of the reply's header, process and body.
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
       for (let i = 0; i < all.length; i++) {
         const unit = all.at(i)!;
         const data = unit.data as ChatMessage;
-        if (data.conversationPart === 'body' && data.role === 'assistant' && unit.itemId.includes(':sent:')) ends.push(i);
+        if (data.role === 'assistant' && (data.conversationPart === 'head'
+          || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
       }
       return [...new Set(ends)].sort((a, b) => a - b);
     },
