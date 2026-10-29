@@ -11,9 +11,9 @@ vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry
   { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
   { metadata: { id: 'amap', name: '高德地图' } },
 ] } }))
-// Mail hands its tools to sessions; GitHub only links issues and gives an agent nothing to call.
+// Mail and AMap (the platform's forwarder, #921) hand their tools to sessions; GitHub only links issues and gives an agent nothing to call.
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/session-integrations', () => ({
-  integrationGivesSessionTools: (integrationId: string) => integrationId === 'email',
+  integrationGivesSessionTools: (integrationId: string) => ['email', 'amap'].includes(integrationId),
 }))
 vi.mock('../../../apps/desktop/electron/session/main/core/provider-accounts/provider-account-registry-instance', () => ({ providerAccountRegistry: data }))
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/platform-credentials-instance', () => ({ platformCredentials: platform }))
@@ -65,4 +65,5 @@ it('lists an integration the platform keeps for the person even when this device
   const rows = await configuredIntegrationIndex()
   expect(platform.refresh).toHaveBeenCalled()
   expect(rows.find(row => row.id === 'amap:default')).toMatchObject({ name: '高德地图', isDefault: true })
+  expect(rows.find(row => row.id === 'amap:default')).not.toHaveProperty('note')
 })

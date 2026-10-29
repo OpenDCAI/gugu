@@ -34,9 +34,17 @@ function mcpOAuthServerUrl(integrationId: string): string | null {
   return method?.kind === 'mcp-oauth' ? method.serverUrl : null;
 }
 
-/** Whether a connected integration hands an agent anything to call in a session: mail tools or a hosted MCP. */
+/**
+ * Whether a connected integration hands an agent anything to call in a session: mail tools, a hosted MCP, or (#921)
+ * the platform forwarder's MCP for a credential the platform keeps — with or without a local fallback address.
+ */
 export function integrationGivesSessionTools(integrationId: string): boolean {
-  return isMailIntegration(integrationId) || mcpOAuthServerUrl(integrationId) !== null;
+  return (
+    isMailIntegration(integrationId) ||
+    platformCredentials.isPlatformProvider(integrationId) ||
+    keyedMcp(integrationId) !== null ||
+    mcpOAuthServerUrl(integrationId) !== null
+  );
 }
 
 /**
