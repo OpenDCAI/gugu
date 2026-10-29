@@ -696,9 +696,6 @@ importers:
       '@visactor/vchart':
         specifier: ^2.1.7
         version: 2.1.7
-      boring-avatars:
-        specifier: 2.0.4
-        version: 2.0.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       docx-preview:
         specifier: 0.4.0
         version: 0.4.0
@@ -6937,12 +6934,6 @@ packages:
   boolean@3.2.0:
     resolution: {integrity: sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw==}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-
-  boring-avatars@2.0.4:
-    resolution: {integrity: sha512-xhZO/w/6aFmRfkaWohcl2NfyIy87gK5SBbys8kctZeTGF1Apjpv/10pfUuv+YEfVPkESU/h2Y6tt/Dwp+bIZPw==}
-    peerDependencies:
-      react: '>=18.0.0'
-      react-dom: '>=18.0.0'
 
   bowser@1.9.4:
     resolution: {integrity: sha512-9IdMmj2KjigRq6oWhmwv1W36pDuA4STQZ8q6YO9um+x07xgYNCD3Oou+WP/3L1HNz7iqythGet3/p4wvc8AAwQ==}
@@ -18918,11 +18909,6 @@ snapshots:
 
   boolean@3.2.0:
     optional: true
-
-  boring-avatars@2.0.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
-    dependencies:
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
 
   bowser@1.9.4: {}
 
