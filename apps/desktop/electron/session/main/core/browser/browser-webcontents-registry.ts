@@ -30,6 +30,7 @@ import {
 import { COMMANDS, type CommandId } from '@shared/commands';
 import { getElectronTabNavigationDirection, resolveDefaultHotkey,  } from '@shared/shortcuts';
 import { isGoogleAuthUrl, userAgentForBrowserUrl } from './browser-user-agent';
+import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 
 type RegisteredBrowserSession = {
   browserId: string;
@@ -481,10 +482,6 @@ export function isSamePreviewNavigation(currentUrl: string, targetUrl: string): 
   } catch {
     return false;
   }
-}
-
-function isSupportedBrowserNavigationUrl(url: string): boolean {
-  return normalizeBrowserUrl(url, { allowSearchQueries: false }).ok;
 }
 
 function isExternalHttpUrl(url: string): boolean {
