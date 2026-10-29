@@ -55,3 +55,31 @@ for (const kind of ['group', 'dm'] as const) for (const mobile of [false, true])
     expect(sendMessage).toHaveBeenCalledWith(typed, expect.objectContaining({ replyToMessageId: 'source' }))
   })
 }
+
+it('does not restore an old mobile DM quote or focus the composer after A → B → A', async () => {
+  mobileShell.enabled = true
+  const source = message({ id: 'source-A', chat_id: 'chat-A', sender_user_id: 'ada', content: 'Alpha Beta' })
+  const surface = (id: string) => renderWithAppProviders(h, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true }), { chat: {
+    activeChatId: id, activeChat: chat({ id, kind: 'dm', peer_user_id: 'ada', name: id }), messages: id === 'chat-A' ? [source] : [],
+    identitiesById: { ada: displayIdentity('ada', { display_name: 'Ada' }) }, getImRepository: async () => repository,
+  } })
+  await surface('chat-A')
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0 })
+  const bubble = h.container.querySelector<HTMLElement>('[data-msg-id="source-A"] [data-testid="message-bubble-action-target"]')!
+  await fireContextMenu(bubble)
+  await act(async () => { await vi.dynamicImportSettled() })
+  await clickElement([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === '回复')!)
+  expect(h.container.querySelector('button[aria-label="取消引用"]')).not.toBeNull()
+  h.container.querySelector<HTMLElement>('[contenteditable]')!.blur()
+  const added: Node[] = []
+  const observer = new MutationObserver(records => records.forEach(record => added.push(...record.addedNodes)))
+  observer.observe(h.container, { childList: true, subtree: true })
+  const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+  await surface('chat-B')
+  expect(h.container.querySelector('button[aria-label="取消引用"]')).toBeNull()
+  await surface('chat-A')
+  observer.takeRecords().forEach(record => added.push(...record.addedNodes)); observer.disconnect()
+  expect({ quoteFlashed: added.some(node => node instanceof Element && (node.matches('button[aria-label="取消引用"]') || node.querySelector('button[aria-label="取消引用"]'))),
+    quoteVisible: !!h.container.querySelector('button[aria-label="取消引用"]'), composerFocused: focus.mock.instances.some(node => node instanceof HTMLElement && node.matches('[contenteditable]')) })
+    .toEqual({ quoteFlashed: false, quoteVisible: false, composerFocused: false })
+})

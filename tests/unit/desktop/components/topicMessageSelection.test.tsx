@@ -18,10 +18,10 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
 })
 afterEach(() => { h.cleanup(); window.getSelection()?.removeAllRanges(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-async function render() {
+async function render(chatId = 'topic-1') {
   const onSend = vi.fn(async () => {})
   await renderWithAppProviders(h, createElement(TopicSplitPane, {
-    topic: { chatId: 'topic-1', name: 'Topic' }, messages, loading: false,
+    topic: { chatId, name: 'Topic' }, messages: chatId === 'topic-1' ? messages : [], loading: false,
     memberProfiles: { ada: { id: 'ada', displayName: 'Ada', avatar: null, email: null, type: 'human', role: 'member' } },
     memberReadSeqs: {}, visibleChats: [], sourceMessagePreview: null, onSend, onSendAttachments: async () => {},
     onClose: () => {}, currentUserId: 'user-1', history: topicHistoryStub(), mentionMembers: [], mobile: true,
@@ -57,4 +57,15 @@ it('keeps native selection focus when a topic excerpt is attached automatically'
   await render(); await select()
   expect(document.activeElement).not.toBe(editor())
   expect(window.getSelection()?.toString()).toBe('Beta paragraph.')
+})
+
+it('never sends another topic’s quote after the same split pane changes topic', async () => {
+  const originalSend = await render(); await select()
+  expect(h.container.querySelector('button[aria-label="取消引用"]')).not.toBeNull()
+  const onSend = await render('topic-2')
+  expect(h.container.querySelector('button[aria-label="取消引用"]')).toBeNull()
+  await act(async () => writeComposer(editor(), 'New topic'))
+  await clickElement(h.container.querySelector('button[aria-label="发送消息"]')!)
+  expect(onSend).toHaveBeenCalledWith('New topic', [], null, undefined, expect.any(Number))
+  expect(originalSend).not.toHaveBeenCalled()
 })

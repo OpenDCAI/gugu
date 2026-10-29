@@ -45,3 +45,12 @@ it('does not carry a quote from one topic into another topic or its send path', 
   expect(state.quote).toBeNull()
   expect(contentWithQuote('Other topic', state.quote)).toBe('Other topic')
 })
+
+it('forgets A after B explicitly clears its empty quote, instead of resurrecting A on return', async () => {
+  await act(async () => state.onQuote(message({ id: 'source-A' })))
+  await h.render(createElement(Probe, { chatId: 'topic-2' }))
+  expect(state.quote).toBeNull()
+  await act(async () => state.setQuote(null))
+  await h.render(createElement(Probe, { chatId: 'topic-1' }))
+  expect(state.quote).toBeNull()
+})

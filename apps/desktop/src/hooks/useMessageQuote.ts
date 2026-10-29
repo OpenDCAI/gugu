@@ -15,7 +15,7 @@ export function useMessageQuote(chatId: string | null, senderNameOf: (id: string
     setStored(previous => {
       const current = previous?.chatId === chatId ? previous.quote : null
       const quote = typeof next === 'function' ? next(current) : next
-      if (quote === current) return previous
+      if (quote === current && previous?.chatId === chatId) return previous
       return quote ? { chatId, quote } : null
     })
   }, [chatId])
