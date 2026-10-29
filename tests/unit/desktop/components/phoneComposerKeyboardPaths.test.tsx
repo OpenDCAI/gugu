@@ -43,7 +43,7 @@ async function mount(kind: 'group' | 'dm' | 'agent' | 'task') {
   vi.spyOn(rpc, 'fetchCreateOptions').mockResolvedValue({ projects: [], lastUsed: null, harnesses: [
     { id: 'codex', name: 'Codex', status: 'available', watchable: true, sessionViews: ['general'], permissionModes: ['full-access'] },
   ] })
-  vi.spyOn(rpc, 'fetchCreateModels').mockResolvedValue({ harness: 'codex', models: [], efforts: [], selected: null, selectedEffort: null })
+  vi.spyOn(rpc, 'fetchCreateModels').mockResolvedValue({ harness: 'codex', transport: 'acp', models: [], efforts: [], selected: null, selectedEffort: null, harnessState: 'unknown', harnessReason: null, guguReason: null })
   function Agent() {
     const runtime = useExternalStoreRuntime<ThreadMessage>({ messages: [], onNew: delivered, adapters: { attachments: attachmentAdapter } })
     return <AssistantRuntimeProvider runtime={runtime}><Thread autoFocus={false} submitOnEnter={false} /></AssistantRuntimeProvider>
