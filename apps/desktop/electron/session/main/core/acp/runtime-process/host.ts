@@ -60,6 +60,7 @@ import { desktopWorkerPath } from '@main/worker-manifest';
 import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './session-meta';
 import { persistAcpStartResult } from './session-persistence-policy';
 import { notifySessionLive } from '@main/core/sessions/session-message-router';
+import { withSessionStartAdmission } from '@main/core/sessions/version-handoff';
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
@@ -918,7 +919,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await inFlight.result.catch(() => undefined);
       return detachedClient.announceSession(input);
     },
-    queuePrompt: async (input, meta) => {
+    queuePrompt: (input, meta) => withSessionStartAdmission(async () => {
       const { startInput: rendererStartInput, ...queued } = input;
       if (!rendererStartInput) return client.queuePrompt(queued, meta);
       const sessionId = rendererStartInput.sessionId;
@@ -943,7 +944,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
       }
       return client.queuePrompt({ ...queued, startInput: injected.input }, meta);
-    },
+    }),
     // #6552 会话还在起的时候用户选了模型 / 强度:worker 在启动的「设模型/强度」那一步采用它。
     // 这条会话的启动还在主进程准备(注入)的话,worker 那边还没有它 ⇒ 等到启动交给 worker 再递 ——
     // 与上面 announceSession 同一个等法;❌ 不等启动起完(那一步早过了,选择就成了第二次热切)。
@@ -951,9 +952,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await startsInFlight.get(input.sessionId)?.prepared.catch(() => undefined);
       return client.setModelOption(input, meta);
     },
-    startSession: async (input, meta) => (await startOnce(input, meta)).result,
+    startSession: (input, meta) => withSessionStartAdmission(async () => (await startOnce(input, meta)).result),
     stopSession,
-    resumeSession: async (input, meta) => {
+    resumeSession: (input, meta) => withSessionStartAdmission(async () => {
       while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
       await finishClosingProcess(input.input.sessionId);
       // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
@@ -994,7 +995,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         await persistProviderSessionMissing(injected.input.sessionId, injected.input.providerSessionId);
       }
       return result;
-    },
+    }),
   };
 }
 

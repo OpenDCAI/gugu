@@ -1,4 +1,5 @@
 import type { ServerVersionLifecycle } from './server-version-lifecycle'
+import type { AccountHandoff } from './server-account-handoff'
 /**
  * #6264 守护进程这一侧:让每个账号跑和自己桌面匹配的那一版(规则见 server-account-versions.ts)。
  *
@@ -17,7 +18,7 @@ import {
   touchVersion,
   versionBinary,
 } from './server-account-versions'
-import { accountDataDir, accountIsBusy, listAccounts, type ServerAccount } from './server-layout'
+import { accountDataDir, accountIsBusy, readAccountActivity, listAccounts, type ServerAccount } from './server-layout'
 import type { SupervisorLog } from './server-supervisor'
 import { addBadVersion, readBadVersions } from './server-upgrade-guard'
 import {
@@ -47,6 +48,7 @@ export function notPublishedRetryMs(attempts: number): number {
 /** 换过去之后这么久里秒退了几次就算「这一版在这里起不来」。 */
 const QUICK_EXITS_TO_ROLL_BACK = 3
 const ROLLBACK_WINDOW_MS = 10 * 60 * 1000
+export const ACCOUNT_BOOT_READY_TIMEOUT_MS = 120_000
 
 type Layout = { home: string; versions: string; version: string }
 
@@ -69,6 +71,7 @@ export function createAccountVersionConverger(options: {
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
   runningProcess?: (userId: string) => { pid: number | undefined; startedAt: number } | undefined
+  prepareHandoff?: (account: ServerAccount, target: string) => Promise<AccountHandoff | null>
   /** 只结束这个账号的进程(守护进程下一轮对账会按新版本拉起它)。 */
   restart: (userId: string) => void
   now?: () => number
@@ -134,7 +137,7 @@ export function createAccountVersionConverger(options: {
   const notPublished = new Map<string, { attempts: number; until: number }>()
   const unpublished = (version: string): boolean => now() < (notPublished.get(version)?.until ?? 0)
   const failedAt = new Map<string, number>()
-  const switches = new Map<string, { version: string; previous: string | null; at: number; quickExits: number }>()
+  const switches = new Map<string, { version: string; previous: string | null; at: number; quickExits: number; ready: boolean }>()
   /** 刚请它换过去、旧进程还在收尾的账号:等它退干净再说,❌ 每一轮都再结束一次。 */
   const pending = new Map<string, string>()
   let missingSupervisorWarnAt = -Infinity
@@ -202,11 +205,19 @@ export function createAccountVersionConverger(options: {
     options.lifecycle?.switchAccount(account.dataDir, version, from, now())
     touchVersion(layout.versions, version)
     fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
-    switches.set(account.userId, { version, previous: from, at: now(), quickExits: 0 })
+    switches.set(account.userId, { version, previous: from, at: now(), quickExits: 0, ready: false })
     pending.set(account.userId, version)
     log.info(followSupervisor ? '这个账号跟随守护进程的包' : '这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
     if (options.running(account.userId) !== undefined) options.restart(account.userId)
 
+  }
+
+  const rollBack = (userId: string, version: string, previous: string | null): void => {
+    switches.delete(userId)
+    pending.delete(userId)
+    if (layout) addBadVersion(layout.home, version, now())
+    options.lifecycle?.rollbackAccount(accountDataDir(userId), previous, now())
+    log.warn('换过去的那一版在这台机器上起不来,退回原来那一版', { account: userId, version, back: previous })
   }
 
   return {
@@ -215,8 +226,19 @@ export function createAccountVersionConverger(options: {
     converge(accounts) {
       if (!layout) return
       for (const account of accounts) {
-        const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
-        if (!followSupervisor && Object.keys(reports).length === 0) continue
+        const current = options.running(account.userId)
+        const last = switches.get(account.userId)
+        const child = options.runningProcess?.(account.userId)
+        if (last && current === last.version && !last.ready && options.runningProcess) {
+          if (child && readAccountActivity(account.dataDir, now(), child)) last.ready = true
+          else if (now() - last.at >= ACCOUNT_BOOT_READY_TIMEOUT_MS) {
+            rollBack(account.userId, last.version, last.previous)
+            stateOf(account).set('failed', last.version)
+            options.restart(account.userId)
+            continue
+          }
+        }
+        if (last && now() - last.at > ROLLBACK_WINDOW_MS) switches.delete(account.userId)
         // 控制器已经校验并启动了这个包。文件缺失应修复安装,不能按桌面目标反复下载自己的版本。
         if (followSupervisor && !installed(layout.version)) {
           stateOf(account).set('failed', layout.version)
@@ -226,7 +248,8 @@ export function createAccountVersionConverger(options: {
           }
           continue
         }
-        const current = options.running(account.userId)
+        const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
+        if (!followSupervisor && Object.keys(reports).length === 0) continue
         const waiting = pending.get(account.userId)
         if (waiting && current !== undefined && current !== waiting) continue
         pending.delete(account.userId)
@@ -262,11 +285,35 @@ export function createAccountVersionConverger(options: {
             break
           case 'wait-idle':
             // 装好了、等这个账号空闲:设备行上说「有新版本,空闲时自动更新」(每轮续写,守护进程没了它自己过期)。
-            state.set('ready', plan.version)
+            if (!options.busy && readAccountActivity(account.dataDir, now(), child)?.runtimeOwned !== true) state.set('ready', plan.version, 'runtime-unverified')
+            else state.set('ready', plan.version)
             break
           case 'switch':
-            state.clear()
-            switchTo(account, plan.version, effective, plan.urgent)
+            if (!plan.urgent && current !== undefined && options.prepareHandoff) {
+              if (pending.has(account.userId)) break
+              pending.set(account.userId, plan.version)
+              void options.prepareHandoff(account, plan.version).then(async permit => {
+                let switched = false
+                try {
+                  if (!permit?.valid()) { state.set('ready', plan.version, 'runtime-unverified'); return }
+                  // Target / current child can change while the local handshake is in flight.
+                  if (options.running(account.userId) !== current
+                    || options.runningProcess?.(account.userId)?.pid !== child?.pid
+                    || (pickTargetVersion(readDesktopReports(account.dataDir), now(), undefined, unpublished) ?? layout.version) !== plan.version) return
+                  state.clear()
+                  switchTo(account, plan.version, effective, false)
+                  switched = true
+                } finally {
+                  if (!switched) {
+                    if (permit) await permit.release()
+                    if (pending.get(account.userId) === plan.version) pending.delete(account.userId)
+                  }
+                }
+              }).catch(error => { pending.delete(account.userId); log.warn('Version handoff could not close account admission', { error: String(error) }) })
+            } else {
+              state.clear()
+              switchTo(account, plan.version, effective, plan.urgent)
+            }
             break
         }
       }
@@ -276,11 +323,7 @@ export function createAccountVersionConverger(options: {
       if (!last || last.version !== version || now() - last.at > ROLLBACK_WINDOW_MS) return
       last.quickExits += 1
       if (last.quickExits < QUICK_EXITS_TO_ROLL_BACK) return
-      switches.delete(userId)
-      if (layout) addBadVersion(layout.home, last.version, now())
-      const dataDir = accountDataDir(userId)
-      options.lifecycle?.rollbackAccount(dataDir, last.previous, now())
-      log.warn('换过去的那一版在这台机器上起不来,退回原来那一版', { account: userId, version: last.version, back: last.previous })
+      rollBack(userId, last.version, last.previous)
     },
   }
 }

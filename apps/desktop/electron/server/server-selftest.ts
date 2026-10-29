@@ -55,10 +55,14 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   } finally {
     if (timeout) clearTimeout(timeout)
     watcher?.close()
-    await owned?.stop()
+    await owned?.stop({ graceMs: 10_000 })
     fs.rmSync(home, { recursive: true, force: true })
   }
-  if (owned.child.exitCode !== null && owned.child.exitCode !== 0) throw new Error(`Account boot exited with code ${owned.child.exitCode}`)
+  // main.ts handles our SIGTERM with exit(143). An unhandled SIGTERM is normal too;
+  // SIGKILL or an unrelated fatal exit after the heartbeat is not a successful smoke.
+  if (owned.child.exitCode !== 0 && owned.child.exitCode !== 143 && owned.child.signalCode !== 'SIGTERM') {
+    throw new Error(`Account boot exited with code ${owned.child.exitCode}, signal ${owned.child.signalCode}`)
+  }
 }
 
 export type SelftestCheck = { name: string; run: () => void | Promise<void> }

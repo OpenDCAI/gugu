@@ -622,7 +622,7 @@ describe('gugu-server match-version', () => {
       })
     }
     expect(await run([])).toBe(8)
-    expect(errors.pop()).toContain('有 agent 在跑')
+    expect(errors.pop()).toContain('任务仍附着')
     expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: false })
     expect(await run(['--now'])).toBe(4)
     expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: true })

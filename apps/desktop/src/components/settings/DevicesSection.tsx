@@ -528,7 +528,7 @@ function DeviceRow({
                 data-testid="settings-device-update"
               >
                 {model.update.state === 'ready'
-                  ? t(typeof model.update.busy_agents === 'number' && model.update.busy_agents > 0 ? 'devices.update.readyCount' : 'devices.update.ready', { count: model.update.busy_agents })
+                  ? t(model.update.reason === 'runtime-unverified' ? 'devices.update.activityUnknown' : typeof model.update.busy_agents === 'number' && model.update.busy_agents > 0 ? 'devices.update.readyCount' : 'devices.update.ready', { count: model.update.busy_agents })
                   : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}

@@ -26,6 +26,11 @@ describe('server update activity reported by the account that is waiting', () =>
     }
   })
 
+  it('preserves unknown runtime ownership instead of displaying a known zero', () => {
+    expect(parseServerUpdateState(JSON.stringify({ state: 'ready', version: 'target', at: now, reason: 'runtime-unverified' }), now, activity(0)))
+      .toEqual({ state: 'ready', version: 'target', reason: 'runtime-unverified' })
+  })
+
   it('reads the current account activity, and never attributes that count to a daemon-wide update', () => {
     const files: Record<string, string> = {
       '/srv/accounts/u/data/server-update.json': ready,

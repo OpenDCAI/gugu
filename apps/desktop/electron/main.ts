@@ -4526,6 +4526,7 @@ app.whenReady().then(async () => {
   // The session backend and its session actions are required session-page
   // components: either failing aborts app startup through fatalSessionpageBoot.
   const emdash = loadEmdashBridge()
+  let sessionHostBoot: Promise<void> | undefined
   if (emdash) {
     const localDelivery = getSessionpageLocalDelivery()
     // The session-page PTY provider is a separately bundled module graph. Install the host-owned registry before
@@ -6062,7 +6063,7 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+    const emdashBoot = sessionHostBoot = emdash.bootEmdashModule(ipcMain, {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
@@ -6155,6 +6156,7 @@ app.whenReady().then(async () => {
             onActivity: () => noteTunnelActivity(),
           })
           await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+            handoff: payload => emdash.prepareSessionVersionHandoff(payload),
             timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
             if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
             resumeAccountMessaging('controller')
@@ -6410,6 +6412,10 @@ app.whenReady().then(async () => {
   // 空图直接抛,别再静默。资源规格见 scripts/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
+    // The same required boot promise owns readiness. A missing bridge or a late fatal
+    // backend failure must never publish the heartbeat used for version admission.
+    if (!sessionHostBoot) throw new Error('Session backend boot was not started')
+    await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
     startServerAccountActivity({
       dataDir: app.getPath('userData'),

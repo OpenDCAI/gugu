@@ -21,6 +21,9 @@ import { startServerAccountActivity } from '../../../../apps/desktop/electron/se
 import { accountIsBusy } from '../../../../apps/desktop/electron/server/server-layout'
 import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 import { createAccountVersionConverger } from '../../../../apps/desktop/electron/server/server-account-converge'
+import { prepareAccountHandoff } from '../../../../apps/desktop/electron/server/server-account-handoff'
+import { startPtyAttachServer } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-server'
+import { prepareSessionVersionHandoff } from '../../../../apps/desktop/electron/session/main/core/sessions/version-handoff'
 import { recordDesktopReport, requestVersionRetry } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import * as processOwnership from '../../../../apps/desktop/electron/session/main/core/sessions/session-process'
 
@@ -113,6 +116,8 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
     const dir = home()
     const { runtime, wire, scope } = bootRuntime(dir)
     let publisher: ReturnType<typeof startServerAccountActivity> | undefined
+    let socket: Awaited<ReturnType<typeof startPtyAttachServer>> | undefined
+    const permits: Array<NonNullable<Awaited<ReturnType<typeof prepareAccountHandoff>>>> = []
     let stopUpdater = () => {}
     const listeners = new Set<() => void>()
     const unsubscribe = await wire.client.liveSessionsChanged.subscribe(undefined, { onEvent: () => { for (const f of listeners) f() } })
@@ -122,6 +127,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
     const activity = exportedFunction('apps/desktop/electron/session/main/embedded-boot.ts', 'sessionpageVersionSwitchActivity', {
       readAcpLiveSessionIds, hostSessionProcessIds: processOwnership.hostSessionProcessIds,
       integrationConnectionService: { hasPendingAuthorizations: () => false },
+      hasSessionStartAdmission: () => false,
     }) as () => Promise<{ busy: boolean; busyAgents: number }>
     try {
       expect((await wire.client.startSession({ input: makeStartInput({ sessionId: 'runtime-view', sourceSessionId: 'persisted-task', cwd: dir }) })).success).toBe(true)
@@ -159,10 +165,11 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       if (!block) throw new Error('Missing production account activity wiring')
       const mainContext = {
         app: { getPath: () => dir }, serverAuth: null, createLogger: () => ({ info: vi.fn(), warn: vi.fn() }),
+        sessionHostBoot: Promise.resolve(),
         loadEmdashBridge: () => ({ sessionpageVersionSwitchActivity: activity, sessionpageBootFailures: () => [], onSessionpageAuthorizationActivityChange: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }),
         startServerAccountActivity: (options: Parameters<typeof startServerAccountActivity>[0]) => { publisher = startServerAccountActivity(options) },
       }
-      evaluate(`(function () ${block.getText(main)})()`, mainContext)
+      await evaluate(`(async function () ${block.getText(main)})()`, mainContext)
       await publisher!.report()
       const busy = () => accountIsBusy(dir, Date.now(), { pid: process.pid, startedAt })
       expect(JSON.parse(fs.readFileSync(path.join(dir, 'activity.json'), 'utf8'))).toMatchObject({ busy: true, busyAgents: 1 })
@@ -172,10 +179,17 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       const children = new Map([[account.userId, { process: { pid: process.pid, kill }, startedAt, version }]])
       const context = {
         log: { info: vi.fn(), warn: vi.fn() }, shutdown, layout,
+        CHILD_STOP_GRACE_MS: 30_000,
         lifecycle, accountIsBusy,
         listAccounts: () => [account], children,
         accountDataDir: () => dir, noteExitReason: vi.fn(), createAccountVersionConverger, startServerUpdater,
+        prepareAccountHandoff: async (...args: Parameters<typeof prepareAccountHandoff>) => {
+          const permit = await prepareAccountHandoff(...args)
+          if (permit) permits.push(permit)
+          return permit
+        },
       }
+      socket = await startPtyAttachServer(dir, { warn: () => {}, call: (_type, payload) => prepareSessionVersionHandoff(payload, activity) })
       // Both consumers use their real supervisor composition, including current-child identity.
       const versions = supervisorCall('createAccountVersionConverger', context) as ReturnType<typeof createAccountVersionConverger>
       recordDesktopReport(dir, { id: 'fixture-desktop', version: target, protocol: null })
@@ -192,9 +206,11 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       await publisher!.report()
       expect(busy()).toBe(false)
       versions.converge([account])
-      expect(kill).toHaveBeenCalledOnce()
+      await vi.waitFor(() => expect(kill).toHaveBeenCalledOnce())
       expect(context.log.info).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ urgent: false }))
       children.delete(account.userId)
+      // The fixture's process object is replaced in-process; actual account exit discards this gate.
+      await Promise.all(permits.splice(0).map(permit => permit.release()))
       await vi.advanceTimersByTimeAsync(30_000)
       expect(shutdown).not.toHaveBeenCalled()
       // The replacement has the same fixture PID but a new birth; the old idle file cannot speak for it.
@@ -202,13 +218,15 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       await vi.advanceTimersByTimeAsync(30_000)
       expect(shutdown).not.toHaveBeenCalled()
       publisher!.dispose()
-      evaluate(`(function () ${block.getText(main)})()`, mainContext)
+      await evaluate(`(async function () ${block.getText(main)})()`, mainContext)
       await publisher!.report()
       await vi.advanceTimersByTimeAsync(30_000)
-      expect(shutdown).toHaveBeenCalledOnce()
+      await vi.waitFor(() => expect(shutdown).toHaveBeenCalledOnce())
       expect(fs.readlinkSync(path.join(dir, 'current'))).toBe(`versions/${target}`)
     } finally {
       stopUpdater(); publisher?.dispose(); unsubscribe(); wire.dispose()
+      await Promise.all(permits.splice(0).map(permit => permit.release()))
+      await socket?.close()
       vi.useRealTimers()
       await scope.dispose()
     }

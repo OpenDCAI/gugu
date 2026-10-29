@@ -48,6 +48,8 @@ export interface DeviceServerUpdate {
   version: string
   /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
   busy_agents?: number
+  /** No runtime ownership proof: automatic restart is paused; explicit confirmation is required. */
+  reason?: 'runtime-unverified'
 }
 
 export interface DeviceHostInfo {

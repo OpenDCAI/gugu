@@ -128,7 +128,9 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
     })()
     // 装好了、守护进程在等这个账号空闲(有 agent 在跑):当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
     if (!parsed.now && state?.state === 'ready' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {
-      err(`这个账号有 agent 在跑,空闲后会自己换到 ${parsed.version}`)
+      err(state.reason === 'runtime-unverified'
+        ? `无法核实这个账号的任务活体，自动切换已暂停。检查任务后显式确认现在重启：match-version --account ${parsed.account} --apply ${parsed.version} --now`
+        : `这个账号有任务仍附着，停止任务后会换到 ${parsed.version}；也可以检查任务后显式确认现在重启`)
       return 8
     }
     if (state?.state === 'failed' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {

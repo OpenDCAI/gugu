@@ -1,4 +1,5 @@
 import { createServerVersionLifecycle } from './server-version-lifecycle'
+import { prepareAccountHandoff } from './server-account-handoff'
 /**
  * 咕咕 server 的守护进程(`gugu-server run`,系统服务拉起的就是它)。
  *
@@ -142,10 +143,18 @@ export async function runSupervisor(): Promise<void> {
       const child = children.get(userId)
       return child ? { pid: child.process.pid, startedAt: child.startedAt } : undefined
     },
+    prepareHandoff: (account, target) => prepareAccountHandoff(account, children.get(account.userId)?.process, target),
     // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
     restart: (userId) => {
       noteExitReason(accountDataDir(userId), 'update')
-      children.get(userId)?.process.kill('SIGTERM')
+      const child = children.get(userId)
+      if (!child) return
+      child.process.kill('SIGTERM')
+      // A live but unready/hung account must not retain takeover forever after rollback.
+      const force = setTimeout(() => {
+        if (children.get(userId) === child && child.process.exitCode === null && child.process.signalCode === null) child.process.kill('SIGKILL')
+      }, CHILD_STOP_GRACE_MS)
+      force.unref()
     },
   })
 
@@ -265,6 +274,23 @@ export async function runSupervisor(): Promise<void> {
   startServerUpdater({
     log,
     lifecycle,
+    prepareHandoff: async target => {
+      const accounts = listAccounts()
+      const replies = await Promise.all(accounts.map(async account => {
+        const child = children.get(account.userId)
+        if (!child) return account.signedIn ? null : undefined
+        const permit = await prepareAccountHandoff(account, child.process, target)
+        return permit && { permit, child, userId: account.userId }
+      }))
+      const held = replies.filter((reply): reply is NonNullable<typeof reply> => reply != null)
+      const valid = () => replies.every(reply => reply !== null)
+        && held.every(({ permit, child, userId }) => permit.valid() && children.get(userId) === child)
+        // An account may have appeared while the existing accounts were closing admission.
+        && listAccounts().filter(account => account.signedIn).every(account => held.some(reply => reply.userId === account.userId))
+      const release = async () => { await Promise.all(held.map(({ permit }) => permit.release())) }
+      if (!valid()) { await release(); return null }
+      return { valid, release }
+    },
     // Account restart confirmation never authorises a supervisor-wide upgrade.
     isBusy: () =>
       listAccounts().some(

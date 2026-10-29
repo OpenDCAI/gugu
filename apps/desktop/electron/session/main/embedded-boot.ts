@@ -1,4 +1,5 @@
 import { sessionBootTasks } from './core/boot-tasks'
+import { hasSessionStartAdmission, onSessionStartAdmissionChange, prepareSessionVersionHandoff as prepareVersionHandoff } from './core/sessions/version-handoff'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -2529,7 +2530,11 @@ export async function sessionpageVersionSwitchActivity(): Promise<{ busy: boolea
   // cannot prove idle (the latter also omits runtime-only views).
   const acpIds = await readAcpLiveSessionIds()
   const busyAgents = new Set([...acpIds, ...hostSessionProcessIds()]).size
-  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
+  return { busy: integrationConnectionService.hasPendingAuthorizations() || hasSessionStartAdmission() || busyAgents > 0, busyAgents }
+}
+
+export function prepareSessionVersionHandoff(payload: unknown) {
+  return prepareVersionHandoff(payload, sessionpageVersionSwitchActivity)
 }
 
 /** Existing heartbeat also refreshes immediately at runtime ownership and authorization boundaries. */
@@ -2538,6 +2543,7 @@ export function onSessionpageAuthorizationActivityChange(listener: () => void): 
     integrationConnectionService.onAuthorizationActivityChange(listener),
     onAcpRuntimeActivityChange(listener),
     onSessionProcessesChanged(listener),
+    onSessionStartAdmissionChange(listener),
   ]
   return () => { for (const dispose of stop) dispose() }
 }

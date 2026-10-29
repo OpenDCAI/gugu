@@ -49,6 +49,9 @@ describe('confirmed server update feedback', () => {
     expect(node('update')!.textContent).toContain('2 个任务')
     await render()
     expect(node('update')!.textContent).toBe('新版本已就绪，等待空闲')
+    await render(server({ state: 'ready', version: target, reason: 'runtime-unverified' }))
+    expect(node('update')!.textContent).toBe('任务活体未知，自动重启已暂停')
+    expect(node('update')!.getAttribute('title')).toContain('SSH')
   })
 
   it('does not offer confirmed restart to an older server', async () => {
