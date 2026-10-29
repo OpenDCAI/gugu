@@ -162,7 +162,7 @@ describe('taskhost.call(一问一答,不开窗口)', () => {
     });
     const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => ({ invokeOnce }) as unknown as FrameSessionHost });
     const call = handlers['taskhost.call']!;
-    expect(await call({ channel: 'sessionTimeline.sessionAfter', args: [{ conversationId: 'c1' }] }, ctx)).toEqual({ result: { value: { ok: true, value: 1 } } });
+    expect(await call({ channel: 'sessionTimeline.sessionAfter', args: [{ conversationId: 'c1' }] }, ctx)).toEqual({ result: { value: { ok: true, value: 1 }, protocol: REMOTE_PROTOCOL_VERSION } });
     expect(invokeOnce).toHaveBeenCalledWith('sessionTimeline.sessionAfter', [{ conversationId: 'c1' }], expect.any(Function));
     // the remote policy is the one windows get: the viewing computer's namespaces stay refused
     const policy = invokeOnce.mock.calls[0]![2]!;

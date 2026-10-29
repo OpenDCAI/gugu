@@ -131,7 +131,7 @@ export async function importLocalSession(
 
   const provider = LOCAL_SESSION_ENGINE_PROVIDER[params.engine];
   // 终端腿 `--resume`、聊天腿 `session/load`,续的都是同一个 provider 会话 id(见 switch-session-runtime)。
-  const runtime = params.sessionView === 'general' ? 'acp' : 'pty';
+  const runtime = params.sessionView === 'code' ? 'pty' : 'acp';
 
   // 同一条会话只接进来一次：再次导入直接回到已有的那个会话，不建重复的。
   const [existing] = await db

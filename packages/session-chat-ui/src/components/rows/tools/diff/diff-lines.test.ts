@@ -1,35 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { computeDiffRows, countChanges, type DiffRow } from './diff-lines';
+import { filePatchFixtures } from '../../../../../../session-core/src/acp/transport/file-patches.fixture';
+import type { SessionPatch } from '@gugu/session-core/acp';
+import { parsePatchRows, patchStats } from './diff-lines';
 
-const sides = (rows: DiffRow[]) => ({
-  old: rows.filter((r) => r.type !== 'add').map((r) => r.text).join('\n'),
-  new: rows.filter((r) => r.type !== 'remove').map((r) => r.text).join('\n'),
-});
-
-describe('computeDiffRows', () => {
-  it('keeps shared lines and marks the one replaced line', () => {
-    expect(computeDiffRows('a\nb\nc', 'a\nx\nc')).toEqual([
-      { type: 'context', text: 'a', oldIdx: 0, newIdx: 0 },
-      { type: 'remove', text: 'b', oldIdx: 1 },
-      { type: 'add', text: 'x', newIdx: 1 },
-      { type: 'context', text: 'c', oldIdx: 2, newIdx: 2 },
-    ]);
+describe('raw patch presentation', () => {
+  it('keeps separated hunks and their absolute positions', () => {
+    const patch = { ...filePatchFixtures[0].block, scope: 'file' } as SessionPatch;
+    const rows = parsePatchRows(patch);
+    expect(rows.filter(row => row.type === 'hunk').map(row => row.text)).toEqual(['@@ -2,2 +2,2 @@', '@@ -90 +90,2 @@']);
+    expect(rows.filter(row => row.type === 'add').map(row => row.newIdx)).toEqual([2, 89, 90]);
+    expect(rows.at(-1)?.text).toBe('\\ No newline at end of file');
+    expect(patchStats(patch)).toEqual({ adds: 3, dels: 2 });
   });
-
-  it('finds a shortest script that rebuilds both sides, including a whole-file rewrite', () => {
-    const cases: [string, string][] = [
-      ['a\nb\nc\na\nb\nb\na', 'c\nb\na\nb\na\nc'],
-      ['x\nx\nx', 'x'],
-      ['', 'a\nb'],
-      [Array.from({ length: 4000 }, (_, i) => `old ${i}`).join('\n'), Array.from({ length: 4000 }, (_, i) => `new ${i}`).join('\n')],
-    ];
-    for (const [oldText, newText] of cases) {
-      const rows = computeDiffRows(oldText, newText);
-      expect(sides(rows)).toEqual({ old: oldText, new: newText });
-    }
-    // Myers' paper example: the shortest script has 5 edits.
-    const { adds, dels } = countChanges(computeDiffRows('a\nb\nc\na\nb\nb\na', 'c\nb\na\nb\na\nc'));
-    expect(adds + dels).toBe(5);
-    expect(countChanges(computeDiffRows(cases[3]![0], cases[3]![1]))).toEqual({ adds: 4000, dels: 4000 });
+  it('preserves CR characters and explicitly marks fragments', () => {
+    const patch = { ...filePatchFixtures[3].block, scope: 'fragment' } as SessionPatch;
+    const rows = parsePatchRows(patch);
+    expect(rows.find(row => row.type === 'add')?.text).toBe('three\r');
+    expect(rows.find(row => row.type === 'hunk')?.text.startsWith('… @@')).toBe(true);
+  });
+  it('does not invent textual counts for binary, absent or opaque patches', () => {
+    for (const index of [2, 4, 5]) expect(patchStats({ ...filePatchFixtures[index]!.block, scope: 'file' } as SessionPatch)).toBeNull();
+    const rename = { ...filePatchFixtures[1].block, scope: 'file' } as SessionPatch;
+    expect(parsePatchRows(rename).every(row => row.type === 'meta')).toBe(true);
+    expect(patchStats(rename)).toEqual({ adds: 0, dels: 0 });
   });
 });

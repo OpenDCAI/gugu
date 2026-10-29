@@ -8,7 +8,7 @@ import {
 } from '@shared/lib/ipc/session-host-client';
 import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
 import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
-import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
+import { decodeHostWsMessage, encodeHostWsMessage, HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
 function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
@@ -273,5 +273,29 @@ describe('FrameSessionHost over a device-shaped link', () => {
     broadcastDeviceSessionHostEvent(sessionpageAgentRenamedEvent.name, event);
     await flush();
     expect(got).toEqual([event]);
+  });
+});
+
+// Protocol 14 compatibility (delete with protocol14FileChanges on the next protocol bump): the frame a
+// protocol-14 window receives for a turn with a file edit, captured at the host's egress.
+describe('a protocol-14 window', () => {
+  it('receives 14\'s own file entity for a patch, and a 15 window the patch unchanged', async () => {
+    const host = new FrameSessionHost();
+    const patch = { type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'file',
+      patch: { format: 'git_patch', text: 'diff --git "a//w/a.txt" "b//w/a.txt"\n--- "a//w/a.txt"\n+++ "b//w/a.txt"\n@@ -2,3 +2,4 @@\n beta\n-gamma\n+GAMMA-817\n delta\n+zeta\n' } };
+    const item = { kind: 'patch-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt', status: 'done', contentBlocks: [patch] };
+    host.ipcMain.handle('sessionTimeline.sessionSnapshot', () => ({ turns: [{ id: 't', items: [item] }] }));
+    const read = async (peerProtocol: number) => {
+      const frames: unknown[] = [];
+      let deliver: ((frame: string | Uint8Array) => void) | null = null;
+      host.attach({ send: (frame) => frames.push(decodeHostWsMessage(frame)), close: () => {}, onFrame: (cb) => (deliver = cb), onClose: () => {} },
+        { peerProtocol });
+      deliver!(encodeHostWsMessage({ t: 'invoke', id: 1, channel: 'sessionTimeline.sessionSnapshot', args: [] }) as string);
+      await flush();
+      return (frames.find((frame) => (frame as { t: string }).t === 'result') as { value: { turns: Array<{ items: unknown[] }> } }).value.turns[0]!.items;
+    };
+    expect(await read(14)).toEqual([{ kind: 'modify-file-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt',
+      status: 'done', path: '/w/a.txt', oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' }]);
+    expect(await read(15)).toEqual([item]);
   });
 });

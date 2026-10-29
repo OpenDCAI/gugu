@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { noopLogger } from '@gugu/session-shared/logger'
-import { SessionCell } from './cell'
-import { FakeAcpAgent } from '../acp-test-support'
+import type { SessionCell } from './cell'
+import { FakeAcpAgent, requestActivityCell } from '../acp-test-support'
 import { setNativePromptPreparation } from './prompt-preparation'
 import { renderDeliveryEnvelope } from '../../../../core/src/local/agent/deliveryEnvelope'
 
@@ -9,7 +9,7 @@ const cells: SessionCell[] = []
 afterEach(() => { setNativePromptPreparation(null); for (const cell of cells.splice(0)) cell.dispose() })
 function fixture() {
   const agent = new FakeAcpAgent()
-  const cell = new SessionCell({ sessionId: 'assistant',projectId: 'home',providerId: 'claude',acpSessionId: 'native',agent,
+  const cell = requestActivityCell(agent, { sessionId: 'assistant',projectId: 'home',providerId: 'claude',acpSessionId: 'native',
     mergeEnvelopes: texts => texts.join('\n'),resolveAttachment: async () => ({ data: '',mimeType: 'image/png' }),logger: noopLogger,
   })
   cell.applySessionReady(); cells.push(cell)

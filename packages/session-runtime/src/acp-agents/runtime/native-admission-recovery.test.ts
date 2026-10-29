@@ -1,16 +1,26 @@
 import type { AcpAgentApi } from '@gugu/session-core/agents/plugins';
+import type { SessionPromptReceipt } from '@gugu/session-core/acp';
 import { describe, expect, it, vi } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
 import { createAcpProcedures } from '../api/procedures';
 import { AcpRuntime } from './runtime';
 
 async function nativeSession() {
-  const harness = makeAcpHarness();
-  Object.assign(harness.agent, { protocolVersion: 2 });
+  const harness = makeAcpHarness({ nativeState: true });
   const runtime = new AcpRuntime(harness.deps);
   const input = makeStartInput({ sessionId: 'native-admission' });
   expect((await runtime.startSession(input)).success).toBe(true);
   return { harness, runtime, input, api: createAcpProcedures(runtime) };
+}
+
+type Harness = Awaited<ReturnType<typeof nativeSession>>['harness'];
+
+/** A v2 provider admits the prompt: it echoes the user message, then returns the native receipt. */
+function admit(harness: Harness, dispatch: Parameters<AcpAgentApi['prompt']>[1], messageId: string): SessionPromptReceipt {
+  const client = harness.client();
+  client.sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
+  client.sessionEvent({ sessionId: 'session-1', event: { kind: 'message', role: 'user', messageId, text: dispatch!.message.text, contentMode: 'replace' } });
+  return { status: 'accepted', requestId: dispatch!.requestId, messageId };
 }
 
 describe('native prompt admission and recovery', () => {
@@ -28,10 +38,7 @@ describe('native prompt admission and recovery', () => {
     if (!history.success) throw new Error('failed session history is unavailable');
     expect(history.data.turns.at(-1)?.outcome).toMatchObject({ kind: 'error', detail: expect.stringContaining(failure.message) });
 
-    const prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation(async (_request, onAccepted) => {
-      onAccepted?.();
-      return { stopReason: 'end_turn' };
-    });
+    const prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation(async (_request, dispatch) => admit(harness, dispatch, 'native-next'));
     harness.agent.prompt = prompt;
     const next = await runtime.queuePrompt(input.sessionId, { text: 'next message' }, input);
     expect(next.success).toBe(true);
@@ -40,6 +47,7 @@ describe('native prompt admission and recovery', () => {
     expect(harness.agent.loadSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1' }));
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(prompt.mock.calls[0]?.[0].prompt).toEqual([{ type: 'text', text: 'next message' }]);
+    harness.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' } });
     expect(runtime.getSessionState(input.sessionId).lifecycle).toBe('ready');
     await runtime.dispose();
   });
@@ -59,17 +67,12 @@ describe('native prompt admission and recovery', () => {
 
   it('returns genuine admission before completion and keeps admitted turn failures on their original executor', async () => {
     const { harness, runtime, input, api } = await nativeSession();
-    const turn = Promise.withResolvers<Awaited<ReturnType<AcpAgentApi['prompt']>>>();
-    const accept = Promise.withResolvers<() => void>();
-    harness.agent.prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation((_request, onAccepted) => {
-      accept.resolve(onAccepted!);
-      return turn.promise;
-    });
-    const detached = api.promptDetached({ sessionId: input.sessionId, prompt: { text: 'accepted' } });
-    (await accept.promise)();
-    const receipt = await detached;
+    harness.agent.prompt = vi.fn<AcpAgentApi['prompt']>().mockImplementation(async (_request, dispatch) => admit(harness, dispatch, 'native-accepted'));
+    const receipt = await api.promptDetached({ sessionId: input.sessionId, prompt: { text: 'accepted' } });
     expect(receipt.declined).toBe(false);
-    turn.reject(Object.assign(new Error('provider turn failed after admission'), { name: 'RequestError', code: -32603 }));
+    // After the receipt, a provider failure is the foreground cycle's own result.
+    harness.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'error',
+      error: { code: -32603, message: 'provider turn failed after admission' } } });
     await expect(api.waitPromptDetached({ requestId: receipt.requestId })).rejects.toThrow('provider turn failed after admission');
     expect(harness.lastChild.kill).not.toHaveBeenCalled();
     expect(runtime.getSessionState(input.sessionId).lifecycle).toBe('ready');

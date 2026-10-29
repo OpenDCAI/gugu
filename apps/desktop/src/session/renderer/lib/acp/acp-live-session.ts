@@ -1,7 +1,7 @@
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import {
   agentStateSchema,
-  planStateSchema,
+  sessionPlansSchema,
   promptDraftSchema,
   sessionUsageSchema,
   sessionConfigStateSchema,
@@ -22,8 +22,8 @@ import {
 import type { Result } from '@gugu/session-shared';
 import type { Unsubscribe } from '@gugu/session-shared';
 import { machineRegistry } from '../machine-routing';
-import { ReplicaLog, ReplicaState, type BlobSource, type LiveClientHandle } from '@gugu/session-wire';
-import { createImmutableMobxStore, createMobxLogStore } from '@gugu/session-wire/util/mobx';
+import { ReplicaState, type BlobSource, type LiveClientHandle } from '@gugu/session-wire';
+import { createImmutableMobxStore } from '@gugu/session-wire/util/mobx';
 import { z } from 'zod';
 import {
   getAcpRuntimeClient,
@@ -58,12 +58,11 @@ export class AcpLiveSession {
   readonly sessionState: ReplicaState<SessionState>;
   readonly config: ReplicaState<z.infer<typeof sessionConfigStateSchema>>;
   readonly usage: ReplicaState<z.infer<typeof sessionUsageSchema> | null>;
-  readonly plan: ReplicaState<z.infer<typeof planStateSchema> | null>;
+  readonly plan: ReplicaState<z.infer<typeof sessionPlansSchema> | null>;
   readonly activeTurn: ReplicaState<z.infer<typeof transcriptTurnSchema> | null>;
   readonly agents: ReplicaState<z.infer<typeof agentStateSchema>[]>;
   readonly draft: ReplicaState<z.infer<typeof promptDraftSchema> | null>;
   readonly terminals: ReplicaState<TerminalState[]>;
-  private readonly terminalLogs = new Map<string, ReplicaLog>();
   private disposed = false;
 
   private constructor(
@@ -78,7 +77,7 @@ export class AcpLiveSession {
       client.session.state(key, 'usage'),
       sessionUsageSchema.nullable()
     );
-    this.plan = createReplicaState(client.session.state(key, 'plan'), planStateSchema.nullable());
+    this.plan = createReplicaState(client.session.state(key, 'plan'), sessionPlansSchema.nullable());
     this.activeTurn = createReplicaState(
       client.session.state(key, 'activeTurn'),
       transcriptTurnSchema.nullable()
@@ -266,18 +265,6 @@ export class AcpLiveSession {
     });
   }
 
-  async terminalOutput(terminalId: string): Promise<ReplicaLog> {
-    const existing = this.terminalLogs.get(terminalId);
-    if (existing) return existing;
-    const binding = new ReplicaLog(this.client.terminalOutput.handle({ terminalId }), {
-      store: createMobxLogStore(),
-    });
-    this.terminalLogs.set(terminalId, binding);
-    await binding.ready;
-    if (this.disposed) void binding.dispose();
-    return binding;
-  }
-
   dispose(): void {
     this.disposed = true;
     void this.sessionState.dispose();
@@ -288,10 +275,6 @@ export class AcpLiveSession {
     void this.draft.dispose();
     void this.terminals.dispose();
     void this.agents.dispose();
-    for (const binding of this.terminalLogs.values()) {
-      void binding.dispose();
-    }
-    this.terminalLogs.clear();
   }
 }
 

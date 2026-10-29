@@ -20,12 +20,17 @@ export function defaultCreateModel(models: SessionpageSessionCreateModels): stri
     m.source === 'gugu' && m.id === platformOptionId(DEFAULT_FREE_PLATFORM_MODEL) && offeredInCreateMenu(m))
   if (freeDefault) return freeDefault.id
   // 有的家(codex)没登录也报得出自家目录 —— 所以还要看那台机器报的默认模型凭据读数。
-  const harnessUsable = models.harnessState === 'ready'
-    && models.models.some((m) => m.source === 'harness')
-    && models.selectedCredential !== 'uncredentialed'
-  if (harnessUsable) return null
+  if (canUseOwnCreateModels(models)) return null
   // 只取下拉里列着的:要会员的、他在设置里关掉的不当默认 —— 新用户第一句话不该撞上「要会员」(#7056)。
   return models.models.find((m) => m.source === 'gugu' && offeredInCreateMenu(m))?.id ?? null
+}
+
+/** 目录能列出自家模型不代表已登录；桌面和手机创建时使用同一份宿主可用性读数。 */
+export function canUseOwnCreateModels(models: SessionpageSessionCreateModels): boolean {
+  return models.harnessState === 'ready'
+    && models.models.some((m) => m.source === 'harness')
+    && models.selectedCredential !== 'uncredentialed'
+    && models.harnessAuth !== 'signed-out'
 }
 
 /** 宿主送来的一行(蛇形字段)进不进新建页的模型清单 —— 判据就是 `offeredInModelPicker` 那一个。 */

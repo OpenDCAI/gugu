@@ -74,6 +74,7 @@ const fallbackMessages = {
   // execute 行的收尾读数。`{code}` / `{signal}` 是数据不是文案，所以格式化留在组件里，
   // 这里只管怎么把这个读数说成一句话。信号那条独立成键，因为被信号杀死与自己退出是
   // 两件事，把 SIGTERM 塞进 "exit {code}" 会读成一个不存在的退出码。
+  'transcript.terminalTruncated': 'Terminal output was truncated.',
   'transcript.exitCode': 'exit {code}',
   'transcript.exitSignal': 'signal {signal}',
   'transcript.search': 'Search',

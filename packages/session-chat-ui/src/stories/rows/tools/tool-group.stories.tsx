@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 /**
  * ToolGroup stories — hierarchical tool calls rendered as collapsible composite rows.
  *
@@ -58,15 +60,14 @@ function modifyFileNode(
   status: ToolStatus = 'done'
 ): ToolNode {
   return {
-    kind: 'modify-file-tool-call',
+    kind: 'patch-tool-call',
     id,
     seq,
     toolCallId: id,
     title: 'Edit',
     status,
-    path,
-    oldText,
-    newText,
+    contentBlocks: [textFilePatch(path, oldText, newText)],
+
   };
 }
 

@@ -97,6 +97,13 @@ type Mounted = {
 
 const mounted: Mounted[] = [];
 
+/** The row we expand belongs to a nonempty completed turn, rather than hidden reasoning-only history. */
+function growingRowHistory(): TranscriptTurn[] {
+  return generateMockTranscript(120, 7).map(turn => turn.items.some(item => item.id === 'think-97')
+    ? { ...turn, items: [...turn.items, { kind: 'message', id: 'grower-reply', seq: 1, role: 'assistant', text: 'The check is complete.' }] }
+    : turn) as TranscriptTurn[];
+}
+
 async function mountTranscript(
   itemCount: number,
   opts: { composer?: 'slot' | 'none'; height?: number; turns?: TranscriptTurn[] } = {}
@@ -249,7 +256,7 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
 
   // #6401:视口之上的行长高,读者看着的那一行**任意一帧**都不动(±1px)—— 包括手指还在拖(落定窗口开着)的时候。
   it('keeps the reader\'s row still on every frame while a row above grows mid-drag', async () => {
-    const { scrollEl, view, state } = await mountTranscript(120);
+    const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
     const reader = 'msg-99';
     const grower = 'think-97'; // 两行之上、收着的 thinking 行:读者停在 msg-99 时它在视口之上的预渲染区里
     view.scrollToBottom();
@@ -295,7 +302,7 @@ describe('transcript scroll behaviour across the P3 row redraw', () => {
 
   // #6401:平滑滚动的目标是文档坐标 —— 途中上方的行长高,落点要随之平移,落定后那一行在每一帧都在位。
   it('lands a smooth scroll on its row even when a row above grows mid-flight', async () => {
-    const { scrollEl, view, state } = await mountTranscript(120);
+    const { scrollEl, view, state } = await mountTranscript(120, { turns: growingRowHistory() });
     view.scrollToBottom();
     await settled(scrollEl);
     const target = 'msg-99';

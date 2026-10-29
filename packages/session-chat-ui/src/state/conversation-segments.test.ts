@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { unit, type ItemSegmenter, type SegmentCtx } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
-import { flattenTier } from './flatten';
+import { flattenTier as flattenTierWithViewports } from './flatten';
+// Assert chronological leaves independently of their bounded viewport wrapper.
+const flattenTier = (...args: Parameters<typeof flattenTierWithViewports>) => flattenTierWithViewports(...args).flatMap(row => row.children ?? [row]);
 import { conversationOutput } from './conversation-process';
 import { conversationBackgroundOwner } from './conversation-background';
 import { planConversationSegments } from './conversation-segments';
@@ -82,13 +84,12 @@ describe('replay conversation segment boundaries', () => {
     expect(segments[1]).toMatchObject({ live: true, startedAt: 4000 });
   });
 
-  it('excludes silence and the visible reply before grouping parts, and limits live parts to three', () => {
+  it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
-    const earlier = rows.find(row => row.itemId === 't:process:earlier');
-    expect(earlier?.data).toMatchObject({ stepCount: 2, label: '2 earlier parts' });
-    expect(rows.map(row => row.itemId)).not.toContain('one');
-    expect(rows.map(row => row.itemId)).not.toContain('a');
+    expect(rows.map(row => row.itemId)).not.toContain('t:process:earlier');
+    expect(rows.map(row => row.itemId)).toContain('one');
+    expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(false);

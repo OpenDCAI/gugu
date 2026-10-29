@@ -79,11 +79,11 @@ describe('ChatMessageComposer', () => {
     await act(async () => {
       writeComposer(textarea, '用户草稿 /clear')
     })
-    expect(textarea.getAttribute('data-placeholder')).toBe('发送消息… 输入 / 唤起命令')
+    expect(textarea.getAttribute('data-placeholder')).toBe('发送消息…')
     await act(async () => {
       setLocalePreference('en-US')
     })
-    expect(textarea.getAttribute('data-placeholder')).toBe('Write a message… Type / for commands')
+    expect(textarea.getAttribute('data-placeholder')).toBe('Write a message…')
     expect(readComposer(textarea)).toBe('用户草稿 /clear')
     expect(container.querySelector('button[aria-label="Send message"]')).not.toBeNull()
   })

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 
-import type { ContentBlock, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
+import type { RecordContentBlock as ContentBlock } from './shared';
 
 import type { RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import { findUnder } from './find-file';
@@ -8,9 +9,10 @@ import {
   SessionRecordNotFoundError,
   asRecord,
   boundaryEntry,
+  messageEvent,
   parseTimestamp,
-  toJsonValue,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -74,15 +76,15 @@ function decode(node: TreeNode): RecordEntry[] {
     return blocks.map((block, index) => ({
       key: key(index),
       ...stamp,
-      update: { sessionUpdate: 'user_message_chunk', content: block, messageId: key(0) }
+      event: messageEvent('user', block, key(0))
     }));
   }
 
   if (record.type === 'assistant') {
     const out: RecordEntry[] = [];
     parts.forEach((value, index) => {
-      const update = assistantPart(asRecord(value), key(index));
-      if (update) out.push({ key: key(index), ...stamp, update });
+      const event = assistantPart(asRecord(value), key(index));
+      if (event) out.push({ key: key(index), ...stamp, event });
     });
     return out;
   }
@@ -96,16 +98,8 @@ function decode(node: TreeNode): RecordEntry[] {
       {
         key: key(0),
         ...stamp,
-        update: {
-          sessionUpdate: 'tool_call_update',
-          toolCallId,
-          status: result?.status === 'success' ? 'completed' : 'failed',
-          ...(typeof display === 'string' && display
-            ? { content: [{ type: 'content' as const, content: { type: 'text' as const, text: display } }] }
-            : response?.response !== undefined
-              ? { rawOutput: toJsonValue(response.response) }
-              : {})
-        }
+        event: toolCallResult(toolCallId, result?.status === 'success' ? 'completed' : 'failed',
+          typeof display === 'string' && display ? { text: display } : { rawOutput: response?.response })
       }
     ];
   }
@@ -121,11 +115,11 @@ function userBlock(part: Record<string, unknown> | null): ContentBlock[] {
   return [];
 }
 
-function assistantPart(part: Record<string, unknown> | null, messageId: string): SessionUpdate | null {
+function assistantPart(part: Record<string, unknown> | null, messageId: string): NormalizedEvent | null {
   if (typeof part?.text === 'string' && part.text) {
     return part.thought === true
-      ? { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: part.text }, messageId }
-      : { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: part.text }, messageId };
+      ? { kind: 'thinking', messageId, text: part.text }
+      : { kind: 'message', role: 'assistant', messageId, text: part.text };
   }
   const call = asRecord(part?.functionCall);
   if (call && typeof call.id === 'string') {

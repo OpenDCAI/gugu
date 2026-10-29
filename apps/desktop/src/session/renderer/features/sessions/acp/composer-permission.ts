@@ -9,7 +9,7 @@ export function toComposerPermission(
   inTranscript: (toolCallId: string) => boolean = () => false,
 ): ComposerPermissionRequest | null {
   // 计划审批画在流里的计划卡上，选项也在卡上（#7139）⇒ 卡已在流里时输入框上不再出这一条。
-  if (!req || (req.waitKind === 'plan' && inTranscript(req.toolCallId))) return null;
+  if (!req || (req.waitKind === 'plan' && req.toolCallId !== null && inTranscript(req.toolCallId))) return null;
   const optionLabel = (kind: string): string | undefined => {
     switch (kind) {
       case 'allow_once':
@@ -31,6 +31,7 @@ export function toComposerPermission(
   return {
     requestId: req.requestId,
     title: req.title,
+    description: req.description,
     statusLabel: translate('composer.awaitingApproval'),
     options: req.options.map((o) => ({
       optionId: o.optionId,

@@ -8,3 +8,6 @@ export * from './session';
 export * from './terminals';
 export * from './turns';
 export * from './platform-model-address';
+export * from './entity-content';
+
+export { changedFilePath, changedFilePaths } from './file-patch';

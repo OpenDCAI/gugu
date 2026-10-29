@@ -1,7 +1,6 @@
 import { PassThrough, Writable } from 'node:stream';
-import type { Client, SessionNotification } from '@agentclientprotocol/sdk';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
-import { decodeSessionUpdate } from '@gugu/session-core/acp';
+import { decodeV2SessionUpdate, type NormalizedEvent } from '@gugu/session-core/acp';
 import { describe, expect, it, vi } from 'vitest';
 
 import { nodeReadableToWeb } from './acp-stdio';
@@ -17,13 +16,15 @@ function agentPair(opts: {
 } = {}) {
   const toAgent = new PassThrough();
   const configRequests: v2.SetSessionConfigOptionRequest[] = [];
+  const initializeRequests: v2.InitializeRequest[] = [];
+  const cancels: unknown[] = [];
   const toClient = new PassThrough();
   let context!: v2.AgentContext;
   v2.agent({ name: 'test-agent' })
     .onConnect((connection) => {
       context = connection.client;
     })
-    .onRequest(v2.methods.agent.initialize, async () => ({
+    .onRequest(v2.methods.agent.initialize, async ({ params }) => (initializeRequests.push(params), {
       protocolVersion: (opts.protocolVersion ?? 2) as 2,
       info: { name: 'test-agent', version: '1' },
       capabilities: { session: { prompt: { image: {} }, fork: {} } },
@@ -46,26 +47,25 @@ function agentPair(opts: {
       availableCommands: [{ name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } }],
     }))
     .onRequest(v2.methods.agent.session.prompt, async ({ params }) => opts.prompt!(params))
+    .onNotification(v2.methods.agent.session.cancel, async ({ params }) => { cancels.push(params); })
     .onRequest(v2.methods.agent.session.setConfigOption, async ({ params }) => {
       configRequests.push(params);
       return { configOptions: [] };
     })
     .connect(v2.ndJsonStream(Writable.toWeb(toClient) as WritableStream<Uint8Array>, nodeReadableToWeb(toAgent)));
-  const updates: SessionNotification[] = [];
+  const updates: Array<{ sessionId: string; event: NormalizedEvent; trace?: unknown }> = [];
   const permissions: unknown[] = [];
   const api = connectStdioAcpV2({ stdin: toAgent, stdout: toClient }, () => ({
-    sessionUpdate: async (notification: SessionNotification) => {
-      updates.push(notification);
-    },
+    sessionEvent: notification => { updates.push(notification); },
     requestPermission: async (request: unknown) => {
       permissions.push(request);
       return { outcome: { outcome: 'selected', optionId: 'allow' } };
     },
-  }) as unknown as Client);
+  }));
   const send = (u: unknown) =>
     context.notify(v2.methods.client.session.update, { sessionId: 's1', update: u as v2.SessionUpdate });
-  const kinds = () => updates.map(({ update }) => update.sessionUpdate as string);
-  return { api, updates, permissions, configRequests, kinds, send, agent: () => context };
+  const kinds = () => updates.map(({ event }) => event.kind);
+  return { api, updates, permissions, configRequests, initializeRequests, cancels, kinds, send, agent: () => context };
 }
 
 const initialize = (api: ReturnType<typeof agentPair>['api']) =>
@@ -74,33 +74,9 @@ const initialize = (api: ReturnType<typeof agentPair>['api']) =>
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe('connectStdioAcpV2', () => {
-  it('reports native admission before idle, and never reports a refused prompt as accepted', async () => {
-    const receipt = Promise.withResolvers<v2.PromptResponse>();
-    const pair = agentPair({ prompt: () => receipt.promise });
-    await initialize(pair.api);
-    const accepted = vi.fn();
-    const completed = vi.fn();
-    const prompt = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hello' }] }, accepted).then(completed);
-    expect(accepted).not.toHaveBeenCalled();
-    receipt.resolve({ messageId: 'u1' });
-    await vi.waitFor(() => expect(accepted).toHaveBeenCalledTimes(1));
-    expect(completed).not.toHaveBeenCalled();
-    await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hello' }] });
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-    await prompt;
-    expect(completed).toHaveBeenCalledWith({ stopReason: 'end_turn' });
-
-    const refused = agentPair({ prompt: async () => { throw new Error('native session unavailable'); } });
-    await initialize(refused.api);
-    const notAccepted = vi.fn();
-    await expect(refused.api.prompt({ sessionId: 's1', prompt: [] }, notAccepted)).rejects.toMatchObject({ code: -32603 });
-    expect(notAccepted).not.toHaveBeenCalled();
-  });
-
-  it('reads a v2 initialize as the host reads v1: capabilities, auth methods, and the protocol it speaks', async () => {
+  it('decodes the v2 handshake into host capabilities: capabilities, auth methods, and the protocol it speaks', async () => {
     const { api } = agentPair();
     const response = await initialize(api);
-    expect(api.protocolVersion).toBe(2);
     expect(response.protocolVersion).toBe(2);
     expect(response.agentCapabilities).toMatchObject({
       loadSession: true,
@@ -113,12 +89,19 @@ describe('connectStdioAcpV2', () => {
     ]);
   });
 
+  it('keeps v2 on standard subagents: async tasks only, no AIR namespace (#503)', async () => {
+    const { api, initializeRequests } = agentPair();
+    await api.initialize({ protocolVersion: 1, clientCapabilities: { auth: { terminal: true }, _meta: { 'terminal-auth': true } } });
+    // Any AIR namespace selects the bridge's v1 subagent_spawned dialect, which its v2 translator cannot emit.
+    expect(initializeRequests[0]?.capabilities?._meta).toEqual({ 'terminal-auth': true, asyncTasks: {} });
+  });
+
   it('fails loudly when the agent answers another protocol version', async () => {
     const { api } = agentPair({ protocolVersion: 1 });
     await expect(initialize(api)).rejects.toThrow(/v2 API only supports/);
   });
 
-  it('gives a new session v1 config options, and its commands as an update after the response', async () => {
+  it('decodes setup config and commands directly into host facts', async () => {
     const { api, updates } = agentPair();
     await initialize(api);
     const session = await api.newSession({ cwd: '/w', mcpServers: [] });
@@ -131,17 +114,11 @@ describe('connectStdioAcpV2', () => {
         options: [{ group: 'g', name: 'Group', options: [{ value: 'a', name: 'A' }] }],
       },
     ]);
-    expect(updates).toEqual([]);
-    await settle();
-    expect(updates).toEqual([
-      {
-        sessionId: 's1',
-        update: {
-          sessionUpdate: 'available_commands_update',
-          availableCommands: [{ name: 'review', description: 'Review', input: { hint: '<pr>' } }],
-        },
-      },
+    expect(session.availableCommands).toMatchObject([
+      { name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } },
     ]);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(updates).toEqual([]);
   });
 
   it('sets a config option with the v2 tag of its value, which the agent validates', async () => {
@@ -155,165 +132,70 @@ describe('connectStdioAcpV2', () => {
     ]);
   });
 
-  it('ends a prompt at the idle after the agent took it in, once the client has that idle', async () => {
-    const taken = Promise.withResolvers<void>();
-    const pair = agentPair({
-      prompt: async () => {
-        // The idle of earlier work (a cycle the agent ran on its own) is not this prompt's.
-        await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'm1', content: [{ type: 'text', text: 'hi' }] });
-        await pair.send({ sessionUpdate: 'state_update', state: 'running' });
-        taken.resolve();
-        return { messageId: 'm1' };
-      },
-    });
+  it('returns the native message receipt before foreground idle and forwards the echo', async () => {
+    const pair = agentPair({ prompt: async () => ({ messageId: 'u', _meta: { receipt: true } }) });
     await initialize(pair.api);
-    let settled = false;
-    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hi' }] }).finally(() => {
-      settled = true;
-    });
-    await taken.promise;
-    await settle();
-    expect(settled).toBe(false);
-
-    await pair.send({
-      sessionUpdate: 'state_update',
-      state: 'idle',
-      stopReason: 'max_tokens',
-      usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 },
-    });
-    await expect(outcome).resolves.toEqual({
-      stopReason: 'max_tokens',
-      usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 },
-    });
-    // The client had the turn's idle when the prompt ended. The prompt's own message is the host's:
-    // the decoder draws no row for it.
-    expect(pair.kinds()).toEqual(['state_update', 'user_message', 'state_update', 'state_update']);
-    expect(decodeSessionUpdate(pair.updates[1]!.update)).toEqual({ kind: 'ignored' });
+    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] }, { requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' } })).resolves.toEqual({ status: 'accepted', requestId: 'r', messageId: 'u', _meta: { receipt: true } });
+    expect(pair.updates).toEqual([]);
+    await pair.send({ sessionUpdate: 'user_message', messageId: 'u', content: [{ type: 'text', text: 'hi' }] });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'max_tokens', usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } });
+    await vi.waitFor(() => expect(pair.updates).toHaveLength(2));
+    expect(pair.updates[0].event).toMatchObject({ kind: 'message', role: 'user', messageId: 'u', text: 'hi' });
+    expect(pair.updates[1].event).toMatchObject({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'max_tokens', usage: { totalTokens: 5 } });
   });
 
-  it('takes a whole message as its chunks, and fails the turn loudly when one replaces content already shown', async () => {
-    const taken = Promise.withResolvers<void>();
-    const pair = agentPair({
-      prompt: async () => {
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hi' }] });
-        taken.resolve();
-        return { messageId: 'u1' };
-      },
-    });
+  it('does not reinterpret idle errors or cancellation as prompt responses', async () => {
+    const receipt = Promise.withResolvers<v2.PromptResponse>();
+    const entered = Promise.withResolvers<void>();
+    const pair = agentPair({ prompt: async () => { entered.resolve(); return receipt.promise; } });
     await initialize(pair.api);
-    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hi' }] });
-    await taken.promise;
-    // A new message's content is appended as chunks; later chunks append to it; a metadata-only
-    // upsert shows nothing.
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'one' }] });
-    await pair.send({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: ' two' } });
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', _meta: { x: 1 } });
-    await settle();
-    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
-
-    // Replacing content the host already appended is not something the host can show.
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'other' }] });
-    await expect(outcome).rejects.toThrow(/agent_message a1 replaces content the host already shows/);
-    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
+    const response = pair.api.prompt({ sessionId: 's1', prompt: [] });
+    await entered.promise;
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'error', error: { code: -32000, message: 'Authentication required' } });
+    await vi.waitFor(() => expect(pair.updates).toHaveLength(1));
+    expect(pair.updates[0].event).toMatchObject({ kind: 'agent_state', error: { code: -32000 } });
+    receipt.resolve({ messageId: 'u' });
+    await expect(response).resolves.toMatchObject({ status: 'accepted', messageId: 'u' });
   });
 
-  it('ends a prompt that the agent took in while an earlier one ran with that work, and waits for a later one', async () => {
-    let n = 0;
-    const pair = agentPair({
-      prompt: async () => {
-        n += 1;
-        if (n <= 2) await pair.send({ sessionUpdate: 'user_message', messageId: `m${n}`, content: [] });
-        return { messageId: `m${n}` };
-      },
-    });
+  it('preserves the rejection of a prompt cancelled before acceptance', async () => {
+    const pair = agentPair({ prompt: async () => { throw new v2.RequestError(-32800, 'Request cancelled'); } });
     await initialize(pair.api);
-    const first = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    const second = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    const third = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    await settle();
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-    await expect(first).resolves.toEqual({ stopReason: 'end_turn' });
-    await expect(second).resolves.toEqual({ stopReason: 'end_turn' });
-    let thirdEnded = false;
-    void third.then(() => (thirdEnded = true));
-    await settle();
-    expect(thirdEnded).toBe(false);
-    await pair.send({ sessionUpdate: 'user_message', messageId: 'm3', content: [] });
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'cancelled' });
-    await expect(third).resolves.toEqual({ stopReason: 'cancelled' });
+    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toMatchObject({ code: -32800 });
   });
 
-  it('fails a prompt whose turn ends with an error with the JSON-RPC error of that idle', async () => {
-    const pair = agentPair({
-      prompt: async () => {
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'm1', content: [] });
-        setTimeout(() => {
-          void pair.send({
-            sessionUpdate: 'state_update',
-            state: 'idle',
-            stopReason: 'error',
-            error: { code: -32000, message: 'Authentication required' },
-          });
-        }, 0);
-        return { messageId: 'm1' };
-      },
-    });
+  it('cancels and rejects a native receipt that misses its admission deadline (prompt_admission_timeout)', async () => {
+    const pair = agentPair({ prompt: () => new Promise(() => {}) });
     await initialize(pair.api);
-    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toEqual({
-      code: -32000,
-      message: 'Authentication required',
-    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const receipt = pair.api.prompt({ sessionId: 's1', prompt: [] }, {
+        requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' }, admissionTimeoutMs: 60_000,
+      });
+      const rejected = expect(receipt).rejects.toMatchObject({ code: 'prompt_admission_timeout' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
+    await vi.waitFor(() => expect(pair.cancels).toEqual([{ sessionId: 's1' }]));
   });
 
-  it('preserves a pre-admission cancellation as a refusal without an acceptance callback', async () => {
-    const pair = agentPair({
-      prompt: async () => {
-        throw new v2.RequestError(-32800, 'Request cancelled');
-      },
-    });
-    await initialize(pair.api);
-    const accepted = vi.fn();
-    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] }, accepted)).rejects.toMatchObject({ code: -32800 });
-    expect(accepted).not.toHaveBeenCalled();
-  });
-
-  it('reports a display terminal as the text output of the tool call that shows it, with its exit', async () => {
+  it('preserves terminal bytes and references without projecting tool text', async () => {
     const pair = agentPair();
     await initialize(pair.api);
-    await pair.send({ sessionUpdate: 'terminal_update', terminalId: 't1', command: 'ls' });
-    await pair.send({
-      sessionUpdate: 'tool_call_update',
-      toolCallId: 'tool-1',
-      title: 'ls',
-      status: 'in_progress',
-      content: [{ type: 'terminal', terminalId: 't1' }],
-    });
-    await pair.send({ sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: Buffer.from('a\n').toString('base64') });
-    await pair.send({
-      sessionUpdate: 'terminal_update',
-      terminalId: 't1',
-      output: { data: Buffer.from('a\nb\n').toString('base64') },
-      exitStatus: { exitCode: 0 },
-    });
+    const updates: v2.SessionUpdate[] = [
+      { sessionUpdate: 'terminal_update', terminalId: 't1', command: 'ls' },
+      { sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: '8J8=' },
+      { sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: 'mYI=' },
+      { sessionUpdate: 'terminal_update', terminalId: 't1', exitStatus: { exitCode: 0 } },
+      { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', content: [{ type: 'terminal', terminalId: 't1' }] },
+    ];
+    for (const update of updates) await pair.send(update);
     await settle();
-    expect(pair.updates.map(({ update }) => update)).toEqual([
-      { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', title: 'ls', status: 'in_progress' },
-      {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tool-1',
-        content: [{ type: 'content', content: { type: 'text', text: 'a\n' } }],
-      },
-      {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tool-1',
-        content: [{ type: 'content', content: { type: 'text', text: 'a\nb\n' } }],
-        _meta: { terminal_exit: { exit_code: 0, signal: null } },
-      },
-    ]);
+    expect(pair.updates.map(({ trace }) => trace)).toEqual(updates);
+    expect(pair.updates.map(({ event }) => event)).toEqual(updates.map(decodeV2SessionUpdate));
   });
 
-  it('gives a v2 diff to the host as a v1 diff of the hunks of its patch', async () => {
+  it('preserves a v2 diff block and every raw patch byte', async () => {
     const pair = agentPair();
     await initialize(pair.api);
     await pair.send({
@@ -331,14 +213,15 @@ describe('connectStdioAcpV2', () => {
       ],
     });
     await settle();
-    expect(pair.updates[0]!.update).toEqual({
+    expect(pair.updates[0]!.event).toEqual(decodeV2SessionUpdate(pair.updates[0]!.trace));
+    expect(pair.updates[0]!.trace).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'edit-1',
-      content: [{ type: 'diff', path: '/w/a.txt', oldText: 'keep\nold', newText: 'keep\nnew' }],
+      content: [{ type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt', fileType: 'text' }], patch: { format: 'git_patch', text: 'diff --git a/w/a.txt b/w/a.txt\n--- a/w/a.txt\n+++ b/w/a.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n' } }],
     });
   });
 
-  it('gives the host the v2 name of a tool call where it reads the tool name', async () => {
+  it('preserves the standard tool name and a permission request with its own title', async () => {
     const pair = agentPair();
     await initialize(pair.api);
     await pair.send({
@@ -351,43 +234,52 @@ describe('connectStdioAcpV2', () => {
     });
     await pair.agent().request(v2.methods.client.session.requestPermission, {
       sessionId: 's1',
-      title: 'Ready to code?',
+      title: 'Approve implementation?',
       subject: { type: 'tool_call', toolCall: { toolCallId: 'plan-1', name: 'ExitPlanMode' } },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
     });
     await settle();
-    expect(pair.updates[0]!.update).toEqual({
+    expect(pair.updates[0]!.trace).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'plan-1',
+      name: 'ExitPlanMode',
       title: 'Ready to code?',
       rawInput: { plan: '1. write the file' },
-      _meta: { claudeCode: { parentToolUseId: null }, toolName: 'ExitPlanMode' },
+      _meta: { claudeCode: { parentToolUseId: null } },
     });
+    expect(pair.updates[0]?.event).toMatchObject({ kind: 'tool_update', toolCallId: 'plan-1', toolName: 'ExitPlanMode' });
     expect(pair.permissions).toEqual([
       {
         sessionId: 's1',
-        toolCall: { toolCallId: 'plan-1', title: 'Ready to code?', _meta: { toolName: 'ExitPlanMode' } },
+        title: 'Approve implementation?',
+        subject: { type: 'tool_call', toolCall: { toolCallId: 'plan-1', name: 'ExitPlanMode' } },
+        toolCall: { kind: 'tool_update', toolCallId: 'plan-1', toolName: 'ExitPlanMode' },
         options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
       },
     ]);
   });
 
-  it('asks the host about a v2 permission request as about its tool call, under the request title', async () => {
+  it.each([
+    { type: 'tool_call', toolCall: { toolCallId: 'tool-1', title: 'Tool title', kind: 'execute' } },
+    { type: 'command', command: 'ls -la', cwd: '/work', toolCallId: 'tool-1', terminalId: 'term-1', _meta: { vendor: { extra: true } } },
+    null,
+    undefined,
+  ])('preserves the complete permission subject %j without manufacturing a tool call', async (subject) => {
     const pair = agentPair();
     await initialize(pair.api);
-    const response = await pair.agent().request(v2.methods.client.session.requestPermission, {
-      sessionId: 's1',
-      title: 'Run ls?',
-      subject: { type: 'tool_call', toolCall: { toolCallId: 'tool-1', kind: 'execute' } },
+    const request = {
+      sessionId: 's1', title: 'Run command?', description: 'Approval details',
+      ...(subject === undefined ? {} : { subject }),
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-    });
+      _meta: { vendor: { context: 1 } },
+    };
+    const response = await pair.agent().request(v2.methods.client.session.requestPermission, request as v2.RequestPermissionRequest);
     expect(response).toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } });
-    expect(pair.permissions).toEqual([
-      {
-        sessionId: 's1',
-        toolCall: { toolCallId: 'tool-1', kind: 'execute', title: 'Run ls?' },
-        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-      },
-    ]);
+    if (subject?.type === 'tool_call') {
+      expect(pair.permissions).toEqual([{ ...request, toolCall: { kind: 'tool_update', toolCallId: 'tool-1', title: 'Tool title', toolKind: 'execute' } }]);
+    } else {
+      expect(pair.permissions).toEqual([request]);
+      expect(pair.permissions[0]).not.toHaveProperty('toolCall');
+    }
   });
 });

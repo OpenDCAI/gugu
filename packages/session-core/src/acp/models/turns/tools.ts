@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const toolStatusSchema = z.enum(['running', 'done', 'error']);
+export const toolStatusSchema = z.enum(['running', 'done', 'error', 'unknown']);
 export type ToolStatus = z.infer<typeof toolStatusSchema>;
 
 /**
