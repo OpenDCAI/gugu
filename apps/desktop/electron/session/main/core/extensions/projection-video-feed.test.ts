@@ -135,4 +135,15 @@ describe('actual projection resource → host encoder → correlated input', () 
     expect(s.access.signal.aborted).toBe(false);
     await s.finish(); await media.close();
   });
+
+  it('stops a pending decoder when authority is released even before explicit disconnect', async () => {
+    const pixels = deferred<Uint8Array>(); const s = setup({ decode: () => pixels.promise });
+    const media = await s.feed.openMedia(control, () => {});
+    await media.answer({ type: 'answer', sdp: 'fixture' }); await tick();
+    s.feed.lease.release();
+    expect(s.feed.lease.signal.aborted).toBe(true);
+    pixels.resolve(new Uint8Array(128 * 96 * 4)); await tick();
+    expect(s.publish).not.toHaveBeenCalled();
+    await s.finish(); await media.close();
+  });
 });

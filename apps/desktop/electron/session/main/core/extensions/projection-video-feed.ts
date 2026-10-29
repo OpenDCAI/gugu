@@ -116,7 +116,10 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
       } finally { signal.removeEventListener('abort', cancelled); }
     },
     async disconnect() { stop(new Error('Projection video disconnected')); await connection!.disconnect(); },
-    release() { authority.signal.removeEventListener('abort', revoke); authority.release(); },
+    release() {
+      stop(new Error('Projection video authority released'));
+      authority.signal.removeEventListener('abort', revoke); authority.release();
+    },
   };
   return {
     lease,
