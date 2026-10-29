@@ -385,10 +385,9 @@ export const PERSON_TOOLS = [
   {
     name: 'browser_request_login',
     description:
-      'Ask the person to log in to the site open in your browser tab. They type their username and password into Gugu\'s ' +
-      'password vault and Gugu fills them into the login form; you never see them (a login the person saved is filled ' +
-      'without asking). Use this whenever a page asks for a login: never ask for a password in chat and never type one ' +
-      'yourself. Returns once the form is filled (then submit it) or the person declines.',
+      'Ask the person to take control of your browser tab and log in on the page themselves, then press Done. ' +
+      'Use this for login pages: never ask for a password in chat or type one yourself. Returns when the person finishes or declines. ' +
+      'Take a fresh browser_snapshot and check the result before continuing.',
     inputSchema: {
       type: 'object' as const,
       properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what the login is for.' } },

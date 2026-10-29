@@ -1,4 +1,4 @@
-// The Browser Use App's Browser tab (host page hostPage: 'browser'): watch the agent's browser, take over, the password vault; the Ask's way in.
+// The Browser Use App's Browser tab (host page hostPage: 'browser'): watch the agent's browser and take over; the Ask's way in.
 export default {
   "place": {
     "noTask": "This tab belongs to a task: open it in a task to see that task's browser.",
@@ -60,30 +60,12 @@ export default {
     "retryInput": "Retry unsent text",
     "discardInput": "Discard unsent text",
     "done": "Done",
-    "loginOrTakeOver": "Fill in the vault, or take control and log in on the page yourself; press Done when you have finished.",
-    "releasingControl": "Handing back control…"
-  },
-  "vault": {
-    "title": "Password vault",
-    "privacy": "Only you can see your passwords",
     "login": "Log in to {{site}}",
-    "adding": "Adding",
-    "added": "Added",
-    "url": "URL",
-    "username": "Username",
-    "password": "Password",
-    "showPassword": "Show password",
-    "hidePassword": "Hide password",
-    "savePassword": "Save password for next time",
-    "confirm": "Confirm",
-    "close": "Close",
-    "noForm": "No login form found on this page",
-    "saveFailed": "Filled in, but the password couldn't be saved",
-    "gone": "This login request has ended"
+    "loginOrTakeOver": "Take control and log in on the page; press Done when you have finished.",
+    "releasingControl": "Handing back control…"
   },
   "ask": {
     "open": "View in Browser Use",
-    "login": "Log in with Browser Use",
     "missing": "Install the Browser Use App to watch this browser and log in for it here.",
     "disabled": "The Browser Use App is switched off. Switch it on to watch this browser and log in for it here.",
     "goToApps": "Go to Apps",
