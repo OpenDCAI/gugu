@@ -7,6 +7,7 @@ export interface SessionpageCanonicalAgentIdentity {
   id: string
   gugu_number: number | null
   display_name: string
+  session_archived_at?: string | null
 }
 
 /**
@@ -31,7 +32,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
   const rows = await fetchInChunks(ids, async (chunk) => {
     const { data, error } = await client
       .from('users')
-      .select('id,gugu_number,display_name')
+      .select('id,gugu_number,display_name,session_archived_at')
       .eq('type', 'agent')
       .eq('owner_user_id', auth.userId)
       .in('id', chunk)
@@ -58,6 +59,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
     if (guguNumber !== null && !Number.isInteger(guguNumber)) {
       throw new Error(`session-page canonical identity lookup returned invalid gugu_number for ${id}`)
     }
-    return { id, gugu_number: guguNumber ?? null, display_name: displayName }
+    return { id, gugu_number: guguNumber ?? null, display_name: displayName,
+      ...(row.session_archived_at != null ? { session_archived_at: row.session_archived_at } : {}) }
   })
 }
