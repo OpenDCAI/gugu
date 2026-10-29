@@ -43,6 +43,50 @@ afterEach(() => {
 });
 
 describe('App/session scoped picture and input', () => {
+  it('releases a held key when its fresh-frame keyup is explicitly rejected by the driver', async () => {
+    let held = false;
+    const disconnect = vi.fn(async () => { held = false; });
+    const s = setup({ disconnect, input: async next => {
+      if (next.kind === 'key' && next.action === 'down') { held = true; return; }
+      return { status: 'rejected', reason: 'Native keyup was not applied' };
+    } });
+    const v = s.attach(); s.publish(1); await v.ack(1);
+    await v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 1, input: { kind: 'key', action: 'down', key: 'Shift' } });
+    const result = await v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 2, input: { kind: 'key', action: 'up', key: 'Shift' } }).catch(error => error);
+    expect(held).toBe(false);
+    expect(disconnect).toHaveBeenCalledExactlyOnceWith(v.connection.generation());
+    expect(result).toMatchObject({ uncertain: true });
+    expect(result.outcome).toBeUndefined();
+    await s.resource.close();
+  });
+
+  it.each(['key', 'pointer'] as const)('releases held %s from an old painted frame with an otherwise empty queue', async kind => {
+    const blocked = deferred(); let held = false;
+    const disconnect = vi.fn(async () => { held = false; });
+    const input = vi.fn(async () => { held = true; await blocked.promise; });
+    const s = setup({ input, disconnect });
+    const v = s.attach(); s.publish(1); await v.ack(1);
+    const button = kind === 'key' ? { kind: 'key' as const, key: 'Shift' }
+      : { kind: 'pointer' as const, button: 'left' as const, x: 0.5, y: 0.5 };
+    const down = v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 1, input: { ...button, action: 'down' } }).catch(() => undefined);
+    await vi.waitFor(() => expect(held).toBe(true));
+    s.publish(2); await v.ack(2);
+    await expect(v.viewer.receive({ type: 'input', generation: 'different viewer', frame: 1, sequence: 2, input: { ...button, action: 'up' } })).rejects.toThrow(/Stale/);
+    expect(disconnect).not.toHaveBeenCalled();
+    const up = v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 2, input: { ...button, action: 'up' } }).catch(error => error);
+    blocked.resolve(); await down;
+    const outcome = await up;
+    expect(held).toBe(false);
+    expect(disconnect).toHaveBeenCalledExactlyOnceWith(v.connection.generation());
+    expect(outcome).toMatchObject({ uncertain: true });
+    // Cleanup releases the prior target instead of dispatching its old coordinates to the new picture.
+    expect(input).toHaveBeenCalledTimes(1);
+    const fresh = s.attach(); s.publish(3); await fresh.ack(3);
+    await fresh.input(1, 3);
+    expect(input).toHaveBeenCalledTimes(2);
+    await s.resource.close();
+  });
+
   it.each(['key', 'pointer'] as const)('releases held %s input even when the host queue is full', async kind => {
     const blocked = deferred(); let held = false;
     const disconnect = vi.fn(async () => { held = false; });

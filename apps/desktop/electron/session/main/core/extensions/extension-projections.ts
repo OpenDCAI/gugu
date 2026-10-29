@@ -116,17 +116,27 @@ export class ExtensionProjections {
         resource.controller.signal.throwIfAborted();
         const packet = projectionViewerPacket(raw);
         if (packet.type === 'ack') return viewer.ack(packet);
+        const releasesThisViewer = () => isProjectionRelease(packet.input)
+          && packet.generation === viewer.generation && !viewer.abort.signal.aborted;
+        const releaseBarrier = async (): Promise<never> => {
+          viewer.close('Projection input release barrier');
+          await resource.queue;
+          throw new ProjectionInputFailure('Projection input generation reset after release barrier', true);
+        };
         if (resource.queued >= 64) {
-          if (isProjectionRelease(packet.input) && packet.generation === viewer.generation) {
+          if (releasesThisViewer()) {
             // No extra queue capacity: cancel the old generation and await its
             // disconnect barrier, which releases all native keys and buttons.
-            viewer.close('Projection input queue release barrier');
-            await resource.queue;
-            throw new ProjectionInputFailure('Projection input generation reset after release barrier', true);
+            return releaseBarrier();
           }
           throw new Error('Projection input queue is full');
         }
-        const frame = viewer.admit(packet);
+        let frame: ProjectionFrame;
+        try { frame = viewer.admit(packet); }
+        catch (error) {
+          if (releasesThisViewer()) return releaseBarrier();
+          throw error;
+        }
         const signal = AbortSignal.any([viewer.abort.signal, resource.controller.signal]);
         let started = false;
         resource.queued += 1;
@@ -156,6 +166,9 @@ export class ExtensionProjections {
             if (signal.aborted) abort();
           })]);
         } catch (error) {
+          // A rejected release must still end this viewer's held controls, even
+          // when the frame changed or its native driver refused the operation.
+          if (releasesThisViewer()) return releaseBarrier();
           if (error instanceof ProjectionInputFailure) throw error;
           throw new ProjectionInputFailure(error instanceof Error ? error.message : String(error), started);
         } finally { signal.removeEventListener('abort', abort); }
