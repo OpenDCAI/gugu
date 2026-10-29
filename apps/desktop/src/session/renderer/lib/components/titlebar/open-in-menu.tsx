@@ -24,7 +24,7 @@ interface OpenInMenuProps {
 }
 
 /**
- * 「在哪里打开」这个路径能用的那几个 app,和打开它的那一下:页签条上这颗分裂按钮,和项目页签右键菜单里那几行
+ * 「在哪里打开」这个路径能用的那几个 app,和打开它的那一下:文件工具栏这颗分裂按钮,和项目页签右键菜单里那几行
  * (gugu-dev#181)读同一份,❌ 各写一份。`menuApps` 默认的那个排在最前。
  */
 export function useOpenInTargets(path: string) {

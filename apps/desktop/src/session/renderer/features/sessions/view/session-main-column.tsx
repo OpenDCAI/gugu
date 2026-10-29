@@ -14,7 +14,6 @@ import {
 } from '@renderer/app/screen-layout-actions';
 import { auxWindows } from '@renderer/app/aux-windows';
 import { useGroupRef } from 'react-resizable-panels';
-import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { PaneContent } from '@renderer/features/tabs/pane-content';
 import { PaneProvider } from '@renderer/features/tabs/pane-context';
@@ -304,7 +303,7 @@ function paneCellSize(paneId: string): { width: number; height: number } | null 
  * 动作对着这一块正在看的那条会话(子会话的页签在前面就是子会话)。
  */
 const SessionBlockActions = observer(function SessionBlockActions({ atScreenEdge }: { atScreenEdge: boolean }) {
-  const { projectId, sessionId: pageSessionId } = useSessionViewContext();
+  const { sessionId: pageSessionId } = useSessionViewContext();
   const { paneLayout } = useWorkspaceViewModel();
   const { blockId, multi, windowId } = useScreenBlock();
   const sessionId = activeChatSessionId(paneLayout);
@@ -312,7 +311,6 @@ const SessionBlockActions = observer(function SessionBlockActions({ atScreenEdge
   const startupFailure = useSessionStartupFailure(sessionId ?? null);
   return (
     <TabBarActionRow atWindowEdge={atScreenEdge}>
-      <ProjectTitleActions projectId={projectId} />
       {/* spec session-terminal-model-switch:终端会话看不到输入框,换模型的入口在这里;通用模式的输入框里已经有一颗。
           从没起过的会话只在首启失败时摆(#7092:会员模型被拒,换一个再起);正在首启的那段不摆,换了也赶不上这一次。 */}
       {session && sessionId && sessionViewOfRuntime(session.data.runtime ?? 'pty') === 'code'
