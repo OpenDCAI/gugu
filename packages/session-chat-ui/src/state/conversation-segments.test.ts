@@ -138,8 +138,23 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('before', 'assistant', 2000), notice('wake', 5000), message('after', 'assistant', 6000)]);
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => row.itemId === 't:process@wake:head')!.data as ChatMessage;
-    expect(head.conversationReply).toMatchObject({ from: 'Background', text: 'wake' });
+    expect(head.conversationReply).toMatchObject({ background: true, text: 'subagent finished' });
     expect(head.conversationProcess).not.toHaveProperty('trigger');
+  });
+
+  it.each([
+    ['command', 'completed', 'background command finished'], ['command', 'failed', 'background command failed'],
+    ['command', 'stopped', 'background command stopped'], ['subagent', 'completed', 'subagent finished'],
+    ['subagent', 'failed', 'subagent failed'], ['subagent', 'stopped', 'subagent stopped'],
+  ] as const)('uses only the observed %s %s event as the wake-up caption', (kind, outcome, label) => {
+    const base = { id: 'wake', toolCallId: 'wake', seq: 1, title: 'cd /tmp/raw-command && export PATH=fixture; echo RAW-WAKE-991',
+      name: 'RAW-WAKE-991', status: 'done' as const, launchToolCallId: 'launch', outcome, at: 5000 };
+    const source: ChatItem = kind === 'command' ? { ...base, kind: 'background-command-done-tool-call' }
+      : { ...base, kind: 'subagent-done-tool-call', agentId: 'child' };
+    const rows = flattenTier([turn([source, message('after', 'assistant', 6000)])], context(false), segmenters);
+    const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
+    expect(head.conversationReply).toMatchObject({ itemId: 'wake', text: label, background: true });
+    expect(head.conversationReply!.text).not.toContain('RAW-WAKE-991');
   });
 
   it('does not add the generic message margin between process parts or after an action lane', () => {

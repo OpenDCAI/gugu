@@ -6,5 +6,5 @@ export const trigger = style({ display: 'block', width: '100%', height: 32, boxS
   border: 0, background: 'transparent', padding: '6px 0 6px 20px', textAlign: 'left',
   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'inherit',
   fontFamily: vars.fontSans, fontSize: 14, lineHeight: '20px', cursor: 'pointer',
-  selectors: { '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: -1 } } });
+  selectors: { '&:disabled': { cursor: 'default' }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: -1 } } });
 export const body = style({ padding: '0 0 6px 20px', vars: { [vars.fgBody]: vars.fgMuted } });

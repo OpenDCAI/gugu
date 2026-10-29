@@ -117,7 +117,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const quoteSender = (from: string | null, fromId: string | null) =>
     isSelfAddress(fromId, self()) && self()?.displayName?.trim() ? self()!.displayName!.trim() : shownSender(from, fromId, self());
   // 「群名 · 发送者 · 短摘要」;被引用那条来自私聊就没有群名。发送者是那条自己的发送者(agent 或真人),❌ 默认写成 agent。
-  const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => [
+  const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => quote.background ? '' : [
     quote.chatId ? chatName(quote.chatId) : null,
     // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
     quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? (quote.unloaded ? null : self()?.displayName),
@@ -131,8 +131,9 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       <Show when={messageQuote(props.data)}>{quote => <>
         <span class={conversationTimeSeparator} aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
-          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
-          aria-label={translate('transcript.showOriginalMessage')}>
+          disabled={!quote().background && !commands().onConversationReply} onClick={quote().background ? undefined : () => commands().onConversationReply?.(quote().itemId)}
+          data-collapse-id={quote().background ? props.data.conversationProcess?.id : undefined} data-collapse-anchor={props.data.id}
+          aria-label={quote().background ? quote().text : translate('transcript.showOriginalMessage')}>
           <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
           <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>

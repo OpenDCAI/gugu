@@ -31,6 +31,24 @@ function mount(items: TranscriptItem[], reply: string | null = 'Fixture done.') 
 }
 
 describe('conversation hooks remain semantic process steps', () => {
+  it('keeps a raw background command out of the wake-up header and opens its process details', async () => {
+    const command = 'cd fixture-directory && export PATH=fixture-path; echo RAW-WAKE-991';
+    const v = mount([{ kind: 'background-command-done-tool-call', id: 'wake', seq: 1, toolCallId: 'wake',
+      launchToolCallId: 'launch', name: command, title: command, summary: command, status: 'done', outcome: 'completed' }]);
+    await until('the reply appears', () => v.host.textContent?.includes('Fixture done.') === true);
+    const head = v.host.querySelector<HTMLElement>('[data-conversation-part="head"]')!;
+    expect(head.textContent).toContain('background command finished');
+    expect(head.textContent).not.toContain('RAW-WAKE-991');
+    v.state.viewState.setCollapsed('hooks:process', false);
+    await until('the process starts closed', () => v.host.querySelector('[data-slot="conversation-process-steps"]') === null);
+    const caption = v.host.querySelector<HTMLButtonElement>('[data-conversation-part="head"] [data-slot="conversation-quote"]')!;
+    caption.click();
+    await until('the source process opens', () => v.host.querySelector('[data-slot="conversation-process-steps"]') !== null);
+    v.host.querySelector<HTMLButtonElement>('[data-slot="tool-run"] [data-collapse-id]')!.click();
+    await until('the original command can be read in details', () => v.host.querySelector('[data-conversation-step="wake"]')?.textContent?.includes('RAW-WAKE-991') === true);
+    expect(v.host.textContent).not.toContain('Bash');
+  });
+
   it('keeps a long background completion inside its measured row through width changes and disclosure', async () => {
     const summary = 'cd fixture-workspace && echo checking-a-long-command-line '.repeat(18);
     const v = mount([
@@ -162,16 +180,17 @@ describe('conversation hooks remain semantic process steps', () => {
       ? { kind: 'session-notice', id: 'hook', seq: 2, code: 'provider-notice', title: 'Stop says: Check the fixture.', detail: 'Stop says: Check the fixture.', at: 3000 }
       : { kind: 'message', id: 'hook', seq: 2, role: 'assistant', text: '**Notice:** Stop says: Check the fixture.' };
     const v = mount([bash('before', 1), hook, bash('after', 3)]);
+    v.state.viewState.setCollapsed('hooks:process@hook', true);
     await until('the reply appears', () => v.host.textContent?.includes('Fixture done.') === true);
     await v.settle();
-    const run = v.host.querySelector<HTMLElement>('[data-slot="tool-run"]');
-    expect(run).not.toBeNull();
-    expect(run!.textContent).toMatch(/ran 2 shell commands/i);
-    expect(run!.textContent).toMatch(/triggered 1 hook/i);
+    const runs = [...v.host.querySelectorAll<HTMLElement>('[data-slot="tool-run"]')];
+    expect(runs).toHaveLength(2);
+    expect(runs[0].textContent).toMatch(/ran 1 shell command/i);
+    expect(runs[1].textContent).toMatch(/ran 1 shell command, triggered 1 hook/i);
     expect(v.host.textContent).not.toContain('Stop says:');
     expect(v.host.textContent).not.toContain('Bash');
     expect(v.host.querySelector('[data-conversation-step]')).toBeNull();
-    run!.querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
+    runs[1].querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
     await v.settle();
     expect(v.host.textContent).toContain('Check the fixture.');
     expect(v.host.textContent).not.toContain('Stop says:');

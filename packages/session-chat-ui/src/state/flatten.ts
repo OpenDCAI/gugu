@@ -440,8 +440,8 @@ export function flattenTier(
           if (!reply.conversationReply && !reply.sentReplyTo && !reply.id.includes(':sent:') && block.input) {
             const envelope = readDeliveryEnvelope(block.input.text);
             const facts = envelope?.segments[0]?.facts;
-            reply.conversationReply = { itemId: block.input.id, text: envelope?.body ?? block.input.text,
-              ...(block.inputFrom || facts?.from ? { from: block.inputFrom ? ctx.translate('transcript.backgroundSource') : facts!.from! } : {}), ...(facts?.fromId ? { fromId: facts.fromId } : {}) };
+            reply.conversationReply = { itemId: block.input.id, text: block.inputEvent ? ctx.translate(block.inputEvent) : envelope?.body ?? block.input.text,
+              ...(block.inputEvent ? { background: true } : facts?.from ? { from: facts.from } : {}), ...(facts?.fromId ? { fromId: facts.fromId } : {}) };
           }
           emitConversationReply(reply, [], steps);
         } else {
