@@ -4,6 +4,7 @@
 // 与聊天流共用 TurnFailureCard；原因仍为既有本地化文案，宿主诊断不进入展示层。
 
 import { useEffect, useState, type ReactNode } from 'react'
+import { X } from '@/lib/icons'
 import { turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
 import { TurnFailureCard } from './chat/TurnFailureCard'
 import { agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
@@ -15,9 +16,10 @@ import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../store/contactsContext'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { Button } from './ui/Button'
+import { IconButton } from './ui/IconButton'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
 import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
-import { notify } from '../lib/notices'
+import { dismissNotice, notify } from '../lib/notices'
 import { Avatar } from './Avatar'
 
 type AgentTurnFailureSlotProps = {
@@ -67,6 +69,11 @@ export function AgentTurnFailureSlot({
   if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3.5 my-1.5 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
   const contact = contacts.find((entry) => entry.id === failure.agentUserId)
+  const dismiss = () => {
+    local.dismiss()
+    stored.dismiss(failure.commandId)
+    if (stateKind) dismissNotice(`agent-quota:${failure.agentUserId}`)
+  }
   return (
     <>
     {stateKind ? (
@@ -76,13 +83,14 @@ export function AgentTurnFailureSlot({
         avatar={profile?.avatar ?? null}
         state={t(`agent.turnFailure.state.${stateKind}`)}
         onOpenModel={contact ? () => setModelOpen(true) : undefined}
+        onDismiss={dismiss}
       />
     ) : (
       <AgentTurnFailureBar
         failure={failure}
         displayName={displayName}
         avatar={profile?.avatar ?? null}
-        onDismiss={() => { local.dismiss(); stored.dismiss(failure.commandId) }}
+        onDismiss={dismiss}
         onOpenModel={contact ? () => setModelOpen(true) : undefined}
       />
     )}
@@ -92,13 +100,14 @@ export function AgentTurnFailureSlot({
 }
 
 // #7685 额度/模型类失败 = agent 的状态，不是一条通知：和运行条同一排、同一种 token 形状（头像 + 名 + 状态词），
-// 不流光、不带关闭钮；点一下去切模型。这位 agent 下一次投递成功，命令结果翻成 done，它自己就消失。
-export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenModel }: {
+// 不流光；点状态去切模型，关闭沿用同一命令版本的 dismissal。下一次投递成功，它也会自然消失。
+export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenModel, onDismiss }: {
   agentId: string
   displayName: string
   avatar: string | null
   state: string
   onOpenModel?: () => void
+  onDismiss?: () => void
 }) {
   const { t } = useTranslation('messaging')
   return (
@@ -116,6 +125,7 @@ export function AgentQuotaStatus({ agentId, displayName, avatar, state, onOpenMo
         <span className="aqs-nm">{displayName}</span>
         <span className="aqs-state">{state}</span>
       </Button>
+      {onDismiss ? <IconButton size="sm" onClick={onDismiss} aria-label={t('common.close')} data-testid="agent-quota-dismiss"><X size={14} aria-hidden /></IconButton> : null}
     </div>
   )
 }
