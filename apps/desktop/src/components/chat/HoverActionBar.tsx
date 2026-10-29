@@ -23,7 +23,12 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
 }) {
   const [id] = useState(() => Symbol('message-hover'))
   const [hovered, setHovered] = useState(false)
-  const owner = useSyncExternalStore(subscribeHoverOwner, readHoverOwner)
+  // 只订「浮窗是不是我的」:订整个 owner 时,鼠标每换一行,列表里每一行都跟着重渲(连同整只气泡)。菜单开着要接手的那一行
+  // (forceOpen)例外,它得看见上一位什么时候放开。
+  const owner = useSyncExternalStore(subscribeHoverOwner, () => {
+    const current = readHoverOwner()
+    return forceOpen || current?.id === id ? current : null
+  })
   // 菜单 / 表情面板开着 = 锁住这一行;关上就放开(鼠标还在这一行的话照样是它的)。
   // 跟着 owner 重跑:另一行的菜单还锁着时这一行拿不到,等它放开再拿。
   useEffect(() => {

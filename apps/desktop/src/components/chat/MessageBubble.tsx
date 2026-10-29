@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
@@ -328,6 +328,13 @@ export const MessageBubble = memo(function MessageBubble({
 
   // @@@2017 owner 终版 — 路由真源 → 高亮名单(backedNames)+ 兜底徽标名单(fallbackLabels),单重显示(见 hook)。
   const mentionRender = useMentionRender(msg, isGroup, memberProfiles)
+  // 一个稳定的回调:内联箭头每次重渲都是新的,Markdown 的 memo 就拦不住,正文跟着重新解析。
+  const openLocalFileLink = useCallback((href: string) => {
+    const link = classifyFileLink(href)
+    if (!isAgent || !onOpenLocalFileLink || link.kind !== 'workspace-file') return false
+    onOpenLocalFileLink(link.path)
+    return true
+  }, [isAgent, onOpenLocalFileLink])
 
   // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡。
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
@@ -561,7 +568,7 @@ export const MessageBubble = memo(function MessageBubble({
                   // #1515 段内 Shift+Enter 软换行渲成 <br> 仅对人类手打消息;agent/LLM 内容保持 CommonMark(软换行=空格)。
                   // @@@2017 群内定向消息:渲染注入 nonce marker 后的正文(mentionRender.content),并把本次 marker 传下 →
                   // 只有被 to_user_ids 背书的 @Name 才渲成 mention;非群/whisper → content=undefined 用原始 raw、marker 空。
-                  return <Markdown trust="chat" content={mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={(href) => { const link = classifyFileLink(href); if (!isAgent || !onOpenLocalFileLink || link.kind !== 'workspace-file') return false; onOpenLocalFileLink(link.path); return true }} />
+                  return <Markdown trust="chat" content={mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={openLocalFileLink} />
                 })()}
               </div>
             )}
