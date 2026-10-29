@@ -23,6 +23,17 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('starts a new Stop segment at the authentic hook clock, preserving both replies', () => {
+    const hook: ChatItem = { kind: 'session-notice', id: 'stop', seq: 3, code: 'provider-notice', title: 'Stop says: Check.', detail: 'Stop says: Check.', at: 4000 };
+    const blocks = planConversationSegments(turn([message('u', 'user', 1000), call('one'), message('before', 'assistant', 3000), hook, call('two'), message('after', 'assistant', 7000)]), false);
+    const segments = blocks.filter(block => block.kind === 'segment');
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ id: 't:process', startedAt: 1000, endedAt: 3000 });
+    expect(segments[1]).toMatchObject({ id: 't:process@stop', startedAt: 4000, endedAt: 9000 });
+    expect(segments.map(segment => conversationOutput(segment.items).reply?.id)).toEqual(['before', 'after']);
+    expect(segments[1].items.map(item => item.id)).toEqual(['stop', 'two', 'after']);
+  });
+
   it('keeps the latest live words in a bubble and earlier words in the process', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
     const rows = flattenTier([record], context(true), segmenters);
@@ -154,7 +165,7 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.some(row => row.kind === 'agent-send')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'head')).toHaveLength(1);
-    expect(rows.find(row => row.itemId === 't:run:pending')?.data).toMatchObject({ kind: 'tool-run', stepCount: 1, collapsible: false });
+    expect(rows.find(row => row.itemId === 't:run:pending')?.data).toMatchObject({ kind: 'tool-run', stepCount: 1, label: 'Called 1 MCP tool' });
     expect(rows.some(row => row.kind === 'mcp-tool-call')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'body').map(row => row.itemId)).toEqual(['ready']);
   });

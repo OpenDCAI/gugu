@@ -68,6 +68,7 @@ import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-ch
 import { tallyToolRun, toolRunCategory, toolRunLabel, toolRunNow } from '@session-chat/state/tool-run';
 import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
 import { isEmptyAgentTurn } from './turn-visibility';
+import { processHookNotice } from '@session-chat/lib/hook-notice';
 
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
 export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fold';
@@ -198,6 +199,8 @@ export function flattenTier(
 
   const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[], owner = conversationOwner): void => {
     if (isSubagentChild(item)) return;
+    const hook = ctx.agentConversation ? processHookNotice(item as ChatItem) : null;
+    if (hook) item = { kind: 'message', id: item.id, seq: 'seq' in item ? item.seq : undefined, role: 'assistant', text: hook.body, hookNotice: hook };
     const seg = segmenters[item.kind];
     if (!seg) return;
     const group = seg.segment(item, ctx);
@@ -261,7 +264,7 @@ export function flattenTier(
   /**
    * 把一串过程行排成要发出的单元：**连续的工具调用**折成一句（#4981，owner 2026-09-06：
    * 「连续的 tool call 可以被折叠……除了 ai 文本以外都语义化折叠」）。分类与切段规则在
-   * `state/tool-run.ts`。两条起折；一条就是一行。子调用不进列表（见 isSubagentChild），
+   * `state/tool-run.ts`。对话布局单条也折，经典布局两条起折。子调用不进列表（见 isSubagentChild），
    * 也不算进这一句。
    *
    * 先排后发，是因为「排完剩几行」本身就是一个判据：只剩一行时外面不再套时间头
@@ -271,14 +274,14 @@ export function flattenTier(
     const ops: EmitOp[] = [];
     let run: ChatItem[] = [];
     const flush = (): void => {
-      // Running conversation steps stay semantic even when only one call has arrived.
-      if (run.length === 1 && !(ctx.agentConversation && ctx.active)) ops.push({ kind: 'row', item: run[0] });
+      // Conversation steps stay semantic in every segment, including a lone call after a hook.
+      if (run.length === 1 && !ctx.agentConversation) ops.push({ kind: 'row', item: run[0] });
       else if (run.length > 0) ops.push({ kind: 'run', rows: run });
       run = [];
     };
     for (const row of rows) {
       if (isSubagentChild(row)) continue;
-      if (toolRunCategory(row, ctx.agentConversation && ctx.active)) {
+      if (toolRunCategory(row, ctx.agentConversation)) {
         run.push(row);
         continue;
       }
@@ -315,13 +318,12 @@ export function flattenTier(
         kind: 'tool-run',
         id: runId,
         turnId,
-        label: toolRunLabel(tallyToolRun(op.rows, ctx.agentConversation && ctx.active), ctx.translate),
+        label: toolRunLabel(tallyToolRun(op.rows, ctx.agentConversation), ctx.translate),
         stepCount: op.rows.length,
-        ...(ctx.agentConversation && ctx.active ? { collapsible: false } : {}),
         ...(live ? { live: true as const } : {}),
         ...(now ? { now } : {}),
       }, folds);
-      if (!(ctx.agentConversation && ctx.active) && (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false))) {
+      if (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false)) {
         for (const row of op.rows) processItem(row, [...folds, { id: runId, stored: true }]);
       }
     }
@@ -433,6 +435,7 @@ export function flattenTier(
         resultOwner = conversationOwner;
         if (output.reply) {
           const reply = { ...output.reply, conversationProcess: process,
+            ...(block.fullReply ? { conversationFull: true } : {}),
             conversationCaret: block.live && block.items.at(-1)?.id === output.reply.id };
           if (!reply.conversationReply && !reply.sentReplyTo && !reply.id.includes(':sent:') && block.input) {
             const envelope = readDeliveryEnvelope(block.input.text);
@@ -446,6 +449,7 @@ export function flattenTier(
             ...(output.silent ? { silent: true } : {}),
             ...(ops.length ? { withBody: true } : { placeholder: true }) });
           steps();
+          if (output.stopReason) processItem(output.stopReason);
         }
         conversationOwner = undefined;
       }

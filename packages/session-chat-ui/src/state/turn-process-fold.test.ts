@@ -941,9 +941,9 @@ describe('agent conversation segment process', () => {
     expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'footer:process:head' });
     expect(ids(units)).not.toContain('call');
   });
-  it('expands single steps in their original order above the reply', () => {
+  it('keeps semantic summaries and disclosed steps in their original order above the reply', () => {
     const units = conversation(completed(), false, true);
-    expect(ids(units)).toEqual(['u', 'footer:process:head', 'think', 'call', 'answer']);
+    expect(ids(units)).toEqual(['u', 'footer:process:head', 'footer:run:think', 'think', 'call', 'answer']);
   });
   it('keeps a live reply visible when its process is collapsed', () => {
     const running = turn('running', [user('u'), reply('answer'), tool('search')]);
@@ -996,10 +996,12 @@ describe('agent conversation segment process', () => {
     expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))).not.toHaveProperty('trigger');
     expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))).not.toHaveProperty('trigger');
   });
-  it('leaves a single tool as one row and uses speech to separate consecutive tool groups', () => {
+  it('summarizes single tools and uses speech to separate consecutive tool groups', () => {
     const record = turn('pings', [user('u'), bash('p1'), reply('mid'), bash('p2'), reply('final')], DONE);
     const units = conversation(record, false, true);
-    expect(units.filter(unit => unit.kind === 'tool-run')).toHaveLength(0);
+    expect(units.filter(unit => unit.kind === 'tool-run').map(unit => unit.data)).toMatchObject([
+      { stepCount: 1, label: 'Ran 1 shell command' }, { stepCount: 1, label: 'Ran 1 shell command' },
+    ]);
     expect(ids(units).filter(id => ['p1', 'mid', 'p2', 'final'].includes(id))).toEqual(['p1', 'mid', 'p2', 'final']);
   });
   it('keeps the failure outcome visible beside the same readable reply/process structure', () => {

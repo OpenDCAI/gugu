@@ -51,7 +51,9 @@ describe('observable conversation process', () => {
     expect(runs[0].textContent).toContain('used 1 tool');
     expect(v.host.textContent).not.toContain(nativeName);
     expect(v.host.querySelector('[data-row-kind="mcp-tool-call"]')).toBeNull();
-    expect(runs[0].querySelector('[data-collapse-id]')).toBeNull();
+    runs[0].querySelector<HTMLButtonElement>('[data-collapse-id]')!.click();
+    await v.settle();
+    expect(v.host.textContent).not.toContain(nativeName);
   });
 
   it('summarizes a single pending call and does not expose raw rows through stored disclosure state', async () => {
@@ -65,6 +67,6 @@ describe('observable conversation process', () => {
     v.state.viewState.setCollapsed('live:run:send', true);
     await v.settle();
     expect(v.host.textContent).not.toContain(nativeName);
-    expect(v.host.querySelector('[data-collapse-id="live:run:send"]')).toBeNull();
+    expect(v.host.querySelector('[data-row-kind="mcp-tool-call"]')).toBeNull();
   });
 });

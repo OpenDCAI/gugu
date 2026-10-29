@@ -1,5 +1,5 @@
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
-import { parseHookNotice } from '@session-chat/lib/hook-notice';
+import { parseHookNotice, processHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage } from '@session-chat/model';
 import type { TurnProcessHeader } from './turn-fold';
 
@@ -24,7 +24,7 @@ function isSpoken(item: ChatItem): item is ChatMessage {
  * Called after segmentation: the last spoken text is a bubble even while running.
  * A confirmed send overrides it. Earlier spoken texts remain process narration.
  */
-export function conversationOutput(items: readonly ChatItem[], _live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[]; steps: ChatItem[]; silent: boolean } {
+export function conversationOutput(items: readonly ChatItem[], live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[]; steps: ChatItem[]; silent: boolean; stopReason?: ChatMessage } {
   const spoken = items.filter(isSpoken);
   // A group reply can exist only as a confirmed message_send projection,
   // followed by [NO_REPLY]. Bind that delivered bubble to the process too.
@@ -37,10 +37,16 @@ export function conversationOutput(items: readonly ChatItem[], _live = false): {
   const out = new Set<ChatItem>([...sent, ...(reply ? [reply] : [])]);
   // 发出去的那条已经是气泡了:它的 message_send 调用 ❌ 在过程里再画一遍同一句话(MBP 验收 10-28「完成」出现两次)。
   const sentCalls = new Set([...out].map(item => /^(.*):sent:[^:]+$/.exec(item.id)?.[1]).filter((id): id is string => id !== undefined));
+  const last = items.findLast(item => !(item.kind === 'message' && (!item.text.trim() || isGuguSilence(item.text))));
+  const hook = last && !reply && !live ? processHookNotice(last) : null;
+  const stopReason: ChatMessage | undefined = last && hook?.hookName === 'Stop'
+    ? { kind: 'message', id: `${last.id}:reason`, role: 'assistant', text: hook.body, conversationNarration: true, conversationTerminalReason: true }
+    : undefined;
   return {
     reply,
     sent,
     silent: !reply && items.some(item => item.kind === 'message' && isGuguSilence(item.text)),
+    ...(stopReason ? { stopReason } : {}),
     rest: items.filter(item => !out.has(item) && !sentCalls.has(item.id)
       && !(item.kind === 'message' && (!item.text.trim() || isGuguSilence(item.text))))
       .map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),

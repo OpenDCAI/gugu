@@ -20,8 +20,9 @@
  *  · 切段：文本消息 —— 那是 agent 在说话，不是过程。经 message_send / session_message 说出去的那段话同理
  *    (`agentSendOf`):群里派的任务,agent 的话都是这么回的,折进「调用了 N 个 MCP 工具」就一个字也看不到了。
  *
- * ❌ 不按「N 条以上才折」之外的任何启发式：一条就是一行（折一条等于把一行换成另一行，
- * 没意义）；两条起折。
+ * 对话布局按 owner 2026-10-30 的新规则：单条也收进语义摘要，钩子计数。
+ * 只有 Stop 钩子在回复后开启新段，由 conversation-segments 处理；其他钩子不切段。
+ * 经典布局保留两条起折的既有规则。
  */
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
@@ -29,6 +30,7 @@ import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
 import type { ChatItem, TranscriptItem } from '@session-chat/model';
 import type { ChatTranslator } from '@session-chat/localization';
 import { executeCommandChipText } from '@session-chat/components/rows/tools/execute/execute.layout';
+import { processHookNotice } from '@session-chat/lib/hook-notice';
 
 export type ToolRunCategory =
   | 'thinking'
@@ -44,6 +46,7 @@ export type ToolRunCategory =
   | 'commandDone'
   | 'commandStopped'
   | 'plan'
+  | 'hook'
   | 'tool';
 
 /** 各类的先后 = 句子里的先后。与 owner 举的例子同序：搜索 → 读 → 改 → 命令；思考在最前（先想后做）。 */
@@ -61,11 +64,13 @@ const CATEGORY_ORDER: readonly ToolRunCategory[] = [
   'commandDone',
   'commandStopped',
   'plan',
+  'hook',
   'tool',
 ];
 
 /** 这一行属于哪一类；`null` = 它不进段（文本），并把前面的段切断。 */
 export function toolRunCategory(item: ChatItem, conversation = false): ToolRunCategory | null {
+  if (conversation && processHookNotice(item)) return 'hook';
   switch (item.kind) {
     case 'thinking':
       return 'thinking';
@@ -148,6 +153,7 @@ const ONE_KEYS: Record<ToolRunCategory, string> = {
   commandDone: 'transcript.toolRun.commandDoneOne',
   commandStopped: 'transcript.toolRun.commandStoppedOne',
   plan: 'transcript.toolRun.planOne',
+  hook: 'transcript.toolRun.hookOne',
   tool: 'transcript.toolRun.toolOne',
 };
 
@@ -165,6 +171,7 @@ const MANY_KEYS: Record<ToolRunCategory, string> = {
   commandDone: 'transcript.toolRun.commandDone',
   commandStopped: 'transcript.toolRun.commandStopped',
   plan: 'transcript.toolRun.plan',
+  hook: 'transcript.toolRun.hook',
   tool: 'transcript.toolRun.tool',
 };
 

@@ -151,6 +151,8 @@ const fallbackMessages = {
   'transcript.toolRun.commandStopped': '{count} background commands stopped',
   'transcript.toolRun.planOne': 'updated the plan {count} time',
   'transcript.toolRun.plan': 'updated the plan {count} times',
+  'transcript.toolRun.hookOne': 'triggered {count} hook',
+  'transcript.toolRun.hook': 'triggered {count} hooks',
   'transcript.toolRun.toolOne': 'used {count} tool',
   'transcript.toolRun.tool': 'used {count} tools',
   'transcript.planProgress': 'Plan · {done} of {total} done',

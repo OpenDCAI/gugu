@@ -2,7 +2,7 @@ import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
-import { parseHookNotice } from '@session-chat/lib/hook-notice';
+import { processHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { turnProcessId } from './turn-fold';
 
@@ -16,12 +16,13 @@ export type ConversationSegment = {
   endedAt?: number;
   live: boolean;
   idleMs: number;
+  fullReply?: true;
 };
 export type ConversationBlock = { kind: 'input'; item: ChatItem } | ConversationSegment;
 
 export function conversationSpoken(item: ChatItem): item is ChatMessage {
   return item.kind === 'message' && item.role === 'assistant' && !!item.text.trim()
-    && !isGuguSilence(item.text) && !parseHookNotice(item.text);
+    && !isGuguSilence(item.text) && !processHookNotice(item);
 }
 
 /** Authentic event clocks only. Older provider replays deliberately have no wall clock. */
@@ -78,6 +79,13 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       inputFrom = undefined;
       pendingInput = true;
       continue;
+    }
+    // Stop continues after an answer: preserve that answer as the previous segment's
+    // reply. Other hooks are process work, not a new reply boundary (owner 2026-10-30).
+    const last = segment?.items.at(-1);
+    if (processHookNotice(item)?.hookName === 'Stop' && last && conversationSpoken(last)) {
+      segment!.fullReply = true;
+      close(at, item.id);
     }
     const notification = item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call';
     if (notification && segment?.items.some(conversationSpoken)) close(at, item.id);

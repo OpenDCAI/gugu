@@ -101,6 +101,10 @@ export type ChatMessage = {
    * steps under the process line (design 0), ❌ a bubble of its own.
    */
   conversationNarration?: boolean;
+  /** A Stop hook's final reason remains visible below its counted process. */
+  conversationTerminalReason?: boolean;
+  /** The answer immediately before Stop is always shown in full. */
+  conversationFull?: boolean;
   /** The replay segment is live and this reply is its last event (not merely an active turn). */
   conversationCaret?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
@@ -564,8 +568,6 @@ export type ToolRunItem = {
   label: string;
   /** 折进去的行数。 */
   stepCount: number;
-  /** Running conversation summaries contain no separately expandable raw tool rows. */
-  collapsible?: boolean;
   /** 这一段里还有在跑的调用（活动层）⇒ 头上微光。 */
   live?: boolean;
   /** 跑着的这一段此刻在做什么(`toolRunNow`):在跑的命令或在思考;只在活动层、只在有的时候写。 */

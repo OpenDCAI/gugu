@@ -393,7 +393,7 @@ it('keeps a sealed bubble above a steer and the background pill on the following
   expect(host.querySelectorAll('[data-slot="background-tasks-pill"]')).toHaveLength(1)
 })
 
-it('summarizes a single live command without a nested disclosure and keeps the owner steer boundary', async () => {
+it('summarizes a single live command, discloses semantic details and keeps the owner steer boundary', async () => {
   const { state, host } = mount({}, true)
   const now = Date.now()
   state.transcript.activeTurn.set({ id: 'origin', seq: 0, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: now - 5000, items: [
@@ -407,8 +407,11 @@ it('summarizes a single live command without a nested disclosure and keeps the o
   expect(step.textContent).toContain('Ran 1 shell command')
   expect(step.textContent).not.toContain('Bash')
   expect(step.getAttribute('data-step-count')).toBe('1')
-  expect(step.querySelector('button, [data-collapse-id]')).toBeNull()
-  expect(step.offsetHeight).toBeGreaterThan(0)
+  step.querySelector<HTMLButtonElement>('[data-collapse-id]')!.click()
+  await until('the semantic command detail appears', () => host.querySelector('[data-conversation-step="single"]') !== null)
+  expect(host.textContent).not.toContain('Bash')
+  expect(host.querySelector('[data-conversation-step="single"]')!.textContent).toContain('Ran 1 shell command')
+  expect(host.querySelector<HTMLElement>('[data-slot="tool-run"]')!.offsetHeight).toBeGreaterThan(0)
   const process = host.querySelector<HTMLElement>('[data-conversation-process="origin:process@owner-steer"]')!
   expect(process.textContent).not.toContain('background task')
   const bubble = host.querySelector<HTMLElement>('[data-user-card="before"]')!

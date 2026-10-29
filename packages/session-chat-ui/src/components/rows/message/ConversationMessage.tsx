@@ -16,10 +16,11 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, CONVERSATION_NARRATION_H, conversationNarrationText, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationActions } from './conversation-body';
+import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationNarration, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
 import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
 
@@ -36,7 +37,7 @@ export function conversationContext(ctx: MeasureCtx): MeasureCtx {
 }
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
-  const long = item.text.length > 700 || item.text.split('\n').length > 10;
+  const long = !item.conversationFull && (item.text.length > 700 || item.text.split('\n').length > 10);
   return { ...vars, footerH: 16, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
@@ -62,7 +63,7 @@ function quoteSummary(text: string): string {
 }
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
-  if (item.conversationNarration) return CONVERSATION_NARRATION_H;
+  if (item.conversationNarration) return conversationNarrationHeight(item, ctx);
   if (item.conversationPart === 'head') return HEADER_H + TIME_H + backgroundHeight(item, ctx);
   const header = item.conversationPart === 'body' ? 0 : HEADER_H;
   const bodyVars = conversationVars(item, vars);
@@ -87,8 +88,7 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
   // 中途说的话:步骤之间一行灰字,放不下就省略(设计稿 0 号「五路排查都回来了……」)。
   // 同一条在跑完时会变成回复气泡(同一个 id),所以用 <Show> 跟着数据换,❌ 组件里一次性 if。
   return <Show when={!props.data.conversationNarration} fallback={
-    <div class={conversationNarration} style={{ height: `${CONVERSATION_NARRATION_H}px` }}
-      data-conversation-narration={props.data.id} title={props.data.text}>{conversationNarrationText(props.data.text)}</div>
+    <ConversationNarration data={props.data} ctx={props.ctx} />
   }>
     <Show when={(props.data.guguDelivery?.segments.length ?? 0) > 1} fallback={<SingleConversationMessage {...props} />}>
       <For each={segments(props.data)}>{(segment, index) => <div style={{ 'margin-top': index() ? '12px' : '0' }}><SingleConversationMessage {...props} data={segment} /></div>}</For>
