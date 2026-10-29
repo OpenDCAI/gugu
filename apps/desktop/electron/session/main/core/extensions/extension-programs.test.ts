@@ -2,14 +2,17 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
+import * as programSurfaces from './extension-program-surface';
 import {
   callerMeta,
   extensionPrograms,
   extensionProgramStatus,
   onExtensionProgramNotification,
   retireExtensionPrograms,
+  revokeExtensionPrograms,
   stopAllExtensionPrograms,
   toolVisibleTo,
   type ExtensionProgram,
@@ -136,6 +139,241 @@ afterEach(async () => {
 });
 
 describe('extension programs run by gugu (#6615)', () => {
+  it('cancelling during cold startup still stops the unused program after its idle interval', async () => {
+    const realConnect = Client.prototype.connect;
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const connect = vi.spyOn(Client.prototype, 'connect').mockImplementation(async function (this: Client, ...args) {
+      await realConnect.apply(this, args);
+      entered.resolve();
+      await resume.promise;
+    });
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const target = program('cancel-cold-start', 'v1');
+    const parent = new AbortController();
+    const outcome = extensionPrograms.call(target, { name: 'whoami' }, { signal: parent.signal })
+      .then(() => 'completed', () => 'interrupted');
+    try {
+      await entered.promise;
+      parent.abort();
+      resume.resolve();
+      expect(await outcome).toBe('interrupted');
+      const idle = timers.mock.calls.find(([, delay]) => delay === 5 * 60_000);
+      expect(idle, 'the unused live program must have an idle cleanup scheduled').toBeDefined();
+      expect(extensionProgramStatus(target.extensionId).running).toBe(1);
+      (idle![0] as () => void)();
+      await expect.poll(() => extensionProgramStatus(target.extensionId).running).toBe(0);
+    } finally {
+      resume.resolve();
+      connect.mockRestore();
+      timers.mockRestore();
+      await outcome;
+    }
+  });
+
+  it('revocation closes program authority before its transport finishes stopping', async () => {
+    const closeSurface = vi.fn();
+    const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockReturnValue({
+      pageId: -1, hand: () => async () => {}, openFiles: () => 0, close: closeSurface,
+    });
+    const realClose = Client.prototype.close;
+    const resume = Promise.withResolvers<void>();
+    const close = vi.spyOn(Client.prototype, 'close').mockImplementation(async function (this: Client) {
+      await resume.promise;
+      await realClose.call(this);
+    });
+    const target = { ...program('authority-close', 'v1'), onGuguNode: true as const };
+    try {
+      await whoami(target, 'user:a');
+      const stopped = revokeExtensionPrograms(target.extensionId);
+      expect(closeSurface).toHaveBeenCalledOnce();
+      resume.resolve();
+      await stopped;
+    } finally {
+      resume.resolve();
+      await stopAllExtensionPrograms();
+      close.mockRestore();
+      attached.mockRestore();
+    }
+  });
+
+  it('does not forward notifications arriving while a revoked program is stopping', async () => {
+    const realClose = Client.prototype.close;
+    const resume = Promise.withResolvers<void>();
+    let notify: Client['fallbackNotificationHandler'];
+    const close = vi.spyOn(Client.prototype, 'close').mockImplementation(async function (this: Client) {
+      notify = this.fallbackNotificationHandler;
+      await resume.promise;
+      await realClose.call(this);
+    });
+    const heard: unknown[] = [];
+    const off = onExtensionProgramNotification((id, _server, notification) => {
+      if (id === 'late-notification') heard.push(notification);
+    });
+    try {
+      await whoami(program('late-notification', 'v1'), 'user:a');
+      const stopped = revokeExtensionPrograms('late-notification');
+      expect(notify).toBeDefined();
+      await notify!({ method: 'notifications/fixture/late' });
+      expect(heard).toEqual([]);
+      resume.resolve();
+      await stopped;
+    } finally {
+      resume.resolve();
+      await stopAllExtensionPrograms();
+      off();
+      close.mockRestore();
+    }
+  });
+
+  it('revocation also stops native resources and waits for their cleanup', async () => {
+    let active = true;
+    const cleanup = Promise.withResolvers<void>();
+    extensionPrograms.registerNative('computer-use', {
+      tools: async () => [], call: async () => ({ content: [] }),
+      status: () => ({ running: active ? 1 : 0 }),
+      retire: async () => { active = false; await cleanup.promise; },
+    });
+    let outcome = 'pending';
+    const stopped = revokeExtensionPrograms('native-revoke').then(() => { outcome = 'stopped'; });
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      expect(active).toBe(false);
+      expect(outcome).toBe('pending');
+      cleanup.resolve();
+      await stopped;
+      expect(outcome).toBe('stopped');
+    } finally {
+      cleanup.resolve();
+      await stopped;
+      extensionPrograms.registerNative('computer-use', {
+        tools: async () => [], call: async () => ({ content: [] }),
+        status: () => ({ running: 0 }), retire: async () => {},
+      });
+    }
+  });
+
+  it('a failed native retirement still waits for the other cleanup before rejecting', async () => {
+    const cleanup = Promise.withResolvers<void>();
+    const failure = new Error('one native resource failed to close');
+    const idle = { tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }) };
+    extensionPrograms.registerNative('computer-use', { ...idle, retire: async () => { throw failure; } });
+    extensionPrograms.registerNative('browser-use', { ...idle, retire: async () => { await cleanup.promise; } });
+    let outcome = 'pending';
+    const stopped = revokeExtensionPrograms('native-failure').then(() => { outcome = 'stopped'; }, error => {
+      outcome = 'rejected';
+      return error;
+    });
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      expect(outcome).toBe('pending');
+      cleanup.resolve();
+      expect(await stopped).toBe(failure);
+    } finally {
+      cleanup.resolve();
+      await stopped;
+      for (const name of ['computer-use', 'browser-use'] as const) {
+        extensionPrograms.registerNative(name, { ...idle, retire: async () => {} });
+      }
+    }
+  });
+
+  it.each(['person', 'agent'] as const)('revokes an in-flight %s page call without stopping another App', async (caller) => {
+    const release = path.join(dir, `page-${caller}-release`);
+    const own = program(`page-${caller}`, 'v1', 'held', release);
+    const first = await whoami(own, 'user:a');
+    const otherRelease = path.join(dir, `other-${caller}-release`);
+    const other = program(`other-${caller}`, 'v1', 'held', otherRelease);
+    const unaffected = await whoami(other, 'user:b');
+    let otherOutcome = 'pending';
+    const otherCall = whoami(other, 'user:c').then(value => { otherOutcome = 'completed'; return value; }, () => { otherOutcome = 'interrupted'; return undefined; });
+    extensionPrograms.setSource(() => [own]);
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id) => { if (id === own.extensionId) started(); });
+    const inFlight = extensionPrograms.callFromPage(own.extensionId, { name: 'whoami', from: caller === 'person'
+      ? { sessionId: 'task-f' } : { agent: 'user:11111111-1111-4111-8111-111111111111', agentSession: 'task-f' } });
+    const ended = inFlight.then(() => 'completed', () => 'interrupted');
+    try {
+      await holding;
+      await revokeExtensionPrograms(own.extensionId);
+      expect(await ended).toBe('interrupted');
+      await exited('revoked page program exits', first.pid);
+      expect(otherOutcome).toBe('pending');
+      fs.writeFileSync(otherRelease, '');
+      expect((await otherCall)?.pid).toBe(unaffected.pid);
+    } finally {
+      off();
+      fs.writeFileSync(release, '');
+      fs.writeFileSync(otherRelease, '');
+      await ended;
+      await otherCall;
+      extensionPrograms.setSource(() => []);
+    }
+  });
+
+  it('a revoked startup cannot return to the pool or delete the replacement startup', async () => {
+    const realConnect = Client.prototype.connect;
+    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    let connections = 0;
+    const connect = vi.spyOn(Client.prototype, 'connect').mockImplementation(async function (this: Client, ...args) {
+      await realConnect.apply(this, args);
+      const index = connections++;
+      if (index < 2) {
+        entered[index].resolve();
+        await gates[index].promise;
+      }
+    });
+    const target = program('early-revoke', 'v1');
+    const old = whoami(target, 'user:a').then(() => 'completed', () => 'interrupted');
+    try {
+      await entered[0].promise;
+      await revokeExtensionPrograms(target.extensionId);
+      const replacement = whoami(target, 'user:b');
+      await entered[1].promise;
+      gates[0].resolve();
+      expect(await old).toBe('interrupted');
+      await new Promise((resolve) => setImmediate(resolve));
+      // The old finally has run; this call must share the replacement still initializing.
+      const shared = whoami(target, 'user:c');
+      gates[1].resolve();
+      const [b, c] = await Promise.all([replacement, shared]);
+      expect(c.pid).toBe(b.pid);
+      expect(connections).toBe(2);
+      expect(extensionProgramStatus(target.extensionId).running).toBe(1);
+    } finally {
+      for (const gate of gates) gate.resolve();
+      connect.mockRestore();
+      await old;
+    }
+  });
+
+  it('cancelling one call preserves another task sharing the same program', async () => {
+    const release = path.join(dir, 'one-call-release');
+    const target = program('one-call', 'v1', 'held', release);
+    const first = await whoami(target, 'user:a');
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id) => { if (id === target.extensionId) started(); });
+    const controller = new AbortController();
+    const cancelled = extensionPrograms.call(target, { name: 'whoami' }, { signal: controller.signal })
+      .then(() => 'completed', () => 'interrupted');
+    try {
+      await holding;
+      const other = whoami(target, 'user:b');
+      controller.abort(new Error('stop this task'));
+      expect(await cancelled).toBe('interrupted');
+      expect(alive(first.pid)).toBe(true);
+      fs.writeFileSync(release, '');
+      expect((await other).pid).toBe(first.pid);
+    } finally {
+      off();
+      fs.writeFileSync(release, '');
+      await cancelled;
+    }
+  });
+
   it('shows a real MCP tool failure even while the native client process is running, and clears it after a successful call', async () => {
     const target = program('desktop-client', 'v1', 'tool-error');
     const call = () => extensionPrograms.call(target, { name: 'whoami' }, { signal: new AbortController().signal });
@@ -370,7 +608,7 @@ describe('extension programs run by gugu (#6615)', () => {
 
 describe("an extension's own pages call its programs (#6635)", () => {
   const page = program('page-ext', 'v1', 'visibility');
-  extensionPrograms.setSource(() => [page]);
+  beforeEach(() => extensionPrograms.setSource(() => [page]));
   const fromPage = (name: string, args: Record<string, unknown> = {}) =>
     extensionPrograms.callFromPage('page-ext', { name, arguments: args, from: { sessionId: 'task-1' } });
 
