@@ -47,6 +47,8 @@ export type ChatCommands = {
   /** Exact source row receiving the shared chat source-message flash. */
   flashMessageId?: string | null;
   onCopyError?: (error: unknown) => void;
+  /** The host owns clipboard access; shared transcript components never fall back to a WebView API. */
+  writeClipboardText?: (text: string) => Promise<void>;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
   /** Host-owned draft: virtual row reuse must not move it to another message. */

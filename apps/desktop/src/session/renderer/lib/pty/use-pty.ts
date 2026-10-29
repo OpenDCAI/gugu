@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { i18n } from '@/i18n';
 import { messageForUser } from '@/lib/userFacingError';
@@ -254,7 +255,7 @@ export function usePty(
     const selection =
       termRef.current?.getSelection() || getRecentSelection(lastSelectionRef.current);
     if (selection) {
-      void navigator.clipboard.writeText(selection).catch((error) => { log.error({ error: error }, 'action failed'); toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' }); });
+      void platform.writeClipboardText(selection).catch((error) => { log.error({ error: error }, 'action failed'); toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' }); });
     }
   }, []);
 

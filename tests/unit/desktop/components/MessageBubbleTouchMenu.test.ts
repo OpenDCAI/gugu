@@ -60,7 +60,7 @@ describe('MessageBubble touch menu', () => {
     expect(browserWrite).not.toHaveBeenCalled()
   })
 
-  it.each(['web', 'electron'] as const)('keeps the existing browser clipboard path for %s (#938)', async (kind) => {
+  it.each(['web', 'electron'] as const)('uses the same platform exit for %s (#938)', async (kind) => {
     platform.kind = kind
     const nativeWrite = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
     const browserWrite = vi.fn().mockResolvedValue(undefined)
@@ -69,8 +69,8 @@ describe('MessageBubble touch menu', () => {
     await renderMessage(toast, false)
     await contextMenu()
     await clickElement(menuItem('复制文本'))
-    expect(browserWrite).toHaveBeenCalledExactlyOnceWith('hello from mobile')
-    expect(nativeWrite).not.toHaveBeenCalled()
+    expect(nativeWrite).toHaveBeenCalledExactlyOnceWith('hello from mobile')
+    expect(browserWrite).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
 

@@ -224,7 +224,7 @@ export const MessageBubble = memo(function MessageBubble({
   const { toast } = useToast()
   const handleCopyText = async (content = msg.content ?? '') => {
     try {
-      await (platform.kind === 'capacitor' ? platform.writeClipboardText(content) : navigator.clipboard.writeText(content))
+      await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
     } catch (error) {
       toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))

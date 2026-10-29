@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { hostCatalog } from '../../../shared/host-localization'
@@ -37,7 +38,7 @@ export function MobileFileContextMenu() {
     const run = async (action: Parameters<Parameters<typeof fileViewerMenuItems>[2]>[0]) => {
       // A different file may have replaced this viewer while the menu was open.
       if (!root.isConnected || root.getAttribute(FILE_VIEWER_ATTRIBUTE) !== id) return
-      if (action === 'copy') return navigator.clipboard.writeText(context.selection.text)
+      if (action === 'copy') return platform.writeClipboardText(context.selection.text)
       if (action === 'select-all' && !context.customSelectAll) {
         const range = root.ownerDocument.createRange()
         range.selectNodeContents(selectionRoot)
