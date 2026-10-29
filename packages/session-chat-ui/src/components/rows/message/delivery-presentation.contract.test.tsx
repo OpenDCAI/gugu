@@ -3,7 +3,7 @@ import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { normalizeMessage } from './message.def';
 import type { ChatMessage } from '@session-chat/model';
 
-const id = '3ab69453-5274-40be-ab76-6faa0d272212';
+const id = '11111111-2222-4333-8444-555555555555';
 const raw = renderDeliveryEnvelope({ route: 'chat', from: 'Sender', fromId: 'user:sender', messageId: `msg:${id}`, at: '', chat: 'chat', chatKind: 'dm',
   content: 'Can you read this?\n[Folder file gugu-file://file?v=1 — instructions for the agent]\n[Image attached at local path: /private/agent/image.png]' });
 const item: ChatMessage = { kind: 'message', id: 'user-message', role: 'user', text: raw };

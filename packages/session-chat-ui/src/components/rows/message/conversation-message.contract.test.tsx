@@ -365,7 +365,7 @@ it.each([320, 600])('paints a sent file as the existing left-side attachment car
 });
 
 it.each([320, 600])('renders an injected original image instead of local-path instructions at width %s', async width => {
-  const messageId = '3ab69453-5274-40be-ab76-6faa0d272212';
+  const messageId = '11111111-2222-4333-8444-555555555555';
   const raw: ChatMessage = { kind: 'message', id: 'original-image', role: 'user', text: `<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:${messageId}" chat="chat" chat_kind="dm"><![CDATA[Look at this\n[Folder file gugu-file://proof?v=2 — instructions]\n[Image attached at local path: /private/agent/image.png]]]></gugu_delivery>` };
   const original = { text: 'Look at this', attachments: [{ id: `gugu-message-file://${messageId}`, name: 'original.png', kind: 'image' as const, href: 'gugu-file://proof?v=2' }] };
   const resolveAttachment = vi.fn(async () => 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=');

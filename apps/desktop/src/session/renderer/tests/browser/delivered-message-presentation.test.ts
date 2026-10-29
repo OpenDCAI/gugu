@@ -5,7 +5,7 @@ import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { connectDeliveredMessagePresentation } from '@renderer/lib/chat/delivered-message-presentation';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 
-const id = '3ab69453-5274-40be-ab76-6faa0d272212';
+const id = '11111111-2222-4333-8444-555555555555';
 const raw = renderDeliveryEnvelope({ route: 'chat', from: 'Sender', fromId: 'user:sender', messageId: `msg:${id}`, at: '', chat: 'chat', chatKind: 'dm',
   content: 'Look at this\n[Folder file gugu-file://proof?v=2 — instructions]\n[Image attached at local path: /private/agent/image.png]' });
 const turn: TranscriptTurn = { id: 'turn', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
