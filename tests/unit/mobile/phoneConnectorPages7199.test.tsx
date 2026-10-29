@@ -293,7 +293,7 @@ describe('详情页', () => {
     await render(PhoneConnectorDetail, page.props)
     expect(q('assistant-connector-connect')).toBeNull()
     expect(q('assistant-connector-connect-note')).not.toBeNull()
-    if (id === 'notion') expect(q('assistant-connector-connect-note')!.textContent).toContain('连接 Notion')
+    if (id === 'notion') expect(q('assistant-connector-connect-note')!.textContent).toContain('连接Notion')
   })
 
   it('Notion in the phone App offers its real connect action instead of telling people to enter the App', async () => {

@@ -129,6 +129,9 @@ function unavailable(name: string): string {
   return `${name} isn't available right now; try again later.`;
 }
 
+/** 这台设备连不上平台(没网,或等不到回话)。 */
+const NO_NETWORK = "Can't reach Gugu; check your network.";
+
 function notOpen(name: string): string {
   return `Gugu hasn't opened the ${name} connection to you yet.`;
 }
@@ -149,7 +152,9 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
     case 'unknown_provider':
       return { success: false, error: `The Gugu platform does not offer ${name} yet.`, errorType: 'generic' };
     case 'request_timeout':
-      return { success: false, error: "Your request didn't reach Gugu in time; try again.", errorType: 'timed_out' };
+      return { success: false, error: "Your request didn't reach Gugu in time; your network may be unstable.", errorType: 'timed_out' };
+    case 'network':
+      return { success: false, error: NO_NETWORK, errorType: 'network' };
     case 'rate_limited':
     case 'too_many_streams':
       return { success: false, error: `Too many requests to ${name} right now; try again shortly.`, errorType: 'rate_limited' };
@@ -176,6 +181,8 @@ export class PlatformCredentialService {
   private readonly migrationFailures = new Map<string, number>();
   /** 上一次没搬成的原因(平台的码):连接页据此说「这会儿用不了」,而不是什么都不说。 */
   private readonly migrationFailureCode = new Map<string, string>();
+  /** 人刚点了「检查」:下一次往上搬不等退避的那一格(只这一次,退避照旧往上涨)。 */
+  private readonly askedByPerson = new Set<string>();
 
   constructor(private readonly deps: PlatformCredentialDeps) {}
 
@@ -330,6 +337,7 @@ export class PlatformCredentialService {
     if (this.lastFailure?.code === 'not_open') {
       return { connected: false, error: notOpen(this.provider(integrationId)?.name ?? integrationId), errorType: 'not_open' };
     }
+    if (this.lastFailure?.code === 'network') return { connected: false, error: NO_NETWORK, errorType: 'network' };
     return { connected: false, error: this.lastFailure?.message ?? 'Could not reach the Gugu platform.' };
   }
 
@@ -348,6 +356,8 @@ export class PlatformCredentialService {
     listed: PlatformIntegrationProvider | undefined,
     known: Map<string, boolean>
   ): Promise<void> {
+    // 人点的「检查」只管这一轮:有没有要搬的都用掉,❌ 留到以后。
+    const asked = this.askedByPerson.delete(provider.id);
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
       // #649 只存过默认那一个账号;别的本机行不是它存的,原样不动。
       if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
@@ -361,7 +371,7 @@ export class PlatformCredentialService {
         await this.dropDisconnected(provider.id, row);
         continue;
       }
-      if ((this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
+      if (!asked && (this.migrationRetryAt.get(provider.id) ?? 0) > this.now()) continue;
       // 平台没列这一家:它现在收不了,❌ 传。
       if (!listed) {
         this.backOff(provider.id, { code: 'not_listed', status: 0 });
@@ -399,6 +409,24 @@ export class PlatformCredentialService {
       known.set(DEFAULT_INTEGRATION_ACCOUNT_ID, true);
       await this.keepOnPlatformOnly(provider.id, row);
       this.deps.log.info('A credential saved on this device moved to the Gugu platform', { provider: provider.id });
+    }
+  }
+
+  /** 人点了「检查」:这一家(不给 = 平台保管的每一家)下一次往上搬不等退避的那一格,只这一次。 */
+  checkedByPerson(integrationId?: string): void {
+    const ids = integrationId ? [integrationId] : this.deps.providers().map((provider) => provider.id);
+    for (const id of ids) if (this.isPlatformProvider(id)) this.askedByPerson.add(id);
+  }
+
+  /** 连接时这台没等到回话:平台的列表里这一家默认账号已经连着,就是存下了。 */
+  private async keptAfterAll(client: PlatformIntegrationsClient, integrationId: string): Promise<boolean> {
+    try {
+      const listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
+      return (listed.find((row) => row.provider === integrationId)?.accounts ?? []).some(
+        (account) => account.accountId === DEFAULT_INTEGRATION_ACCOUNT_ID && account.connected
+      );
+    } catch {
+      return false;
     }
   }
 
@@ -572,19 +600,29 @@ export class PlatformCredentialService {
         };
       }
       const secrets = provider.fields.flatMap((field) => (field.secret && fields[field.id] ? [fields[field.id]!] : []));
-      try {
-        await client.saveCredential(integrationId, fields, { connect: 'manual' });
-        this.availability = 'present';
-      } catch (error) {
-        // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open、超时、限流)照实说,❌ 改存本机。
-        if (isPlatformServiceMissing(error)) {
-          await this.serviceMissing(this.deps.providers());
-          return { keepHere: true };
+      // 408 = 请求没及时送到平台:同一个 PUT 再发一次(它是幂等的),❌ 让人当重试。
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await client.saveCredential(integrationId, fields, { connect: 'manual' });
+          this.availability = 'present';
+          break;
+        } catch (error) {
+          const failure = failureOf(error);
+          if (failure.code === 'request_timeout' && attempt === 1) continue;
+          // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open、超时、限流)照实说,❌ 改存本机。
+          if (isPlatformServiceMissing(error)) {
+            await this.serviceMissing(this.deps.providers());
+            return { keepHere: true };
+          }
+          // 这台先放手了(或网断了):平台可能已经存下,先重读一次列表再说。
+          if (failure.code === 'network' && (await this.keptAfterAll(client, integrationId))) {
+            this.availability = 'present';
+            break;
+          }
+          if (failure.code === 'not_open') this.availability = 'present';
+          this.deps.log.warn('The Gugu platform did not keep the credential', { provider: integrationId, code: failure.code, status: failure.status });
+          return connectFailure(error, provider.name, secrets);
         }
-        const failure = failureOf(error);
-        if (failure.code === 'not_open') this.availability = 'present';
-        this.deps.log.warn('The Gugu platform did not keep the credential', { provider: integrationId, code: failure.code, status: failure.status });
-        return connectFailure(error, provider.name, secrets);
       }
       const row = (await this.deps.accounts.listAccounts(integrationId)).find(
         (account) => account.accountId === DEFAULT_INTEGRATION_ACCOUNT_ID

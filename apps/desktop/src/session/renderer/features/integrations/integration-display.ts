@@ -59,6 +59,7 @@ const INTEGRATION_ERROR_KEYS = {
   invalid_input: 'integrations.errorInvalidInput',
   not_open: 'integrations.errorNotOpen',
   timed_out: 'integrations.errorTimedOut',
+  network: 'integrations.errorNetwork',
   key_rejected: 'integrations.errorKeyRejected',
   provider_unavailable: 'integrations.errorProviderUnavailable',
   generic: null,

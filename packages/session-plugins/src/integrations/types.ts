@@ -33,8 +33,13 @@ export type IntegrationError =
    * configured): `503 not_open`. Not a reason to keep the credential on the device instead.
    */
   | { type: 'not_open'; message: string }
-  /** #921 The platform did not answer in time (`408 request_timeout`): temporary, try again shortly. */
+  /**
+   * #921 The request did not reach the platform in time (`408 request_timeout`), even after the device sent it a
+   * second time by itself. Temporary; the copy never asks the person to retry.
+   */
   | { type: 'timed_out'; message: string }
+  /** #921 This device could not reach the Gugu platform (no network, or no answer in time). */
+  | { type: 'network'; message: string }
   /** #921 a key this device kept from before was rejected on its way to the platform: enter it again. */
   | { type: 'key_rejected'; message: string }
   /**

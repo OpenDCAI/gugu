@@ -37,7 +37,11 @@ export const integrationsController = createRPCController({
   },
 
   /** 资源库那一页:注册表里每一家连没连上(检查一次)/ 存没存着凭据(不联网)。 */
-  checkAllConnections: async () => checkAllIntegrationConnections(),
+  checkAllConnections: async () => {
+    // #921 the person asked: a #649 key waiting to move up does not wait for its back-off slot (once).
+    platformCredentials.checkedByPerson();
+    return checkAllIntegrationConnections();
+  },
 
   checkConfiguredConnections: async () => checkConfiguredIntegrations(),
 
@@ -53,7 +57,10 @@ export const integrationsController = createRPCController({
   accounts: async (integrationId: string) => integrationConnectionService.listAccounts(integrationId),
 
   /** #7240 每个账号各查一次还连不连得上。 */
-  checkAccounts: async (integrationId: string) => integrationConnectionService.checkAccounts(integrationId),
+  checkAccounts: async (integrationId: string) => {
+    platformCredentials.checkedByPerson(integrationId);
+    return integrationConnectionService.checkAccounts(integrationId);
+  },
 
   authorize: async (integrationId: string) => integrationConnectionService.authorize(integrationId),
 

@@ -189,6 +189,12 @@ export function parsePlatformIntegrations(value: unknown): PlatformIntegrationPr
   })
 }
 
+/**
+ * 每个请求最多等这么久。平台试一把 key 最长 30 s(它去问高德),它的公网入口给控制器 60 s:
+ * 取 45 s —— 比 30 s 的试 key 多留 15 s 给来回和转发,又在入口掐断之前自己先放手(放手后连接页会重读一次列表)。
+ */
+export const PLATFORM_REQUEST_TIMEOUT_MS = 45_000
+
 export function createPlatformIntegrationsClient(options: {
   baseUrl: string
   accessToken: () => Promise<string>
@@ -197,7 +203,7 @@ export function createPlatformIntegrationsClient(options: {
   requestTimeoutMs?: number
 }): PlatformIntegrationsClient {
   const doFetch = options.fetch ?? fetch
-  const timeoutMs = options.requestTimeoutMs ?? 20_000
+  const timeoutMs = options.requestTimeoutMs ?? PLATFORM_REQUEST_TIMEOUT_MS
   const headers = async (): Promise<Record<string, string>> => ({
     Authorization: `Bearer ${await options.accessToken()}`,
     ...(options.anonKey ? { apikey: options.anonKey } : {}),
