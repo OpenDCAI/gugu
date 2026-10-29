@@ -88,6 +88,12 @@ export type ReducerInput =
 export interface ReducerDeps {
   sessionId: string;
   newTurnReference?: () => string;
+  /**
+   * #980 回合序号从几开始数。接回会话不再让 agent 重放历史之后,运行时里一轮都没有,从 0 数出来的
+   * `S:turn:0` 会和库里上一次运行留下的同名回合撞上(库按它认「这一轮落库没有」)。宿主按库里
+   * 已有的最大序号 + 1 给出;缺席 = 0(重放会把序号顶上去,或者本来就是新会话)。
+   */
+  turnIndexBase?: number;
 }
 
 export function initialState(): ParserState {
@@ -113,8 +119,8 @@ function initialSegment(): SegmentState {
   };
 }
 
-function nextTurnIndex(t: TranscriptSlice): number {
-  return t.committed.length + (t.active ? 1 : 0);
+function nextTurnIndex(t: TranscriptSlice, base = 0): number {
+  return base + t.committed.length + (t.active ? 1 : 0);
 }
 
 function nextTurnSeq(t: TranscriptSlice): number {
@@ -137,7 +143,7 @@ function openTurn(
   startedAt: number | undefined,
   trigger?: TranscriptTurnTrigger
 ): TranscriptSlice {
-  const id = makeTurnId(deps.sessionId, nextTurnIndex(t));
+  const id = makeTurnId(deps.sessionId, nextTurnIndex(t, deps.turnIndexBase));
   const turn: TranscriptTurn = {
     id,
     ...(deps.newTurnReference ? { referenceId: deps.newTurnReference() } : {}),
