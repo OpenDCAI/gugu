@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const provision = vi.hoisted(() => ({
   provisionSingleAgent: vi.fn(),
   resumeSingleAgent: vi.fn(),
-  getProvisionOperation: vi.fn(async () => null as null | { phase: string }),
+  getProvisionOperation: vi.fn(async () => null as null | { phase: string; kind: string; owner_user_id: string }),
+  getProvision: vi.fn(async () => null),
   assertResumeRecordOwner: vi.fn(async () => undefined),
   completedSingleProvisionSession: vi.fn((result: { agentUserId: string }) => ({ agentUserId: result.agentUserId })),
   forget: vi.fn(),
@@ -60,8 +61,8 @@ describe('local assistant setup runs once at a time on this computer (#7348)', (
     expect(provision.resumeSingleAgent).not.toHaveBeenCalled()
   })
   it('forgets only a canonically cancelled setup and never resumes its reclaimed identity', async () => {
-    provision.getProvisionOperation.mockResolvedValueOnce({ phase: 'cancelled' })
-    await expect(resumeLocalAssistant({ operationId: 'cancelled-op', ownerUserId: 'owner' } as never)).rejects.toMatchObject({ kind: 'failed' })
+    provision.getProvisionOperation.mockResolvedValueOnce({ phase: 'cancelled', kind: 'single', owner_user_id: 'owner' })
+    await expect(resumeLocalAssistant({ operationId: 'cancelled-op', ownerUserId: 'owner', members: [{ provisionId: 'p' }] } as never)).rejects.toMatchObject({ kind: 'cancelled' })
     expect(provision.forget).toHaveBeenCalledWith('owner', 'cancelled-op')
     expect(provision.resumeSingleAgent).not.toHaveBeenCalled()
     expect(ipc.invoke).not.toHaveBeenCalled()
