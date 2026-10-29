@@ -14,13 +14,20 @@ export function ChatComposerContextBands({ chatId, isGroupChat, hidden, quoteCon
       <IconButton size="sm" aria-label={t('composer.exitWhisper')} onClick={onExitWhisper}><X /></IconButton>
     </div>}
     {/* 回复条浮在消息流上,底只给它自己这张卡(owner 10-25)。 */}
-    {quoteContent && <div className="mb-1.5 flex w-fit max-w-full shrink-0 items-center gap-2 rounded-[var(--radius-document)] bg-[var(--bg-elevated)] px-2 py-1 shadow-[var(--shadow-lift)]">
+    {quoteContent && <MessageQuotePreview quote={quoteContent} onClear={onQuoteConsumed} />}
+  </>
+}
+
+
+/** The task composer and IM use the same quote preview. Source ids are never presentation. */
+export function MessageQuotePreview({ quote, onClear }: { quote: { senderName: string; content: string }; onClear?: () => void }) {
+  const { t } = useTranslation('messaging')
+  return <div className="mb-1.5 flex w-fit max-w-full shrink-0 items-center gap-2 rounded-[var(--radius-document)] bg-[var(--bg-elevated)] px-2 py-1 shadow-[var(--shadow-lift)]">
       <div className="h-6 w-1 shrink-0 rounded-[var(--radius-control)] bg-[var(--accent)]" />
       <div className="max-w-60 overflow-hidden py-1">
-        {quoteContent.senderName && <div className="truncate text-[length:var(--font-body)] font-medium leading-[var(--lh-body)] text-[var(--accent)]">{quoteContent.senderName}</div>}
-        <div className="truncate text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]">{displayAgentReferences(quoteContent.content, (_id, label) => `@${label}`)}</div>
+        {quote.senderName && <div className="truncate text-[length:var(--font-body)] font-medium leading-[var(--lh-body)] text-[var(--accent)]">{quote.senderName}</div>}
+        <div className="truncate text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]">{displayAgentReferences(quote.content, (_id, label) => `@${label}`)}</div>
       </div>
-      <IconButton size="sm" aria-label={t('composer.cancelQuote')} onClick={onQuoteConsumed}><X /></IconButton>
-    </div>}
-  </>
+      {onClear && <IconButton size="sm" aria-label={t('composer.cancelQuote')} onClick={onClear}><X /></IconButton>}
+    </div>
 }

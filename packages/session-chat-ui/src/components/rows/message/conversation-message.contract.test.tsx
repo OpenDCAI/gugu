@@ -47,8 +47,8 @@ describe('agent-centered conversation bubbles', () => {
         expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
         const bubble = row.querySelector<HTMLElement>('[data-user-card]')!;
         const name = row.querySelector<HTMLElement>('span[title]')!;
-        // owner 0 号图:名字那一行只有名字,❌ 被回复那条的摘要。
-        expect(row.querySelectorAll('button[title="你好"]')).toHaveLength(role === 'assistant' ? 1 : 0);
+        // Explicit native and IM quotes share the existing header on either side.
+        expect(row.querySelectorAll('button[title="你好"]')).toHaveLength(1);
         expect(row.textContent).not.toContain('你好↵');
         expect(bubble.contains(name)).toBe(false);
         // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
@@ -263,6 +263,39 @@ describe('agent-centered conversation bubbles', () => {
       view.update({ ...quoted, id: 'reply-2', conversationReply: { itemId: 'original-2', text: 'same words' } });
       view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!.click();
       expect(onConversationReply).toHaveBeenLastCalledWith('original-2');
+    } finally { view.dispose(); }
+  });
+  it('mounts the actual Solid body with current identity and releases recycled row listeners', async () => {
+    const targets: Parameters<NonNullable<ChatCommands['onMessageTextMount']>>[0][] = [];
+    const cleanups: ReturnType<typeof vi.fn>[] = [];
+    const first: ChatMessage = { kind: 'message', id: 'original', role: 'assistant', text: 'same words' };
+    const view = await mount(first, 600, { onMessageTextMount: target => {
+      targets.push(target);
+      const cleanup = vi.fn(); cleanups.push(cleanup); return cleanup;
+    } });
+    try {
+      expect(targets).toHaveLength(1);
+      expect(targets[0]!.root.textContent).toBe('same words');
+      expect(targets[0]!.sender?.()).toBe('Codex 11');
+      expect(targets[0]!.root.querySelector('button')).toBeNull();
+      view.update({ ...first, id: 'second', text: 'second words' });
+      expect(cleanups[0]).toHaveBeenCalledOnce();
+      expect(targets.at(-1)!.message().id).toBe('second');
+      expect(targets.at(-1)!.root.textContent).toBe('second words');
+    } finally { view.dispose(); }
+    expect(cleanups.at(-1)).toHaveBeenCalledOnce();
+  });
+  it('shows a native user quote in the same header and clicks its exact source link', async () => {
+    const onConversationReply = vi.fn();
+    const reference = 'gugu-session://task?message=opaque%2FID';
+    const view = await mount({ kind: 'message', id: 'reply', role: 'user', text: 'follow up', conversationReply: { itemId: reference, text: 'original words', from: 'Agent', unloaded: true } }, 600, { onConversationReply });
+    try {
+      const button = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      expect(button.textContent).toContain('original words');
+      expect(view.host.textContent).not.toContain('gugu-session:');
+      button.click();
+      expect(onConversationReply).toHaveBeenCalledWith(reference);
+      expect(Math.abs(view.host.firstElementChild!.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
   it('truncates narration to 160 characters with the same measured 32px row', async () => {
