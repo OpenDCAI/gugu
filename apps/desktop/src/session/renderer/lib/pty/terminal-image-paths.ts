@@ -11,6 +11,26 @@ export function isUnstableDropPath(path: string): boolean {
   return false;
 }
 
+/** 别的 App 的私有目录:`~/Library/Containers/<id>/`、`~/Library/Group Containers/<id>/`。 */
+const APP_CONTAINER = /\/Library\/(?:Group )?Containers\/([^/]+)\//;
+/** 系统临时目录:macOS 的 `$TMPDIR` 在 `/var/folders` 下,还有 `/tmp`。 */
+const TEMP_DIRECTORY = /^\/(?:private\/)?(?:var\/folders|tmp)\//;
+
+/**
+ * 这条原路径能不能留给 agent 之后去读(#985)。不能的,mention 改指咕咕自己存的那一份:
+ * - 会消失的:拖放临时文件(`isUnstableDropPath`)和系统临时目录里别人放的文件;
+ * - 读了会弹系统授权框的:别的 App 的私有目录。agent 是咕咕的子进程,macOS 把这次读算在咕咕头上,
+ *   弹「访问其他 App 的数据」—— 回合就停在弹窗上,没人在屏幕前就一直停着。
+ * 咕咕自己放的不算:自己的容器(`com.gugu.app*`)、自己写进临时目录的 `gugu-drop-*`。
+ */
+export function mustCopyRatherThanReference(path: string): boolean {
+  if (isUnstableDropPath(path)) return true;
+  const container = APP_CONTAINER.exec(path)?.[1];
+  if (container) return !/(?:^|\.)com\.gugu\.app(?:\.|$)/.test(container);
+  if (TEMP_DIRECTORY.test(path)) return !/\/gugu-drop-[^/]*$/.test(path);
+  return false;
+}
+
 export function isClipboardImageFile(file: File): boolean {
   if (file.type.startsWith('image/')) return true;
   return isHeicLikeFile(file);

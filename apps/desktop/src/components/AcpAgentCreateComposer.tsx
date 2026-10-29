@@ -40,6 +40,7 @@ import { openBillingPage } from '../lib/appLinks'
 import { openShellSettings } from '../session/renderer/lib/open-shell-settings'
 import { translateSessionMessage } from '../session/renderer/localization/locale-store'
 import { guguReasonText } from '../session/renderer/features/sessions/gugu-reason'
+import { mustCopyRatherThanReference } from '../session/renderer/lib/pty/terminal-image-paths'
 import { cloudComputerFailureKind } from '@gugu/core/cloud/cloudComputer'
 import { wakeCloudComputer } from '../lib/cloudComputerStore'
 import type { CreateContextDevice } from '../lib/agentCreateContextBridge'
@@ -303,7 +304,8 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
       const path = selectedDevice?.isLocal
         ? platform.getPathForFile?.(file).trim().replace(/\\/g, '/') ?? ''
         : ''
-      if (!path) {
+      // 别的 App 私有目录、临时目录里的文件(#985):路径不能留给 agent 之后去读,按附件发一份。
+      if (!path || mustCopyRatherThanReference(path)) {
         remoteFiles.push(file)
         continue
       }
