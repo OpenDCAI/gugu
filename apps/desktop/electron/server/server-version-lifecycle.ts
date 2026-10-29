@@ -52,10 +52,10 @@ export type ServerVersionLifecycle = ReturnType<typeof createServerVersionLifecy
 export function createServerVersionLifecycle(options: {
   layout: { home: string; versions: string; version: string }
   running?: () => Iterable<string>
-  verifyBoot?: (binary: string) => Promise<void>
+  verifyBoot?: (binary: string) => Promise<void | { runtimeOwned: boolean }>
 }) {
   const { layout } = options
-  const flights = new Map<string, { promise: Promise<void>; ready: boolean }>()
+  const flights = new Map<string, { promise: Promise<void>; ready: boolean; runtimeOwned: boolean }>()
   const held = new Map<string, string>()
   const ready = (version: string): boolean => flights.get(version)?.ready === true
     && fs.existsSync(path.join(layout.versions, version, 'bin', 'gugu-server'))
@@ -86,6 +86,7 @@ export function createServerVersionLifecycle(options: {
   }
   return {
     ready,
+    runtimeOwned: (version: string): boolean => ready(version) && flights.get(version)?.runtimeOwned === true,
     hold(owner: string, version: string | null): void { if (version) held.set(owner, version); else held.delete(owner) },
     async stage(version: string, work: () => Promise<unknown>): Promise<void> {
       const existing = flights.get(version)
@@ -94,12 +95,12 @@ export function createServerVersionLifecycle(options: {
       let resolve!: () => void
       let reject!: (error: unknown) => void
       const flight = new Promise<void>((ok, fail) => { resolve = ok; reject = fail })
-      const stage = { promise: flight, ready: false }
+      const stage = { promise: flight, ready: false, runtimeOwned: false }
       flights.set(version, stage)
       try {
         Promise.resolve(work())
           .then(() => (options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
-          .then(() => { stage.ready = true; resolve() }, reject)
+          .then(proof => { stage.ready = true; stage.runtimeOwned = proof ? proof.runtimeOwned : options.verifyBoot !== undefined; resolve() }, reject)
       } catch (error) { reject(error) }
       try { await flight } catch (error) {
         if (flights.get(version) === stage) flights.delete(version)

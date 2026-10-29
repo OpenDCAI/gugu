@@ -249,23 +249,28 @@ export function createAccountVersionConverger(options: {
           continue
         }
         const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
-        if (!followSupervisor && Object.keys(reports).length === 0) continue
+        const request = readVersionSwitchRequest(account.dataDir, now())
+        if (!followSupervisor && Object.keys(reports).length === 0 && !request?.confirmed) continue
         const waiting = pending.get(account.userId)
         if (waiting && current !== undefined && current !== waiting) continue
         pending.delete(account.userId)
-        const request = readVersionSwitchRequest(account.dataDir, now())
         // 没在跑(正在退避重启):它下次起来用的那一版。
         const effective = current !== undefined ? current : (binaryFor(account.userId)?.version ?? layout.version)
         const state = stateOf(account)
+        const selectedTarget = (request?.confirmed ? request.target : undefined)
+          ?? pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version
+        const targetUnverified = installed(selectedTarget) && options.lifecycle?.ready(selectedTarget) === true
+          && !options.lifecycle.runtimeOwned(selectedTarget)
         const plan = planAccountVersion({
           reports,
           now: now(),
           running: effective,
           switchRequested: !followSupervisor && request !== null,
-          switchConfirmed: request?.confirmed === true && request.target === (pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version),
+          requestedTarget: !followSupervisor && request?.confirmed ? request.target : undefined,
+          switchConfirmed: request?.confirmed === true && request.target === selectedTarget,
           installed: version => installed(version) && options.lifecycle?.ready(version) === true,
-          busy: current !== undefined && (options.busy?.(account.dataDir)
-            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId))),
+          busy: targetUnverified || (current !== undefined && (options.busy?.(account.dataDir)
+            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId)))),
           failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
           fallback: layout.version,
           unpublished,
@@ -285,7 +290,7 @@ export function createAccountVersionConverger(options: {
             break
           case 'wait-idle':
             // 装好了、等这个账号空闲:设备行上说「有新版本,空闲时自动更新」(每轮续写,守护进程没了它自己过期)。
-            if (!options.busy && readAccountActivity(account.dataDir, now(), child)?.runtimeOwned !== true) state.set('ready', plan.version, 'runtime-unverified')
+            if (targetUnverified || (!options.busy && readAccountActivity(account.dataDir, now(), child)?.runtimeOwned !== true)) state.set('ready', plan.version, 'runtime-unverified')
             else state.set('ready', plan.version)
             break
           case 'switch':
@@ -295,7 +300,11 @@ export function createAccountVersionConverger(options: {
               void options.prepareHandoff(account, plan.version).then(async permit => {
                 let switched = false
                 try {
-                  if (!permit?.valid()) { state.set('ready', plan.version, 'runtime-unverified'); return }
+                  if (!permit?.valid()) {
+                    if (permit?.busy) state.set('ready', plan.version)
+                    else state.set('ready', plan.version, 'runtime-unverified')
+                    return
+                  }
                   // Target / current child can change while the local handshake is in flight.
                   if (options.running(account.userId) !== current
                     || options.runningProcess?.(account.userId)?.pid !== child?.pid

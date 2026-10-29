@@ -2,7 +2,7 @@ import { callAccountProcess } from './account-call'
 import { VERSION_HANDOFF_CALL } from '../session/main/core/pty/attach/attach-protocol'
 import { performance } from 'node:perf_hooks'
 
-export type AccountHandoff = { valid(): boolean; release(): Promise<void> }
+export type AccountHandoff = { valid(): boolean; release(): Promise<void>; busy?: true }
 
 /** Reuse the private account socket; this is a current-PID admission fence, not a cached busy flag. */
 export async function prepareAccountHandoff(
@@ -17,6 +17,7 @@ export async function prepareAccountHandoff(
   let value: { result?: { ready?: unknown; pid?: unknown; target?: unknown; token?: unknown } }
   try { value = JSON.parse(reply.reply.toString()) as typeof value } catch { return null }
   const result = value.result
+  if (result?.ready === false && result.pid === expected.pid) return { valid: () => false, release: async () => {}, busy: true }
   if (result?.ready !== true || result.target !== target || typeof result.token !== 'string') return null
   if (result.pid !== expected.pid) {
     await callAccountProcess(account, { type: VERSION_HANDOFF_CALL, payload: { target, release: result.token } }, { timeoutMs: 5_000 })

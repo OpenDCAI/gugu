@@ -18,7 +18,7 @@ import { spawnOwnedChild } from '@gugu/session-core/exec'
 import { readAccountActivity } from './server-layout'
 
 /** Same cold-account smoke as ci-linux-packages.sh, through the target's actual entry. */
-export async function checkAccountBoot(binary: string): Promise<void> {
+export async function checkAccountBoot(binary: string): Promise<{ runtimeOwned: boolean }> {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-boot-'))
   const userId = randomUUID()
   const account = path.join(home, 'accounts', userId)
@@ -30,10 +30,18 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   let owned: ReturnType<typeof spawnOwnedChild> | undefined
   let watcher: fs.FSWatcher | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
+  let runtimeOwned = false
   try {
     watcher = fs.watch(data, (_event, file) => {
-      if (owned && file?.toString() === 'activity.json'
-        && readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })) ready.resolve()
+      if (!owned || file?.toString() !== 'activity.json') return
+      const activity = readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })
+      if (activity) { runtimeOwned = activity.runtimeOwned === true; ready.resolve(); return }
+      try {
+        const old = JSON.parse(fs.readFileSync(path.join(data, 'activity.json'), 'utf8')) as { at?: unknown; pid?: unknown; startedAt?: unknown }
+        if (typeof old.at === 'number' && (typeof old.pid !== 'number' || typeof old.startedAt !== 'number')) {
+          ready.reject(new Error('Target does not publish PID-bound boot readiness; automatic handoff is unsupported'))
+        }
+      } catch { /* A partial old non-atomic write is not readiness. */ }
     })
     watcher.on('error', error => ready.reject(error))
     owned = spawnOwnedChild(binary, ['run-account', userId], {
@@ -63,6 +71,7 @@ export async function checkAccountBoot(binary: string): Promise<void> {
   if (owned.child.exitCode !== 0 && owned.child.exitCode !== 143 && owned.child.signalCode !== 'SIGTERM') {
     throw new Error(`Account boot exited with code ${owned.child.exitCode}, signal ${owned.child.signalCode}`)
   }
+  return { runtimeOwned }
 }
 
 export type SelftestCheck = { name: string; run: () => void | Promise<void> }

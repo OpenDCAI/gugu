@@ -7,6 +7,7 @@
  * 后者要告诉人去哪、敲什么。纯函数,单测钉住。
  */
 import { SERVER_LOGIN_ACTION } from '@gugu/core/cloud/remoteTunnel'
+import { parseServerUpdateState } from '@gugu/core/cloud/deviceHostInfo'
 import type { ServerAccount } from './server-layout'
 
 export const STATUS_JSON_BEGIN = '__GUGU_STATUS_BEGIN__'
@@ -23,6 +24,17 @@ export type StatusAccount = {
 }
 
 export type StatusReport = { version: string | null; installedVersion?: string | null; supervisorVersion?: string | null; accounts: StatusAccount[] }
+
+/** Legacy account binaries cannot relay this new reason; the supervisor's current CLI can. */
+export function formatUpgradeLines(text: string | null, accounts: readonly StatusAccount[], now = Date.now()): string[] {
+  const update = text ? parseServerUpdateState(text, now) : null
+  if (update?.reason !== 'runtime-unverified') return []
+  return [
+    `自动升级 ${update.version} 已暂停：无法核实账号或目标版本的任务活体。检查任务后，明确重启到支持活体报告的版本：`,
+    ...accounts.filter(account => account.signedIn).map(account =>
+      `  gugu-server match-version --account ${account.userId} --apply ${update.version} --now`),
+  ]
+}
 
 /** 列哪些账号:登着的,和被迫登出的(自己 logout 的不列 —— 那是他自己的选择,不用解释)。 */
 export function statusAccounts(accounts: readonly ServerAccount[], running: (account: ServerAccount) => boolean, versionOf?: (account: ServerAccount) => string | null): StatusAccount[] {

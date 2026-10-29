@@ -255,7 +255,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       // 在跑的那个可能还是旧版本(等空闲才切):版本以它自己的为准,❌ 拿这条命令自己的版本冒充。
       out(`运行状态:${running ? `在运行(进程 ${running.pid}${running.version ? `,版本 ${running.version}` : ''})` : '没在运行'}`)
       out(`常驻服务:${describeService()}`)
-      const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
+      const { formatAccountLines, formatStatusJson, formatUpgradeLines, statusAccounts } = await import('./server/server-status')
       const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
       const all = listAccounts()
       const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
@@ -264,6 +264,9 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       }
       const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
+      let updateText: string | null = null
+      try { updateText = fs.readFileSync(path.join(serverHome, 'data', 'server-update.json'), 'utf8') } catch { /* No pending update. */ }
+      for (const line of formatUpgradeLines(updateText, accounts)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
         process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts }))

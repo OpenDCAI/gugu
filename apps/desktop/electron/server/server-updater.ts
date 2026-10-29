@@ -202,6 +202,8 @@ export type ServerUpdaterDeps = {
   lifecycle: ServerVersionLifecycle | null
   /** 这台机器上有没有 agent 正在干活(在跑一轮,或卡在等人批准)。 */
   isBusy: () => boolean
+  /** Same current-process heartbeat proof as isBusy; old binaries cannot establish runtime idle. */
+  unverifiedAccounts?: () => string[]
   prepareHandoff?: (target: string) => Promise<AccountHandoff | null>
   /** 走正常退出流程(收子进程、放锁)。 */
   shutdown: () => void
@@ -224,6 +226,20 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
   let waitingWith: string | null = null
   let retry: ReturnType<typeof setTimeout> | null = null
   const state = deps.stateWriter ?? createServerUpdateStateWriter(layout.home)
+  let reportedUnverified = ''
+  const ready = (version: string): void => {
+    const accounts = deps.unverifiedAccounts?.() ?? []
+    const unverified = accounts.length > 0 || !deps.lifecycle?.runtimeOwned(version)
+    state.set('ready', version, unverified ? 'runtime-unverified' : undefined)
+    const key = unverified ? JSON.stringify([version, accounts]) : ''
+    if (key && key !== reportedUnverified) log.info('Automatic supervisor upgrade paused: runtime ownership is unverified', {
+      version, accounts,
+      action: accounts.length > 0
+        ? accounts.map(id => `Check tasks, then explicitly restart this account: gugu-server match-version --account ${id} --apply ${version} --now`)
+        : 'The target cannot report runtime ownership; select a supported server version',
+    })
+    reportedUnverified = key
+  }
   // 上一个守护进程留下的(它在等空闲时被停掉、或升级已经完成)一律作废,从此刻的事实重来。
   state.clear()
 
@@ -238,7 +254,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
     try {
       // 等空闲的那 30 s 一轮、此刻仍忙:不取清单(等的是空闲;新版本由半小时那一轮去发现、后台装上)。
       if (idlePoll && waitingWith !== null && deps.isBusy()) {
-        state.set('ready', waitingWith)
+        ready(waitingWith)
         return void retryWhenIdle(waitingWith)
       }
       const manifest = await fetchManifest(layout.home)
@@ -267,8 +283,8 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       await deps.lifecycle.stage(manifest.version, () => stageVersion(layout, manifest))
       const versionDir = path.join(layout.versions, manifest.version)
       // 每一轮都续写一次:读侧据此知道守护进程还在等,而不是早就没了。
-      state.set('ready', manifest.version)
-      if (deps.isBusy()) return void retryWhenIdle(manifest.version)
+      ready(manifest.version)
+      if (!deps.lifecycle.runtimeOwned(manifest.version) || deps.isBusy()) return void retryWhenIdle(manifest.version)
       if (stopped) return
       const permit = deps.prepareHandoff ? await deps.prepareHandoff(manifest.version) : undefined
       if (deps.prepareHandoff && !permit?.valid()) { await permit?.release(); return void retryWhenIdle(manifest.version) }

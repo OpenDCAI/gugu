@@ -87,6 +87,8 @@ export function planAccountVersion(input: {
   now: number
   running: string | null
   switchRequested: boolean
+  /** A target-bound confirmed command selects this one handoff, independently of old desktop affinity. */
+  requestedTarget?: string
   /** 仅绑定当前目标的明确重启确认允许中断工作；普通 Retry 不授予此权限。 */
   switchConfirmed?: boolean
   installed: (version: string) => boolean
@@ -98,7 +100,7 @@ export function planAccountVersion(input: {
   /** 下载站上没有的版本(刚 404 过、还没到再看的时刻):让位给次新的那一版。 */
   unpublished?: (version: string) => boolean
 }): AccountVersionPlan {
-  const target = pickTargetVersion(input.reports, input.now, undefined, input.unpublished) ?? input.fallback ?? null
+  const target = input.requestedTarget ?? pickTargetVersion(input.reports, input.now, undefined, input.unpublished) ?? input.fallback ?? null
   if (!target || target === input.running) return { kind: 'none', clearSwitchRequest: true }
   const failed = input.failed(target)
   if (!input.installed(target)) return failed ? { kind: 'failed', version: target } : { kind: 'stage', version: target }

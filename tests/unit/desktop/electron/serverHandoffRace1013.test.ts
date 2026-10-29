@@ -8,8 +8,8 @@ import { spawnOwnedChild } from '@gugu/session-core/exec'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { prepareAccountHandoff } from '../../../../apps/desktop/electron/server/server-account-handoff'
 import { startPtyAttachServer } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-server'
-import { VERSION_HANDOFF_CALL } from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-protocol'
-import { hasSessionStartAdmission, prepareSessionVersionHandoff, withSessionStartAdmission } from '../../../../apps/desktop/electron/session/main/core/sessions/version-handoff'
+import * as attachProtocol from '../../../../apps/desktop/electron/session/main/core/pty/attach/attach-protocol'
+import { beginSessionStartAdmission, hasSessionStartAdmission, prepareSessionVersionHandoff, withSessionStartAdmission } from '../../../../apps/desktop/electron/session/main/core/sessions/version-handoff'
 
 const root = path.resolve(__dirname, '../../../..')
 const homes: string[] = []
@@ -28,6 +28,43 @@ function startWrapper(startOnce: () => Promise<unknown>) {
   return runInNewContext(compile(`(${arrow.getText(file)})`), { withSessionStartAdmission, startOnce }) as () => Promise<unknown>
 }
 
+/** Load the actual bridge export table, main's callback and the actual attach-call dispatcher. */
+function bridgedSocket(read: () => Promise<{ busy: boolean }>) {
+  const embeddedFile = ts.createSourceFile('embedded.ts', fs.readFileSync(path.join(root, 'apps/desktop/electron/session/main/embedded-boot.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
+  const declaration = embeddedFile.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'prepareSessionVersionHandoff')!
+  const embedded = { prepareSessionVersionHandoff: runInNewContext(compile(`(${declaration.getText(embeddedFile).replace(/^export /, '')})`), {
+    prepareVersionHandoff: prepareSessionVersionHandoff, sessionpageVersionSwitchActivity: read,
+  }) }
+  const bridge = { exports: {} }
+  runInNewContext(compile(fs.readFileSync(path.join(root, 'apps/desktop/electron/sessionpage/emdash-main-bridge.ts'), 'utf8')), {
+    module: bridge, exports: bridge.exports, require: (id: string) => id === '@main/embedded-boot' ? embedded : {},
+  })
+  const main = ts.createSourceFile('main.ts', fs.readFileSync(path.join(root, 'apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
+  let handoff!: ts.Node
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(main) === 'emdash.startSessionPtyAttachServer') {
+      const options = node.arguments[1] as ts.ObjectLiteralExpression
+      handoff = (options.properties.find(p => ts.isPropertyAssignment(p) && p.name.getText(main) === 'handoff') as ts.PropertyAssignment).initializer
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(main)
+  const callback = runInNewContext(compile(`(${handoff.getText(main)})`), { emdash: bridge.exports })
+  const socketModule = { exports: {} as { startSessionPtyAttachServer: (dir: string, options: unknown) => ReturnType<typeof startPtyAttachServer> } }
+  runInNewContext(compile(fs.readFileSync(path.join(root, 'apps/desktop/electron/session/main/core/pty/attach/start-attach-server.ts'), 'utf8')), {
+    module: socketModule, exports: socketModule.exports, process: { env: {} },
+    require: (id: string) => {
+      const modules: Record<string, unknown> = {
+        '@main/lib/logger': { log: { info: () => {}, warn: () => {} } },
+        '../server-browser-env': { installServerBrowserHelpers: () => {} },
+        './attach-server': { startPtyAttachServer }, './attach-protocol': attachProtocol,
+      }
+      return modules[id]
+    },
+  })
+  return (dir: string) => socketModule.exports.startSessionPtyAttachServer(dir, { handoff: callback })
+}
+
 describe('account handoff fences the real host admission boundary', () => {
   it('blocks switching during accepted host preparation, then refuses a new start after the same socket grants handoff', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-handoff-socket-'))
@@ -36,17 +73,14 @@ describe('account handoff fences the real host admission boundary', () => {
     const target = '0.2.58-beta.101.1'
     const pending = Promise.withResolvers<{ result: unknown }>()
     const start = startWrapper(() => pending.promise)
-    const server = await startPtyAttachServer(dir, {
-      warn: () => {},
-      call: (type, payload) => type === VERSION_HANDOFF_CALL
-        ? prepareSessionVersionHandoff(payload, async () => ({ busy: false }))
-        : Promise.resolve({ error: { code: 'unsupported_call' } }),
-    })
+    const server = await bridgedSocket(async () => ({ busy: false }))(dir)
     let permit: Awaited<ReturnType<typeof prepareAccountHandoff>> = null
     try {
       const accepted = start()
       expect(hasSessionStartAdmission()).toBe(true)
-      expect(await prepareAccountHandoff(account, { pid: process.pid }, target)).toBeNull()
+      const busy = await prepareAccountHandoff(account, { pid: process.pid }, target)
+      expect(busy?.busy).toBe(true)
+      expect(busy?.valid()).toBe(false)
       pending.resolve({ result: 'admitted' })
       await expect(accepted).resolves.toBe('admitted')
       expect(hasSessionStartAdmission()).toBe(false)
@@ -65,6 +99,26 @@ describe('account handoff fences the real host admission boundary', () => {
       // The next test uses no admission singleton state.
       await server.close()
     }
+  })
+
+  it('returns a rejected promise from the real PTY start wrapper when admission is closed', async () => {
+    const source = ts.createSourceFile('local.ts', fs.readFileSync(path.join(root, 'apps/desktop/electron/session/main/core/sessions/impl/local-session.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
+    let method!: ts.MethodDeclaration
+    const visit = (node: ts.Node) => {
+      if (ts.isMethodDeclaration(node) && node.name.getText(source) === 'startSessionInternal') method = node
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+    const value = runInNewContext(compile(`({${method.getText(source).replace(/^private /, '')}})`), {
+      beginSessionStartAdmission, makePtySessionId: () => 'fixture',
+    }) as { startSessionInternal(...args: unknown[]): Promise<void> }
+    const start = value.startSessionInternal.bind({ startsInFlight: new Map(), supervisor: {} })
+    const held = await prepareSessionVersionHandoff({ target: 'fixture' }, async () => ({ busy: false }))
+    try {
+      let result!: Promise<void>
+      expect(() => { result = start({ id: 'fixture' }) }).not.toThrow()
+      await expect(result).rejects.toThrow('switching versions')
+    } finally { await prepareSessionVersionHandoff({ target: 'fixture', release: held.result.token }, async () => ({ busy: false })) }
   })
 
   it('does not publish the real main heartbeat before the same backend boot resolves, or after it rejects', async () => {

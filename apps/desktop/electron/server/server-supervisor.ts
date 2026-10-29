@@ -20,7 +20,7 @@ import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
-import { accountDataDir, accountIsBusy, listAccounts, serverHome, supervisorDataDir } from './server-layout'
+import { accountDataDir, accountIsBusy, listAccounts, readAccountActivity, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountVersionConverger } from './server-account-converge'
@@ -275,6 +275,13 @@ export async function runSupervisor(): Promise<void> {
   startServerUpdater({
     log,
     lifecycle,
+    unverifiedAccounts: () => listAccounts().filter(account => {
+      if (!account.signedIn) return false
+      const child = children.get(account.userId)
+      if (!child || child.restarting) return true
+      const activity = readAccountActivity(account.dataDir, Date.now(), { pid: child.process.pid, startedAt: child.startedAt })
+      return activity?.runtimeOwned !== true || typeof activity.busy !== 'boolean'
+    }).map(account => account.userId),
     prepareHandoff: async target => {
       const accounts = listAccounts()
       const replies = await Promise.all(accounts.map(async account => {

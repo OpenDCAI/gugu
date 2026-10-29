@@ -250,7 +250,9 @@ export class LocalSessionProvider implements SessionProvider {
     // 只加入**仍然当前**的那次:stop() 已经取消了它(换模型重开 = stop 再 start)时,新的启动要真的起。
     const inFlight = this.startsInFlight.get(ptySessionId);
     if (inFlight && this.supervisor.hasStartInFlight(ptySessionId)) return inFlight;
-    const releaseAdmission = beginSessionStartAdmission();
+    let releaseAdmission: () => void;
+    try { releaseAdmission = beginSessionStartAdmission(); }
+    catch (error) { return Promise.reject(error); }
     const run = this.startSessionOnce(
       session,
       initialSize,

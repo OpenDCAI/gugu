@@ -18,7 +18,7 @@ import { ChildAcpProcessHost } from '../../../../packages/session-runtime/src/ac
 import { LocalAttachmentStore } from '../../../../packages/session-runtime/src/acp-agents/node/local-attachment-store'
 import { LocalPromptQueueStore } from '../../../../packages/session-runtime/src/acp-agents/node/local-prompt-queue-store'
 import { startServerAccountActivity } from '../../../../apps/desktop/electron/server/server-account-activity'
-import { accountIsBusy } from '../../../../apps/desktop/electron/server/server-layout'
+import { accountIsBusy, readAccountActivity } from '../../../../apps/desktop/electron/server/server-layout'
 import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 import { createAccountVersionConverger } from '../../../../apps/desktop/electron/server/server-account-converge'
 import { prepareAccountHandoff } from '../../../../apps/desktop/electron/server/server-account-handoff'
@@ -143,7 +143,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       for (const v of [version, target]) {
         fs.mkdirSync(path.join(dir, 'versions', v, 'bin'), { recursive: true })
         fs.mkdirSync(path.join(dir, 'versions', v, 'app'), { recursive: true })
-        fs.writeFileSync(path.join(dir, 'versions', v, 'bin', 'gugu-server'), `#!${process.execPath}\nconst d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false}));setInterval(()=>{},1000)`, { mode: 0o700 })
+        fs.writeFileSync(path.join(dir, 'versions', v, 'bin', 'gugu-server'), `#!${process.execPath}\nconst d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false,runtimeOwned:true}));setInterval(()=>{},1000)`, { mode: 0o700 })
       }
       fs.symlinkSync(`versions/${version}`, path.join(dir, 'current'))
       Object.assign(process.env, { GUGU_SERVER_HOME: dir, GUGU_TASK_HOST_APP_PATH: path.join(dir, 'versions', version, 'app'), GUGU_TASK_HOST_VERSION: version, GUGU_SERVER_SUPERVISED: '1' })
@@ -180,7 +180,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       const context = {
         log: { info: vi.fn(), warn: vi.fn() }, shutdown, layout,
         CHILD_STOP_GRACE_MS: 30_000,
-        lifecycle, accountIsBusy,
+        lifecycle, accountIsBusy, readAccountActivity,
         listAccounts: () => [account], children,
         accountDataDir: () => dir, noteExitReason: vi.fn(), createAccountVersionConverger, startServerUpdater,
         prepareAccountHandoff: async (...args: Parameters<typeof prepareAccountHandoff>) => {
