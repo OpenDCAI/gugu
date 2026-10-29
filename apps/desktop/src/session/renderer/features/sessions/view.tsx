@@ -8,6 +8,7 @@ import {
   sessionViewKind,
 } from '@renderer/features/sessions/stores/session-selectors';
 import { leaveSessionView } from '@renderer/features/sessions/leave-session-view';
+import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { sessionViewCanActivate } from '@renderer/features/sessions/session-view-guard';
 import { SessionViewWrapper } from '@renderer/features/sessions/session-view-context';
 import { machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -51,11 +52,15 @@ const SessionViewWrapperWithProviders = observer(function SessionViewWrapperWith
   const retriedAtOpening = useRef(0);
   useEffect(() => {
     if (!shown || (machine && machineLinkState(machine) !== 'open')) return;
-    if (kind !== 'idle' && kind !== 'provision-error') return;
+    if (kind !== 'idle' && kind !== 'provision-error' && kind !== 'project-error') return;
     // 失败了只等下一次「线从断变通」:这一回合线里已经准备过一次的,❌ 再来。
-    if (kind === 'provision-error' && linkOpenings <= retriedAtOpening.current) return;
+    if (kind !== 'idle' && linkOpenings <= retriedAtOpening.current) return;
     retriedAtOpening.current = linkOpenings;
 
+    if (kind === 'project-error') {
+      void getProjectManagerStore().mountProject(projectId).catch(() => {});
+      return;
+    }
     getSessionManagerStore(projectId)
       ?.provisionSession(sessionId)
       .catch(() => {});

@@ -21,7 +21,7 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
 import { cloudWakeFailureText } from '@renderer/features/remote-hosts/connection-status';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useCloudComputerGate } from './use-cloud-computer-gate';
-import { workspaceReachLabel } from './workspace-backend/workspace-surface';
+import { machineUnavailableLabel } from './machine-unavailable-label';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 
 const spinnerLog = rendererLogger('sessionpage/loading-span');
@@ -136,7 +136,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   const cloud = useCloudComputerGate(projectId, sessionId, kind);
   // 别的机器上的会话、那台此刻够不着(离线 / 开机恢复时线刚通又断):说它离线,❌ 一直转「正在准备文件」或摆一块
   // 「准备失败」。线通了由 view.tsx 那一处照常准备(准备只有那一个入口)。
-  const unreachable = workspaceReachLabel(projectId);
+  const unreachable = machineUnavailableLabel(projectId);
   const deviceId = machineRegistry.machineOf(projectId);
   const device = deviceId ? remoteHostsStore.device(deviceId) : null;
   const tunnelProgress = device?.tunnel === 'connecting' && !device.directTerminal
@@ -185,7 +185,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
     );
   }
 
-  if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error')) {
+  if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error')) {
     return <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
   }
 
