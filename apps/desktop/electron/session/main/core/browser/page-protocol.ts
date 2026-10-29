@@ -20,9 +20,10 @@ const PAGE_METHODS = new Set(`
   Page.setLifecycleEventsEnabled Page.handleJavaScriptDialog Page.setInterceptFileChooserDialog
   DOM.enable DOM.disable DOM.getDocument DOM.describeNode DOM.resolveNode DOM.requestNode
   DOM.querySelector DOM.querySelectorAll DOM.getBoxModel DOM.getContentQuads DOM.getOuterHTML
-  DOM.scrollIntoViewIfNeeded DOM.setFileInputFiles
+  DOM.scrollIntoViewIfNeeded DOM.setFileInputFiles DOM.getFrameOwner
   Accessibility.enable Accessibility.disable Accessibility.getFullAXTree Accessibility.getPartialAXTree
   Input.dispatchKeyEvent Input.dispatchMouseEvent Input.dispatchTouchEvent Input.insertText Input.imeSetComposition
+  Input.setInterceptDrags Input.dispatchDragEvent
   Emulation.setFocusEmulationEnabled Emulation.setDeviceMetricsOverride Emulation.clearDeviceMetricsOverride
   Emulation.setTouchEmulationEnabled Emulation.setEmulatedMedia Emulation.setDefaultBackgroundColorOverride
   Network.enable Network.disable Network.setCacheDisabled Network.getResponseBody Network.getRequestPostData

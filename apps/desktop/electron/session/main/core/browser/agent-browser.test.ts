@@ -196,6 +196,20 @@ afterEach(() => {
 });
 
 describe('#7323 reconnect resolves a persisted browser identity', () => {
+  it.each(['surface failed', 'the page debugger is already in use'])('delivers early close %s when Playwright installs its handler later', async reason => {
+    const { wc, dbg } = fakeGuest();
+    if (reason === 'surface failed') {
+      vi.mocked(acquireBrowserPage).mockReturnValueOnce({ ready: Promise.reject(new Error(reason)), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() });
+    } else dbg.attached = true;
+    const transport = createPaneTransport('early-' + reason, 'early-page', wc as never);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const onclose = vi.fn();
+    transport.onclose = onclose;
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalledExactlyOnceWith(reason));
+    transport.close();
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
   it('binds the exact tab acknowledged by the pane rather than the first live page', async () => {
     const other = fakeGuest(101);
     const original = fakeGuest(102);

@@ -60,6 +60,14 @@ describe('host-selected page protocol lease', () => {
     lease.close();
   });
 
+  it.each(['DOM.getFrameOwner', 'Input.setInterceptDrags', 'Input.dispatchDragEvent'])('allows page-scoped Playwright iframe/drag method %s', async method => {
+    const current = page();
+    const lease = createPageProtocol(current.contents);
+    await expect(lease.send(method, {})).resolves.toBeDefined();
+    expect(current.debuggerApi.sendCommand).toHaveBeenCalledWith(method, {}, undefined);
+    lease.close();
+  });
+
   it('delivers native attachment events before the first command without dropping synchronous events', async () => {
     const current = page(), heard = vi.fn();
     const attach = current.debuggerApi.attach.getMockImplementation()!;

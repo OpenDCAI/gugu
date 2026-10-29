@@ -253,7 +253,20 @@ export function createPaneTransport(
   const children = new Set<string>();
   let targetInfo: Record<string, unknown> | null = null;
   let closed = false;
-  const transport: AgentBrowserTransport = { send, close };
+  // Native attachment can fail before connectOverCDP installs its close handler.
+  let closeReason: string | undefined;
+  let closeHandler: AgentBrowserTransport['onclose'];
+  let closeNotified = false;
+  const notifyClose = () => {
+    if (!closed || closeNotified || !closeHandler) return;
+    closeNotified = true;
+    closeHandler(closeReason);
+  };
+  const transport: AgentBrowserTransport = {
+    send, close,
+    get onclose() { return closeHandler; },
+    set onclose(handler) { closeHandler = handler; queueMicrotask(notifyClose); },
+  };
   const page = acquireBrowserPage(webContents);
   // Observe rejection immediately, including a connection cancelled before its first request.
   void page?.ready.catch(() => {});
@@ -290,6 +303,7 @@ export function createPaneTransport(
   function finish(reason: string) {
     if (closed) return;
     closed = true;
+    closeReason = reason;
     page?.dispose();
     protocol.close(reason);
     if (drivenBySession.get(sessionId) === driven) {
@@ -300,7 +314,7 @@ export function createPaneTransport(
       const current = agentBrowserStateOf(browserId);
       if (current !== before) events.emit(browserAgentStateChannel, { browserId, state: current });
     }
-    transport.onclose?.(reason);
+    notifyClose();
   }
 
   protocol.onMessage(onMessage);
