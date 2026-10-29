@@ -12,6 +12,8 @@ import { turnFailureMarker } from '@gugu/core/shared/ui/systemNotice'
 import { dmRecord } from '../../../../apps/desktop/src/components/chat/agent-dm-record'
 
 const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), scrollToItem: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, turns: [] as TranscriptTurn[], settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
+const mobileShell = vi.hoisted(() => ({ enabled: false }))
+vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => mobileShell.enabled }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
@@ -291,4 +293,58 @@ it('captures unread on return to a retained desktop slot even when its logical s
   expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: second[0].id, edge: 'top', offset: -8 })
   ;(probe.props as { onVisibleItems: (ids: string[]) => void }).onVisibleItems(second.slice(0, 2).map(row => row.id))
   expect(markMessageVisible.mock.calls.map(([row]) => row.id)).toEqual(second.slice(0, 2).map(row => row.id))
+})
+
+const selectionRoots: HTMLElement[] = []
+beforeEach(() => { mobileShell.enabled = false })
+afterEach(() => { selectionRoots.splice(0).forEach(root => root.remove()); window.getSelection()?.removeAllRanges() })
+function excerptRoot(item: import('@gugu/session-chat-ui').ChatMessage) {
+  const root = document.createElement('div'); root.innerHTML = '<p>Beta</p>'
+  document.body.append(root); selectionRoots.push(root)
+  const commands = (probe.props as { commands: ChatCommands }).commands
+  expect(commands.onMessageTextMount).toBeTypeOf('function')
+  commands.onMessageTextMount!({ root, itemId: item.id, message: () => item })
+  return root
+}
+async function selectExcerpt(root: HTMLElement) {
+  const range = document.createRange(); range.selectNodeContents(root.querySelector('p')!)
+  await act(async () => {
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange')); document.dispatchEvent(new Event('touchend'))
+  })
+}
+it('sends a mobile excerpt from the unified transcript through the existing composer with its IM source', async () => {
+  mobileShell.enabled = true
+  const source = { ...received, content: 'Alpha Beta' }
+  const sendMessage = vi.fn(async (_text: string, _options?: unknown) => undefined)
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true, mobile: true }), { chat: {
+    activeChat: dm, activeChatId: dm.id, messages: [source], identitiesById: { 'external-agent': displayIdentity('external-agent', { display_name: 'Ada' }) }, sendMessage,
+  } })
+  const editor = harness.container.querySelector<HTMLElement>('[contenteditable="true"]')!
+  editor.blur()
+  await selectExcerpt(excerptRoot({ kind: 'message', id: source.id, role: 'assistant', text: source.content }))
+  expect(document.activeElement).not.toBe(editor)
+  expect(harness.container.querySelector('button[aria-label="取消引用"]')?.parentElement?.textContent).toContain('Beta')
+  await act(async () => writeComposer(editor, 'Explain'))
+  await clickElement(harness.container.querySelector<HTMLElement>('button[aria-label="发送消息"]')!)
+  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
+  expect(sendMessage.mock.calls[0]).toEqual([expect.stringMatching(/^> \[Ada\]: Beta\n\nExplain$/), expect.objectContaining({ replyToMessageId: source.id })])
+})
+it('resets quote state and old row listeners when the keyed DM host changes chat', async () => {
+  mobileShell.enabled = true
+  const source = { ...received, content: 'Alpha Beta' }
+  const options = { chat: { activeChat: dm, activeChatId: dm.id, messages: [source] } }
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true, mobile: true }), options)
+  const old = excerptRoot({ kind: 'message', id: source.id, role: 'assistant', text: source.content })
+  await selectExcerpt(old)
+  expect(harness.container.querySelector('button[aria-label="取消引用"]')).not.toBeNull()
+  const next = { ...dm, id: 'different-dm' }
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: next, shown: true, mobile: true }), { chat: { activeChat: next, activeChatId: next.id, messages: [] } })
+  await selectExcerpt(old)
+  expect(harness.container.querySelector('button[aria-label="取消引用"]')).toBeNull()
+  expect((probe.props as { uri: string }).uri).toBe('dm:different-dm')
+})
+it('leaves desktop selection commands unchanged on the unified DM host', async () => {
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: { activeChat: dm, activeChatId: dm.id, messages: [received] } })
+  expect((probe.props as { commands: ChatCommands }).commands.onMessageTextMount).toBeUndefined()
 })

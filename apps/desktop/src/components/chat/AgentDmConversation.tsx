@@ -40,6 +40,7 @@ import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { ConversationErrorBoundary } from './ConversationErrorBoundary'
 import { useAgentDmRead } from './useAgentDmRead'
 import { useConversationVisibility } from './useConversationVisibility'
+import { useAgentDmQuoteSelection } from '@/hooks/useAgentDmQuoteSelection'
 
 type Chrome = { attachGlyph: import('react').ReactNode; attachMenu?: readonly ComposerAttachAction[]; composerHeader?: import('react').ReactNode }
 
@@ -93,6 +94,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
   const options = useConversationOptions(target)
   const queue = useConversationQueue(target, read.timeline.queuedPrompts, working, options.steers)
   const aliases = useMemo(() => dmRecordIds(turns), [turns])
+  const selection = useAgentDmQuoteSelection({ chatId: chat.id, mobile, messages, aliases, names: identitiesById, agentName: name })
   const visibleMessages = useMemo(() => displayedDmMessages(messages), [messages])
   const ignoredMessageIds = useMemo(() => messages.filter(message => !visibleMessages.includes(message)).map(message => message.id), [messages, visibleMessages])
   const reading = useAgentDmRead({ chat, shown, messages: visibleMessages, ignoredMessageIds, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
@@ -120,6 +122,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
     {read.actionError ? <div role="alert">{read.actionError}</div> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
     <ChatMessageComposer chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
+      quoteContent={selection.quoteContent} onQuoteConsumed={selection.onQuoteConsumed}
       beforeSend={createSessionpageChatSendPreflight(true, chat.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
       disabled={gate.disabled} disabledReason={gate.disabledReason ? t(`composer.agent.disabledReason.${gate.disabledReason}`) : undefined} conversation={{ ...options.props, ...queue.props, isWorking: working,
       onStop: target ? () => { void read.cancel() } : undefined }}
@@ -131,7 +134,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={`dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
-      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+      commands={{ ...(target ? outputs.handlers : {}), onMessageTextMount: selection.onMessageTextMount, onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
         conversationProcessNotice: processId => {
           const notice = visibleMessages.find(message => message.content_type === 'system' && processId === `im:${message.id}:process`)
           return notice ? { id: notice.id, text: notice.content ?? '' } : null
@@ -146,6 +149,6 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
       onReachStart={() => { if (target) void read.loadOlder(); else void loadOlderMessages() }}
       className="relative min-h-0 flex-1" />
     </div>
-    {filePreview.panel}{outputs.panel}
+    {filePreview.panel}{outputs.panel}{selection.toolbar}
   </div>
 }
