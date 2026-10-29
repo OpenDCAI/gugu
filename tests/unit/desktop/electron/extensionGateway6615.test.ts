@@ -124,7 +124,7 @@ async function connect(entry: AcpMcpServer): Promise<Client> {
 }
 
 describe('the extension gateway (#6615)', () => {
-  it('revocation during caller preparation cannot send the old call after permission is restored', async () => {
+  it('revocation during caller preparation rejects the old call while a fresh call can proceed', async () => {
     const gate = Promise.withResolvers<void>()
     const preparing = Promise.withResolvers<void>()
     const catalog = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps,

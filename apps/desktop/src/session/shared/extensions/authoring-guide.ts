@@ -918,11 +918,12 @@ may also declare \`{ "name":"settings", "title":"Settings", "hostPage":"settings
 Optional top-level \`settings\` declares up to 32 fields: \`{ "key":"mode", "title":"Mode",
 "type":"string", "default":"local" }\`. Types: \`string\`, \`boolean\`, or \`select\` with
 \`options:[{"value":"local","title":"Local"}]\`; \`description\` and a typed \`default\` are optional.
-Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; saving retires
-the old program after in-flight calls finish, and new calls start with the new values. Uninstall clears them.
+Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; after a change,
+new calls start with the new values. Uninstall clears them.
 Switching the App off, withdrawing \`agents:tools\`, or uninstalling cancels pending calls (agent/page,
 including startup), closes program IPC authority and stops its process tree. Other Apps are unaffected.
-Single-call cancellation does not stop other sessions sharing the program. Upgrades/settings drain old calls.
+Single-call cancellation does not stop other sessions sharing the program. Upgrades/settings drain already-running
+stdio calls; calls still starting may be interrupted.
 A program's real failures reach the agent in its tool result and the person on the App's page; installed does not mean running.
 Native host resources use \`contributes.mcpServers:[{"name":"browser-use","host":"browser-use"}]\`
 (API 5, desktop GUI). They use the same App permissions, Agent scope, catalog and disclosure as stdio

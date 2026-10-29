@@ -1,6 +1,15 @@
 import { expect, it } from 'vitest';
 import { openExtensionProgramAccess, revokeExtensionProgramAccess, withExtensionProgramAccess } from './extension-program-access';
 
+it('rejects a result when its caller cancels just as the operation resolves', async () => {
+  const parent = new AbortController();
+  const reason = new Error('caller stopped before receiving the result');
+  await expect(withExtensionProgramAccess('result-race-app', parent.signal, async () => {
+    parent.abort(reason);
+    return 'late result';
+  })).rejects.toBe(reason);
+});
+
 it('single-call cancellation waits for its authority cleanup before answering the caller', async () => {
   const parent = new AbortController();
   const cleanup = Promise.withResolvers<void>();

@@ -489,7 +489,9 @@ export async function revokeExtensionPrograms(extensionId: string): Promise<void
     instance.transport.surface = null;
     return stop(instance);
   });
-  await Promise.all([...stopped, ...[...nativePrograms.values()].map((provider) => provider.retire(extensionId))]);
+  const settled = await Promise.allSettled([...stopped, ...[...nativePrograms.values()].map((provider) => provider.retire(extensionId))]);
+  const failed = settled.find((result) => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
 }
 
 /**
@@ -515,15 +517,16 @@ async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (cli
     starting.set(key, pending);
   }
   const instance = await pending;
-  signal.throwIfAborted();
-  if (instance.stopping) throw new Error('App program access was revoked');
   instance.calls += 1;
   if (instance.idleTimer) clearTimeout(instance.idleTimer);
   // The call's agent, and what it handed for this call only: taken back (and what was opened on it alone) when it ends.
   // The answer goes back to the agent once the program let go of them: its writes handed to the file service in order,
   // ahead of the Close — not yet confirmed by the service, a millisecond window no agent's next step reaches (F106).
-  const release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats) : undefined;
+  let release: (() => Promise<void>) | undefined;
   try {
+    signal.throwIfAborted();
+    if (instance.stopping) throw new Error('App program access was revoked');
+    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats) : undefined;
     return await work(instance.client);
   } finally {
     await release?.();

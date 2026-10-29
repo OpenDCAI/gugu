@@ -1011,7 +1011,9 @@ export const extensionsController = createRPCController({
     try {
       const identity = args.lastAnywhere ? extensionsService().identityOf(args.extensionId) : null;
       extensionsService().uninstall(args.extensionId);
-      const stopped = revokeExtensionPrograms(args.extensionId);
+      const stopped = revokeExtensionPrograms(args.extensionId).catch((error: unknown) => {
+        log.warn('Uninstalled App program cleanup failed', { extensionId: args.extensionId, error });
+      });
       // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
       // before asynchronous storage cleanup can yield to a heartbeat.
       void notifyInstalledAppsChanged();
@@ -1024,8 +1026,9 @@ export const extensionsController = createRPCController({
       // Uninstall cancels now, unlike an upgrade's drain. Do not clear data while its old process can still write it.
       const { extensionId } = args;
       await stopped;
-      if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
+      const grants = identity ? await import('@main/core/extensions/app-given') : null;
       if (!extensionsService().isInstalled(extensionId)) {
+        if (identity) void grants!.forgetAccountGrants(identity);
         await clearExtensionSessionData(extensionId);
         removeUninstalledLeftovers(app.getPath('userData'), extensionDataRoot(extensionId), extensionId);
       }
