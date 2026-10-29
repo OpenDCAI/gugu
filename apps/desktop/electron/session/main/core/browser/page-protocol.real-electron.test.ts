@@ -45,12 +45,13 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
     let stdout = '', stderr = '';
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-    if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
-      const folder = process.env.GUGU_BROWSER_PROBE_REPORT_DIR;
-      fs.mkdirSync(folder, { recursive: true });
-      fs.writeFileSync(path.join(folder, 'native-page.log'), stdout + '\n' + stderr);
-    }
+    const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }).finally(() => {
+      if (process.env.GUGU_BROWSER_PROBE_REPORT_DIR) {
+        const folder = process.env.GUGU_BROWSER_PROBE_REPORT_DIR;
+        fs.mkdirSync(folder, { recursive: true });
+        fs.writeFileSync(path.join(folder, 'native-page.log'), stdout + '\n' + stderr);
+      }
+    });
     expect(code, stdout + '\n' + stderr).toBe(0);
     const line = stdout.split('\n').find(line => line.startsWith('PAGE_PROTOCOL_RESULT='));
     expect(line, stdout + '\n' + stderr).toBeDefined();
@@ -62,7 +63,7 @@ describe.skipIf(!electron)('page protocol with real Electron and Playwright MCP'
     'navigation-control-file', 'navigation-control-chrome', 'navigation-control-devtools', 'navigation-history-policy',
     'history-file-script', 'history-file-alt-left', 'history-file-mouse-back',
     'history-chrome-script', 'history-chrome-alt-left', 'history-chrome-mouse-back',
-    'history-file-current', 'history-file-owner-navigation'])('%s', name => {
+    'history-file-current', 'history-file-owner-navigation', 'navigation-already-loading', 'navigation-forward-file-history'])('%s', name => {
     expect(result.cases[name], JSON.stringify(result.cases[name])).toEqual({ passed: true });
   });
 });

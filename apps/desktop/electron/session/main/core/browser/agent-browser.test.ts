@@ -85,6 +85,7 @@ function fakeGuest(id = 7) {
     id,
     debugger: dbg,
     getURL: () => 'https://a.test/',
+    isLoading: () => false,
     navigationHistory: { getAllEntries: () => [], getActiveIndex: () => -1, removeEntryAtIndex: vi.fn() },
     hostWebContents: null,
     destroyed: false,

@@ -14,9 +14,34 @@ export function pageNavigationAccess(contents: WebContents, revoke: (reason: str
     // The person may still open a local page. Stop the borrowed connection before it can read it.
     if (details.isMainFrame && !isSupportedBrowserNavigationUrl(details.url)) revoke(reason);
   };
+  const onCommitted = (_event: unknown, url: string) => {
+    if (!isSupportedBrowserNavigationUrl(url)) revoke(reason);
+  };
   contents.on('did-start-navigation', onNavigation);
+  contents.on('did-navigate', onCommitted);
   return {
     assertCurrent,
+    waitForIdle(signal: AbortSignal): Promise<void> {
+      if (!contents.isLoading()) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timer);
+          contents.removeListener('did-stop-loading', stopped);
+          signal.removeEventListener('abort', aborted);
+        };
+        const stopped = () => { if (!contents.isLoading()) { cleanup(); resolve(); } };
+        const aborted = () => { cleanup(); reject(signal.reason); };
+        const timer = setTimeout(() => {
+          cleanup();
+          const message = 'page protocol: navigation is still loading';
+          revoke(message);
+          reject(new Error(message));
+        }, 10_000);
+        contents.on('did-stop-loading', stopped);
+        signal.addEventListener('abort', aborted, { once: true });
+        if (signal.aborted) aborted(); else stopped();
+      });
+    },
     prepare() {
       assertCurrent();
       const history = contents.navigationHistory;
@@ -30,6 +55,9 @@ export function pageNavigationAccess(contents: WebContents, revoke: (reason: str
         }
       }
     },
-    dispose() { contents.removeListener('did-start-navigation', onNavigation); },
+    dispose() {
+      contents.removeListener('did-start-navigation', onNavigation);
+      contents.removeListener('did-navigate', onCommitted);
+    },
   };
 }

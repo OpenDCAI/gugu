@@ -76,7 +76,10 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
   void ready.catch(() => {});
 
   function ensureAttached(): Promise<void> {
-    attaching ??= bounded(ready).then(() => {
+    attaching ??= bounded(ready).then(async () => {
+      assertLive();
+      if (debuggerApi.isAttached()) throw new Error('the page debugger is already in use');
+      await navigation.waitForIdle(lifetime.signal);
       assertLive();
       if (debuggerApi.isAttached()) throw new Error('the page debugger is already in use');
       navigation.prepare();
@@ -90,6 +93,8 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
 
   function onMessage(_event: unknown, method: string, params: Record<string, unknown>, sessionId?: string) {
     if (closed || !attached || (sessionId && !children.has(sessionId))) return;
+    try { assertLive(); }
+    catch (error) { close(error instanceof Error ? error.message : String(error)); return; }
     if (method === 'Target.attachedToTarget' && typeof params.sessionId === 'string') children.set(params.sessionId, sessionId);
     if (method === 'Target.detachedFromTarget' && typeof params.sessionId === 'string') {
       const remove = (id: string) => {
@@ -152,7 +157,7 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       assertLive();
       signal?.throwIfAborted();
       if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
-      await ensureAttached();
+      await bounded(ensureAttached(), signal);
       assertLive();
       signal?.throwIfAborted();
       if (method === 'Page.navigateToHistoryEntry') {

@@ -11,6 +11,7 @@ import { createBrowserAppProgram } from '../../../../../browser-agent-mcp';
 import { createPageProtocol } from '../page-protocol';
 import { pageProtocolBoundaryChecks } from './page-protocol-boundary-checks';
 import { pageProtocolHistoryChecks } from './page-protocol-history-checks';
+import { pageProtocolLoadingChecks } from './page-protocol-loading-checks';
 
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 const commands: string[] = [];
@@ -19,6 +20,8 @@ globals.pageProbeEvent = (_channel, event) => {
   if (event.kind === 'move' && event.moveId) queueMicrotask(() => agentCursorArrived(event.moveId!));
 };
 app.commandLine.appendSwitch('site-per-process');
+process.on('uncaughtException', error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
+process.on('unhandledRejection', error => { process.stderr.write(String(error) + '\n'); app.exit(1); });
 
 async function run() {
   assert.ok(process.env.GUGU_HOME && process.env.GUGU_USER_DATA_DIR);
@@ -167,6 +170,7 @@ async function run() {
   });
   await pageProtocolBoundaryChecks(`http://127.0.0.1:${port}/`, check);
   await pageProtocolHistoryChecks(`http://127.0.0.1:${port}/`, check);
+  await pageProtocolLoadingChecks(`http://127.0.0.1:${port}/`, check);
   process.stdout.write('PAGE_PROTOCOL_RESULT=' + JSON.stringify({ cases, commands }) + '\n');
   runtime.close(); window.destroy(); server.closeAllConnections(); server.close();
 }

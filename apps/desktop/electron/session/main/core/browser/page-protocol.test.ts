@@ -1,40 +1,6 @@
-import { EventEmitter } from 'node:events';
-import type { WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { createPageProtocol } from './page-protocol';
-
-function page(urls = ['https://example.test/'], activeIndex = urls.length - 1) {
-  const entries = urls.map(url => ({ url }));
-  let attached = false;
-  const debuggerApi = Object.assign(new EventEmitter(), {
-    isAttached: () => attached,
-    attach: vi.fn(() => { attached = true; }),
-    detach: vi.fn(() => { attached = false; }),
-    sendCommand: vi.fn(async (_method: string, _params?: object, _session?: string): Promise<unknown> => ({ ok: true })),
-  });
-  let destroyed = false;
-  const contents = Object.assign(new EventEmitter(), {
-    debugger: debuggerApi,
-    getURL: vi.fn(() => entries[activeIndex]?.url ?? ''),
-    navigationHistory: {
-      getAllEntries: vi.fn(() => entries),
-      getActiveIndex: vi.fn(() => activeIndex),
-      removeEntryAtIndex: vi.fn((index: number) => {
-        if (index === activeIndex) return false;
-        entries.splice(index, 1);
-        if (index < activeIndex) activeIndex -= 1;
-        return true;
-      }),
-    },
-    isDestroyed: () => destroyed,
-    close: vi.fn(), loadURL: vi.fn(), focus: vi.fn(),
-  });
-  return {
-    contents: contents as unknown as WebContents, debuggerApi,
-    entries,
-    destroy: () => { destroyed = true; contents.emit('destroyed'); },
-  };
-}
+import { page } from './test-support/page-protocol-fixture';
 
 describe('host-selected page protocol lease', () => {
   it('removes forbidden back and forward history before attaching, preserving current and ordinary entries', async () => {
