@@ -96,6 +96,7 @@ export function McpServerPanel({
               </span>
               <span
                 aria-hidden
+                data-mcp-dot={server.status}
                 className={cn(
                   "size-1.5 shrink-0 rounded-full",
                   DOT[server.status],

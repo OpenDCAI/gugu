@@ -99,7 +99,6 @@
 }
 /* 卡片两套主题下都是暗底白字(App Store 同样):底图是截图或图标,字压在图上。 */
 .mk-hero-card {
-  --mk-hero-ink: oklch(0.2 0.01 268);
   position: relative;
   flex: none;
   width: 100%;
@@ -111,7 +110,7 @@
   overflow: hidden;
   isolation: isolate;
   background: var(--mk-hero-ink);
-  color: white;
+  color: var(--image-fg);
   cursor: default;
 }
 .mk-hero.is-multi .mk-hero-card {
@@ -143,7 +142,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgb(0 0 0 / 0.3), transparent 40%, transparent 60%, rgb(0 0 0 / 0.35));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--image-bg) 30%, transparent), transparent 40%, transparent 60%, color-mix(in srgb, var(--image-bg) 35%, transparent));
 }
 /* 有截图:截图铺右边七成,左边从卡底色渐变出文字区。 */
 .mk-hero-art.is-shot img {
@@ -176,7 +175,7 @@
   top: 50%;
   right: 9%;
   transform: translateY(-58%) rotate(-7deg);
-  filter: drop-shadow(0 24px 40px rgb(0 0 0 / 0.45));
+  filter: drop-shadow(0 24px 40px color-mix(in srgb, var(--image-bg) 45%, transparent));
 }
 .mk-hero-big > img,
 .mk-hero-big > span {
@@ -241,7 +240,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 20px 12px 28px;
-  background: rgb(0 0 0 / 0.42);
+  background: color-mix(in srgb, var(--image-bg) 42%, transparent);
 }
 .mk-hero-who {
   flex: 1;
@@ -262,13 +261,13 @@
 .mk-hero-foot [data-slot='button'] {
   border-color: transparent;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.92);
-  color: oklch(0.2 0.01 268);
+  background: color-mix(in srgb, var(--image-fg) 92%, transparent);
+  color: var(--mk-hero-ink);
   font-weight: 600;
 }
 .mk-hero-foot .mk-busy,
 .mk-hero-foot .mk-word {
-  color: rgb(255 255 255 / 0.8);
+  color: color-mix(in srgb, var(--image-fg) 80%, transparent);
 }
 
 /* ── 「最新」那排小卡(App Store 发现页里大图配一句话的卡):上面 16:9 的底图,下面一条图标、名字、副标题、按钮;
@@ -701,8 +700,8 @@ button.mk-name:focus-visible {
     currentColor calc(var(--p) * 1%),
     color-mix(in oklab, currentColor 18%, transparent) 0
   );
-  -webkit-mask: radial-gradient(circle, transparent 4.5px, #000 5px);
-  mask: radial-gradient(circle, transparent 4.5px, #000 5px);
+  -webkit-mask: radial-gradient(circle, transparent 4.5px, black 5px);
+  mask: radial-gradient(circle, transparent 4.5px, black 5px);
 }
 .mk-foot {
   margin-top: 24px;

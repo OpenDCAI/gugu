@@ -1,15 +1,12 @@
 // 项目封面:按项目 id 固定的两三团柔色(电脑项目首页的文件夹卡、手机「伙伴」里的项目头像共用这一张,#446)。
 import { useMemo } from 'react';
+import { cssColorToHex, cssVar } from '@renderer/utils/cssVars';
 
 /** 封面:按项目 id 固定的两三团柔色(同头像规矩:同一个项目永远同一张)。 */
-const HUES = [
-  ['#9fc3cd', '#b9a9d6', '#c9dade'],
-  ['#e2b394', '#a2c4b2', '#e3d3c3'],
-  ['#b4a5d6', '#dcaebf', '#d8d0e6'],
-  ['#a2c4b2', '#9fc3cd', '#cfe0d6'],
-  ['#d4bf9f', '#b9a9d6', '#e2d9c8'],
-  ['#a5bde0', '#cdb1d6', '#d3dcec'],
-] as const;
+// 六组柔色的取值在 tokens.css(--fc-cover-<组>-<a|b|base>,两套主题同值:封面是项目的身份色)。
+// 下面的 saturated() 要按十六进制算饱和度,所以渲染时读出实际色值,❌ 把 var() 字符串交给它。
+const HUES = [1, 2, 3, 4, 5, 6].map((n) => (['a', 'b', 'base'] as const).map((part) => `--fc-cover-${n}-${part}`));
+const tokenHex = (name: string) => cssColorToHex(cssVar(name));
 function hash32(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -28,10 +25,10 @@ function seeded(seed: string) {
   };
 }
 export function ProjectCover({ projectId, running, width, height, uid, saturationBoost = 1 }: { projectId: string; running: number; width: number; height: number; uid: string; saturationBoost?: number }) {
-  const [a, b, base] = HUES[hash32(`cover:${projectId}`) % HUES.length];
+  const [a, b, base] = HUES[hash32(`cover:${projectId}`) % HUES.length].map(tokenHex);
   const blobs = useMemo(() => {
     const r = seeded(`svg:${projectId}`);
-    return [a, b, a, b, '#ffffff'].map((fill, i) => ({
+    return [a, b, a, b, tokenHex('--color-white')].map((fill, i) => ({
       fill,
       cx: Math.round(r() * width),
       cy: Math.round(r() * height * 0.9),
