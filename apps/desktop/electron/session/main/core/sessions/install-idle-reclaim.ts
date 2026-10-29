@@ -2,8 +2,6 @@ import { eq } from 'drizzle-orm';
 import type { SessionSummary } from '@gugu/session-core/acp';
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge';
 import { closeSessionBrowserTools } from '../../../../browser-agent-mcp';
-import { cloudAgentBrowserBridge, cloudBrowser, isCloudBrowserHost } from '@main/core/browser/cloud/cloud-browser';
-import { cloudBrowserLive } from '@main/core/browser/cloud/live-server';
 import { currentOrLastSession } from '@main/core/extensions/extension-bridge';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
@@ -79,20 +77,6 @@ async function readLive(): Promise<{ live: LiveSession[]; withTerminals: Set<str
       }
     }
   }
-  if (isCloudBrowserHost()) {
-    const browser = cloudBrowser();
-    for (const sessionId of browser.sessionIds()) {
-      if (live.some((entry) => entry.sessionId === sessionId)) continue;
-      const row = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-      if (!row || row.archivedAt) {
-        await closeSessionBrowserTools(sessionId, cloudAgentBrowserBridge());
-        continue;
-      }
-      live.push({ projectId: row.projectId, sessionId, runtime: 'browser' });
-    }
-    // Also release a browser left empty by a human closing the last page or a cancelled first open.
-    if (browser.sessionIds().length === 0 && !browser.sessionInUse() && !cloudBrowserLive().watching()) browser.shutdown();
-  }
   return { live, withTerminals };
 }
 
@@ -139,14 +123,13 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
     // 屏上的每一条(主窗那页、会话页上每一块、单独的窗、开在窗里的页签,渲染层报来的),加上最后显示的那条
     // (人离开了会话页,刚才看的那条仍留着,#6387)。❌ 只认主窗那一页:页签开在新窗口里审阅的会话会被当成没人看停掉。
     onScreen: (sessionId) => sessionOnScreen(sessionId) || currentOrLastSession()?.sessionId === sessionId,
-    watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId)
-      || (isCloudBrowserHost() && (cloudBrowser().sessionInUse(sessionId) || cloudBrowserLive().watching(sessionId))),
+    watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
-    stop: async (target, runtime) => {
-      if (runtime !== 'browser' && !(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
+    stop: async (target) => {
+      if (!(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
         throw new Error('session row is gone');
       }
-      await closeSessionBrowserTools(target.sessionId, isCloudBrowserHost() ? cloudAgentBrowserBridge() : undefined);
+      await closeSessionBrowserTools(target.sessionId);
     },
     reclaimed: (target) => events.emit(sessionReclaimedChannel, target),
     log: (event, fields) => {

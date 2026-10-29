@@ -575,7 +575,7 @@ export function keepSseStreamAlive(response: ServerResponse): () => void {
   return stop
 }
 /**
- * A tool call that waits on a person (a browser login or takeover, an App install's consent) or on a slow device stays
+ * A tool call that waits on a person (such as an App install's consent) or on a slow device stays
  * open for minutes. Claude Code aborts an MCP tool that sends no response or progress for 300 s
  * (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT), and treats a response stream without a byte as dead and gives the call up
  * 90 s after the stream errors ("transport dropped mid-call"); every progress notification resets both. So while a

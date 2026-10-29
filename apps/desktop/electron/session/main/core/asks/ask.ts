@@ -10,7 +10,7 @@ const fail = (code: string, message: string) => ({ ok: false as const, error: { 
 
 /**
  * D-31 (owner 10-06「怎么符合用户思维和操作路径怎么来」; L11 复核 67): the approvals the host asks on an agent's behalf — an
- * App install, an agent's question, a browser step — kept here, per session, for a chat-UI session and a terminal one alike
+ * App install, an agent's question — kept here, per session, for a chat-UI session and a terminal one alike
  * (the owner works in Claude's TUI): on the session's timeline next to its own approvals, so whoever follows it (the phone,
  * another desktop, the private chat's band) answers it there, and `respond` settles it once (compare-and-set) and hands the
  * answer to the host. Nothing here answers for the person: there is no full-access auto-approve at this layer.
@@ -93,7 +93,7 @@ export function ask(
     const timer = timeoutMs === undefined ? null : setTimeout(() => aborted('timeout'), timeoutMs);
     timer?.unref?.();
     asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: () => aborted(), detach: () => end('withdrawn', false) });
-    if (request.origin.source === 'browser-assistance' || request.origin.source === 'app-install') {
+    if (request.origin.source === 'app-install') {
       unregisterHumanTool = registerHumanToolAsk(conversationId, request.itemId);
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });
