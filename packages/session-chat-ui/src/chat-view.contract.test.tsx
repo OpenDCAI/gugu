@@ -335,3 +335,31 @@ describe('ChatView.setModel', () => {
     document.body.removeChild(host);
   });
 });
+
+
+it('stops a pinned instruction before an independently sent reply at the unread anchor', async () => {
+  const ctx = createChatContext({ layout: { agentConversation: true, preset: 'double' } });
+  const state = createChatState(ctx);
+  const sent = Array.from({ length: 10 }, (_, i): ChatMessage => ({
+    kind: 'message', id: `call${i}:sent:message${i}`, seq: i + 1, role: 'assistant', text: `H${i + 1}`,
+  }));
+  state.transcript.history.seed([{
+    id: 'new-private-chat', seq: 0, initiator: 'user',
+    items: [{ kind: 'message', id: 'instruction', seq: 0, role: 'user', text: '请连续发送十条独立消息,从 H1 到 H10。' }, ...sent],
+    outcome: { kind: 'done', reason: 'end_turn' },
+  }]);
+  const host = document.body.appendChild(document.createElement('div'));
+  host.style.cssText = 'position:fixed;top:45px;left:0;width:800px;height:600px;';
+  const view = createChatView({ context: ctx, state, parent: host, pinUserMessages: true });
+  try {
+    await nextPaint();
+    view.setScrollMode({ kind: 'anchor', itemId: sent[0].id, edge: 'top', offset: -8 });
+    await nextPaint();
+    const reply = host.querySelector<HTMLElement>('[data-agent-conversation-message="call0:sent:message0"] [data-user-card]')!;
+    await until('the sent reply is measured at the unread anchor', () => reply.getBoundingClientRect().height > 0);
+    const rect = reply.getBoundingClientRect();
+    expect(rect.top).toBeGreaterThanOrEqual(53);
+    const topmost = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(reply.contains(topmost), 'the prompt must not paint over or falsely read the first reply').toBe(true);
+  } finally { view.dispose(); state.dispose(); ctx.dispose(); host.remove(); }
+});

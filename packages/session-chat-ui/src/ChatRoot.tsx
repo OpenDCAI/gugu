@@ -990,9 +990,21 @@ export function ChatRoot(props: ChatRootProps) {
       const pending = s.session.state.pendingPrompt;
       const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
-      if (!active) return committed;
       const base = committedUnitsArr.length;
-      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+      const ends = active
+        ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
+        : committed;
+      // An independently sent reply is a conversation bubble too. End the
+      // preceding instruction's sticky lane before it, as for a delivery.
+      // Otherwise opening at that reply's unread anchor pins the instruction
+      // over its body even though the body is inside the viewport.
+      const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
+      for (let i = 0; i < all.length; i++) {
+        const unit = all.at(i)!;
+        const data = unit.data as ChatMessage;
+        if (data.conversationPart === 'body' && data.role === 'assistant' && unit.itemId.includes(':sent:')) ends.push(i);
+      }
+      return [...new Set(ends)].sort((a, b) => a - b);
     },
     [],
     { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
