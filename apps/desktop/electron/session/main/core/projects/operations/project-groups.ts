@@ -36,9 +36,14 @@ async function subjectOf(projectId: string): Promise<ProjectGroupSubject | null>
   return { projectId: project.id, projectName: project.name, sessionIds: rows.map((row) => row.id) };
 }
 
-/** 这台机器、当前账号:每个还在的本地项目绑的群。项目没了的那些对照不报(回收器会收)。 */
+/**
+ * 这台机器、当前账号:每个还在的本地项目绑的群。项目没了的那些对照不报(回收器会收)。
+ * workspace(#609)不是项目,它从前绑的群不报 —— 那个群就是一个普通群,照常列在「聊天」里(owner 10-28 ②)。
+ */
 export async function listProjectGroupBindings(): Promise<Result<ProjectGroupBinding[], ProjectGroupError>> {
-  const projectIds = (await getProjects({ includeHidden: true })).map((project) => project.id);
+  const projectIds = (await getProjects({ includeHidden: true }))
+    .filter((project) => project.kind !== 'workspace')
+    .map((project) => project.id);
   return projectGroupHost().listBindings(projectIds);
 }
 

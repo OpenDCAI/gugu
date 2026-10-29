@@ -18,6 +18,12 @@ export type LocalProject = {
   repositoryWorkspaceId: string | null;
   /** Directory membership only; the original workspace and sessions remain available. */
   rootFolderDetached?: boolean;
+  /**
+   * #609 'workspace' = a directory the app keeps for itself (task-home, the assistant's directories, App directories, a
+   * session started in ~): never listed as a project, its sessions are Tasks. Absent = a project the person created or
+   * opened (and every row from a host older than this field).
+   */
+  kind?: 'workspace';
   createdAt: string;
   updatedAt: string;
 };
@@ -42,6 +48,8 @@ export type CreateLocalProjectParams = {
   createDirectory?: boolean;
   /** 「使用现有文件夹」:所选目录本身就是项目,不是 git 仓库也放行(与远程项目同口径,#2358),❌ 替用户 git init。 */
   allowNonGit?: boolean;
+  /** #609 替人登记的(助理的目录、远端的主目录),❌ 人在「添加项目」里亲手选的:见主进程 createLocalProject。 */
+  automatic?: boolean;
 };
 
 export type CreateProjectParams = CreateLocalProjectParams;

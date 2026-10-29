@@ -99,3 +99,66 @@ export function timeLeft(expiresAt, now) {
   if (minutes >= 60) return { hours: Math.ceil(minutes / 60) }
   return { minutes: Math.max(1, minutes) }
 }
+
+/** Where a file is kept, as the 「存放」 filter picks it: `cloud`, or the machine a project file stays on (its name). */
+export function whereOf(entry, machineName) {
+  return entry.storedOn ? machineName(entry.storedOn) : 'cloud'
+}
+
+/**
+ * How long a file's cloud copy is kept, as the 「保留方式」 filter picks it: `temporary`, `kept`, or null (no cloud copy).
+ * `soon` is a temporary one cleared within 7 days.
+ */
+export function keptAs(entry, now) {
+  if (!entry.keep) return null
+  if (!entry.keep.expiresAt) return 'kept'
+  return Date.parse(entry.keep.expiresAt) - now.getTime() <= 7 * 86400000 ? 'soon' : 'temporary'
+}
+
+/**
+ * Whether a file is one the filters pick (`{ who, where, keep }`, each null for any): who made it (a person's id), where
+ * it is kept, how long — `temporary` takes the ones going within 7 days too.
+ */
+export function matches(entry, filters, machineName, now) {
+  if (filters.who && entry.createdBy?.id !== filters.who) return false
+  if (filters.where && whereOf(entry, machineName) !== filters.where) return false
+  if (filters.keep) {
+    const kept = keptAs(entry, now)
+    if (filters.keep === 'temporary' ? kept !== 'temporary' && kept !== 'soon' : kept !== filters.keep) return false
+  }
+  return true
+}
+
+/** The view a kind opens in, until the person picks another: images and videos as a grid, the rest as a list. */
+export const defaultView = (kind) => (kind === 'media' ? 'grid' : 'list')
+
+/**
+ * A thumbnail is drawn for an image with a cloud copy, of a size worth reading whole. A project file kept on its machine
+ * is read for one only while it has a cloud copy too (`keep`, a project chat's temporary one): reading it otherwise would
+ * upload it.
+ */
+export const THUMB_MAX_BYTES = 10 * 1024 * 1024
+export function wantsThumb(entry) {
+  return entry.type !== 'folder' && /^image\//i.test(entry.contentType || '') && (!entry.storedOn || !!entry.keep)
+    && (entry.size == null || entry.size <= THUMB_MAX_BYTES) && !/svg/i.test(entry.contentType)
+}
+
+/**
+ * A Shift press's range (多选): every id from the one pressed before (`anchor`) to this one, in the order on screen
+ * (`order`), both ends in; only this one when the anchor is not on screen.
+ */
+export function rangeOf(order, anchor, id) {
+  const from = order.indexOf(anchor)
+  const to = order.indexOf(id)
+  if (from < 0 || to < 0) return [id]
+  return order.slice(Math.min(from, to), Math.max(from, to) + 1)
+}
+
+/** What a batch 「设为临时 / 一直保留」 may change: the reader's own cloud copies; the rest, said apart (not theirs, no copy). */
+export function keepable(entries) {
+  return {
+    mine: entries.filter((e) => e.keep?.mine),
+    notMine: entries.filter((e) => e.keep && !e.keep.mine),
+    noCopy: entries.filter((e) => !e.keep),
+  }
+}

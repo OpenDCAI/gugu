@@ -1,3 +1,4 @@
+import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -97,8 +98,10 @@ export const GenericTabItem = observer(function GenericTabItem({
     // Keyboard-initiated selection needs an explicit call since onClick won't fire.
   };
 
-  // 并排在对话旁边的那一页:关闭钮前一颗「最大化 / 还原」,双击页签同一件事(瞄一眼的那种双击照旧是留下它)。
-  const fill = tab.isActive ? host.tabFill(tab.tabId) : null;
+  // 页签全屏:关闭钮前一颗「全屏 / 退出全屏」,双击页签同一件事(瞄一眼的那种双击照旧是留下它)。
+  // 盖住的是整个工作区,所以这屏不止一块时每一枚点着的页签都有;只有一块时只给并排着的那一对(全屏才有区别)。
+  const place = useScreenBlock();
+  const fill = tab.isActive ? host.tabFill(tab.tabId, place.blockId !== null && place.multi) : null;
   const fillLabel = fill ? translate(fill.full ? 'tabs.restorePane' : 'tabs.fillPane') : '';
   const fillButton = fill ? (
     <button

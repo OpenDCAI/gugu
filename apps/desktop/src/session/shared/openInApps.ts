@@ -24,7 +24,8 @@ type OpenInAppConfigShape = {
   id: string;
   label: string;
   iconPath: (typeof ICON_PATHS)[keyof typeof ICON_PATHS];
-  invertInDark?: boolean;
+  /** 单色图标(svg 里填 currentColor):用遮罩画、颜色跟着文字走,深浅色都对(❌ 深色下 invert 一张写死颜色的图)。 */
+  monochrome?: boolean;
   alwaysAvailable?: boolean;
   hideIfUnavailable?: boolean;
   autoInstall?: boolean;
@@ -87,7 +88,7 @@ const _OPEN_IN_APPS = {
     id: 'cursor',
     label: 'Cursor',
     iconPath: ICON_PATHS.cursor,
-    invertInDark: true,
+    monochrome: true,
     autoInstall: true,
     platforms: {
       darwin: {

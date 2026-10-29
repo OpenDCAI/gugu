@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { device } from '../../../support/testHarness'
 import { remoteWorkspaceDevices } from '../../../../apps/desktop/src/hooks/remoteWorkspaceDevices'
-import { assistantTaskDirectory, assistantTaskDeviceLabel } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-task-directory'
+import { assistantTaskDirectory } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-task-directory'
 import { assistantTasks } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-lineage'
 import { liveDeviceSessions, removeDeviceSessions, retainDeviceSessions, subscribeDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 
@@ -29,26 +29,6 @@ describe('assistant task directory across execution devices', () => {
     const tasks = assistantTasks(assistantTaskDirectory(devices, liveDeviceSessions(), local), 'assistant', 'assistant-dm')
     expect(tasks.map((row) => row.summary.conversationId).sort()).toEqual(['desktop-task', 'hosted-task', 'old-phone-task', 'phone-task'])
     expect(remoteWorkspaceDevices(devices).map((row) => row.device_id)).toEqual(['hosted'])
-    expect(assistantTaskDeviceLabel(devices, 'desktop')).toBeNull()
-    expect(assistantTaskDeviceLabel(devices, 'phone')).toBe('phone')
-    expect(assistantTaskDeviceLabel(devices, 'hosted')).toBe('hosted')
-  })
-
-  it('changes only the viewing-device subtitle when the same task directory is viewed on the phone', () => {
-    const desktop = device('desktop', [], { label: 'My computer' })
-    const currentPhone = { ...phone('phone'), is_current_device: true, label: 'My phone' }
-    const devices = [desktop, currentPhone]
-    expect(assistantTaskDeviceLabel(devices, 'phone')).toBeNull()
-    expect(assistantTaskDeviceLabel(devices, 'desktop')).toBe('My computer')
-  })
-
-  it('treats separate device registrations on one physical computer as different viewing devices', () => {
-    const devices = [
-      device('current-tier', [], { is_current_device: true, machine_id: 'same-computer' }),
-      device('other-tier', [], { label: 'Other channel', machine_id: 'same-computer' }),
-    ]
-    expect(assistantTaskDeviceLabel(devices, 'current-tier')).toBeNull()
-    expect(assistantTaskDeviceLabel(devices, 'other-tier')).toBe('Other channel')
   })
 
   it('takes status transitions from the phone summary and does not present an offline working snapshot as live', () => {

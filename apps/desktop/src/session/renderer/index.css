@@ -280,7 +280,6 @@
   --color-foreground-diff-deleted: var(--foreground-diff-deleted);
 
   --color-selection-foreground: var(--selection-foreground);
-  --color-selection-background: var(--selection-background);
 
   --color-border: var(--border, var(--border-color));
   --color-border-1: var(--border-1);
@@ -903,6 +902,10 @@
     /* @@@live-accent — 滑杆/强度这类「当前档」是 live;原来是 jade 的 9/11 两阶。 */
     --composer-accent-solid: var(--live);
     --composer-accent-text: var(--live);
+    /* 思考滑杆:圆钮明暗两套都是纯白;轨道取中性阶梯(浅 4/5 档、深 5/6 档 ≈ 契约原先写死的 0.922/0.878、0.184/0.224)。 */
+    --composer-knob: var(--color-white);
+    --composer-track: var(--neutral-4);
+    --composer-track-hover: var(--neutral-5);
     --composer-destructive-bg: var(--background-error);
     --composer-destructive-hover: var(--background-error-hover);
     --composer-destructive-selected: var(--background-error-hover);
@@ -1261,6 +1264,9 @@
     /* @@@live-accent — 滑杆/强度这类「当前档」是 live;原来是 jade 的 9/11 两阶。 */
     --composer-accent-solid: var(--live);
     --composer-accent-text: var(--live);
+    --composer-knob: var(--color-white);
+    --composer-track: var(--neutral-5);
+    --composer-track-hover: var(--neutral-6);
     --composer-destructive-bg: var(--background-error);
     --composer-destructive-hover: var(--background-error-hover);
     --composer-destructive-selected: var(--background-error-hover);
@@ -1664,55 +1670,6 @@
       animation: none;
       width: 100%;
     }
-  }
-  /* Diff decorations for Monaco editor gutter and line highlights */
-  .diff-glyph-added::before,
-  .diff-glyph-modified::before,
-  .diff-glyph-deleted::before {
-    content: '';
-    position: absolute;
-    left: 3px;
-    width: 3px;
-    height: 100%;
-    border-radius: 1px;
-  }
-
-  .diff-glyph-added::before {
-    background-color: var(--diff-added);
-  }
-
-  .diff-glyph-modified::before {
-    background-color: var(--diff-modified);
-  }
-
-  .diff-glyph-deleted::before {
-    background-color: var(--diff-deleted);
-  }
-
-  .diff-glyph-added:hover::before,
-  .diff-glyph-modified:hover::before,
-  .diff-glyph-deleted:hover::before {
-    width: 4px;
-    left: 2px;
-    /* @@@task-fusion (#2802) — 并入本体后这份 CSS 落进 apps/desktop/src,受咕咕的动效 token 门
-       约束(scripts/ui-state-debt-check.mjs):❌ 魔数时长。--dur-* 由 skin bridge 从宿主
-       tokens.css 继承进 shadow root(见 packages/session-ui/src/styles/effects/animations.css.ts)。
-       ⚠️ 不能写成 `var(--dur-fast, 120ms)` —— 那个 fallback 数字照样被判为债务(实测)。 */
-    transition:
-      width var(--dur-fast) ease-in-out,
-      left var(--dur-fast) ease-in-out;
-  }
-
-  .diff-line-added {
-    background-color: var(--diff-added-bg);
-  }
-
-  .diff-line-modified {
-    background-color: var(--diff-modified-bg);
-  }
-
-  .diff-line-deleted {
-    background-color: var(--diff-deleted-bg);
   }
 
 }

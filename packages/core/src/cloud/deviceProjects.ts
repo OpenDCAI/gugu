@@ -52,7 +52,6 @@ export async function publishDeviceProjects(
       root_path: project.rootPath,
       created_at: project.createdAt,
       chat_id: project.chatId,
-      group_representative: project.groupRepresentative,
       folders: project.folders.map((folder) => ({
         workspace_id: folder.workspaceId,
         kind: folder.kind,
@@ -66,7 +65,7 @@ export async function publishDeviceProjects(
   return data === true
 }
 
-const DEVICE_PROJECT_COLUMNS = 'device_id, local_project_id, name, root_path, created_at, chat_id, group_representative, folders'
+const DEVICE_PROJECT_COLUMNS = 'device_id, local_project_id, name, root_path, created_at, chat_id, folders'
 export const DEVICE_PROJECT_PAGE_ROWS = 1000
 
 /**
@@ -134,7 +133,6 @@ export function normalizeDeviceProjectRow(value: unknown): { deviceId: string; p
       rootPath: text(row.root_path, 'root_path'),
       createdAt: new Date(createdAt).toISOString(),
       chatId: row.chat_id === null || row.chat_id === undefined ? null : text(row.chat_id, 'chat_id'),
-      groupRepresentative: row.group_representative === true,
       folders: row.folders.map(normalizeFolder),
     },
   }

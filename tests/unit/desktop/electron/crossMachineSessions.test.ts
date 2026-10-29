@@ -663,3 +663,17 @@ describe('one machine\'s session list, asked once and reused for a few seconds',
     expect(lists(call)).toBe(3)
   })
 })
+
+describe('an agent\'s session on another machine, for opening it', () => {
+  const rows = [{ conversationId: 's-b', projectId: 'pb', agent: { userId: 'agent-b' } }]
+  it('finds the machine from the roster and the session in that machine\'s list; an agent here is not looked for there', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { projects: [], sessions: rows } }), {
+      lookupAgents: async ({ userIds }) => userIds.map((userId) => ({ userId, deviceId: userId === 'agent-a' ? 'dev-a' : 'dev-b', guguNumber: null })),
+    })
+    expect(await xm.sessionOfAgent('agent-b')).toEqual({ sessionId: 's-b', deviceId: 'dev-b' })
+    expect(await xm.sessionOfAgent('agent-a')).toBeNull()
+    expect(await xm.sessionOfAgent('agent-x', 'dev-b')).toBeNull()
+    // The second lookup reuses that machine's list asked a moment ago (sessionsOn, a few seconds).
+    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([['dev-b', 'sessionTimeline.sessionsList']])
+  })
+})
