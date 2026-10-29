@@ -39,9 +39,11 @@ describe('protocol 13 file changes on the wire', () => {
       { ...base, id: `${base.id}:/w/new.txt`, kind: 'create-file-tool-call', path: '/w/new.txt', content: 'one\ntwo' },
       { ...base, id: `${base.id}:/w/old.txt`, kind: 'delete-file-tool-call', path: '/w/old.txt' },
     ]);
-    // A diff without patch text has nothing 13 can draw as a file: generic row, no invented text.
-    const bare = protocol13FileChanges({ ...item, contentBlocks: [{ type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'unknown' }] }, 13, 'to-peer');
-    expect(bare).toEqual({ ...base, kind: 'unknown-tool-call', name: 'Edit src/a.ts', toolKind: 'edit' });
+  });
+
+  it('to a 13 peer: a diff with only a path and no patch text becomes a generic row, with no invented text', () => {
+    const item = { ...base, kind: 'patch-tool-call', contentBlocks: [{ type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'unknown' }] };
+    expect(protocol13FileChanges(item, 13, 'to-peer')).toEqual({ ...base, kind: 'unknown-tool-call', name: 'Edit src/a.ts', toolKind: 'edit' });
   });
 
   it('between protocol 14 peers nothing is converted: the same value comes back', () => {
