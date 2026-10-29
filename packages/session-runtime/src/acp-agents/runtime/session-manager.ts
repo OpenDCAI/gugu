@@ -2262,16 +2262,7 @@ export class SessionManager implements InboundRouter {
       live: createSessionLiveModels(this.sessionHost, input.sessionId, cell.sessionState),
       transcriptTick: null,
       transcriptPending: false,
-      lastSynced: {
-        sessionState: cell.sessionState,
-        config: cell.config,
-        usage: cell.usage,
-        plan: null,
-        agents: [],
-        activeTurn: null,
-        draft: null,
-        terminals: [],
-      },
+      lastSynced: initialLastSynced(cell),
     });
     this.cells.set(input.sessionId, record);
     if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
@@ -2305,6 +2296,9 @@ export class SessionManager implements InboundRouter {
 
   private restoreLostRecord(record: Extract<SessionRecord, { phase: 'lost' }>): void {
     record.live = createSessionLiveModels(this.sessionHost, record.input.sessionId, record.cell.sessionState);
+    // 新的活模型从初值开始:「上一次推过什么」要一起回到初值,❌ 拿旧模型推过的那份比 —— 没变的就一样都不推,
+    // 新模型就一直停在初值(#994 起终端那一组没变时是同一个数组,这一跳必然命中)。
+    record.lastSynced = initialLastSynced(record.cell);
     this.cells.set(record.input.sessionId, record);
     this.syncRecord(record);
   }
@@ -3024,4 +3018,18 @@ function startFailureMessage(
   return abandoned
     ? `Start cancelled while ${where}, after ${waited}.`
     : `Start failed while ${where}, after ${waited}: ${reason}`;
+}
+
+/** 刚建好的活模型里各格的初值;「上一次推过什么」从这里起算。 */
+function initialLastSynced(cell: Pick<SessionCell, 'sessionState' | 'config' | 'usage'>): SessionRecordBase['lastSynced'] {
+  return {
+    sessionState: cell.sessionState,
+    config: cell.config,
+    usage: cell.usage,
+    plan: null,
+    agents: [],
+    activeTurn: null,
+    draft: null,
+    terminals: [],
+  };
 }
