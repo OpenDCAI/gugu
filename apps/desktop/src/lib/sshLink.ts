@@ -60,6 +60,8 @@ export type SshLinkFailure =
   | 'outdated'
   | 'refused'
   | 'updating'
+  /** 版本对不上,那台机器在等 agent 空闲再换(见 SshUpgradeEvent.waitingIdle)。 */
+  | 'waitingIdle'
   | 'notRunning'
   | 'notSignedIn'
   | 'notInstalled'
@@ -83,7 +85,8 @@ export type SshLinkAnswer = { deviceId: string; promptId: string; value: string 
  */
 export type SshUpgradeEvent = {
   deviceId: string
-  phase: 'updating' | 'done' | 'failed' | 'desktopTooOld'
+  /** waitingIdle:那台机器上这个账号有 agent 在跑,装好了、等它空闲再换(人可以点「现在重启更新」)。 */
+  phase: 'updating' | 'done' | 'failed' | 'desktopTooOld' | 'waitingIdle'
   percent?: number | null
   /** 没升成,因为那台机器上的 server 老到没法自动更新:请人在那台机器上跑的安装命令。 */
   reinstall?: string
@@ -98,6 +101,7 @@ export const SSH_LINK_ERROR_CODE: Record<SshLinkFailure, string> = {
   outdated: 'server_outdated',
   refused: 'ssh_link_refused',
   updating: 'server_updating',
+  waitingIdle: 'server_outdated',
   notRunning: 'device_offline',
   notSignedIn: 'ssh_not_signed_in',
   notInstalled: 'ssh_not_installed',

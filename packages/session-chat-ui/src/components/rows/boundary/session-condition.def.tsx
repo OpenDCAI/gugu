@@ -42,6 +42,7 @@ const LABEL_KEY: Record<SessionConditionItem['code'], string> = {
   'machine-unreachable': 'transcript.condition.machineUnreachable',
   'machine-attention': 'transcript.condition.machineAttention',
   'membership-required': 'transcript.condition.membershipRequired',
+  'turn-interrupted': 'transcript.condition.turnInterruptedUnclean',
 };
 
 export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: number }>({

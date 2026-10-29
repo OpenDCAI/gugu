@@ -15,6 +15,7 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
+import { takeLastExit } from '../../lib/exit-reason'
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
@@ -568,7 +569,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       log.error('[session-host] 开机收残问不出 tmux 会话列表,按一个都没活下来收', { error: String(error) })
       return new Set<string>()
     })
-    await agentStatusWriter.settleAfterRestart(tmuxSessionNames)
+    // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
+    await agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir))
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     claimInterruptedDispatches()
