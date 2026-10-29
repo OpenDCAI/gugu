@@ -4,12 +4,11 @@ import { useTranslation } from 'react-i18next'
 import '../../i18n/registerBrowserUseCatalog'
 import './browserUse.css'
 import { useMobileShell } from '@/hooks/useMobileShell'
-import { Globe, KeyRound } from '@/lib/icons'
+import { Globe } from '@/lib/icons'
 import { followLink } from '@/lib/guguLinks'
 import { rendererLogger } from '@/lib/log'
 import { notify } from '@/lib/notices'
 import type { Settlement } from '@gugu/session-core/session-record/contract'
-import type { CloudBrowserAssistance } from '@/session/shared/cloud-browser'
 import { Button } from '../ui/Button'
 import { BROWSER_USE_APP_ID, browserUseTab, isBrowserAssistance } from './browserUseApp'
 
@@ -17,7 +16,7 @@ const log = rendererLogger('browser-use/ask')
 
 /**
  * 任务卡 / 审批条上「agent 请你登录 / 接手」那一问的主入口:打开这个任务的 Browser Use 页签(那里有画面、接管和
- * 密码保险箱;登录请求一打开就递出保险箱)。「完成 / 取消」照旧由那一问自己的按钮答。
+ * 在页面上登录)。「完成 / 取消」照旧由那一问自己的按钮答。
  * 没装 / 停用了 Browser Use:照实说,指到它在「App」页上的那一页(装 / 启用都在那里)—— ❌ 摆一个点了没反应的按钮。
  */
 export const BrowserAssistanceAction = observer(function BrowserAssistanceAction({
@@ -32,7 +31,6 @@ export const BrowserAssistanceAction = observer(function BrowserAssistanceAction
   // App 页签只在桌面上:手机上这一问照旧只有它自己的按钮。
   const mobile = useMobileShell()
   if (mobile || !isBrowserAssistance(settlement)) return null
-  const login = (settlement.origin?.payload as Partial<CloudBrowserAssistance> | undefined)?.kind === 'login'
   const { state, tab } = browserUseTab()
   if (state !== 'ready') {
     return (
@@ -56,7 +54,7 @@ export const BrowserAssistanceAction = observer(function BrowserAssistanceAction
   return (
     <div className="bu-ask" data-testid="browser-assistance-action" data-state={state}>
       <Button variant="primary" size="sm" disabled={opening} onClick={open}>
-        {login ? <KeyRound size={14} /> : <Globe size={14} />} {t(login ? 'ask.login' : 'ask.open')}
+        <Globe size={14} /> {t('ask.open')}
       </Button>
     </div>
   )

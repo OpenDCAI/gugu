@@ -5,16 +5,15 @@ import type { TFunction } from 'i18next'
 import '../../i18n/registerBrowserUseCatalog'
 import './browserUse.css'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { Check, Globe, KeyRound, RefreshCw, Square, X } from '@/lib/icons'
+import { Check, Globe, RefreshCw, Square, X } from '@/lib/icons'
 import { canOpenLiveBrowser } from '@/lib/browserUseLink'
-import type { CloudBrowserServerMessage, CloudBrowserTab } from '@/session/shared/cloud-browser'
+import type { CloudBrowserTab } from '@/session/shared/cloud-browser'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { Sheet } from '../ui/Sheet'
 import { cloudBrowserLine, siteLabel, type CloudBrowserLine } from './browserUseLabels'
 import { BrowserUseScreen } from './BrowserUseScreen'
 import { chunkText, nextTextId } from './screenMath'
-import { BrowserUseVault, type VaultOutcome } from './BrowserUseVault'
 import { browserUseMachine, openTaskBrowser } from './browserUsePlace'
 import { useBrowserUse, type BrowserUseView } from './useBrowserUse'
 
@@ -24,7 +23,7 @@ import { useBrowserUse, type BrowserUseView } from './useBrowserUse'
  *   · 任务在这台电脑上:agent 用的就是任务自带的「浏览器」页签 —— 一句话加一个按钮指过去,❌ 再画一份画面;
  *   · 任务在另一台咕咕桌面上:如实说在那台电脑上;
  *   · 任务在咕咕 server 上:那台机器上的 Chrome —— 实时画面、标签页、接管 / 交还、停止 / 允许继续,
- *     agent 请人登录这个任务要登的网站时弹密码保险箱。
+ *     agent 请人登录时,人在页面上接管登录。
  * `sessionId` = 页属于的任务(常驻页的地方 `session:<id>`);null = 不在任务里。`active` = 此刻有一格在屏上认领它。
  */
 export const BrowserUseHostPage = observer(function BrowserUseHostPage({ sessionId, active }: { sessionId: string | null; active: boolean }) {
@@ -68,7 +67,7 @@ function lineText(line: CloudBrowserLine, t: TFunction<'browserUse'>): string {
   if (line.key !== 'needs') return t(line.key)
   const what =
     line.assistance.text ??
-    (line.assistance.kind === 'login' ? t('vault.login', { site: siteLabel(line.assistance.site) }) : t('viewer.requestTakeover'))
+    (line.assistance.kind === 'login' ? t('viewer.login', { site: siteLabel(line.assistance.site) }) : t('viewer.requestTakeover'))
   return `${t('viewer.needsUserAction')} · ${what}`
 }
 
@@ -80,24 +79,10 @@ type Controls = {
   release: () => void
   askStop: () => void
   resume: () => void
-  openVault: () => void
 }
 
-function useControls(view: BrowserUseView, everOpened: boolean, active: boolean) {
+function useControls(view: BrowserUseView, everOpened: boolean) {
   const [releasing, setReleasing] = useState(false)
-  // 开的是哪一次请求的保险箱:那次请求结束(填好 / 超时 / 被关掉)它就不算开着。
-  const [vaultFor, setVaultFor] = useState<string | null>(null)
-  const askId = view.assistance?.kind === 'login' ? view.assistance.requestId : null
-  const vaultOpen = !!askId && vaultFor === askId
-  const setVaultOpen = useCallback((open: boolean) => setVaultFor(open ? askId : null), [askId])
-  // 这个任务请人登录:页签在屏上(从任务卡上点「在 Browser Use 里登录」过来,或本来就开着)就把保险箱递到人面前,
-  // 每次请求一回;关掉了还能点「登录 某站」再开。
-  const offered = useRef<string | null>(null)
-  useEffect(() => {
-    if (!askId || !active || !view.live || offered.current === askId) return
-    offered.current = askId
-    setVaultFor(askId)
-  }, [askId, active, view.live])
   const [stopAsked, setStopAsked] = useState(false)
   const control = view.state?.control
   useEffect(() => {
@@ -124,46 +109,16 @@ function useControls(view: BrowserUseView, everOpened: boolean, active: boolean)
   const resume = useCallback(() => {
     view.send({ type: 'automation_resume' })
   }, [view])
-  const openVault = useCallback(() => setVaultOpen(true), [setVaultOpen])
-  const submitVault = useCallback(
-    (input: { username: string; password: string; save: boolean }) =>
-      new Promise<VaultOutcome>((resolve) => {
-        const requestId = view.assistance?.requestId
-        if (!requestId) return resolve({ ok: false, reason: 'gone' })
-        let off = () => {}
-        const timer = setTimeout(() => {
-          off()
-          resolve({ ok: false, reason: 'offline' })
-        }, 30_000)
-        off = view.onServerMessage((message: CloudBrowserServerMessage) => {
-          if (message.type !== 'vault_result' || message.requestId !== requestId) return
-          clearTimeout(timer)
-          off()
-          resolve(message.ok ? { ok: true } : { ok: false, reason: message.reason ?? 'gone' })
-        })
-        if (!view.send({ type: 'vault_submit', requestId, ...input })) {
-          clearTimeout(timer)
-          off()
-          resolve({ ok: false, reason: 'offline' })
-        }
-      }),
-    [view],
-  )
-  const controls: Controls = { view, line, releasing, takeControl, release, askStop, resume, openVault }
-  return { controls, vaultOpen, setVaultOpen, stopAsked, setStopAsked, submitVault }
+  const controls: Controls = { view, line, releasing, takeControl, release, askStop, resume }
+  return { controls, stopAsked, setStopAsked }
 }
 
-/**
- * 主按钮:接管 / 取消接管申请 / 交还 / 正在交还…;agent 请人登录时「登录 某站」(保险箱)在前、「接管浏览器」也在 ——
- * 人也可以自己接管、在页面上登录,做完点「完成」(DoneAction)。
- */
 function PrimaryAction({ controls }: { controls: Controls }) {
   const { t } = useTranslation('browserUse')
   const { view, line } = controls
   if (!view.live) return null
   const control = view.state?.control ?? 'released'
   const automation = view.state?.automation ?? view.status?.automation ?? 'idle'
-  const assistance = view.assistance ?? null
   const disabled = !view.state || line.key === 'viewer.ended' || control === 'occupied'
   if (controls.releasing) {
     return (
@@ -184,18 +139,6 @@ function PrimaryAction({ controls }: { controls: Controls }) {
       <Button variant="secondary" size="sm" onClick={controls.release}>
         <LoadingIndicator size="inline" /> {t('viewer.cancelControl')}
       </Button>
-    )
-  }
-  if (assistance?.kind === 'login' && automation !== 'stopped') {
-    return (
-      <>
-        <Button variant="primary" size="sm" onClick={controls.openVault}>
-          <KeyRound size={14} /> {t('vault.login', { site: siteLabel(assistance.site) })}
-        </Button>
-        <Button variant="secondary" size="sm" onClick={controls.takeControl} disabled={disabled}>
-          {t('viewer.takeControl')}
-        </Button>
-      </>
     )
   }
   return (
@@ -431,7 +374,7 @@ function ServerBrowser({
   const view = useBrowserUse(deviceId, sessionId, canOpenLiveBrowser() && direct, { framesEnabled: active && pageVisible, tabId: viewTab })
   const everOpened = useRef(false)
   if (view.linkState === 'open') everOpened.current = true
-  const { controls, vaultOpen, setVaultOpen, stopAsked, setStopAsked, submitVault } = useControls(view, everOpened.current, active)
+  const { controls, stopAsked, setStopAsked } = useControls(view, everOpened.current)
   const [closeAsk, setCloseAsk] = useState<{ tabId: string; kind: 'control' | 'last' } | null>(null)
   const [tabProblem, setTabProblem] = useState(false)
   const [invalidText, setInvalidText] = useState(false)
@@ -521,9 +464,6 @@ function ServerBrowser({
           onConfirm={() => view.send({ type: 'tab_close', tabId: closeAsk.tabId })}
           onClose={() => setCloseAsk(null)}
         />
-      ) : null}
-      {vaultOpen && loginAsk ? (
-        <BrowserUseVault key={loginAsk.requestId} assistance={loginAsk} onSubmit={submitVault} onClose={() => setVaultOpen(false)} />
       ) : null}
       {stopAsked ? (
         <Confirm

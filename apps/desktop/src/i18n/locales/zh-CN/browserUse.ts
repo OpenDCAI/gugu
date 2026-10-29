@@ -1,4 +1,4 @@
-// Browser Use App 的「浏览器」页签(宿主页 hostPage: 'browser'):看 agent 的浏览器、接管、密码保险箱;任务卡上的入口。
+// Browser Use App 的「浏览器」页签(宿主页 hostPage: 'browser'):看 agent 的浏览器、接管;任务卡上的入口。
 export default {
   "place": {
     "noTask": "这个页签属于一个任务：在任务里打开它，就能看那个任务的浏览器。",
@@ -60,30 +60,12 @@ export default {
     "retryInput": "重试未发送内容",
     "discardInput": "关闭并丢弃未发送内容",
     "done": "完成",
-    "loginOrTakeOver": "可以在保险箱里填账号密码，也可以接管浏览器、自己在页面上登录；做完点「完成」。",
-    "releasingControl": "正在交还控制…"
-  },
-  "vault": {
-    "title": "密码保险箱",
-    "privacy": "只有你能看到自己的密码",
     "login": "登录 {{site}}",
-    "adding": "添加中",
-    "added": "已添加",
-    "url": "网址",
-    "username": "用户名",
-    "password": "密码",
-    "showPassword": "显示密码",
-    "hidePassword": "隐藏密码",
-    "savePassword": "保存密码，下次免输入",
-    "confirm": "确认添加",
-    "close": "关闭",
-    "noForm": "这个页面上没找到登录框",
-    "saveFailed": "已填好，但没能保存密码",
-    "gone": "这次登录请求已结束"
+    "loginOrTakeOver": "接管浏览器，在页面上登录；做完点「完成」。",
+    "releasingControl": "正在交还控制…"
   },
   "ask": {
     "open": "在 Browser Use 里查看",
-    "login": "在 Browser Use 里登录",
     "missing": "要装上 Browser Use App，才能在这里看这个浏览器、替它登录。",
     "disabled": "Browser Use App 已停用：启用后才能在这里看这个浏览器、替它登录。",
     "goToApps": "前往 App",

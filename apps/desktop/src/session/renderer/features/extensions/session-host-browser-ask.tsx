@@ -13,7 +13,7 @@ import { useSessionHostAsk } from './use-session-host-ask';
 /**
  * The agent asks the person to log in or take one browser step for it (`browser-assistance`, the server's cloud browser)
  * — on its own session page, where Needs-you leaves a session that is on screen. The way to it first: this task's Browser
- * Use tab (the live browser, taking over, the password vault); then the ask's own answers, through the same `respond` on
+ * Use tab (the live browser and taking over); then the ask's own answers, through the same `respond` on
  * the machine the session runs on. Read only while the session waits on it (`dialog`).
  */
 export function SessionHostBrowserAsk({

@@ -539,6 +539,7 @@ function getArgValue(flag: string): string | undefined {
 }
 
 import { writeSharedUserDataPointer } from './session/headless/shared-user-data'
+import { removeLegacyBrowserLogins } from './lib/remove-legacy-browser-logins'
 
 const IS_TEST_MODE = process.env.GUGU_TEST_MODE === '1'
 // 咕咕 server(product spec):同一份主进程,没有窗口。由 server-entry.ts 置位。
@@ -724,6 +725,13 @@ if (!hasSingleInstanceLock) {
     process.stderr.write(`[server] 这个数据目录上已经有一个咕咕 server 在跑(${app.getPath('userData')})\n`)
   }
   app.quit()
+}
+if (hasSingleInstanceLock) {
+  const migrationLog = createLogger('browser/saved-login-migration')
+  removeLegacyBrowserLogins(app.getPath('userData'), {
+    info: (message, fields) => migrationLog.info(fields ?? {}, message),
+    warn: (message, fields) => migrationLog.warn(fields ?? {}, message),
+  })
 }
 
 let mainWindow: BrowserWindow | null = null

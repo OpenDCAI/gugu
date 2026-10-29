@@ -10,7 +10,7 @@ import { browserUseTab } from './browserUseApp'
  * Browser Use 的「浏览器」页签画的是哪台机器上的浏览器 —— 按页签所属的那个任务在哪台机器上跑:
  *   · local:这台电脑。agent 用的就是任务自带的「浏览器」页签,这里只指过去(❌ 再画一份)。
  *   · desktop:另一台咕咕桌面。它的浏览器在那台电脑上的任务里,这里看不到。
- *   · server:咕咕 server 上的 Chrome(cloudBrowser.*、实时画面、接管、保险箱)。
+ *   · server:咕咕 server 上的 Chrome(cloudBrowser.*、实时画面、接管)。
  *     `direct` = 这台电脑与它之间有直连的路(远程隧道 / SSH),实时画面与接管要它;没有就只看小图。
  * 读 mobx 的状态:在 observer 里调用。
  */
