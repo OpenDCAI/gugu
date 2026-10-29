@@ -22,6 +22,31 @@ describe('terminal entities', () => {
     }
   });
 
+  it('hands out the same snapshot objects until a terminal changes (#994)', () => {
+    const registry = new TerminalLiveRegistry();
+    const chunk = (id: string, text: string) => registry.accept('task', 'scope', { kind: 'terminal_chunk', terminal: { terminalId: id, data: b64(text) } });
+    chunk('a', 'A');
+    chunk('b', 'B');
+    const first = registry.snapshotSession('task');
+    expect(registry.snapshotSession('task'), 'nothing changed: the same list').toBe(first);
+    chunk('b', '2');
+    const second = registry.snapshotSession('task');
+    expect(second).not.toBe(first);
+    expect(second[0], 'the untouched terminal keeps its object').toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1].output).toBe('B2');
+
+    const host = { terminalId: 'h', owner: 'host' as const, canKill: true, command: 'sleep', args: [], cwd: '/w', output: 'x', truncated: false, exitStatus: null };
+    registry.hooks.onTerminalCreated({ sessionId: 'task', scope: 'scope', terminalId: 'h', command: 'sleep', args: [], cwd: '/w', snapshot: host } as Parameters<typeof registry.hooks.onTerminalCreated>[0]);
+    const withHost = registry.snapshotSession('task');
+    expect(withHost).toHaveLength(3);
+    registry.hooks.onTerminalReleased({ sessionId: 'task', scope: 'scope', terminalId: 'h' });
+    const released = registry.snapshotSession('task');
+    expect(released[2]).not.toBe(withHost[2]);
+    expect(released[2].canKill).toBe(false);
+    expect(released[0]).toBe(withHost[0]);
+  });
+
   it('retains unreferenced output through exit and a late tool reference, with session-local identities', () => {
     const registry = new TerminalLiveRegistry();
     for (const [provider, output] of [['a', 'FIRST'], ['b', 'SECOND']]) {
