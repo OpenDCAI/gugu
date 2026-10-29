@@ -27,7 +27,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
         const file = files[index]
         const prepared = await retryAttachmentUpload(attempt => timings[index].stage('upload', attempt,
           (signal, capDeadline, progress) => {
-            setAttachmentUploadProgress(timings[index].clientId, { loaded: 0, total: file.size, attempt })
+            setAttachmentUploadProgress(timings[index].clientId)
             return prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
             { ...scope, request_id: timings[index].clientId }, plan => { capDeadline(plan.expires_at); progress() }, attempt > 1,
             transfer => { progress(transfer.loaded, transfer.total); setAttachmentUploadProgress(timings[index].clientId, { ...transfer, attempt }) })

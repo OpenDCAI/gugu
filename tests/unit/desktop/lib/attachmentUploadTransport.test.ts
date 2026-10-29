@@ -48,7 +48,7 @@ describe('observable browser attachment transport (#1002)', () => {
     const done = attachmentSendTiming('m', 'c').stage('upload', 1, signal => xhrAttachmentUpload('https://storage.test/scoped', {
       method: 'POST', body: new FormData(), signal,
     })).catch(error => error)
-    await vi.advanceTimersByTimeAsync(15_001)
+    await vi.advanceTimersByTimeAsync(30_001)
     expect(await done).toBeInstanceOf(AttachmentStageTimeout)
     expect(Upload.requests[0].aborted).toBe(true)
     expect(Upload.requests[0].upload.onprogress).toBeNull()

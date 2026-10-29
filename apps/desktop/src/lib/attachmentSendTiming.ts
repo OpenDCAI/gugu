@@ -3,6 +3,8 @@ import { i18n } from '../i18n'
 
 export const ATTACHMENT_SEND_DEADLINES = { upload: 120_000, commit: 20_000, readback: 5_000 }
 export const ATTACHMENT_UPLOAD_IDLE_MS = 15_000
+export const ATTACHMENT_UPLOAD_START_MS = 30_000
+export const ATTACHMENT_UPLOAD_RESPONSE_MS = 20_000
 export type AttachmentSendStage = keyof typeof ATTACHMENT_SEND_DEADLINES
 const log = rendererLogger('chat/attachments')
 export class AttachmentStageTimeout extends Error {
@@ -37,18 +39,25 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
       const fields = { clientId, chatId, stage, attempt }
       const timeoutMs = options?.timeoutMs === undefined ? ATTACHMENT_SEND_DEADLINES[stage] : options.timeoutMs
       let deadline = timeoutMs === null ? Infinity : Date.now() + timeoutMs
-      let lastProgressAt = Date.now(), lastSent = 0, bytesComplete = false
+      let uploadDeadline = Date.now() + ATTACHMENT_UPLOAD_START_MS, lastSent = 0
       let timeout: ReturnType<typeof setTimeout> | undefined
       const arm = () => {
         clearTimeout(timeout)
-        const nextDeadline = Math.min(deadline, stage === 'upload' && !bytesComplete ? lastProgressAt + ATTACHMENT_UPLOAD_IDLE_MS : Infinity)
+        const nextDeadline = Math.min(deadline, stage === 'upload' ? uploadDeadline : Infinity)
         if (Number.isFinite(nextDeadline)) timeout = setTimeout(() => controller.abort(new AttachmentStageTimeout(stage)), Math.max(0, nextDeadline - Date.now()))
       }
       const progress = (sent?: number, total?: number) => {
         if (signal.aborted || sent !== undefined && (!Number.isFinite(sent) || sent <= lastSent)) return
-        if (sent !== undefined) lastSent = sent
-        if (sent !== undefined && total !== undefined && total > 0 && sent >= total) bytesComplete = true
-        lastProgressAt = Date.now(); arm()
+        if (sent === undefined) {
+          // An accepted plan advances setup, but connection/preflight still need a first-byte grace period.
+          if (lastSent === 0) uploadDeadline = Date.now() + ATTACHMENT_UPLOAD_START_MS
+        } else {
+          lastSent = sent
+          // XHR can report 100% after buffering locally. Await the server only for a short, bounded response phase.
+          const complete = total !== undefined && Number.isFinite(total) && total > 0 && sent >= total
+          uploadDeadline = Date.now() + (complete ? ATTACHMENT_UPLOAD_RESPONSE_MS : ATTACHMENT_UPLOAD_IDLE_MS)
+        }
+        arm()
       }
       const capDeadline = (expiresAt: string | undefined) => {
         if (!expiresAt) return

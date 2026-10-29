@@ -6,16 +6,46 @@ vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => (
 afterEach(() => vi.useRealTimers())
 
 describe('attachment upload inactivity (#1002)', () => {
-  it('keeps the overall deadline instead of the byte-idle timer once all bytes are sent', async () => {
+  it('allows 25 seconds for connection and preflight before the first bytes', async () => {
+    vi.useFakeTimers()
+    let outcome: unknown = 'pending'
+    const done = attachmentSendTiming('message', 'chat').stage('upload', 1,
+      async (_signal, _cap, progress) => {
+        await new Promise(resolve => setTimeout(resolve, 25_000))
+        progress(32_768, 65_536)
+        await new Promise(resolve => setTimeout(resolve, 10_000))
+        progress(65_536, 65_536)
+        await new Promise(resolve => setTimeout(resolve, 5_000))
+        return 'uploaded'
+      }).then(value => { outcome = value }, error => { outcome = error })
+    await vi.advanceTimersByTimeAsync(40_000)
+    await done
+    expect(outcome).toBe('uploaded')
+  })
+
+  it('times out a 64 KiB upload without a response 20 seconds after its last bytes', async () => {
+    vi.useFakeTimers()
+    let outcome: unknown = 'pending'
+    const done = attachmentSendTiming('message', 'chat').stage('upload', 1,
+      (_signal, _cap, progress) => {
+        progress(65_536, 65_536)
+        return new Promise(() => {})
+      }).catch(error => { outcome = error })
+    await vi.advanceTimersByTimeAsync(20_001)
+    expect(outcome).toBeInstanceOf(AttachmentStageTimeout)
+    await done
+  })
+
+  it('allows a response within the short post-byte deadline', async () => {
     vi.useFakeTimers()
     let outcome: unknown = 'pending'
     const done = attachmentSendTiming('message', 'chat').stage('upload', 1,
       async (_signal, _cap, progress) => {
         progress(1_048_576, 1_048_576)
-        await new Promise(resolve => setTimeout(resolve, 35_000))
+        await new Promise(resolve => setTimeout(resolve, 18_000))
         return 'committed'
       }).then(value => { outcome = value }, error => { outcome = error })
-    await vi.advanceTimersByTimeAsync(35_000)
+    await vi.advanceTimersByTimeAsync(18_000)
     await done
     expect(outcome).toBe('committed')
   })
@@ -26,7 +56,7 @@ describe('attachment upload inactivity (#1002)', () => {
     const done = attachmentSendTiming('m', 'c').stage('upload', 1,
       (_signal, _cap, report) => { progress = report; return new Promise(() => {}) }).catch(error => error)
     await vi.advanceTimersByTimeAsync(1)
-    for (let i = 0; i < 2; i++) { await vi.advanceTimersByTimeAsync(5000); progress(0) }
+    for (let i = 0; i < 5; i++) { await vi.advanceTimersByTimeAsync(5000); progress(0) }
     await vi.advanceTimersByTimeAsync(5000)
     expect(await done).toBeInstanceOf(AttachmentStageTimeout)
   })
@@ -36,7 +66,7 @@ describe('attachment upload inactivity (#1002)', () => {
     const done = attachmentSendTiming('message', 'chat').stage('upload', 1,
       () => new Promise(() => {}), undefined, { timeoutMs: attachmentUploadTimeoutMs(1_048_576) })
       .catch(error => { outcome = error })
-    await vi.advanceTimersByTimeAsync(15_001)
+    await vi.advanceTimersByTimeAsync(30_001)
     expect(outcome).toBeInstanceOf(AttachmentStageTimeout)
     await done
   })

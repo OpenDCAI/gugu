@@ -63,11 +63,30 @@ describe('attachment send recovery', () => {
     const { args, onSent } = arrange()
     mocks.upload.mockImplementationOnce(() => new Promise(() => {}))
     const done = sendAttachmentBatch(args)
-    await vi.advanceTimersByTimeAsync(15_600)
+    await vi.advanceTimersByTimeAsync(30_600)
     await done
     expect(mocks.upload).toHaveBeenCalledTimes(2)
     expect(mocks.commit).toHaveBeenCalledOnce(); expect(onSent).toHaveBeenCalledOnce()
-    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 15_000, outcome: 'timeout' }), 'attachment send stage timing')
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 30_000, outcome: 'timeout' }), 'attachment send stage timing')
+  })
+  it('retries a 64 KiB image after 20 seconds without a response even when all bytes were buffered', async () => {
+    const { args, onSent } = arrange()
+    args.files = [new File([new Uint8Array(65_536)], 'small.png', { type: 'image/png' })]
+    mocks.upload.mockImplementationOnce((_endpoint, _file, _scope, options) => {
+      options.onProgress({ loaded: 65_536, total: 65_536 })
+      return new Promise(() => {})
+    })
+    const done = sendAttachmentBatch(args)
+    await vi.advanceTimersByTimeAsync(19_000)
+    expect(mocks.upload).toHaveBeenCalledOnce()
+    expect(mocks.commit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1600)
+    await done
+    expect(mocks.upload).toHaveBeenCalledTimes(2)
+    expect(mocks.upload.mock.calls[0][2].request_id).toBe(mocks.upload.mock.calls[1][2].request_id)
+    expect(mocks.commit).toHaveBeenCalledOnce()
+    expect(onSent).toHaveBeenCalledOnce()
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 20_000, outcome: 'timeout' }), 'attachment send stage timing')
   })
   it('recovers a lost commit response by its original ID without committing it twice', async () => {
     const { args, rows } = arrange()
