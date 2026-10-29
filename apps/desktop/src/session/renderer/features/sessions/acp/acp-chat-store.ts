@@ -156,7 +156,7 @@ export class AcpChatStore {
   /** Both sides changed since the last confirmed engine text; only an explicit choice resolves it. */
   draftConflict: { text: string; rev: number } | null = null;
   private _draftBaseText = '';
-  private _lastDraftWrite: { text: string; rev: number } | null = null;
+  private readonly _draftWrites = new Map<number, string>();
   queuedEditDraft: { id: string; text: string } | null = null;
   queueEditPending = false;
   private _queueEditTimer: ReturnType<typeof setTimeout> | null = null;
@@ -847,9 +847,14 @@ export class AcpChatStore {
     // Terminal load errors stay put so remounts and generic retry callers do not
     // respawn/provision again — which ones are terminal lives in acp-load-error.
     if (this._disposed || this.historyLoading || !this.loadError || isTerminalLoadError(this.loadError)) return;
-    // Capture the error-only missing state before clearing it. A confirmed Start
-    // fresh has already cleared the old provider reference at its owning store.
-    const missingAtStart = this.providerSessionMissing && Boolean(this._sessionRecord()?.providerSessionId);
+    // Capture error-only missing even before a provider ID or durable mark arrives.
+    const missingAtStart = this.providerSessionMissing;
+    this._restartBootstrap({ ...options, missingAtStart });
+  }
+
+  /** One reset/attach path; only the confirmed host reset bypasses sticky missing. */
+  private _restartBootstrap(options?: BootstrapOptions): void {
+    if (this._disposed) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
@@ -858,10 +863,10 @@ export class AcpChatStore {
     this._storedQueueGeneration += 1;
     this.historyLoading = true;
     // Keep missing admission closed even before the durable mark arrives.
-    if (!missingAtStart) this.loadError = null;
+    if (!options?.missingAtStart) this.loadError = null;
     // Only the missing condition's Retry button opts into re-probing the saved ID.
     // Generic reconnect/model/auth callers retain the sticky missing state.
-    void this._runBootstrap({ ...options, missingAtStart });
+    void this._runBootstrap(options);
   }
 
   async startFresh(): Promise<void> {
@@ -872,7 +877,7 @@ export class AcpChatStore {
       if (!page) throw new Error('Task record is unavailable');
       await page.restartSession(this.sessionId);
       if (this._disposed) return;
-      runInAction(() => { this.historyLoading = false; this.retry(); });
+      runInAction(() => this._restartBootstrap());
     } catch (error: unknown) {
       if (this._disposed) return;
       runInAction(() => { this.historyLoading = false; });
@@ -1610,6 +1615,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     if (this._disposed) return;
     this._disposed = true;
+    this._draftWrites.clear();
     unregisterSessionCommands(this.runtimeSessionId);
     if (this._draftTimer !== null) {
       window.clearTimeout(this._draftTimer);
@@ -2237,11 +2243,16 @@ export class AcpChatStore {
     if (this.canQueueBeforeSession || (!this.session && this.providerSessionMissing)) return;
     const session = this._requireSession('acpFailure.syncDraft');
     if (!session) return;
-    this._lastDraftWrite = { text: draft.input?.text ?? '', rev };
+    const writtenText = draft.input?.text ?? '';
+    if (this._draftWrites.get(rev) === writtenText) return;
+    this._draftWrites.set(rev, writtenText);
     void session
       .setPromptDraft(draft)
       .then((result) => {
-        if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
+        if (!result.success) {
+          this._draftWrites.delete(rev);
+          this._toastError('acpFailure.syncDraft', result.error);
+        }
         if (result.success && draft.input === null && this._pendingDraftRev === rev) {
           runInAction(() => {
             this._pendingDraftRev = null;
@@ -2262,13 +2273,20 @@ export class AcpChatStore {
     }
     const rev = draft?.rev ?? 0;
     this._draftRev = Math.max(this._draftRev, rev);
-    const ownWrite = this._lastDraftWrite?.text === text
-      && (draft === null || this._lastDraftWrite.rev === rev);
+    // Any unacknowledged write may echo after the next write was sent.
+    const acknowledgedRev = draft === null
+      ? [...this._draftWrites].findLast(([, value]) => value === text)?.[0]
+      : rev;
+    const ownWrite = acknowledgedRev !== undefined && this._draftWrites.get(acknowledgedRev) === text;
     if (ownWrite) {
       // An acknowledged write can precede a newer local edit. Advance its base,
       // keeping the newer text pending rather than mistaking our echo for a conflict.
       this._draftBaseText = text;
-      this._lastDraftWrite = null;
+      // Within this client, revisions order writes. The engine cannot later
+      // accept a lower revision after acknowledging this one.
+      for (const pending of this._draftWrites.keys()) {
+        if (pending <= acknowledgedRev!) this._draftWrites.delete(pending);
+      }
     }
     if (this.draftText === text || (this.draftText === this._draftBaseText && !ownWrite)) {
       this.draftText = text;

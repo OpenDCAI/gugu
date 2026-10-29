@@ -249,8 +249,9 @@ describe('saved tasks remain open when their provider cannot resume', () => {
   });
 
 
-  it('does not infer missing re-probe consent from an error before the durable mark arrives', async () => {
-    const { store, open } = savedTask();
+  it.each([true, false])('does not infer missing re-probe consent before the durable mark arrives (saved ID: %s)', async hasId => {
+    const { store, record, open } = savedTask();
+    if (!hasId) delete (record as { providerSessionId?: string }).providerSessionId;
     boundary.start.mockResolvedValueOnce({ success: false, error: {
       type: 'provider_session_missing', cause: { name: 'Error', message: 'saved ID is absent' },
     } });
@@ -274,17 +275,18 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(store.historyLoading).toBe(false);
   });
 
-  it('ordinary retry still starts fresh after the host clears the old provider reference', async () => {
+  it('does not infer reset consent from an absent reference; an explicit retry can still start', async () => {
     const { store, record, open } = savedTask(true);
     await open();
-    // Existing Start fresh host contract, not consent to re-probe the missing ID.
     delete record.providerSessionState;
-    (record as { providerSessionId: string | null }).providerSessionId = null;
+    delete (record as { providerSessionId?: string }).providerSessionId;
     store.retry();
+    await vi.waitFor(() => expect(store.historyLoading).toBe(false));
+    expect(boundary.start).not.toHaveBeenCalled();
+    expect(store.loadError?.kind).toBe('provider_session_missing');
+    store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(store.session).not.toBeNull());
-    expect(boundary.start).toHaveBeenCalledExactlyOnceWith({
-      input: expect.objectContaining({ providerSessionId: null }),
-    });
+    expect(boundary.start).toHaveBeenCalledExactlyOnceWith({ input: expect.objectContaining({ providerSessionId: undefined }) });
   });
 
   it.each(['latest draft', ''])('flushes local %j when the engine still equals base', async text => {
@@ -383,6 +385,37 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     write.resolve({ success: true, data: undefined });
     await vi.runOnlyPendingTimersAsync();
     expect(boundary.liveDraft?.text).toBe('newer local draft');
+  });
+
+  it('accepts an older echo while two local writes are still in flight', async () => {
+    const { store, open } = savedTask();
+    await open();
+    vi.useFakeTimers();
+    const replies = [Promise.withResolvers<unknown>(), Promise.withResolvers<unknown>()];
+    boundary.draft.mockImplementationOnce(() => replies[0]!.promise)
+      .mockImplementationOnce(() => replies[1]!.promise);
+    store.setDraftText('first write');
+    await vi.runOnlyPendingTimersAsync();
+    store.setDraftText('second write');
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.draft).toHaveBeenCalledTimes(2);
+    const writes = boundary.draft.mock.calls.map(([request]) => request.draft);
+    // Both RPCs are still pending when the first engine echo arrives.
+    boundary.liveDraft = { ...writes[0].input, rev: writes[0].rev, updatedAt: 1 };
+    for (const listener of boundary.draftListeners) listener(boundary.liveDraft);
+    expect(store.draftText).toBe('second write');
+    expect(boundary.liveDraft?.text).toBe('first write');
+    expect(store.draftConflict).toBeNull();
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.draft).toHaveBeenCalledTimes(2);
+    boundary.liveDraft = { ...writes[1].input, rev: writes[1].rev, updatedAt: 2 };
+    for (const listener of boundary.draftListeners) listener(boundary.liveDraft);
+    replies.forEach(reply => reply.resolve({ success: true, data: undefined }));
+    await vi.runOnlyPendingTimersAsync();
+    expect(store.draftText).toBe('second write');
+    expect(boundary.liveDraft?.text).toBe('second write');
+    expect(store.draftConflict).toBeNull();
+    expect(boundary.draft).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the next typed draft when the live engine clears a submitted prompt', async () => {
