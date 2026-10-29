@@ -79,6 +79,8 @@ function startedHost(
     env,
     intervalMs: DRAIN_RETRY_MS,
     superviseIntervalMs: SUPERVISE_MS,
+    // Keep reconciliation on this fixture's short cadence while wake is subscribed.
+    safetyIntervalMs: extra.superviseIntervalMs ?? SUPERVISE_MS,
     // 让孤儿恢复闸每个监督 tick 都开(默认 60 s),否则「放回触发取」那条要等一分钟。
     orphanRecoveryIntervalMs: 0,
     machineIdentifier: () => MACHINE_ID,
