@@ -33,8 +33,9 @@ describe('platform integrations client (#921)', () => {
       if (method === 'PUT') return json({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
       return new Response(null, { status: 204 })
     })
-    // An answer without `state` (an older platform) still reads: the state follows `connected`.
-    await expect(c.list()).resolves.toEqual([{ provider: 'amap', accounts: [{ ...listed.providers[0]!.accounts[0]!, state: 'connected' }] }])
+    // An answer without `state` (an older platform) still reads: the state follows `connected`. Without
+    // `disconnectedAt` anywhere, this platform reports no disconnections at all (null, not "none").
+    await expect(c.list()).resolves.toEqual([{ provider: 'amap', accounts: [{ ...listed.providers[0]!.accounts[0]!, state: 'connected' }], disconnectedAt: null }])
     await expect(c.saveCredential('amap', { apiKey: 'k-123' })).resolves.toEqual({ connected: true, updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' })
     await expect(c.deleteCredential('amap')).resolves.toBeUndefined()
     expect(calls.map((x) => `${x.method} ${x.url.replace(BASE, '')} ${x.body === undefined ? '' : JSON.stringify(x.body)}`.trim())).toEqual([
@@ -114,9 +115,42 @@ describe('platform integrations client (#921)', () => {
       { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }] },
     ] }))
     expect(await c.list()).toEqual([
-      { provider: 'amap', accounts: [{ accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }] },
-      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }] },
+      { provider: 'amap', accounts: [{ accountId: 'default', connected: false, state: 'reconnect', updatedAt: '2026-10-29T01:00:00Z', checkedAt: '2026-10-29T01:00:01Z' }], disconnectedAt: null },
+      { provider: 'didi', accounts: [{ accountId: 'default', connected: true, state: 'connected', updatedAt: null, checkedAt: null }], disconnectedAt: null },
     ])
+  })
+
+  it('reads when each account was disconnected; an account with nothing stored still tells it', async () => {
+    const { c } = client(() => json({ providers: [
+      { provider: 'amap', accounts: [
+        { accountId: 'default', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null, disconnectedAt: '2026-10-29T03:00:00.000Z' },
+        { accountId: 'spare', connected: true, state: 'connected', updatedAt: null, checkedAt: null, disconnectedAt: null },
+      ] },
+      { provider: 'didi', accounts: [] },
+    ] }))
+    expect(await c.list()).toEqual([
+      { provider: 'amap', accounts: [{ accountId: 'spare', connected: true, state: 'connected', updatedAt: null, checkedAt: null }], disconnectedAt: { default: '2026-10-29T03:00:00.000Z' } },
+      { provider: 'didi', accounts: [], disconnectedAt: null },
+    ])
+  })
+
+  it('a #649 key goes up marked as a migration, with its save time; an explicit connect carries no marker', async () => {
+    const { calls, c } = client(() => json({ connected: true, updatedAt: null, checkedAt: null }))
+    await c.saveCredential('amap', { apiKey: 'k' }, { migration: { savedAt: null } })
+    await c.saveCredential('amap', { apiKey: 'k' }, { migration: { savedAt: '2026-10-29T01:00:00.000Z' } })
+    await c.saveCredential('amap', { apiKey: 'k' })
+    expect(calls.map((call) => call.body)).toEqual([
+      { fields: { apiKey: 'k' }, migration: { savedAt: null } },
+      { fields: { apiKey: 'k' }, migration: { savedAt: '2026-10-29T01:00:00.000Z' } },
+      { fields: { apiKey: 'k' } },
+    ])
+  })
+
+  it('brings a turned-down migration back by its code', async () => {
+    for (const code of ['already_connected', 'disconnected_after'] as const) {
+      const { c } = client(() => json({ error: code, message: 'no' }, 409))
+      await expect(c.saveCredential('amap', { apiKey: 'k' }, { migration: { savedAt: null } })).rejects.toMatchObject({ status: 409, code })
+    }
   })
 })
 
