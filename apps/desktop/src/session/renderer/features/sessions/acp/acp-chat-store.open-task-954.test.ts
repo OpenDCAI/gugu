@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runInAction } from 'mobx';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -7,6 +9,7 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
 const boundary = vi.hoisted(() => ({
   records: new Map<string, { id: string; providerId: string; providerSessionId: string; providerSessionState?: 'missing' }>(),
   start: vi.fn(), queue: vi.fn(), draft: vi.fn(),
+  liveDraft: null as { rev: number; text: string; updatedAt: number } | null,
   toasts: [] as Array<{ description?: string }>,
 }));
 vi.mock('../stores/session-registry', () => ({
@@ -37,6 +40,7 @@ vi.mock('@gugu/session-wire', async (original) => ({
         case 'state': return { lifecycle: 'ready', isGenerating: false, queuedPrompts: [], pendingPermissions: [], canSubmit: true };
         case 'agents': case 'terminals': return [];
         case 'config': return {};
+        case 'draft': return boundary.liveDraft;
         default: return null;
       }
     }
@@ -82,7 +86,7 @@ const history = (store: InstanceType<typeof AcpChatStore>) =>
   store.chatState.transcript.state.committedTurns.map(turn => turn.id);
 
 beforeEach(() => {
-  boundary.records.clear(); boundary.toasts.length = 0;
+  boundary.records.clear(); boundary.toasts.length = 0; boundary.liveDraft = null;
   boundary.start.mockReset().mockResolvedValue({ success: true, data: { providerSessionId: 'original-provider-id' } });
   boundary.queue.mockReset().mockResolvedValue({ success: true, data: { queued: true } });
   boundary.draft.mockReset().mockResolvedValue({ success: true, data: undefined });
@@ -156,7 +160,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     boundary.start.mockResolvedValueOnce({ success: false, error: {
       type: 'provider_session_missing', cause: { name: 'Error', message: 'original provider says thread is absent' },
     } });
-    store.retry();
+    store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(store.loadError?.message).toBe('original provider says thread is absent'));
     expect(record.providerSessionState).toBe('missing');
     expect(record.providerSessionId).toBe('original-provider-id');
@@ -170,7 +174,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     await open();
     const resume = Promise.withResolvers<unknown>();
     boundary.start.mockImplementationOnce(() => resume.promise);
-    store.retry();
+    store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(boundary.start).toHaveBeenCalledOnce());
     expect(store.loadError).toBeNull();
     expect(record.providerSessionState).toBe('missing');
@@ -184,6 +188,10 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     runInAction(() => { delete record.providerSessionState; });
     resume.resolve({ success: true, data: { providerSessionId: 'original-provider-id' } });
     await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
+      sessionId: store.runtimeSessionId, draft: { rev: 1, input: { text: 'keep during retry' } },
+    });
+    expect(store.draftText).toBe('keep during retry');
   });
 
   it('blocks sends during an explicit probe and recovers only after a successful same-ID result', async () => {
@@ -192,7 +200,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     const resume = Promise.withResolvers<unknown>();
     boundary.start.mockImplementationOnce(() => resume.promise);
     store.setDraftText('keep while checking');
-    store.retry();
+    store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(boundary.start).toHaveBeenCalledOnce());
     expect(record.providerSessionState).toBe('missing');
     expect(store.affordances.canSubmit).toBe(false);
@@ -209,4 +217,112 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(history(store)).toEqual(['saved-turn']);
     expect(record.providerSessionId).toBe('original-provider-id');
   });
+  it.each(['provider_session_missing', 'adapter_lost'] as const)('a generic retry does not re-probe a missing ID from %s', async kind => {
+    const { store, record, open } = savedTask(true);
+    await open();
+    runInAction(() => { store.loadError = { kind, message: 'the saved provider is unavailable' }; });
+    store.retry();
+    await vi.waitFor(() => expect(store.historyLoading).toBe(false));
+    expect(boundary.start).not.toHaveBeenCalled();
+    expect(record.providerSessionState).toBe('missing');
+    expect(record.providerSessionId).toBe('original-provider-id');
+    expect(store.providerSessionMissing).toBe(true);
+    expect(history(store)).toEqual(['saved-turn']);
+  });
+
+  it('does not infer missing re-probe consent from an error before the durable mark arrives', async () => {
+    const { store, open } = savedTask();
+    boundary.start.mockResolvedValueOnce({ success: false, error: {
+      type: 'provider_session_missing', cause: { name: 'Error', message: 'saved ID is absent' },
+    } });
+    await open();
+    store.retry();
+    expect(boundary.start).toHaveBeenCalledTimes(1);
+    expect(store.loadError?.kind).toBe('provider_session_missing');
+  });
+
+  it('ordinary retry still starts fresh after the host clears the old provider reference', async () => {
+    const { store, record, open } = savedTask(true);
+    await open();
+    // Existing Start fresh host contract, not consent to re-probe the missing ID.
+    delete record.providerSessionState;
+    (record as { providerSessionId: string | null }).providerSessionId = null;
+    store.retry();
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(boundary.start).toHaveBeenCalledExactlyOnceWith({
+      input: expect.objectContaining({ providerSessionId: null }),
+    });
+  });
+
+  it.each(['latest draft', ''])('flushes the latest pending draft %j once on recovery, including a clear', async text => {
+    const { store, record, open } = savedTask(true);
+    await open();
+    vi.useFakeTimers();
+    store.setDraftText('superseded draft');
+    store.setDraftText(text);
+    // Recovery happens before the debounce; it must cancel that pending timer.
+    runInAction(() => { delete record.providerSessionState; });
+    store.retry({ retryMissing: true });
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
+      sessionId: store.runtimeSessionId,
+      draft: { rev: 2, input: text ? { text } : null },
+    });
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.draft).toHaveBeenCalledTimes(1);
+    expect(store.draftText).toBe(text);
+  });
+
+  it('flushes a detached local draft above the live snapshot revision instead of treating it as an acknowledgement', async () => {
+    const { store, record, open } = savedTask(true);
+    await open();
+    vi.useFakeTimers();
+    store.setDraftText('local text typed while missing');
+    await vi.runOnlyPendingTimersAsync();
+    boundary.liveDraft = { rev: 25, text: 'older engine draft', updatedAt: 1 };
+    runInAction(() => { delete record.providerSessionState; });
+    store.retry({ retryMissing: true });
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
+      sessionId: store.runtimeSessionId,
+      draft: { rev: 26, input: { text: 'local text typed while missing' } },
+    });
+    expect(store.draftText).toBe('local text typed while missing');
+  });
+
+  it('does not write an untouched draft when a session becomes live', async () => {
+    const { open } = savedTask();
+    await open();
+    expect(boundary.draft).not.toHaveBeenCalled();
+  });
+
+});
+
+// Keep the renderer's missing predicate owned by one computed getter. Traverse
+// comparisons rather than counting a particular formatting of the expression.
+function missingPredicateOwners(source: string): string[] {
+  const file = ts.createSourceFile('acp-chat-store.ts', source, ts.ScriptTarget.Latest, true);
+  const store = file.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'AcpChatStore');
+  if (!store || !ts.isClassDeclaration(store)) throw new Error('AcpChatStore declaration not found');
+  const owners: string[] = [];
+  for (const member of store.members) {
+    const visit = (node: ts.Node): void => {
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+        && ts.isPropertyAccessExpression(node.left) && ts.isStringLiteral(node.right)
+        && ((node.left.name.text === 'providerSessionState' && node.right.text === 'missing')
+          || (node.left.getText(file).startsWith('this.loadError') && node.right.text === 'provider_session_missing'))) {
+        owners.push(member.name?.getText(file) ?? '<anonymous>');
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(member);
+  }
+  return owners;
+}
+
+it('enforces a single owner for the missing predicate and detects a copied comparison', () => {
+  const source = readFileSync(new URL('./acp-chat-store.ts', import.meta.url), 'utf8');
+  expect(missingPredicateOwners(source)).toEqual(['providerSessionMissing', 'providerSessionMissing']);
+  const duplicate = source.replace('  retry(', "  copiedPredicate() { return this.loadError?.kind === 'provider_session_missing'; }\n  retry(");
+  expect(missingPredicateOwners(duplicate)).toContain('copiedPredicate');
 });

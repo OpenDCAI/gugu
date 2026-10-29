@@ -2100,7 +2100,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             code: 'provider-session-missing',
             detail: error.message,
             actions: [
-              retry,
+              { ...retry, run: () => store.retry({ retryMissing: true }) },
               ...(canRestartSession ? [{
                 label: translate('transcript.condition.startFresh'),
                 run: () => {

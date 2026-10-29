@@ -346,6 +346,7 @@ export class AcpChatStore {
       queuedPrompts: computed,
       usage: computed,
       affordances: computed,
+      providerSessionMissing: computed,
       canQueueBeforeSession: computed,
       bootstrap: action,
       releaseTranscript: action,
@@ -833,12 +834,12 @@ export class AcpChatStore {
     );
   }
 
-  retry(): void {
+  retry(options?: { retryMissing?: boolean }): void {
     // Terminal load errors stay put so remounts and generic retry callers do not
     // respawn/provision again — which ones are terminal lives in acp-load-error.
     if (this.historyLoading || !this.loadError || isTerminalLoadError(this.loadError)) return;
-    const retryMissing = this.loadError.kind === 'provider_session_missing'
-      || this._sessionRecord()?.providerSessionState === 'missing';
+    // Start fresh clears the saved ID first; every retry of a missing ID is explicit.
+    if (this.providerSessionMissing && this._sessionRecord()?.providerSessionId && !options?.retryMissing) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
@@ -847,9 +848,9 @@ export class AcpChatStore {
     this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
-    // An explicit retry re-probes the saved ID. The host clears the durable missing
-    // mark only after the provider actually resumes; opening the page never does.
-    void this._runBootstrap({ retryMissing });
+    // Only the missing condition's Retry button opts into re-probing the saved ID.
+    // Generic reconnect/model/auth callers retain the sticky missing state.
+    void this._runBootstrap(options);
   }
 
   /**
@@ -1048,9 +1049,7 @@ export class AcpChatStore {
   private _requireSession(failureTitle: AcpFailureTitle): AcpLiveSession | null {
     const session = this.session;
     if (!session) {
-      const missing = this.loadError?.kind === 'provider_session_missing'
-        || this._sessionRecord()?.providerSessionState === 'missing';
-      this._toastError(failureTitle, new Error(missing
+      this._toastError(failureTitle, new Error(this.providerSessionMissing
         ? this.loadError?.message || translateSessionMessage('transcript.condition.providerSessionMissingWithHistory')
         : 'ACP session is not connected'));
       return null;
@@ -1242,7 +1241,7 @@ export class AcpChatStore {
     this.draftText = text;
     this._draftRev += 1;
     this._pendingDraftRev = this._draftRev;
-    this._scheduleDraftWrite(text, this._draftRev);
+    this._scheduleDraftWrite();
   }
 
   stop(): void {
@@ -1342,6 +1341,11 @@ export class AcpChatStore {
     return null;
   }
 
+  get providerSessionMissing(): boolean {
+    return this.loadError?.kind === 'provider_session_missing'
+      || this._sessionRecord()?.providerSessionState === 'missing';
+  }
+
   /**
    * 还没有引擎会话、但这句话可以**先进队列**等它（spec `session-always-openable`）。
    *
@@ -1358,8 +1362,7 @@ export class AcpChatStore {
     if (!this._bootstrapped || this.session) return false;
     // A known-missing session cannot accept a prompt. Keep the draft until an
     // explicit retry confirms the original ID or the user chooses Start fresh.
-    if (this.loadError?.kind === 'provider_session_missing'
-      || this._sessionRecord()?.providerSessionState === 'missing') return false;
+    if (this.providerSessionMissing) return false;
     return this.loadError === null || !isTerminalLoadError(this.loadError);
   }
 
@@ -1703,7 +1706,7 @@ export class AcpChatStore {
       const session = sessionRegistry
         .get(this.sessionId)
         ?.sessions.get(this.sessionId)?.data;
-      if (session?.providerSessionState === 'missing' && !options?.retryMissing) {
+      if (this.providerSessionMissing && !options?.retryMissing) {
         // 上次 provider 报过这条引用不存在。会话**照常打开**,库里那份记录照常上屏 ——
         // 失效的是「接着聊」这件事,不是「看看我说过什么」。
         //
@@ -1836,9 +1839,16 @@ export class AcpChatStore {
         // 引擎就绪时首轮已经开出(活动轮接过了乐观行)或已讲完(在历史里);仍挂着就是它还排在运行时队列里,
         // 由队列那一格显示 —— 再留着就是同一句话画两遍。连上之前排进去的那几句同理,换成运行时那份真队列。
         this._handOffStartupPreviews();
-        this._applyDraftSnapshot(clientSession.draft.current());
+        const draft = clientSession.draft.current();
+        if (this._pendingDraftRev !== null) {
+          // An initial live snapshot cannot acknowledge text typed while detached.
+          // The engine only accepts revisions strictly above its current draft.
+          this._draftRev = Math.max(this._draftRev, (draft?.rev ?? -1) + 1);
+          this._pendingDraftRev = this._draftRev;
+        } else this._applyDraftSnapshot(draft);
         this.historyLoading = false;
         this.loadError = null;
+        this._flushDraftWrite();
         this._syncMessageCount();
       });
     } catch (error) {
@@ -2178,31 +2188,34 @@ export class AcpChatStore {
     );
   }
 
-  private _scheduleDraftWrite(text: string, rev: number): void {
+  private _scheduleDraftWrite(): void {
     if (this._draftTimer !== null) window.clearTimeout(this._draftTimer);
-    this._draftTimer = window.setTimeout(() => {
-      this._draftTimer = null;
-      const draft = { rev, input: text.trim().length > 0 ? { text } : null };
-      // Startup and known-missing drafts stay local until an engine accepts them.
-      // Unexpected disconnections still use the existing visible sync failure.
-      if (this.canQueueBeforeSession || (!this.session && (
-        this.loadError?.kind === 'provider_session_missing'
-        || this._sessionRecord()?.providerSessionState === 'missing'
-      ))) return;
-      const session = this._requireSession('acpFailure.syncDraft');
-      if (!session) return;
-      void session
-        .setPromptDraft(draft)
-        .then((result) => {
-          if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
-          if (result.success && draft.input === null && this._pendingDraftRev === rev) {
-            runInAction(() => {
-              this._pendingDraftRev = null;
-            });
-          }
-        })
-        .catch((error: unknown) => this._toastError('acpFailure.syncDraft', error));
-    }, 300);
+    this._draftTimer = window.setTimeout(() => this._flushDraftWrite(), 300);
+  }
+
+  private _flushDraftWrite(): void {
+    if (this._draftTimer !== null) window.clearTimeout(this._draftTimer);
+    this._draftTimer = null;
+    const rev = this._pendingDraftRev;
+    if (rev === null) return;
+    const text = this.draftText;
+    const draft = { rev, input: text.trim().length > 0 ? { text } : null };
+    // Startup and known-missing drafts stay local until an engine accepts them.
+    // Unexpected disconnections still use the existing visible sync failure.
+    if (this.canQueueBeforeSession || (!this.session && this.providerSessionMissing)) return;
+    const session = this._requireSession('acpFailure.syncDraft');
+    if (!session) return;
+    void session
+      .setPromptDraft(draft)
+      .then((result) => {
+        if (!result.success) this._toastError('acpFailure.syncDraft', result.error);
+        if (result.success && draft.input === null && this._pendingDraftRev === rev) {
+          runInAction(() => {
+            this._pendingDraftRev = null;
+          });
+        }
+      })
+      .catch((error: unknown) => this._toastError('acpFailure.syncDraft', error));
   }
 
   private _applyDraftSnapshot(draft: PromptDraft | null | undefined): void {
@@ -2212,7 +2225,7 @@ export class AcpChatStore {
         if (this.draftText.trim()) {
           this._draftRev += 1;
           this._pendingDraftRev = this._draftRev;
-          this._scheduleDraftWrite(this.draftText, this._draftRev);
+          this._scheduleDraftWrite();
         }
         return;
       }
