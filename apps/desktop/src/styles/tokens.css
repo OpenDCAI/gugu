@@ -1330,6 +1330,112 @@ body.barcode-scanner-active #root {
   animation: msg-src-flash 1.4s ease-out;
 }
 
+/* ── theme batch A:助理 App(.ta-*)的颜色取值 ───────────────────────────────────────────────
+   从 assistant-today.css 原样搬来(owner 10-28 批的 token 方案:颜色只在 tokens.css 里写),
+   选择器、先后顺序都不变:深色 → 浅色 → 素白(素白必须排在浅色后面,两者特异度相同),最后是健康页调色。
+   尺寸、形状、圆角仍在 assistant-today.css。助理自己的渐变 / 玻璃是它独有的视觉,保留原名、不并进通用角色。 */
+.ta-app,
+.ta-dialog,
+.ta-phone,
+[data-ta-menu],
+[data-ta-scope] {
+  --ta-tint: oklch(0.74 0.1 var(--ta-tint-h));
+  --ta-app-bg: linear-gradient(180deg, #14171c 0%, #17181b 60%, #1b1916 100%);
+  --ta-panel-bg: linear-gradient(180deg, #1f2c3d 0%, #23283a 45%, #2a2531 70%, #33271f 100%);
+  --ta-panel-border: rgba(255, 255, 255, 0.08);
+  --ta-glass: rgba(255, 255, 255, 0.1);
+  --ta-glass-strong: rgba(255, 255, 255, 0.16);
+  --ta-glass-hover: rgba(255, 255, 255, 0.14);
+  --ta-glass-edge: rgba(255, 255, 255, 0.2);
+  --ta-glass-top: rgba(255, 255, 255, 0.08);
+  --ta-seg-bg: rgba(255, 255, 255, 0.08);
+  --ta-seg-active: rgba(255, 255, 255, 0.14);
+  --ta-circle-bg: rgba(255, 255, 255, 0.1);
+  --ta-circle-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ta-divider: rgba(255, 255, 255, 0.08);
+  --ta-composer-bg: rgba(255, 255, 255, 0.08);
+  --ta-composer-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --ta-bubble-mine: rgba(255, 255, 255, 0.1);
+  --ta-bubble-other: rgba(255, 255, 255, 0.06);
+  /* 「自定义」对话框与浮出菜单的玻璃底:深色就是 glass-strong,浅色各有一档更实的白(原来是两条 !important 规则)。 */
+  --ta-dialog-bg: var(--ta-glass-strong);
+  --ta-menu-bg: var(--ta-glass-strong);
+}
+[data-theme='light'] .ta-app,
+[data-theme='light'] .ta-dialog,
+[data-theme='light'] .ta-phone,
+[data-theme='light'] [data-ta-menu],
+[data-theme='light'] [data-ta-scope] {
+  /* 浅色:蓝到桃色的面板、半透明白色卡片。 */
+  --ta-app-bg: linear-gradient(180deg, #dfe6ec 0%, #e5e8ec 55%, #ecebe8 100%);
+  --ta-tint: oklch(0.62 0.12 var(--ta-tint-h));
+  --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 11%, transparent);
+  --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 14%, transparent);
+  --ta-tint-ink: color-mix(in oklab, var(--ta-tint) 85%, var(--fg));
+  --ta-panel-bg: linear-gradient(180deg, #a9c9ea 0%, #c5d8ef 30%, #e2e5f3 60%, #f4e6dc 80%, #fcd9b5 100%);
+  --ta-panel-border: rgba(255, 255, 255, 0.6);
+  --ta-glass: rgba(255, 255, 255, 0.6);
+  --ta-glass-strong: rgba(255, 255, 255, 0.78);
+  --ta-glass-hover: rgba(255, 255, 255, 0.72);
+  --ta-glass-edge: rgba(255, 255, 255, 0.55);
+  --ta-glass-top: rgba(255, 255, 255, 0.55);
+  --ta-glass-fx: inset 0 0 0 1px var(--ta-glass-edge), inset 0 1px 1px var(--ta-glass-top), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ta-seg-bg: rgba(255, 255, 255, 0.55);
+  --ta-seg-active: rgba(0, 0, 0, 0.07);
+  --ta-circle-bg: #fff;
+  --ta-circle-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --ta-divider: rgba(0, 0, 0, 0.07);
+  --ta-composer-bg: rgba(255, 255, 255, 0.92);
+  --ta-composer-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --ta-bubble-mine: rgba(0, 0, 0, 0.08);
+  --ta-bubble-other: #fff;
+  --ta-dialog-bg: rgba(248, 249, 251, 0.8);
+  --ta-menu-bg: rgba(250, 250, 252, 0.82);
+}
+
+/* 素白复用浅色字阶与对话几何,只把共享表面换成白底和中性色。手机壳、咕咕和 portal 同步消费。 */
+[data-theme-preference='plain-white'] :is(.ta-app, .ta-dialog, .ta-phone, [data-ta-menu], [data-ta-scope]) {
+  --ta-app-bg: var(--bg);
+  --ta-panel-bg: var(--bg);
+  --ta-panel-border: var(--border);
+  --ta-glass: var(--card);
+  --ta-glass-strong: var(--muted);
+  --ta-glass-hover: var(--hover);
+  --ta-glass-edge: var(--border);
+  --ta-bubble-other: var(--muted);
+  --ta-tint-wash: var(--hover);
+  --ta-tint-soft: var(--selected);
+  --ta-tint-ink: var(--fg);
+}
+
+.ta-app {
+  --ta-health-good: #4cc38a;
+  --ta-health-ok: var(--ta-muted);
+  --ta-health-warn: #f2b06a;
+  --ta-health-bad: #f0716b;
+  --ta-health-bar: rgba(255, 255, 255, 0.16);
+  --ta-health-bar-latest: #7cb7ff;
+  --ta-stage-deep: #5b6cf0;
+  --ta-stage-light: #7cb7ff;
+  --ta-stage-rem: #b48cf2;
+  --ta-stage-awake: #f2b06a;
+  --ta-stage-asleep: #6fa8dc;
+}
+[data-theme='light'] .ta-app {
+  --ta-health-good: #1f9d63;
+  --ta-health-warn: #c96a0c;
+  --ta-health-bad: #d4453e;
+  --ta-health-bar: rgba(0, 0, 0, 0.1);
+  --ta-health-bar-latest: #2f7de1;
+}
+
+/* 语音笔记的说话人圆点:每位说话人一种颜色,是身份色,两套主题同值。 */
+:root {
+  --vn-speaker-0: linear-gradient(135deg, #ffdcb3, #ffd099);
+  --vn-speaker-1: linear-gradient(135deg, #b8eaff, #8bdeff);
+  --vn-speaker-2: linear-gradient(135deg, #feccf2, #fbacea);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    @@@2322 交互状态与动效地基(P1) —— 规范全文(活样例)docs/ui-states-motion-spec.html,
    行为预期 product spec。六态:rest/hover/press/selected/focus/disabled,
