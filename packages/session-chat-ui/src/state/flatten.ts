@@ -399,14 +399,20 @@ export function flattenTier(
         const steps = () => {
           if (!expanded) return;
           const folds = [{ id: block.id, stored: !block.live }];
-          const folded = block.live && ops.length > 3 ? ops.length - 3 : 0;
-          const earlier = `${block.id}:earlier`;
-          if (folded) {
-            processItem({ kind: 'tool-run', id: earlier, turnId: turn.id, stepCount: folded,
-              label: ctx.translate('transcript.processEarlierParts', { count: folded }) }, folds);
-            if (ctx.revealAllFolds || ctx.isTurnProcessExpanded?.(earlier)) emitOps(ops.slice(0, folded), turn.id, [...folds, { id: earlier, stored: true }]);
+          const start = out.length;
+          emitOps(ops, turn.id, folds);
+          if (!ctx.revealAllFolds && out.length > start) {
+            // One bounded viewport owns all expanded process steps. Keep their existing renderers,
+            // folding and measured seams inside it; the reply remains outside.
+            const units = out.splice(start);
+            const gapBefore = units[0].gapBefore;
+            units[0] = { ...units[0], gapBefore: 0 };
+            const id = `${block.id}:steps`;
+            out.push({ id, itemId: id, groupId: id, groupRole: 'solo', gapBefore,
+              kind: 'conversation-process-steps', data: { id, live: block.live, units },
+              children: units, conversationProcessOwner: conversationOwner });
+            lastKind = 'conversation-process-steps';
           }
-          emitOps(ops.slice(folded), turn.id, folds);
         };
         conversationOwner = output.reply ? `${block.id}:head` : block.id;
         if (output.reply) {

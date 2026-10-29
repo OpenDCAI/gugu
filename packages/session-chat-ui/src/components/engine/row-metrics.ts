@@ -16,3 +16,6 @@ export const ROW_INSET_X = 16;
  * collapsible header row height.
  */
 export const HEADER_ROW_EXTRA_H = 8;
+
+/** Shared cap for a conversation's collapsed reply and running process viewport. */
+export const CONVERSATION_PREVIEW_MAX_H = 252;
