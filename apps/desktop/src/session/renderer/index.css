@@ -1681,20 +1681,6 @@
   -webkit-app-region: no-drag;
 }
 
-/* @@@titlebar-action-hitboxes — 这一横排里**复合控件**的高度也由容器规定。
- *
- * 「在哪里打开项目」不是一个按钮,是两截(主按钮 + 下拉触发器),下拉那截自带
- * `py-1 text-sm border` 的基础样式,把调用点写的 size-6 在高度上压了过去 ——
- * 真机实测 h=32 / top=4,而同排是 28 / 6,肉眼就是不齐。
- * 和图标那条规则同理:不在任何 @layer 里,稳压 utilities;调用点写错也盖得住。 */
-[data-open-in-row],
-[data-open-in-row] > *,
-[data-open-in-row] button {
-  height: 28px;
-  min-height: 28px;
-  align-self: center;
-}
-
 ::highlight(gugu-chat-find) {
   background-color: var(--xterm-selection-bg);
 }
