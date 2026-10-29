@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ComposerPermissionRequest } from '@gugu/session-ui/react/components';
-import type { AskSource, Settlement, SessionpageSessionEvent, TimelineAfterResult } from '@gugu/session-core/session-record/contract';
+import { settlementFromWire, type AskSource, type Settlement, type SessionpageSessionEvent, type TimelineAfterResult } from '@gugu/session-core/session-record/contract';
 import { sessionpageSessionTimelineChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
 import { appInstallAskOf } from '@shared/extensions/host-actions';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -32,7 +32,7 @@ export function useSessionHostAsk(
     let alive = true;
     const settlements = new Map<string, Settlement>();
     const take = (batch: readonly Settlement[]) => {
-      for (const settlement of batch) settlements.set(settlement.itemId, settlement);
+      for (const settlement of batch) settlements.set(settlement.itemId, settlementFromWire(settlement));
       if (alive) setAsk(pendingHostAsk(settlements, source));
     };
     const subscriptionId = crypto.randomUUID();

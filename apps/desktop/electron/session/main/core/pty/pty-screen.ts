@@ -187,6 +187,23 @@ export class PtyScreen {
   }
 
   /**
+   * 屏上看得见的字(当前缓冲区末尾 `lines` 行,去掉行尾空白与末尾空行),排在已到的输出之后读。诊断用:起不来的会话把这几行写进日志。
+   * 停了 / 关了 = 空。
+   */
+  text(lines: number): Promise<string[]> {
+    if (this.closedSize || this.stalled) return Promise.resolve([]);
+    return new Promise((resolve) => {
+      this.terminal.write('', () => {
+        const buffer = this.terminal.buffer.active;
+        const out: string[] = [];
+        for (let y = 0; y < buffer.length; y += 1) out.push(buffer.getLine(y)?.translateToString(true) ?? '');
+        while (out.length > 0 && !out[out.length - 1]!.trim()) out.pop();
+        resolve(out.slice(-lines));
+      });
+    });
+  }
+
+  /**
    * 这一代 PTY 结束了(换代 / 注销)。已经要了的快照照常切完 —— 拆终端的记号排在它们后面 ——
    * 退出前最后那几批输出因此还在快照里。
    */

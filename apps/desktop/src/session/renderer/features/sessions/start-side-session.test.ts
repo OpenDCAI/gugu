@@ -196,21 +196,18 @@ describe('runtime-only side chat entry', () => {
       expect(sideTabId).toBeDefined();
       expect(layout.groups).toHaveLength(1);
       expect(pane.activeTabId).toBe(sideTabId);
-      if (state === 'separate views') {
-        expect(pane.livePair).toBeNull();
-        expect(pane.shownTabIds).toEqual([sideTabId]);
-      } else {
-        expect(pane.livePair).toMatchObject({
-          anchor: sourceTabId,
-          side: sideTabId,
-          sideAt: state === 'moved split' ? 'bottom' : 'right',
-        });
-        expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
-        pane.setDimensions(400, 300);
-        expect(pane.shownTabIds).toEqual([sideTabId]);
-        pane.setDimensions(800, 600);
-        expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
-      }
+      // 「拆开」只记被拆开的那一类(owner 10-28):拆开过文件页,侧边聊天是另一类,照旧开在旁边并排。
+      if (state === 'separate views') expect(pane.splitDeclinedKinds.has('side-chat')).toBe(false);
+      expect(pane.livePair).toMatchObject({
+        anchor: sourceTabId,
+        side: sideTabId,
+        sideAt: state === 'moved split' ? 'bottom' : 'right',
+      });
+      expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
+      pane.setDimensions(400, 300);
+      expect(pane.shownTabIds).toEqual([sideTabId]);
+      pane.setDimensions(800, 600);
+      expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
     }
   );
 

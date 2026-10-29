@@ -56,7 +56,7 @@ export function SearchField({
         className={cn(
           'h-full min-w-0 flex-1 border-0 bg-transparent p-0 font-[inherit]',
           'text-[length:var(--font-body)] text-[var(--text-primary)] outline-none',
-          'placeholder:text-[var(--text-tertiary)]',
+          'placeholder:text-[var(--muted-fg)]',
           'disabled:cursor-not-allowed [&::-webkit-search-cancel-button]:hidden',
         )}
       />

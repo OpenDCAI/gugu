@@ -111,10 +111,10 @@
 
 /* ── Inline code chip: semi-transparent tint ────────────────────────────────── */
 .emlight {
-  --chat-code-inline-bg: rgba(0, 0, 0, 0.06);
+  --chat-code-inline-bg: color-mix(in srgb, var(--chat-fg) 6%, transparent);
 }
 
 .emdark {
-  --chat-code-inline-bg: rgba(255, 255, 255, 0.08);
+  --chat-code-inline-bg: color-mix(in srgb, var(--chat-fg) 8%, transparent);
   --chat-code-bg: var(--em-neutral-1);
 }

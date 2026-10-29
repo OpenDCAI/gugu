@@ -664,9 +664,18 @@ export class CloudBrowser {
       completed: this.completed,
       controlled: !!this.holder || !!this.pendingHolder,
       lastActivityAt: this.lastActivityAt ? new Date(this.lastActivityAt).toISOString() : null,
+      // 协议 12 的桌面 / 手机从这里读求助(13 起是会话上的 Ask):新宿主照旧报,它们照旧看得见(向下兼容一档)。
+      assistance: legacyAssistance(this.pendingAssistance()),
       live: livePort,
     };
   }
+}
+
+/** 报给协议 12 的端的那一份:❌ 带会话 id(老字段里没有它)。 */
+function legacyAssistance(pending: (CloudBrowserAssistance & { sessionId: string }) | null): CloudBrowserAssistance | null {
+  if (!pending) return null;
+  const { sessionId: _sessionId, ...assistance } = pending;
+  return assistance;
 }
 
 type TargetInfo = { targetId: string; type: string; title?: string; url?: string };

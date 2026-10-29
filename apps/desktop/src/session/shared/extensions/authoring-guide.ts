@@ -557,7 +557,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
   createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
   Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
-- API 19: \`keep: {expiresAt,mine}|null\`, the cloud copy (list); \`gugu.files.keep(entry, 'temporary'|'permanent')\`.
+- API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
 ## A text file (markdown)
 

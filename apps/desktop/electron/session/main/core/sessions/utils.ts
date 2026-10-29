@@ -1,11 +1,13 @@
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { type SessionRow } from '@main/db/schema';
+import { readInterruptedTurn } from '@main/core/agent-status/interrupted-turns';
 import { parseAgentStatus, parseAgentStatusDetail } from '@gugu/core/shared/agentStatus';
 import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import {
   type Session,
   type SessionRuntime,
   type InitialQueuePrompt,
+  type InterruptedBy,
 } from '@shared/core/sessions/sessions';
 
 // #6823 Stored startup text without an origin (payloads from before #6823 — 2026-09-30: 246 rows on the Windows Beta
@@ -65,6 +67,16 @@ export function sessionSpawnerId(row: Pick<SessionRow, 'spawnedBySessionId' | 'c
   return row.spawnedBySessionId ?? row.config?.spawnedByRemote?.sessionId ?? null;
 }
 
+/** 出错的会话:是不是开机收残记下的「上一轮被宿主的退出打断」。读不出不挡列表。 */
+function interruptedBy(sessionId: string): { interruptedBy?: InterruptedBy } {
+  try {
+    const by = readInterruptedTurn(sessionId);
+    return by ? { interruptedBy: by } : {};
+  } catch {
+    return {};
+  }
+}
+
 export function mapSessionRowToSession(
   row: SessionRow,
   resume: boolean = false
@@ -116,6 +128,7 @@ export function mapSessionRowToSession(
     agentStatus: parseAgentStatus(row.agentStatus),
     agentStatusDetail: parseAgentStatusDetail(row.agentStatusDetail, parseAgentStatus(row.agentStatus)),
     agentStatusSeen: row.agentStatusSeen === 1,
+    ...(row.agentStatus === 'error' ? interruptedBy(row.id) : {}),
     runtime: (row.runtime as SessionRuntime | null) ?? 'pty',
     isPinned: row.isPinned === 1,
     archivedAt: row.archivedAt ?? null,

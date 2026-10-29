@@ -171,7 +171,7 @@ export function AssistantMoveDialog() {
 
         {phase.kind === 'failed' ? (
           <>
-            <div className="text-[var(--danger)] font-semibold">{t('move.failedTitle')}</div>
+            <div className="text-[var(--danger-fg)] font-semibold">{t('move.failedTitle')}</div>
             <p>{t(`move.failedReason.${phase.reason}`)}</p>
             <p className="text-[var(--muted-fg)]">
               {phase.intact ? t('move.failedIntact', { name: assistantName }) : t('move.failedResume')}

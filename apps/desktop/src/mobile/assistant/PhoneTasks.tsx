@@ -5,11 +5,9 @@ import {useAuth} from '@/store/auth'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { Clock } from '@/lib/icons'
-import { assistantTaskDeviceLabel } from '@/session/renderer/features/assistant/assistant-task-directory'
 import { groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
 import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/renderer/features/assistant/assistant-ui-parts'
-import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import type { PhonePageProps } from './MobileAssistantApp'
 import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead'
@@ -44,8 +42,6 @@ export function PhoneTasks(props: PhonePageProps) {
 
 function SubAgents({ assistant, askInChat }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const { devices: hosts,phones = [] } = useDevicesStore()
-  const devices = [...hosts,...phones]
   const {user}=useAuth()
   const read=useAssistantWorkTasks(user?.id,assistant.id)
   return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children => children.length === 0
@@ -54,7 +50,6 @@ function SubAgents({ assistant, askInChat }: PhonePageProps) {
     : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket}
       title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
       {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
-        detail={assistantTaskDeviceLabel(devices,task.deviceId)}
         trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: task.unseen })} />}
         chevron onClick={() => openAssistantPanelTask({assistantId:assistant.id},task)} />)}
     </AssistantSection>)}</AssistantWorkTaskRead>

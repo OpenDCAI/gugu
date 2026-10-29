@@ -53,7 +53,7 @@
 }
 .bu-line[data-needs] { color: var(--warn); }
 .bu-caption { font-size: var(--font-caption); color: var(--text-secondary); }
-.bu-alert { font-size: var(--font-caption); color: var(--danger); }
+.bu-alert { font-size: var(--font-caption); color: var(--danger-fg); }
 .bu-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
 
 .bu-preview {
@@ -153,7 +153,7 @@
 .bu-vault-secret input { padding-right: 40px; }
 .bu-vault-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
 .bu-vault-save { display: flex; align-items: center; gap: 8px; font-size: var(--font-body); color: var(--text-primary); cursor: pointer; }
-.bu-vault-problem { font-size: var(--font-body); color: var(--danger); }
+.bu-vault-problem { font-size: var(--font-body); color: var(--danger-fg); }
 .bu-vault-problem[data-soft] { color: var(--text-secondary); }
 
 .bu-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }

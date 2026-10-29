@@ -25,7 +25,6 @@ interface Window {
     getAppVersion: () => Promise<string>
     getFeedbackLogTail: () => Promise<unknown>
     getAgentCreationTools: () => Promise<unknown>
-    openAgentRuntime: (agentUserId: string) => Promise<unknown>
     writeClipboardText: (value: string) => Promise<boolean>
     // 内联 import(...) 而不是顶部 import:这是全局声明文件,顶部 import 会把它变成模块,
     // `interface Window` 就不再是全局增补。写成字面量联合会跟 RendererCommandDomain 悄悄漂。
@@ -55,6 +54,7 @@ interface Window {
     writeHumanAuthSession: (session: unknown) => Promise<void>
     clearHumanAuthSession: (reason: 'signed-out' | 'lost') => Promise<void>
     notifyDeviceCommandsChanged: () => void
+    notifyScheduledTasksChanged: () => void
     notifyOwnedAgentsChanged: () => void
   }
   // @@@host-system-languages — 桌面宿主注入的真实系统语言列表(app.getPreferredSystemLanguages());

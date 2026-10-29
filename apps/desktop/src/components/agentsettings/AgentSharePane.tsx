@@ -31,6 +31,7 @@ import { asClass, cx, shareSegmentButtonClass } from './agentSettingsStyles'
 import { Avatar } from '../Avatar'
 import { SearchField } from '../ui/SearchField'
 import { Button } from '../ui/Button'
+import { qrColors } from '../../lib/qrColors'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
   useEffect(() => {
     if (!shareUrl || !isPublic) { setQr(null); return }
     let cancelled = false
-    QRCode.toDataURL(shareUrl, { width: 132, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
+    QRCode.toDataURL(shareUrl, { width: 132, margin: 1, color: qrColors() })
       .then((url) => { if (!cancelled) setQr(url) })
       .catch(() => { if (!cancelled) setQr(null) })
     return () => { cancelled = true }

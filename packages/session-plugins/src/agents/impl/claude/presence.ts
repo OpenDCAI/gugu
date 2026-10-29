@@ -30,9 +30,23 @@ function parseClaudePresence(text: string): HarnessPresence {
   return { pid, sessionId, status: status as HarnessPresenceStatus };
 }
 
+/**
+ * 每条 hook 的负载都带 `transcript_path` = `<配置目录>/projects/<cwd 转义>/<会话 id>.jsonl`:往上三层就是这个进程实际用的
+ * 配置目录(包装器在进程里设的 `CLAUDE_CONFIG_DIR` 也照实反映)。形状不对 = 认不出,返回 null。
+ */
+function claudeConfigRootOfHook(body: Record<string, unknown>): string | null {
+  const path = body.transcript_path;
+  if (typeof path !== 'string' || !path.endsWith('.jsonl')) return null;
+  const parts = path.split(/[\\/]/);
+  if (parts.length < 4 || parts[parts.length - 3] !== 'projects') return null;
+  const root = path.slice(0, path.length - parts.slice(-3).join('/').length - 1);
+  return root || null;
+}
+
 export const claudePresenceFile: HarnessPresenceFile = {
   configDirEnvVar: 'CLAUDE_CONFIG_DIR',
   defaultConfigDirName: '.claude',
   directory: 'sessions',
   parse: parseClaudePresence,
+  configRootOfHook: claudeConfigRootOfHook,
 };

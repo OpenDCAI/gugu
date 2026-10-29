@@ -247,7 +247,9 @@ export function TabStripShell({
       ) : null}
       <div
         ref={scrollerRef}
-        className="flex h-full w-full items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // 页签只占剩下的(基准 0):放不下时右端那一排(TabBarActionRow)才是让位的那个,❌ 两边按比例一起缩。
+        className="flex h-full min-w-0 flex-1 basis-0 items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        data-tabstrip-scroller=""
         style={{ paddingBlockStart: `${WINDOW_CONTROL_BAR_HEIGHT_PX - SESSION_TAB_HEIGHT_PX}px` }}
       >
         {children}

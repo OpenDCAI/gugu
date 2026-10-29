@@ -100,7 +100,7 @@
 
 .gg-si .gg-si-failures {
   font-size: var(--font-body);
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 .gg-si .gg-si-list {

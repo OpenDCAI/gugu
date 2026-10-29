@@ -5,6 +5,7 @@ import type {
 } from '@gugu/session-core/session-record/contract'
 import {
   ASSISTANT_SECTION_KEY,
+  TASKS_SECTION_KEY,
   assistantGroupIds,
   countSessions,
   locateSession,
@@ -99,6 +100,15 @@ describe('sessionSections — 手机会话页与桌面侧栏同一种结构', ()
     expect(groups.map((g) => g.project?.id ?? null)).toEqual(['c', 'a', null])
   })
 
+  it('#609 workspace(任务工作区、替人登记的 ~)不成一格:它的会话与项目行没回来的一起进「任务」', () => {
+    const { groups } = sessionSections(
+      [project('a'), { ...project('home'), kind: 'workspace' as const }],
+      [session('in-home', 'home', 3), session('a1', 'a', 2), session('orphan', 'gone', 1)],
+    )
+    expect(groups.map((g) => [g.project?.id ?? null, g.deviceId, shape(g.roots)])).toEqual([['a', 'd1', 'a1'], [null, null, 'in-home,orphan']])
+    expect(groups.at(-1)!.key).toBe(TASKS_SECTION_KEY)
+  })
+
   it('老宿主不报 isPinned / parentConversationId:不画置顶、不缩进(中性态,❌ 补默认值)', () => {
     const { pinned, groups } = sessionSections(
       [project('a')],
@@ -161,7 +171,6 @@ describe('sessionSections — 手机会话页与桌面侧栏同一种结构', ()
 describe('sessionSections — 项目分区的「展开显示」', () => {
   const rowsOf = (sessions: SessionpageSessionSummary[]) => sessions.map((s) => ({ deviceId: 'd1', session: s }))
   const keyA = projectSectionKey('d1', 'a')
-  const keyUngrouped = projectSectionKey('d1', null)
   // 7 个闲置的根(r1 最新),r1 带一个孩子;还有一个更早的根,它的孩子在跑。
   const sessions = [
     ...[1, 2, 3, 4, 5, 6, 7].map((n) => session(`r${n}`, 'a', 50 - n)),
@@ -178,7 +187,7 @@ describe('sessionSections — 项目分区的「展开显示」', () => {
     const { pinned, groups } = fold([])
     expect(groups.map((g) => [g.key, shape(g.roots), g.folded, g.count])).toEqual([
       [keyA, 'r1(kid),r2,r3,r4,r5,busy-root(busy-kid)', 2, 10],
-      [keyUngrouped, 'loose', 0, 1],
+      [TASKS_SECTION_KEY, 'loose', 0, 1],
     ])
     expect(shape(pinned)).toBe('pin')
   })
@@ -273,7 +282,7 @@ describe('sessionSections — 多台机器与个人助理那一组', () => {
     expect(sections.filter((s) => s.roots.some((r) => r.item.id === 'kid-pinned'))).toHaveLength(1)
   })
 
-  it('分区按最近动静排,助理那一组与项目分区一起比;「未归入项目」按机器次序排在所有项目分区之后', () => {
+  it('分区按最近动静排,助理那一组与项目分区一起比;#609 所有机器上不属于项目的会话平铺成最后一格「任务」,❌ 按机器分', () => {
     const rows = [
       ...rowsOn('mac', [session('m-old', 'p', 1), session('m-loose', 'gone', 20)]),
       ...rowsOn('thinkpad', [session('t-mid', 'p', 5), session('t-loose', 'gone', 30)]),
@@ -281,13 +290,13 @@ describe('sessionSections — 多台机器与个人助理那一组', () => {
       ...rowsOn('mac', [session('dispatched', 'p', 9, { spawnedByConversationId: 'assistant-own' })]),
     ]
     const sections = sectionsOf([mac, thinkpad], rows, withAssistant, NO_FOLD)
-    expect(sections.map((s) => (s.assistant ? 'assistant' : `${s.deviceId}:${s.project?.id ?? 'ungrouped'}`))).toEqual([
+    expect(sections.map((s) => (s.assistant ? 'assistant' : `${s.deviceId}:${s.project?.id ?? 'tasks'}`))).toEqual([
       'assistant',
       'thinkpad:p',
       'mac:p',
-      'mac:ungrouped',
-      'thinkpad:ungrouped',
+      'null:tasks',
     ])
+    expect(shape(sections.at(-1)!.roots)).toBe('t-loose,m-loose')
   })
 
   it('locateSession:全露的折法下找到收起行与沿途的父会话', () => {

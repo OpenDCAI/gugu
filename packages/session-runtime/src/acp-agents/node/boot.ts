@@ -35,6 +35,7 @@ export type BootAcpRuntimeProcessOptions = {
    * (session-runtime 不依赖 `@gugu/core`,所以只能由宿主传进来)。
    */
   mergeEnvelopes: (texts: readonly string[]) => string;
+  recoverDelivery: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
 };
 
 export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): void {
@@ -74,6 +75,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         agentHost,
         host: childHost,
         mergeEnvelopes: options.mergeEnvelopes,
+        recoverDelivery: options.recoverDelivery,
         resolveAttachment: async (attachment) => {
           if (attachment.type === 'attachment') {
             const stored = await attachmentStore.get(attachment.id);

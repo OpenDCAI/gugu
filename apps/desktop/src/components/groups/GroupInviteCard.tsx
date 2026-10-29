@@ -104,7 +104,7 @@ export function GroupInviteCard({
           <div className="gg-group-hint" style={{ color: 'var(--text-tertiary)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', marginTop: 3 }}>{t('groupInvite.inviteLinkClosedHint')}</div>
         ) : null}
         {state === 'failed' && joinError ? (
-          <div className="gg-group-join-error" role="alert" data-testid="group-join-error" style={{ color: 'var(--danger)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', marginTop: 4 }}>{joinError}</div>
+          <div className="gg-group-join-error" role="alert" data-testid="group-join-error" style={{ color: 'var(--danger-fg)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', marginTop: 4 }}>{joinError}</div>
         ) : null}
       </div>
       {actionable ? (

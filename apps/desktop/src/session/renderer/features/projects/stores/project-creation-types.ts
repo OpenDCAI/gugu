@@ -12,6 +12,8 @@ export interface PickModeData extends BaseModeData {
   createDirectory?: boolean;
   /** 非 git 目录也放行(本地「使用现有文件夹」);远程项目在主进程侧本就放行。 */
   allowNonGit?: boolean;
+  /** #609 替人登记的目录(助理的家、远端主目录);人亲手选的不给。 */
+  automatic?: boolean;
   githubAccountId?: string;
 }
 

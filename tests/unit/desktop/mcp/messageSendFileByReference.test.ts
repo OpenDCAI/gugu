@@ -86,6 +86,15 @@ describe('message_send_file by reference', () => {
     expect(receipt).toMatchObject({ status: 'sent', file: `gugu-file://${ITEM}?v=3`, version: 3 })
   })
 
+  test('keep: the commit carries how long the uploaded copy stays; not given, no keep is sent', async () => {
+    const temporary = makeDeps()
+    await callTool('message_send_file', { chat_id: CHAT, file_path: localFile, temporary: true }, temporary.deps)
+    expect(temporary.commits[0]).toMatchObject({ keep: 'temporary' })
+    const plain = makeDeps()
+    await callTool('message_send_file', { chat_id: CHAT, file_path: localFile }, plain.deps)
+    expect(plain.commits[0]).not.toHaveProperty('keep')
+  })
+
   test('file_path alone: as before — a new file, no item_id in the commit', async () => {
     const { deps, commits } = makeDeps()
     await callTool('message_send_file', { chat_id: CHAT, file_path: localFile }, deps)

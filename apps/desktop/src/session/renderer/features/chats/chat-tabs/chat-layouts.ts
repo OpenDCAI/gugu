@@ -207,11 +207,13 @@ export const setPanelFull = action(function setPanelFull(chatId: string, tabId: 
   const chatTab = chatTabOf(layout);
   if (!pane.entries.has(tabId) || !chatTab) return;
   if (full) {
-    if (pane.livePair) pane.separatePair();
+    // 程序为让位拆开(会话浮在页上),不是用户对这一类说「不并排」:❌ 记下来(owner 10-28)。
+    if (pane.livePair) pane.separatePair({ remember: false });
     pane.setActiveTab(tabId);
     return;
   }
-  pane.splitDeclined = false;
+  // 回到对话旁边:这一类若被用户拆开过,这一下就是他又让它并排了(只清这一类)。
+  pane.splitDeclinedKinds.delete(pane.entries.get(tabId)?.kind ?? '');
   pane.pairWith(chatTab, tabId);
   pane.setActiveTab(tabId);
 });

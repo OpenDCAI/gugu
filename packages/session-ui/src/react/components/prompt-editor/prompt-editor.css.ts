@@ -36,7 +36,8 @@ export const editorPlaceholder = style({
   fontSize: tokenVars.textTitle,
   lineHeight: tokenVars.textTitleLineHeight,
   userSelect: 'none',
-  color: vars.foregroundPassive,
+  // placeholder 说明这里能做什么,是信息:可读次级字(≥4.5);passive 在暗色 card 上只有 3.35。
+  color: vars.foregroundMuted,
 });
 
 // These classes are assigned via TipTap editorProps.attributes.class

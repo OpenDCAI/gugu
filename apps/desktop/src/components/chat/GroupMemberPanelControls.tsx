@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, GroupCollabSnapshot, GroupMemberRole, ListenMode } from '@gugu/core/shared/types/chat'
-import { MoreHorizontal, UserPlus } from '@/lib/icons'
+import { MoreHorizontal, Plus, UserPlus } from '@/lib/icons'
 import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
@@ -12,15 +12,15 @@ import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
 import { type ActiveMemberProfile, agentOwnerDisplayName, toAgentProfile, toHumanProfile } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
-import { Button } from '../ui/Button'
 import { Menu, MenuItem } from '../ui/Menu'
 import { AddGroupMembers } from './AddGroupMembers'
+import { InviteButton } from './InviteButton'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { settingsErrorStyle } from './groupSettingsStyles'
 
 // @@@6418 群成员面板里「和人有关的操作」:邀请、点开资料卡(角色 / 倾听模式 / 移出 / 发消息 / 悄悄话)、
 // 行尾 ⋯ 快捷管理。原来这些只在设置抽屉的头像网格里有,面板只能看;现在面板是成员的唯一入口。
-// 只对群生效(话题的名单与邀请走 TopicMemberInviteButton,角色/移出在话题里没有语义)。
+// 只对群生效(话题的人靠在话题里点名进来,角色/移出在话题里没有语义)。
 // 入群申请❌ 在这里:申请是冲着人来的请求,和好友申请同归通讯录「新的请求」(NewFriendsPanel)。
 
 const errorStyle: CSSProperties = { ...settingsErrorStyle, padding: '4px 14px' }
@@ -157,14 +157,8 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
 
   const headerActions: ReactNode = showInvite ? (
     <>
-      {mobile && (
-        <Button size="sm" variant="ghost" data-testid="member-list-create-agent" onClick={createAgentInGroup}>
-          {t('group.memberList.createAgent')}
-        </Button>
-      )}
-      <IconButton size="sm" aria-label={t('group.memberList.invite')} title={t('group.memberList.invite')} data-testid="member-list-invite" onClick={openPicker}>
-        <UserPlus />
-      </IconButton>
+      {mobile && <InviteButton icon={<Plus />} label={t('group.memberList.createAgent')} onClick={createAgentInGroup} testId="member-list-create-agent" />}
+      <InviteButton icon={<UserPlus />} label={t('group.memberList.invite')} onClick={openPicker} testId="member-list-invite" />
     </>
   ) : null
 

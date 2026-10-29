@@ -17,8 +17,12 @@ import { cachedDevicesAccount } from '@/store/devicesCache';
  * 那台机器此刻答不上(离线)时,用账号上记着的那份(#113)、标离线 —— 机器离线时它的文件夹照样列在项目里(product spec)。
  */
 
-/** 卡片上的一个文件夹:多一格「那台机器此刻答不上,这是账号上记着的」。 */
-export type ShownFolder = ProjectFolder & { offline: boolean };
+/**
+ * 卡片上的一个文件夹:多两格 —— 「那台机器此刻答不上,这是账号上记着的」,与它在哪台机器上(`deviceId`,null = 这台电脑)。
+ * 机器在读的那一刻按「是哪台答的 / 账号上那份是哪台记的」盖上,用的地方都读它(机器标签、设备范围、在哪台上开工),
+ * ❌ 再拿 folder.projectId 去反查 —— 同一个本地项目 id 可能先后登记在两条设备行下(同一台机器重新登记)。
+ */
+export type ShownFolder = ProjectFolder & { offline: boolean; deviceId: string | null };
 
 /** 每个项目(按代表那一行的 id)「新会话从哪个文件夹开工」:切走再回来还在;没选过 = 代表行的根目录。 */
 const folderChoice = new Map<string, string>();
@@ -106,8 +110,10 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       ? { ...current, loadError: false }
       : { rowId, folders: null, loadError: false });
     const ids = membersKey.split('\u0000');
+    // 这一轮问的是哪台(rpc 按这同一张表选线):答回来的、账号上记着的,都盖上它。
+    const deviceOf = new Map(ids.map((projectId) => [projectId, machineRegistry.machineOf(projectId) ?? null] as const));
     const fromAccount = (projectId: string): ShownFolder[] | null =>
-      accountFolders(projectId)?.map((folder): ShownFolder => ({ ...folder, offline: true })) ?? null;
+      accountFolders(projectId)?.map((folder): ShownFolder => ({ ...folder, offline: true, deviceId: deviceOf.get(projectId) ?? null })) ?? null;
     // 每台各自回话:答了的(读到的,或读不到 = null)、过了时限还没答的。
     const answered = new Map<string, ShownFolder[] | null>();
     const late = new Set<string>();
@@ -175,7 +181,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
         .then(() => rpc.projects.listProjectFolders(projectId))
         .then((result) => {
           if (result.success) {
-            return result.data.map((folder): ShownFolder => ({ ...folder, offline: false }));
+            return result.data.map((folder): ShownFolder => ({ ...folder, offline: false, deviceId: deviceOf.get(projectId) ?? null }));
           }
           log.warn('[project-folders] 读不到这台机器上的文件夹', {
             projectId,

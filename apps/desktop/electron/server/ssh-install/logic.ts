@@ -780,9 +780,9 @@ export function matchReportScript(options: { accountUserId: string; desktopId: s
  * 请守护进程把这一个账号换到这一版,等它真的换过去。没装由它自己装(下载,或用 incomingUploadCommand 放进去的包),
  * 桌面 ❌ 再装一份:换版装东西的只有那台机器上的守护进程(server-account-converge.ts)。
  */
-export function matchApplyScript(options: { accountUserId: string; version: string }): string {
+export function matchApplyScript(options: { accountUserId: string; version: string; now?: boolean }): string {
   if (!ACCOUNT_RE.test(options.accountUserId) || !isServerVersion(options.version)) throw new Error('账号 / 版本的形状不对')
-  return `${SERVER_BIN} match-version --account ${options.accountUserId} --apply ${options.version} </dev/null\n`
+  return `${SERVER_BIN} match-version --account ${options.accountUserId} --apply ${options.version}${options.now ? ' --now' : ''} </dev/null\n`
 }
 
 /**

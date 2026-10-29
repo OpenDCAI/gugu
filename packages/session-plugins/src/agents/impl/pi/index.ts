@@ -10,6 +10,7 @@ import {
   createFileDropPlugin,
   miseDependency,
   passthroughMcpAdapter,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { connectStdioAcp } from '../../helpers/acp-stdio';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
@@ -184,12 +185,12 @@ export const plugin = definePlugin(
     },
     // 托管安装(npm backend):纯 JS(bin `dist/bundle/cli.js`)+ 19 个运行期依赖 ——
     // 依赖树正是 aube 的活。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'pi',
       backend: 'npm',
       package: '@earendil-works/pi-coding-agent',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // agent memory —— pi 管这一族叫 **context files**,启动时自动加载。
     // 出处:https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md
     //      (earendil-works/pi@d981de1229ef899957bbe968bc8dcda02a21f477)的「Context Files」一节

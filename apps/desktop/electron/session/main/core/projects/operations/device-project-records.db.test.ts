@@ -63,7 +63,7 @@ describe('listDeviceProjectRecords', () => {
 
   it('lists the visible projects with their folders and groups, ❌ the hidden one', async () => {
     setProjectGroupHost(host(async () => ok([
-      { projectId: 'project-a', chatId: 'chat-a', representative: true },
+      { projectId: 'project-a', chatId: 'chat-a' },
       { projectId: 'project-hidden', chatId: 'chat-h' },
     ])));
     const records = await listDeviceProjectRecords();
@@ -74,7 +74,6 @@ describe('listDeviceProjectRecords', () => {
       rootPath: '/w/gugu',
       createdAt: '2026-10-01T08:00:00.000Z',
       chatId: 'chat-a',
-      groupRepresentative: true,
       folders: [
         { workspaceId: 'ws-root-a', kind: 'root', path: '/w/gugu', attachedAt: null },
         { workspaceId: 'ws-wt', kind: 'attached', path: '/w/gugu-wt', attachedAt: '2026-10-02T00:00:00.000Z' },
@@ -82,9 +81,20 @@ describe('listDeviceProjectRecords', () => {
     });
     expect(records.find((record) => record.localProjectId === 'project-b')).toMatchObject({
       chatId: null,
-      groupRepresentative: false,
       createdAt: '2026-10-03T09:30:00.000Z',
     });
+  });
+
+  it('#609 a workspace (~, the task workspace, the assistant\'s directories) is not recorded as a project, even with a group', async () => {
+    fixture.sqlite.exec(`
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-root-home', 'project-root', 'local', 'local', '/home/ada', 'key-home');
+      INSERT INTO projects (id, name, path, repository_workspace_id, kind) VALUES ('project-home', 'ada', '/home/ada', 'ws-root-home', 'workspace');
+      INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('ws-root-task', 'project-root', 'local', 'local', '/data/task-home', 'key-task');
+      INSERT INTO projects (id, name, path, repository_workspace_id) VALUES ('00000000-0000-4000-8000-000000000001', '任务工作区', '/data/task-home', 'ws-root-task');
+    `);
+    setProjectGroupHost(host(async () => ok([{ projectId: 'project-home', chatId: 'chat-home' }])));
+    const records = await listDeviceProjectRecords();
+    expect(records.map((record) => record.localProjectId).sort()).toEqual(['project-a', 'project-b']);
   });
 
   it('a project whose root folder was detached keeps only its attached folders', async () => {

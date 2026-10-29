@@ -168,11 +168,14 @@ describe('planAccountVersion', () => {
     expect(planAccountVersion({ ...base, reports: {}, running: '0.2.1' }).kind).toBe('none')
     expect(planAccountVersion({ ...base, reports: { a: { version: '0.2.1', protocol: 2, at: NOW } }, running: '0.2.1' }).kind).toBe('none')
   })
-  it('没装先装;装好了有版本信号当场换,没有就等空闲', () => {
+  it('没装先装;装好了有版本信号当场换,没有就等空闲;有 agent 在跑时版本信号也等空闲,只有人点的「现在重启更新」当场换', () => {
     const reports = { a: { version: '0.2.9', protocol: 2, at: NOW } }
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false })).toEqual({ kind: 'stage', version: '0.2.9' })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true })).toEqual({ kind: 'wait-idle', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
+    // 10-28 Linux 2:桌面升了一版来敲门(版本信号),7 条车道正在跑的那一轮全断 —— 有 agent 在跑就等。
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true })).toEqual({ kind: 'wait-idle', version: '0.2.9' })
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true, switchConfirmed: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0' })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
   })
   it('这一版刚失败过:不再自己下、不再等空闲换;桌面经 SSH 装好后请它换(版本信号)照样换', () => {
@@ -252,12 +255,12 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(restarted).toEqual([U1])
   })
 
-  it('降级:桌面比装着的旧 ⇒ 装旧版(后台下载)、有版本信号就当场只切这个账号', async () => {
+  it('降级:桌面比装着的旧 ⇒ 装旧版(后台下载)、有版本信号就当场只切这个账号(有 agent 在跑时要人点过「现在重启更新」)', async () => {
     signIn(U1)
     signIn(U2)
     installVersion('0.3.0')
     report(U1, 'alice-old', '0.2.9', MIN_CLIENT_PROTOCOL)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW }))
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW, confirmed: true }))
     const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
     const { c, restarted, staged } = converger(running, { busy: true })
     c.converge(listAccounts())
@@ -270,6 +273,28 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(restarted).toEqual([U1])
     expect(readAccountVersionPin(dataDir(U1))).toMatchObject({ version: '0.2.9', previous: '0.3.0' })
     expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(false)
+  })
+
+  it('版本信号来了、账号在干活:不结束账号进程,等空闲(设备行说「空闲时自动更新」);人点「现在重启更新」才当场换', () => {
+    signIn(U1)
+    for (const v of ['0.3.0', '0.3.1']) installVersion(v)
+    report(U1, 'mbp', '0.3.1')
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'desktop speaks protocol 13', at: NOW }))
+    const { c, restarted } = converger(new Map([[U1, '0.3.0']]), { busy: true })
+    c.converge(listAccounts())
+    expect(restarted).toEqual([])
+    expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
+    expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(true)
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'retry from desktop', at: NOW, confirmed: true }))
+    c.converge(listAccounts())
+    expect(restarted).toEqual([U1])
+  })
+
+  it('人点的「现在重启更新」10 分钟内算数,过了只是普通的版本信号', () => {
+    signIn(U1)
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'retry from desktop', at: NOW, confirmed: true }))
+    expect(readVersionSwitchRequest(dataDir(U1), NOW + 60_000)).toMatchObject({ confirmed: true })
+    expect(readVersionSwitchRequest(dataDir(U1), NOW + 11 * 60_000)).toMatchObject({ confirmed: false })
   })
 
   it('没有版本信号、账号在干活:装好了也等空闲(设备行说「空闲时自动更新」)', () => {
@@ -525,7 +550,8 @@ describe('清理:在用的 + 最近 5 份', () => {
 describe('gugu-server match-version', () => {
   it('参数:报告 / 换过去两种;形状不对拒绝', () => {
     expect(parseMatchArgs(['--account', U1, '--desktop', 'mbp', '--version', '0.2.9', '--protocol', '2'])).toEqual({ mode: 'report', account: U1, desktop: 'mbp', version: '0.2.9', protocol: 2 })
-    expect(parseMatchArgs([`--account=${U1}`, '--apply=0.2.9'])).toEqual({ mode: 'apply', account: U1, version: '0.2.9' })
+    expect(parseMatchArgs([`--account=${U1}`, '--apply=0.2.9'])).toEqual({ mode: 'apply', account: U1, version: '0.2.9', now: false })
+    expect(parseMatchArgs(['--account', U1, '--apply', '0.2.9', '--now'])).toEqual({ mode: 'apply', account: U1, version: '0.2.9', now: true })
     expect(parseMatchArgs(['--account', U1, '--desktop', 'mbp', '--version', '../x'])).toHaveProperty('error')
   })
 
@@ -562,10 +588,29 @@ describe('gugu-server match-version', () => {
     expect(await apply({ readUpdateState: () => failedAt(NOW + 500, 'unreachable') })).toBe(7)
     expect(errors.pop()).toContain('连不上下载站')
   })
+
+  it('换过去:这个账号有 agent 在跑、守护进程在等空闲 ⇒ 当场退 8(桌面问人);--now 不退,请求带上「人确认过」', async () => {
+    signIn(U1)
+    installVersion('0.3.0')
+    const ready = JSON.stringify({ state: 'ready', version: '0.3.1', at: NOW + 500 })
+    const errors: string[] = []
+    const run = (args: string[]) => {
+      let clock = NOW
+      return runMatchVersion(['--account', U1, '--apply', '0.3.1', ...args], () => undefined, (l) => errors.push(l), {
+        home, runningVersion: () => '0.3.0', supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
+        now: () => (clock += 100), readUpdateState: () => ready,
+      })
+    }
+    expect(await run([])).toBe(8)
+    expect(errors.pop()).toContain('有 agent 在跑')
+    expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: false })
+    expect(await run(['--now'])).toBe(4)
+    expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: true })
+  })
 })
 
 describe('远程 SSH:桌面替这个账号换成匹配的那一版', () => {
-  type Remote = { target: string; running: string; installed: boolean; match?: boolean; online?: boolean; incoming?: boolean }
+  type Remote = { target: string; running: string; installed: boolean; match?: boolean; online?: boolean; incoming?: boolean; busy?: boolean }
   function fakeSsh(remote: Remote, seen: string[]): SpawnSsh {
     return async (args, { stdin, onStderr }) => {
       const text = typeof stdin === 'string' ? stdin : `<file ${stdin.file}> → ${args.at(-1)}`
@@ -579,6 +624,7 @@ describe('远程 SSH:桌面替这个账号换成匹配的那一版', () => {
       if (text.includes('match-version') && text.includes('--apply')) {
         // 连不上下载站的机器:守护进程下载失败、记下 unreachable ⇒ --apply 退 7;字节放进 incoming 之后才装得上。
         if (remote.online === false && !remote.incoming) return { code: 7, stdout: '', stderr: '这台机器连不上下载站,装不了:要把包传过来\n' }
+        if (remote.busy && !text.includes('--now')) return { code: 8, stdout: '', stderr: '这个账号有 agent 在跑,空闲后会自己换到那一版\n' }
         remote.running = remote.target
         return { code: 0, stdout: `__GUGU_MATCH__ switched=${remote.target}\n`, stderr: '' }
       }
@@ -631,6 +677,18 @@ describe('远程 SSH:桌面替这个账号换成匹配的那一版', () => {
     expect(steps(final)).toMatchObject({ download: 'done', service: 'done', login: 'skipped' })
   })
 
+  it('那个账号有 agent 在跑(--apply 退 8):停在 agentsRunning、❌ 当成换版失败;人点「现在重启更新」带 --now 才当场换', async () => {
+    const remote: Remote = { target: '0.3.1', running: '0.3.0', installed: true, busy: true }
+    const seen: string[] = []
+    const waiting = await run(remote, seen)
+    expect(waiting.failure?.reason).toBe('agentsRunning')
+    expect(remote.running).toBe('0.3.0')
+    const final = await run(remote, seen, { now: true })
+    expect(final.failure).toBeNull()
+    expect(seen.at(-1)).toContain(`match-version --account ${U1} --apply 0.3.1 --now`)
+    expect(remote.running).toBe('0.3.1')
+  })
+
   it('那台机器连不上下载站(它自己下载失败、--apply 退 7):本机下好那一版,经 SSH 只把字节放进它的 versions/.incoming(先包、后清单行),再请它换一次;❌ 桌面在那边装', async () => {
     const remote: Remote = { target: '0.2.9', running: '0.3.0', installed: false, online: false }
     const seen: string[] = []
@@ -653,6 +711,27 @@ describe('远程 SSH:桌面替这个账号换成匹配的那一版', () => {
     expect(at('desktop-upload')).toBeLessThan(applies[1]!)
     expect(installedByDesktop(seen)).toBe(false)
     expect(final.steps.find((s) => s.id === 'download')).toMatchObject({ status: 'done', via: 'desktop' })
+  })
+
+  it('升级器:有 agent 在跑 ⇒ 报 waitingIdle(❌ failed);人点「现在重启更新」(force + now)不看冷却、带 --now 当场换', async () => {
+    const remote: Remote = { target: '0.3.1', running: '0.3.0', installed: true, busy: true }
+    const seen: string[] = []
+    const first = settled()
+    let emit = first.emit
+    const upgrader = createSshAutoUpgrader({
+      run: (_id, onState, options) =>
+        runSshInstall({ destination: 'box', display: 'box' }, new InstallRun('r', 'box', onState), deps(fakeSsh(remote, seen), options?.now ? { now: true } : {})),
+      emit: (event) => emit(event),
+      desktopVersion: '0.3.1',
+    })
+    upgrader.request('d22')
+    expect(await first.final).toEqual({ deviceId: 'd22', phase: 'waitingIdle' })
+    expect(upgrader.request('d22')).toBe(false)
+    const second = settled()
+    emit = second.emit
+    expect(upgrader.request('d22', { force: true, now: true })).toBe(true)
+    expect(await second.final).toEqual({ deviceId: 'd22', phase: 'done' })
+    expect(remote.running).toBe('0.3.1')
   })
 
   it('已经是目标(同账号另一台桌面更新)⇒ 什么也不换;升级器报 desktopTooOld(❌ 更新没成功)', async () => {

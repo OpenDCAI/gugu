@@ -110,6 +110,8 @@ export interface SessionCellDeps {
    * (那正是 #4429 删掉的第二属主)。缺省不注入时,多条信封**响亮失败**,❌ 不悄悄退回逐条发。
    */
   mergeEnvelopes?: (texts: readonly string[]) => string;
+  /** Core-owned envelope identity and uncertainty marking, injected by the host. */
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
   logger: Logger;
   /**
    * behavior `agent-context-injection` 的 **③**:走用户级载体的会话级系统提示词。

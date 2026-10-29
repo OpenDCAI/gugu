@@ -114,6 +114,8 @@ export interface DeviceRuntimeHostOptions {
   activityReconcileIntervalMs?: number
   /** @@@5912 legacy / 陈旧设备行清理的周期;缺省 LEGACY_DEVICE_CLEANUP_INTERVAL_MS。 */
   legacyCleanupIntervalMs?: number
+  /** @@@safety-cadence wake 订着时对账 tick 与定时任务重排的间隔;缺省 DEVICE_SAFETY_INTERVAL_MS。 */
+  safetyIntervalMs?: number
   nowMs?: () => number
   authProvider: RuntimeAuthProvider
   makeIdentityClient: (accessToken: string) => DeviceRuntimeIdentityClient
@@ -204,6 +206,8 @@ export interface DeviceRuntimeHost {
    * ❌ 为这件事调 `tickOnce()` —— tick 只在心跳到期(30 s 一拍)时才写,清单最多旧 30 s。还没 start 就什么都不做:首轮按那时的清单登记。
    */
   notifyDeviceActionsChanged: () => void
+  /** 本机刚建 / 改 / 删了定时任务(表上没有事件):当场重排,❌ 等兜底周期。 */
+  notifyScheduledTasksChanged: () => void
   start: () => void
   stop: () => Promise<void>
   getDebugSnapshot: () => DeviceRuntimeHostDebugSnapshot
@@ -236,6 +240,9 @@ export const ORPHAN_RECOVERY_INTERVAL_MS = 60_000
 // @@@activity-reconcile — activity 周期对账间隔:响应性(卡死 running 最多存活约一个周期)与写放大
 // (N 个本机 agent × 幂等 upsert)的折中。
 export const ACTIVITY_RECONCILE_INTERVAL_MS = 120_000
+// @@@safety-cadence — wake 订着时,新命令由事件送来,对账 tick(取命令 + 孤儿恢复)与定时任务重排只是兜底:5 分钟一次。
+// 没订着(从没订上 / 掉线在重连)照旧每个监督节拍一次 —— 那时它们是唯一的来源。
+export const DEVICE_SAFETY_INTERVAL_MS = 5 * 60_000
 // @@@5912 legacy / 陈旧设备行清理的周期。它此前挂在每一拍心跳上(空闲时每 30 秒一个请求),
 // 而它清的是历史垃圾:一行多留半小时没有任何人会注意到。但也**不能只跑一次** —— 判据带时间,
 // 同一个 owner 下答案会改口(见使用处)。
@@ -292,6 +299,7 @@ export function createDeviceRuntimeHostLoop(
   // @@@1528 的 online/idle sweep,但跳过真有 turn 在飞的 agent(runtimeBridge.agentStatus 的读数是权威真值),
   // 周期化后单次写丢失的伤害从「永久」降到「一个对账周期」。
   const activityReconcileIntervalMs = options.activityReconcileIntervalMs ?? ACTIVITY_RECONCILE_INTERVAL_MS
+  const safetyIntervalMs = options.safetyIntervalMs ?? DEVICE_SAFETY_INTERVAL_MS
   const legacyCleanupIntervalMs = options.legacyCleanupIntervalMs ?? LEGACY_DEVICE_CLEANUP_INTERVAL_MS
   const nowMs = options.nowMs ?? (() => Date.now())
   // @@@gate-slack — 孤儿恢复(60 s)与 activity 对账(120 s)两个闸恰是对账节拍的整数倍,「距上次 59 998 ms」这种抖动
@@ -310,6 +318,9 @@ export function createDeviceRuntimeHostLoop(
   let scheduledTasksTimer: ReturnType<typeof setTimeout> | null = null
   let activeScheduledTasksRun: Promise<void> | null = null
   let scheduledTasksPlanned = false
+  // 本机刚改了任务、而重排正在飞:飞完再排一次(在飞那一轮读表的时刻早于这次改动)。
+  let scheduledTasksAgain = false
+  let lastSafetyAt: number | null = null
   let workFailureStreak = 0
   let drainFollowUpDueAt = 0
   // wake 此刻是不是真的订着(由订阅实现的 onSubscribed / onSubscribeFailure 写,❌ 不由「subscribe() 调用返回了」推断)。
@@ -968,6 +979,10 @@ export function createDeviceRuntimeHostLoop(
     const generation = lifecycleGeneration
     const run = runScheduledTasksOnce(generation).finally(() => {
       if (activeScheduledTasksRun === run) activeScheduledTasksRun = null
+      if (scheduledTasksAgain) {
+        scheduledTasksAgain = false
+        scheduleScheduledTasksRun()
+      }
     })
     activeScheduledTasksRun = run
   }
@@ -1220,8 +1235,12 @@ export function createDeviceRuntimeHostLoop(
     stopped = false
     // ⚠️ 先装监督节拍再发首轮:首轮 tick 结尾的排空跟进以「监督节拍已装上」判定宿主在长跑。
     superviseTimer = setInterval(() => {
+      // @@@safety-cadence — wake 订着时这一拍只是兜底,每 safetyIntervalMs 一次;没订着照旧每拍。
+      const at = nowMs()
+      if (wakeSubscribed && !gateOpen(lastSafetyAt, safetyIntervalMs, at)) return
+      lastSafetyAt = at
       scheduleReconcileTick()
-      // 定时任务的周期重排:别的设备改了任务,最迟一个监督周期内在这台设备上生效。
+      // 定时任务的周期重排:本机改的任务当场通知(notifyScheduledTasksChanged);别的设备改的,最迟一个兜底周期内生效。
       if (scheduledTasksPlanned) scheduleScheduledTasksRun()
     }, superviseIntervalMs)
     scheduleWorkTick()
@@ -1468,6 +1487,14 @@ export function createDeviceRuntimeHostLoop(
       notifyWork()
     },
     notifyDeviceActionsChanged,
+    notifyScheduledTasksChanged: () => {
+      if (superviseTimer === null || stopped) return
+      if (activeScheduledTasksRun) {
+        scheduledTasksAgain = true
+        return
+      }
+      scheduleScheduledTasksRun()
+    },
     start,
     stop,
     getDebugSnapshot,

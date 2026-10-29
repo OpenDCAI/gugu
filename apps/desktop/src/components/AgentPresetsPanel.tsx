@@ -345,7 +345,7 @@ export function AgentPresetsPanel({
                   padding: '10px 14px',
                   borderRadius: 'var(--radius-control)',
                   background: 'var(--danger-tint)',
-                  color: 'var(--danger)',
+                  color: 'var(--danger-fg)',
                   fontSize: 'var(--font-body)',
                 }}
               >
