@@ -33,6 +33,7 @@ export interface PromptQueueStore {
 export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
+  onPromptSteered?: (sessionId: string) => void;
   agentHost: AgentPluginHost;
   host: AcpRuntimeProcessHost;
   resolveAttachment: ResolvePromptAttachment;

@@ -1354,6 +1354,8 @@ export interface SessionCapabilityBundle {
    * its `browser_*` tools. Set by the host when the session opens; absent = no Gugu browser in this session.
    */
   browserUse?: true;
+  /** The host disables harness-owned browser plugins even when its Browser Use App is unavailable. */
+  disableNativeBrowser?: true;
   env: Readonly<Record<string, string | undefined>>;
   model: SessionModelCapability | null;
   autonomy: SessionAutonomyCapability | null;

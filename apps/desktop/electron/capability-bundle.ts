@@ -74,11 +74,13 @@ export interface SessionCapabilityBundle {
   extensionServerOrigins: readonly { name: string; extensionId: string }[]
   /** #7199 这台机器上 Browser Use App 装着、开着、许给 agent 工具(buildSessionBundle 读一次;交给各家物化器,见 core 那一格)。 */
   browserUse?: true
+  /** Disable harness-owned browser routes independently of App availability. */
+  disableNativeBrowser?: true
   /**
-   * #7199 开场提示里的浏览器那一段:只在咕咕 server 上、且不是个人助理时有 —— `app` 云浏览器那段,`none` 没有浏览器那段。
-   * 缺席 = 不说(桌面、个人助理、不经 buildSessionBundle 的腿)。
+   * Remote hosts explicitly report that Browser Use is not available yet.
+   * Absent for desktop sessions or hosts without the App probe.
    */
-  browserRule?: 'app' | 'none'
+  browserRule?: 'unavailable'
 }
 
 // Keep the Electron-side declaration available at this boundary as well. The core and
@@ -433,7 +435,7 @@ export function setSessionIntegrationBridge(
 
 /**
  * #7199 这台机器装没装 Browser Use App(装着、开着、许给 agent 工具),宿主装上探针;`server` = 这是咕咕 server。
- * 每条会话开场读一次:Codex 据它关掉自己的浏览器插件(桌面、server 都是);只在 server 上,开场提示按它说浏览器 ——
+ * 每条会话开场读一次:本机装着时 Codex 据它关掉自己的浏览器插件;server 明确提示暂不可用 ——
  * 桌面的 App 经 `<gugu_apps>` / 它自己的工具说明说话。浏览器工具只有 App 那一条路(经扩展网关 / catalog),这里 ❌ 另给工具。
  * 没装探针(测试、无 app 环境)= 两样都没有。
  */
@@ -443,18 +445,15 @@ export function setBrowserUseApp(probe: { installed: () => boolean; server: bool
   browserUseApp = probe
 }
 
-/** 读不出装了什么就当没装(那时也确实没有工具):server 上说没有浏览器。个人助理 ❌ 浏览器那段(与从前一样)。 */
-function browserUseOf(personalAssistant: boolean): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule'> {
+/** The remote Browser Use implementation has been removed; installing the shell App cannot enable it. */
+function browserUseOf(personalAssistant: boolean): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule' | 'disableNativeBrowser'> {
   if (!browserUseApp) return {}
-  let installed = false
+  if (browserUseApp.server) return { disableNativeBrowser: true, ...(!personalAssistant ? { browserRule: 'unavailable' as const } : {}) }
   try {
-    installed = browserUseApp.installed()
+    return browserUseApp.installed() ? { browserUse: true } : {}
   } catch (error) {
     createLogger('capability-bundle').warn({ error: (error as Error).message }, 'could not read whether Browser Use is installed; the session has no browser')
-  }
-  return {
-    ...(installed ? { browserUse: true as const } : {}),
-    ...(browserUseApp.server && !personalAssistant ? { browserRule: installed ? 'app' as const : 'none' as const } : {}),
+    return {}
   }
 }
 
@@ -823,6 +822,7 @@ function toCoreSessionBundle(bundle: SessionCapabilityBundle): CoreSessionCapabi
     packages: bundle.packages,
     extensionSkills: bundle.extensionSkills,
     ...(bundle.browserUse ? { browserUse: true as const } : {}),
+    ...(bundle.disableNativeBrowser ? { disableNativeBrowser: true as const } : {}),
   }
 }
 
@@ -1074,33 +1074,18 @@ function guguToolNamingLine(
   }
 }
 
-/** #7199 咕咕 server(云电脑)上装着 Browser Use:浏览器是这台机器上的 Chrome,人在和你的聊天里看着、能接管(cloud/cloud-browser.ts)。 */
-export const CLOUD_BROWSER_RULE = `To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the Browser Use App
-(if they are not in your tool list, find them with \`catalog_list\`): they drive your own browser, which the person watches live in their chat with you and can take over; it
-keeps the logins they made there. When you talk about it, call it your browser: do not tell the person which machine or
-server it runs on. Do not launch another browser, Playwright or Chrome for that. When a page needs
-the person's login, call \`browser_request_login\` (they type it into a password vault, you never see it); never ask
-for a password in chat. When a step needs the person (CAPTCHA, SMS or 2FA code, a payment confirmation), call
-\`browser_request_takeover\`. If a tool says the person took over or stopped the browser, stop and tell them what you
-did; do not retry.`
-
-/**
- * #7199 咕咕 server 上没装 Browser Use:没有浏览器工具。❌ 不说的话 agent 会自己另起 Playwright / Chrome / 无头抓取顶替,
- * 或者说它「看过了」那个网页。装不装由人定,装上的工具下一个任务才有。
- */
-export const NO_BROWSER_RULE = 'This machine has no browser for you: the Browser Use App is not installed here. If a task needs a web page, tell the person so and ask whether to install Browser Use on this machine. Only after they agree, call `app_install` for the App `browser-use` (it installs on the machine you run on); its browser tools arrive with your next task, not this one. Until then do not launch your own browser, Playwright, Chrome or a headless scraper to stand in for it, and never claim you looked at a page.'
-
-const BROWSER_RULES = { app: CLOUD_BROWSER_RULE, none: NO_BROWSER_RULE } as const
+/** Removed host browser implementation: the App must supply its own remote control before it can be used here. */
+export const BROWSER_UNAVAILABLE_RULE = 'Browser Use is not available on this machine yet. If a task needs browser control, tell the person this directly. Installing the current Browser Use App does not enable it here. Do not launch a replacement browser, Playwright, Chrome or a headless scraper, and do not claim to have viewed a page.'
 
 export function guguSessionSurfaceBlock(
   surface: HarnessSessionSurface,
   providerId: string,
   carriesGuguMcp: boolean,
-  browserRule?: 'app' | 'none',
+  browserRule?: 'unavailable',
 ): string {
   return `<gugu_session_surface>
 ${guguSessionSurfaceBody(surface)}
-${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${browserRule ? `\n${BROWSER_RULES[browserRule]}` : ''}
+${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${browserRule ? `\n${BROWSER_UNAVAILABLE_RULE}` : ''}
 </gugu_session_surface>
 `
 }

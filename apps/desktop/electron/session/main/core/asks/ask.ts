@@ -5,11 +5,12 @@ import { sessionEvents } from '../sessions/session-events';
 import { readSessionRow, syncAsked, type SessionTimelineResult } from '../session-timeline/service';
 import { log } from '@main/lib/logger';
 import { ASK_SOURCE_SPEC, type AskSourceSpec } from './sources';
+import { registerHumanToolAsk } from './human-tool-wait';
 const fail = (code: string, message: string) => ({ ok: false as const, error: { code, message } });
 
 /**
  * D-31 (owner 10-06「怎么符合用户思维和操作路径怎么来」; L11 复核 67): the approvals the host asks on an agent's behalf — an
- * App install, an agent's question, a browser step — kept here, per session, for a chat-UI session and a terminal one alike
+ * App install, an agent's question — kept here, per session, for a chat-UI session and a terminal one alike
  * (the owner works in Claude's TUI): on the session's timeline next to its own approvals, so whoever follows it (the phone,
  * another desktop, the private chat's band) answers it there, and `respond` settles it once (compare-and-set) and hands the
  * answer to the host. Nothing here answers for the person: there is no full-access auto-approve at this layer.
@@ -68,6 +69,7 @@ export function ask(
   const withdrawQuestions = (sessionId: string) => withdrawAll(sessionId, 'agent-question');
   hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawQuestions), sessionEvents.on('session:deleted', withdrawQuestions)];
   return new Promise((resolve) => {
+    let unregisterHumanTool = () => undefined as void;
     const asks = hostAsks.get(conversationId) ?? new Map<string, AskEntry>();
     hostAsks.set(conversationId, asks);
     const wait = `host-ask:${request.itemId}`;
@@ -78,6 +80,7 @@ export function ask(
     const onAbort = () => aborted();
     const end = (answer: AskResult, publish = true) => {
       if (!asks.delete(request.itemId)) return;
+      unregisterHumanTool();
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
       if (asks.size === 0) hostAsks.delete(conversationId);
@@ -90,9 +93,12 @@ export function ask(
     const timer = timeoutMs === undefined ? null : setTimeout(() => aborted('timeout'), timeoutMs);
     timer?.unref?.();
     asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: () => aborted(), detach: () => end('withdrawn', false) });
+    if (request.origin.source === 'app-install') {
+      unregisterHumanTool = registerHumanToolAsk(conversationId, request.itemId);
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
     reportHostWait(conversationId, wait, true, request.origin.source);
     syncAsked(conversationId);
-    options.signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 

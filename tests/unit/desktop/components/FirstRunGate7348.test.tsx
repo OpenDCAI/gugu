@@ -12,9 +12,11 @@ const io = vi.hoisted(() => ({
   finishFirstRun: vi.fn(async () => '2026-10-16T00:00:00Z'),
   requestAssistantSetupHandoff: vi.fn(),
   startFirstRunHints: vi.fn(async () => undefined),
+  enrollSampleProject: vi.fn(async (_userId: string) => undefined),
 }))
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
 vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({ startFirstRunHints: io.startFirstRunHints, readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/sampleProject', () => ({ enrollSampleProject: io.enrollSampleProject }))
 const auth = vi.hoisted(() => ({ updateNickname: vi.fn(async () => ({ success: true })), updateAvatar: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: auth }))
 const installer = vi.hoisted(() => ({ mounted: vi.fn() }))
@@ -187,6 +189,9 @@ describe('first run gate (#7348)', () => {
       await clickElement(byTestId(first.container, 'assistant-intro-primary')!)
       await waitForCondition(() => !!byTestId(first.container, 'main-product'), 'product after start')
       expect(io.finishFirstRun).toHaveBeenCalled()
+      // #709 走出认识咕咕就给新账号记上示例项目,在「走完」之前记;记不上它自己记日志、不拦人(lib/sampleProject)。
+      expect(io.enrollSampleProject).toHaveBeenCalledWith('u1')
+      expect(io.enrollSampleProject.mock.invocationCallOrder[0]).toBeLessThan(io.finishFirstRun.mock.invocationCallOrder[0]!)
       expect(io.rememberFirstRunDone).toHaveBeenCalledWith('u1')
       expect(io.requestAssistantSetupHandoff).toHaveBeenCalledWith('u1')
     } finally {
@@ -200,6 +205,7 @@ describe('first run gate (#7348)', () => {
       await clickElement(byTestId(second.container, 'assistant-intro-later')!)
       await waitForCondition(() => !!byTestId(second.container, 'main-product'), 'product after later')
       expect(io.finishFirstRun).toHaveBeenCalled()
+      expect(io.enrollSampleProject).toHaveBeenCalledWith('u1')
       expect(io.requestAssistantSetupHandoff).not.toHaveBeenCalled()
     } finally {
       second.cleanup()

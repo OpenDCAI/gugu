@@ -16,6 +16,7 @@ vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
 vi.mock('../../../../apps/desktop/src/lib/firstRunHints', () => ({
   startFirstRunHints: vi.fn(async () => undefined), readFirstRunHints: vi.fn(async () => null), dismissFirstRunHints: vi.fn(),
 }))
+vi.mock('../../../../apps/desktop/src/lib/sampleProject', () => ({ enrollSampleProject: vi.fn(async () => undefined) }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: {} }))
 vi.mock('../../../../apps/desktop/src/lib/productTour', async (original) => ({
   ...await original<Record<string, unknown>>(), saveProductTourState: vi.fn(async () => undefined),
