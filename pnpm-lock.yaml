@@ -35,8 +35,8 @@ importers:
         specifier: 0.3.293
         version: 0.3.293(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
       '@gugu-acp/compat':
-        specifier: 1.0.14
-        version: 1.0.14
+        specifier: 1.0.18
+        version: 1.0.18
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.29.0(zod@4.4.3)
@@ -2966,8 +2966,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  '@gugu-acp/compat@1.0.14':
-    resolution: {integrity: sha512-MfAp3yGQhihq62ZqL38sVScRyy84zLu7kp7CHjJBxQRIu+NxebzIzPJpgl6IAso7Fi0GHLCzz1Z7YN+pxDQkYg==}
+  '@gugu-acp/compat@1.0.18':
+    resolution: {integrity: sha512-oGoDJgTy5IHKjkrZirW2FJ6SS02l6APPhbRlSi2EAj5/rYewQkVFFwhAyiU0TqXgpGV5zbjttgINFVdi7t5A+g==}
 
   '@gugu-acp/files-core@0.1.0':
     resolution: {integrity: sha512-5V7KGpdhYospds8VLq50zNrppfkqFGg5xl20jEx4KwtsHC7MPcWVDzJwDZg8xOmQm9xb6eGQJnx2vzfJ0T/ScQ==}
@@ -14601,7 +14601,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@gugu-acp/compat@1.0.14': {}
+  '@gugu-acp/compat@1.0.18': {}
 
   '@gugu-acp/files-core@0.1.0(yjs@13.6.33)':
     dependencies:
