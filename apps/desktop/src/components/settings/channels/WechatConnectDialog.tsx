@@ -52,7 +52,7 @@ function VerifyForm({ wrong, onSubmit }: { wrong: boolean; onSubmit: (code: stri
   return (
     <form className="flex w-full flex-col items-center gap-3" onSubmit={submit}>
       <div className={`${body} text-center text-[var(--fg)]`}>{t('channels.dialog.verifyTitle')}</div>
-      {wrong ? <div className={`${body} text-[var(--danger)]`}>{t('channels.dialog.verifyWrong')}</div> : null}
+      {wrong ? <div className={`${body} text-[var(--danger-fg)]`}>{t('channels.dialog.verifyWrong')}</div> : null}
       <div className="flex gap-2">
         <input
           autoFocus

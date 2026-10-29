@@ -401,7 +401,7 @@ function PublicGroupInviteSearchResult({
   const { t } = useTranslation('contacts')
   if (!lookup) return null
   if (lookup.status === 'lookup_error') {
-    return <div style={{ padding: 16, color: 'var(--danger)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
+    return <div style={{ padding: 16, color: 'var(--danger-fg)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
   }
   if (lookup.status === 'not_found' || !lookup.group) {
     return <div style={{ padding: 16, color: 'var(--text-secondary)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.notFound')}</div>

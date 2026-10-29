@@ -654,7 +654,7 @@ function DeviceRow({
         )}
 
         <div className="mt-[3px] overflow-hidden">
-        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--faint-fg)]">
+        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--muted-fg)]">
           <span className="inline-flex items-center gap-[5px] pl-4">
             {/* 状态点:在线 = connected = live 蓝(design.md 唯一的 accent);离线退成墨色最淡一档。 */}
             <span
@@ -662,7 +662,7 @@ function DeviceRow({
               className={cn('size-[7px] shrink-0 rounded-[var(--radius-circle)]', device.is_online ? 'bg-live' : 'bg-[var(--faint-fg)]')}
             />
             {link === 'signInRequired' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-ssh-sign-in">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-ssh-sign-in">
                 {t('devices.loginState.sshSignIn')}
                 {onSshSignIn && <>{' '}<InlineAction onClick={onSshSignIn} testId="settings-device-ssh-sign-in-action">{t('devices.loginState.sshSignInAction')}</InlineAction></>}
               </span>
@@ -674,14 +674,14 @@ function DeviceRow({
                   : t('devices.loginState.updating')}
               </span>
             ) : link === 'outdated' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-outdated">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-outdated">
                 {t('devices.loginState.updateFailed')}
                 {onRetryUpdate && <>{' '}<InlineAction onClick={onRetryUpdate} testId="settings-device-update-retry">{t('devices.loginState.retryUpdate')}</InlineAction></>}
               </span>
             ) : link === 'unreachable' ? (
               t('devices.loginState.reconnecting')
             ) : failedUpdate !== null ? (
-              <span className={retrying ? undefined : 'text-[var(--danger)]'} data-testid="settings-device-match-failed">
+              <span className={retrying ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
                 {retrying ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
                 {!retrying && onRetryVersionMatch && (
                   <>{' '}<InlineAction
@@ -698,7 +698,7 @@ function DeviceRow({
             ) : device.is_online ? (
               t('devices.online')
             ) : signedOutText ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-signed-out">{signedOutText}</span>
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-signed-out">{signedOutText}</span>
             ) : (
               <span title={model.kind === 'server' ? t('devices.loginState.offlineHint') : undefined}>
                 {lastSeen ? t('devices.lastSeen', { time: lastSeen }) : t('devices.offline')}
@@ -734,7 +734,7 @@ function DeviceRow({
         </div>
         {replacedBy && <ReplacedHint by={replacedBy} onRemove={onRemove} />}
         {renameFailed && (
-          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{renameFailed}</div>
+          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger-fg)]">{renameFailed}</div>
         )}
       </div>
 

@@ -489,7 +489,7 @@ export function RemoteFolderPicker({ deviceId, initialPath = '~', onSelect, onCa
 
       {/* 去不成的原因:留在原地、说清楚、给重试。手上有读数时列表照常可用。 */}
       {navError && !initialLoading ? (
-        <div role="alert" className="mx-2 mb-1 flex items-center gap-2 border-l-2 border-[var(--danger)] bg-foreground/[0.025] px-3 py-2 text-[length:var(--font-body)] text-[var(--danger)] dark:bg-foreground/[0.04]">
+        <div role="alert" className="mx-2 mb-1 flex items-center gap-2 border-l-2 border-[var(--danger)] bg-foreground/[0.025] px-3 py-2 text-[length:var(--font-body)] text-[var(--danger-fg)] dark:bg-foreground/[0.04]">
           <span className="min-w-0 flex-1">{navErrorMessage(navError, t)}</span>
           <Button variant="secondary" size="sm" className="shrink-0" onClick={retry}>
             {t('create.remoteFolders.retry')}
@@ -534,7 +534,7 @@ export function RemoteFolderPicker({ deviceId, initialPath = '~', onSelect, onCa
               </Button>
             </div>
             {newFolder.error ? (
-              <span role="alert" className="text-[length:var(--font-caption)] text-[var(--danger)]">{newFolder.error}</span>
+              <span role="alert" className="text-[length:var(--font-caption)] text-[var(--danger-fg)]">{newFolder.error}</span>
             ) : null}
           </div>
         ) : null}

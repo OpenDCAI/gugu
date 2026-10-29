@@ -47,11 +47,11 @@ const avatarUploadingStyle: CSSProperties = {
 }
 const hiddenStyle: CSSProperties = { display: 'none' }
 const profileTextStyle: CSSProperties = { flex: 1, minWidth: 0 }
-const memberCountStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginTop: 3 }
+const memberCountStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--muted-fg)', marginTop: 3 }
 const memberStackStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', marginRight: 8 }
 const memberStackItemStyle: CSSProperties = { display: 'inline-flex', marginLeft: -6, borderRadius: 'var(--radius-circle)' }
 const leaveStyle: CSSProperties = {
-  marginTop: 20, textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--font-body)', fontWeight: 500,
+  marginTop: 20, textAlign: 'center', color: 'var(--danger-fg)', fontSize: 'var(--font-body)', fontWeight: 500,
   cursor: 'pointer', padding: 11, borderRadius: 'var(--radius-xl)', background: 'var(--danger-tint)',
 }
 const confirmStyle: CSSProperties = { marginTop: 20 }

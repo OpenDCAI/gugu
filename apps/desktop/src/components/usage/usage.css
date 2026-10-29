@@ -194,7 +194,7 @@
 .na-balance-label { color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); }
 .na-balance-value { color: var(--fg); font-family: var(--font-mono); font-size: calc(var(--font-size-xl) * 1.4); font-weight: var(--font-weight-semibold); letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 .na-balance-rate { margin: -8px 0 0; color: var(--muted-fg); font-size: var(--font-caption); line-height: 1.6; }
-.na-balance-rate[data-blocked] { color: var(--danger); }
+.na-balance-rate[data-blocked] { color: var(--danger-fg); }
 .na-balance-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .na-balance-cell { min-width: 0; padding: 8px 10px; border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--bg) 60%, transparent); }
 .na-balance-cell span { display: flex; align-items: center; gap: 4px; color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); line-height: 1; }

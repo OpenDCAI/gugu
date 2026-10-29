@@ -103,7 +103,7 @@ export function ForumConsent() {
             {lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}
           </ul>
           <p className="m-0">{body}</p>
-          {failed ? <p className="m-0 text-[var(--danger)]" role="alert">{failed}</p> : null}
+          {failed ? <p className="m-0 text-[var(--danger-fg)]" role="alert">{failed}</p> : null}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={busy} onClick={close} data-testid="forum-consent-cancel">{t('forum.consent.cancel')}</Button>

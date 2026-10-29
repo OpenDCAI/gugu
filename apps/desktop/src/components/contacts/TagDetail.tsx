@@ -209,7 +209,7 @@ export function TagMemberEditorDetail({
                 border: '1px solid var(--border-color)',
                 borderRadius: 'var(--radius-control)',
                 background: 'var(--input-bg)',
-                color: 'var(--danger)',
+                color: 'var(--danger-fg)',
                 display: 'flex',
                 alignItems: 'center',
                 padding: '8px 10px',

@@ -123,7 +123,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
       <SettingsGroup presentation="summary">
         <SettingsRow
           title={user?.nickname ?? t('account.avatar')}
-          description={avatarError ? <span style={{ color: 'var(--danger)' }}>{avatarError}</span> : t('account.avatar')}
+          description={avatarError ? <span style={{ color: 'var(--danger-fg)' }}>{avatarError}</span> : t('account.avatar')}
           leading={(
             // 头像即按钮:ui/Button 的 ghost(键盘可达、读屏读得出),盒子与侧栏头像按钮同一组数。
             <Button
@@ -250,7 +250,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
           title={t('account.logout')}
           description={t('account.logoutNote')}
           control={(
-            <Button variant="ghost" size="sm" onClick={() => { void handleLogout() }} disabled={loggingOut} style={{ color: 'var(--danger)' }}>
+            <Button variant="ghost" size="sm" onClick={() => { void handleLogout() }} disabled={loggingOut} style={{ color: 'var(--danger-fg)' }}>
               <LogOut size={15} />
               {loggingOut ? t('account.loggingOut') : t('account.logout')}
             </Button>

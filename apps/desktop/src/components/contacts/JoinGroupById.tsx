@@ -29,7 +29,7 @@ const nameClass =
 const metaClass =
   'mt-px text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]'
 const errorClass =
-  'mt-1 text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--danger)]'
+  'mt-1 text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--danger-fg)]'
 const stateClass = 'text-[length:var(--font-body)] text-[var(--text-secondary)]'
 
 /**

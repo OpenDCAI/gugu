@@ -110,7 +110,7 @@ export function ContactRowDeleteButton({ label, onRemove }: { label: string; onR
       title={label}
       aria-label={label}
       data-testid={AUTOMATION_TEST_IDS.contactRowRemove}
-      className="gg-ghost absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-[var(--dur-fast)] [transition-timing-function:var(--ease)] hover:text-[var(--danger)] focus-visible:opacity-100 group-hover/contact-row:opacity-100"
+      className="gg-ghost absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-[var(--dur-fast)] [transition-timing-function:var(--ease)] hover:text-[var(--danger-fg)] focus-visible:opacity-100 group-hover/contact-row:opacity-100"
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()

@@ -52,7 +52,7 @@
 .ta-onb-choice-title { font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; }
 .ta-onb-choice-body { font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--muted-fg); }
 .ta-onb-choice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
-.ta-onb-error { margin: 0; font-size: var(--font-body); line-height: var(--lh-body); color: var(--danger); }
+.ta-onb-error { margin: 0; font-size: var(--font-body); line-height: var(--lh-body); color: var(--danger-fg); }
 
 /* 引导输入与其他页面使用同一档控件边界，不叠第二层阴影。 */
 .ta-onb .ta-input,
