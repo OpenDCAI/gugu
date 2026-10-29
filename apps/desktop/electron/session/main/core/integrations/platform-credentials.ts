@@ -1,5 +1,6 @@
 import { CloudComputerError } from '@gugu/core/cloud/cloudComputer';
 import {
+  isPlatformServiceMissing,
   PlatformCredentialRejectedError,
   type PlatformIntegrationsClient,
 } from '@gugu/core/cloud/platformIntegrations';
@@ -25,6 +26,8 @@ import { DEFAULT_INTEGRATION_ACCOUNT_ID } from './integration-credential-store';
  *  · 会话里的工具 = 平台的 MCP 转发口,每次调用现取本人的会话令牌;
  *  · 断开 = `DELETE …/credential`,所有设备一起断;
  *  · #649 留在本机加密库里的 key:上传一次,传成功了才删本机那份;传不上就留着,过一阵再试。
+ * 唯一的退路:这个安装压根没有这项平台服务(没配平台地址,或网关回「没有这个函数」的 404)—— 只有这时凭据才留在
+ * 这台电脑上(#649 的老路,`custody() === 'local'`)。平台在、但说 503 not_open = 「还没对你开放」,❌ 改存本机。
  * 凭据 ❌ 进日志、❌ 进任何报错。
  */
 
@@ -70,7 +73,9 @@ export type PlatformCredentialDeps = {
 
 export type PlatformConnectResult =
   | { success: true }
-  | { success: false; error: string; errorType?: IntegrationError['type'] };
+  | { success: false; error: string; errorType?: IntegrationError['type'] }
+  /** 这个安装没有这项平台服务:由调用方照本机保管的老路连(核对、存进这台电脑的加密凭据库)。 */
+  | { keepHere: true };
 
 export type PlatformConnectionCheck =
   | { connected: true }
@@ -99,8 +104,8 @@ function failureOf(error: unknown): { code: string; status: number; message: str
   return { code: 'error', status: 0, message: error instanceof Error ? error.message : String(error) };
 }
 
-function unavailable(name: string): CloudComputerError {
-  return new CloudComputerError(0, 'unavailable', `${name} needs the Gugu platform, which this installation does not have.`);
+function notOpen(name: string): string {
+  return `${name} is not open to you yet.`;
 }
 
 /** 平台的出错码 → 界面已有的那几类说法;报错里出现的凭据一律打码(哪怕平台本不该带它)。 */
@@ -115,7 +120,7 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
     case 'upstream_unavailable':
       return { success: false, error: `${name} could not be reached from the Gugu platform: ${said}`, errorType: 'host_unreachable' };
     case 'not_open':
-      return { success: false, error: `${name} is not open in this environment yet.`, errorType: 'generic' };
+      return { success: false, error: notOpen(name), errorType: 'not_open' };
     case 'unknown_provider':
       return { success: false, error: `The Gugu platform does not offer ${name} yet.`, errorType: 'generic' };
     default:
@@ -124,6 +129,8 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
 }
 
 export class PlatformCredentialService {
+  /** absent = 这个安装压根没有这项服务(唯一把凭据留在本机的情况);unknown = 还没问到过。 */
+  private availability: 'unknown' | 'present' | 'absent' = 'unknown';
   private snapshot: Snapshot | null = null;
   private fetchedAt = 0;
   private lastFailure: { code: string; message: string } | null = null;
@@ -152,6 +159,29 @@ export class PlatformCredentialService {
     return this.provider(integrationId) !== null;
   }
 
+  /**
+   * 这一家的凭据此刻在哪保管:平台;只有这个安装确知没有这项服务时才是这台电脑(`local`)。还没问到过 = 平台 ——
+   * ❌ 因为一时问不到就改存本机。
+   */
+  custody(integrationId: string): 'platform' | 'local' | null {
+    if (!this.isPlatformProvider(integrationId)) return null;
+    return this.availability === 'absent' ? 'local' : 'platform';
+  }
+
+  /** 还不知道这个安装有没有这项服务就先问一次(资源库要按它说「平台保管」还是「这台电脑上保管」)。 */
+  async knowCustody(): Promise<void> {
+    if (this.availability === 'unknown') await this.refresh();
+  }
+
+  private serviceMissing(): void {
+    if (this.availability !== 'absent') {
+      this.deps.log.info('This installation has no platform service for typed-in credentials; they are kept on this computer');
+    }
+    this.availability = 'absent';
+    this.fetchedAt = this.now();
+    this.lastFailure = null;
+  }
+
   /** 登录变了 / 转发口说变了:下一次读必须现问。 */
   invalidate(): void {
     this.fetchedAt = 0;
@@ -165,7 +195,7 @@ export class PlatformCredentialService {
   refresh(options: { maxAgeMs?: number } = {}): Promise<boolean> {
     if (this.pending) return this.pending;
     const maxAge = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
-    if (this.snapshot && maxAge > 0 && this.fetchedAt > 0 && this.now() - this.fetchedAt < maxAge) {
+    if ((this.snapshot || this.availability === 'absent') && maxAge > 0 && this.fetchedAt > 0 && this.now() - this.fetchedAt < maxAge) {
       return Promise.resolve(true);
     }
     const run = this.serialize(() => this.refreshNow());
@@ -183,14 +213,22 @@ export class PlatformCredentialService {
     let snapshot: Snapshot;
     try {
       client = this.deps.client();
-      if (!client) throw unavailable(providers.map((provider) => provider.name).join(', '));
+      if (!client) {
+        this.serviceMissing();
+        return true;
+      }
       const listed = await client.list();
       snapshot = new Map(providers.map((provider) => [
         provider.id,
         new Map((listed.find((row) => row.provider === provider.id)?.accounts ?? []).map((account) => [account.accountId, account.connected])),
       ]));
     } catch (error) {
+      if (isPlatformServiceMissing(error)) {
+        this.serviceMissing();
+        return true;
+      }
       const failure = failureOf(error);
+      if (failure.code === 'not_open') this.availability = 'present';
       if (this.lastFailure?.code !== failure.code) {
         this.deps.log.warn('Could not ask the Gugu platform which credentials it keeps; using its last answer', {
           code: failure.code,
@@ -211,10 +249,19 @@ export class PlatformCredentialService {
         });
       }
     }
+    this.availability = 'present';
     this.snapshot = snapshot;
     this.fetchedAt = this.now();
     this.lastFailure = null;
     return true;
+  }
+
+  /** 问不到平台时给界面的那一句:没对你开放 = not_open(❌ 说成连不上 / 登录问题)。 */
+  private unansweredCheck(integrationId: string): { connected: false; error: string; errorType?: IntegrationError['type'] } {
+    if (this.lastFailure?.code === 'not_open') {
+      return { connected: false, error: notOpen(this.provider(integrationId)?.name ?? integrationId), errorType: 'not_open' };
+    }
+    return { connected: false, error: this.lastFailure?.message ?? 'Could not reach the Gugu platform.' };
   }
 
   /** #649 留在本机加密库里的那份:上传;成功了才删本机的。平台那边已有一份能用的,本机这份就是多余的了。 */
@@ -308,7 +355,7 @@ export class PlatformCredentialService {
   /** 资源库 / 面板上的「连接状态」:现问平台。存着但对方不认了 = 要重连(❌ 说成登录问题)。 */
   async check(integrationId: string): Promise<PlatformConnectionCheck> {
     const answered = await this.refresh({ maxAgeMs: 0 });
-    if (!answered) return { connected: false, error: this.lastFailure?.message ?? 'Could not reach the Gugu platform.' };
+    if (!answered) return this.unansweredCheck(integrationId);
     const accounts = this.snapshot?.get(integrationId);
     if (accounts && [...accounts.values()].some(Boolean)) return { connected: true };
     if (accounts && accounts.size > 0) {
@@ -323,7 +370,7 @@ export class PlatformCredentialService {
     const answered = await this.refresh({ maxAgeMs: 0 });
     const known = this.snapshot?.get(integrationId);
     return (await this.deps.accounts.listAccounts(integrationId)).map((row) => {
-      if (!answered) return { accountId: row.accountId, connected: false, error: this.lastFailure?.message ?? 'Could not reach the Gugu platform.' };
+      if (!answered) return { accountId: row.accountId, ...this.unansweredCheck(integrationId) };
       const connected = known?.get(row.accountId);
       if (connected) return { accountId: row.accountId, connected: true };
       if (connected === false) {
@@ -354,10 +401,20 @@ export class PlatformCredentialService {
       const secrets = provider.fields.flatMap((field) => (field.secret && fields[field.id] ? [fields[field.id]!] : []));
       try {
         const client = this.deps.client();
-        if (!client) throw unavailable(provider.name);
+        if (!client) {
+          this.serviceMissing();
+          return { keepHere: true };
+        }
         await client.saveCredential(integrationId, fields);
+        this.availability = 'present';
       } catch (error) {
+        // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open)照实说,❌ 改存本机。
+        if (isPlatformServiceMissing(error)) {
+          this.serviceMissing();
+          return { keepHere: true };
+        }
         const failure = failureOf(error);
+        if (failure.code === 'not_open') this.availability = 'present';
         this.deps.log.warn('The Gugu platform did not keep the credential', { provider: integrationId, code: failure.code, status: failure.status });
         return connectFailure(error, provider.name, secrets);
       }
@@ -392,7 +449,7 @@ export class PlatformCredentialService {
         await this.deps.client()?.deleteCredential(integrationId);
       } catch (error) {
         const failure = failureOf(error);
-        if (failure.code !== 'not_connected') {
+        if (failure.code !== 'not_connected' && !isPlatformServiceMissing(error)) {
           this.deps.log.warn('The Gugu platform did not remove the credential', { provider: integrationId, code: failure.code, status: failure.status });
           return { success: false, error: `Could not disconnect ${provider.name} on the Gugu platform: ${failure.message}` };
         }
@@ -411,7 +468,7 @@ export class PlatformCredentialService {
   async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<IntegrationEndpoint> {
     signal?.throwIfAborted();
     const client = this.deps.client();
-    if (!client) throw unavailable(integrationId);
+    if (!client) throw new Error(`${integrationId} is kept on this computer here; there is no platform forwarder.`);
     const endpoint = await client.mcpEndpoint(integrationId, {
       onNotConnected: () => this.heard(integrationId, false),
       onCredentialRejected: () => this.heard(integrationId, true),

@@ -40,9 +40,18 @@ function pick(text: LocalizedText, locale: string | undefined): string {
 
 type AuthMethod = IntegrationAuthDescriptor['methods'][number];
 
-function localizedForm({ fields, help, ...method }: Extract<AuthMethod, { kind: 'form' }>, locale: string | undefined) {
+/** #921 凭据在哪保管:平台;这个安装没有这项平台服务时是这台电脑(连接页按它说)。 */
+export type CustodyOf = (integrationId: string) => 'platform' | 'local' | null;
+
+function localizedForm(
+  { fields, help, custody, mcp: _localFallback, ...method }: Extract<AuthMethod, { kind: 'form' }>,
+  locale: string | undefined,
+  custodyHere: 'platform' | 'local' | undefined
+) {
   return {
     ...method,
+    // 对方的地址只给主进程用(本机保管时它自己拼),❌ 发给界面。
+    ...(custody ? { custody: custodyHere ?? custody } : {}),
     fields: fields.map(({ label, placeholder, ...field }) => ({
       ...field,
       label: pick(label, locale),
@@ -61,12 +70,12 @@ function localizedCli({ prerequisite, ...method }: Extract<AuthMethod, { kind: '
   };
 }
 
-function localizedAuth(auth: IntegrationAuthDescriptor, locale: string | undefined) {
+function localizedAuth(auth: IntegrationAuthDescriptor, locale: string | undefined, custodyHere: 'platform' | 'local' | undefined) {
   return {
     ...auth,
     methods: auth.methods.map((method) =>
       method.kind === 'form'
-        ? localizedForm(method, locale)
+        ? localizedForm(method, locale, custodyHere)
         : method.kind === 'cli'
           ? localizedCli(method, locale)
           : method
@@ -90,7 +99,7 @@ function disconnectCredentialLabel(auth: IntegrationAuthDescriptor, locale: stri
   return pick({ en: 'credentials', 'zh-CN': '凭据' }, locale);
 }
 
-export function buildIntegrationListPayload(locale?: string) {
+export function buildIntegrationListPayload(locale?: string, custodyOf?: CustodyOf) {
   return integrationPluginRegistry.getAll().map((plugin) => ({
     id: plugin.metadata.id,
     name: plugin.metadata.name,
@@ -99,7 +108,7 @@ export function buildIntegrationListPayload(locale?: string) {
     features: features(plugin.metadata.id),
     disconnectCredentialLabel: disconnectCredentialLabel(plugin.capabilities.auth, locale),
     capabilities: issueCapabilities(plugin.metadata.id),
-    auth: localizedAuth(plugin.capabilities.auth, locale),
+    auth: localizedAuth(plugin.capabilities.auth, locale, custodyOf?.(plugin.metadata.id) ?? undefined),
     icon: plugin.assets.icon,
     // #7240 资源库详情的「能力」「推荐玩法」;老桌面不读这几格,不碍事。
     abilities: (plugin.metadata.abilities ?? []).map((ability) => pick(ability, locale)),

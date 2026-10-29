@@ -1,4 +1,9 @@
-import { integrationPluginRegistry, mcpOAuthCredentialsSchema } from '@gugu/session-plugins/integrations';
+import {
+  integrationPluginRegistry,
+  keyedMcpUrl,
+  mcpOAuthCredentialsSchema,
+  type IntegrationKeyedMcp,
+} from '@gugu/session-plugins/integrations';
 import type { IntegrationUpstream } from '../../../../integration-mcp-bridge';
 import { integrationCredentialStore } from './integration-credential-store-instance';
 import { integrationConnectionService } from './integration-connection-service';
@@ -8,13 +13,20 @@ import { platformCredentials } from './platform-credentials-instance';
 
 /**
  * 一家已连接、能以 MCP 工具交给 agent 的集成 —— 会话里给 agent 的就是这些。
- * 托管 MCP 那几家转发给对方(`remote`);凭据由平台保管的(高德,#921)转发给平台的转发口(也是 `remote`);
- * 邮箱由咕咕自己答(`local`,#7240)。
+ * 托管 MCP 那几家转发给对方(`remote`);凭据由平台保管的(高德,#921)转发给平台的转发口(也是 `remote`),
+ * 只有没有这项平台服务的安装上才由这台电脑带着本机存的 key 直连对方;邮箱由咕咕自己答(`local`,#7240)。
  */
 export type SessionIntegration = {
   integrationId: string;
   upstream: IntegrationUpstream;
 };
+
+/** 用户自己的 key 拼进地址的托管 MCP(高德):只在没有平台服务、key 存在这台电脑上时用。 */
+function keyedMcp(integrationId: string): IntegrationKeyedMcp | null {
+  const methods = integrationPluginRegistry.get(integrationId)?.capabilities.auth.methods ?? [];
+  for (const method of methods) if (method.kind === 'form' && method.mcp) return method.mcp;
+  return null;
+}
 
 function mcpOAuthServerUrl(integrationId: string): string | null {
   const methods = integrationPluginRegistry.get(integrationId)?.capabilities.auth.methods ?? [];
@@ -57,10 +69,30 @@ export async function connectedSessionIntegrations(
       });
       continue;
     }
-    if (platform.isPlatformProvider(integrationId)) {
+    if (platform.custody(integrationId) === 'platform') {
       if (!(await platform.isConnected(integrationId))) continue;
       // 地址是平台的转发口、令牌是本人此刻的会话令牌,每次调用现取;凭据由平台挂上,❌ 在这台设备上。
       entries.push({ integrationId, upstream: { kind: 'remote', endpoint: (signal) => platform.mcpEndpoint(integrationId, signal) } });
+      continue;
+    }
+    const keyed = keyedMcp(integrationId);
+    if (keyed) {
+      // 走到这里只有一种情况:这个安装没有平台服务,key 存在这台电脑上(#649 的老路)。
+      if (!(await integrationCredentialStore.isConfigured(integrationId))) continue;
+      entries.push({
+        integrationId,
+        upstream: {
+          kind: 'remote',
+          endpoint: async (signal) => {
+            signal?.throwIfAborted();
+            const account = await integrationConnectionService.getFreshAccount(integrationId);
+            signal?.throwIfAborted();
+            // 断开连接 / key 没了 ⇒ keyedMcpUrl 明确抛错,❌ 拼一个不带 key 的地址让对方去猜。
+            if (!account) throw new Error(`${integrationId} is not connected in Gugu any more; reconnect it.`);
+            return { url: keyedMcpUrl(keyed, account.credentials), headers: {} };
+          },
+        },
+      });
       continue;
     }
     const serverUrl = mcpOAuthServerUrl(integrationId);

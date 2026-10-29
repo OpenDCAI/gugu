@@ -791,6 +791,7 @@ export default {
       "title": "连接{{name}}",
       "formIntro": "填好下面的信息，咕咕会先去{{name}}核对一遍，通过了才保存。",
       "platformCustody": "{{label}}由咕咕平台保管，你的所有设备都能用。在这里断开，所有设备都会断开；要作废它，请到{{name}}控制台删除。",
+      "localCustody": "{{label}}在助理的电脑上保管。",
       "show": "显示",
       "hide": "隐藏",
       "guide": "如何获取{{label}}",

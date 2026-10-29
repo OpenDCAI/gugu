@@ -791,6 +791,7 @@ export default {
       "title": "Connect {{name}}",
       "formIntro": "Fill in the details below. Gugu checks them with {{name}} first and saves only if they pass.",
       "platformCustody": "Gugu's platform keeps your {{label}}, so all your devices can use it. Disconnecting here disconnects every device; to revoke it, delete it in the {{name}} console.",
+      "localCustody": "Your {{label}} is kept on the assistant's computer.",
       "show": "Show",
       "hide": "Hide",
       "guide": "How to get the {{label}}",

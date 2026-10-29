@@ -28,4 +28,9 @@ export type IntegrationError =
   | { type: 'host_unreachable'; message: string }
   | { type: 'unsupported_host'; message: string }
   | { type: 'invalid_input'; message: string }
+  /**
+   * #921 The platform that keeps this credential is not open to the person yet (not on its allowlist, or not
+   * configured): `503 not_open`. Not a reason to keep the credential on the device instead.
+   */
+  | { type: 'not_open'; message: string }
   | { type: 'generic'; message: string };

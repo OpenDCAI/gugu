@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { integrationPluginRegistry } from '../../registry';
-import { AMAP_KEY_GUIDE_URL } from '.';
+import { AMAP_KEY_GUIDE_URL, AMAP_MCP_URL } from '.';
 
 describe('AMap (#921)', () => {
-  it('connects with a key the platform keeps: the plugin names its fields only, no upstream address or key placement', () => {
+  it('connects with a key the platform keeps; AMap’s own address is there only for an installation with no platform service', () => {
     const plugin = integrationPluginRegistry.get('amap');
     const methods = plugin?.capabilities.auth.methods ?? [];
     expect(methods).toHaveLength(1);
@@ -11,8 +11,8 @@ describe('AMap (#921)', () => {
     expect(method).toMatchObject({ kind: 'form', custody: 'platform', helpUrl: AMAP_KEY_GUIDE_URL });
     if (method?.kind !== 'form') return;
     expect(method.fields.map((field) => [field.id, field.secret])).toEqual([['apiKey', true]]);
-    expect(JSON.stringify(method)).not.toMatch(/mcp\.amap\.com|serverUrl|keyQueryParam|keyField/);
-    // The platform checks the key when it is saved; the device has nothing to check it with.
-    expect(plugin?.behavior.auth?.verify).toBeUndefined();
+    // The fallback where the key stays on this computer: it builds AMap's address and checks the key itself.
+    expect(method.mcp).toMatchObject({ serverUrl: AMAP_MCP_URL, keyField: 'apiKey', keyQueryParam: 'key' });
+    expect(plugin?.behavior.auth?.verify).toBeTypeOf('function');
   });
 });

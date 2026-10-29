@@ -1,14 +1,24 @@
 import { summary } from './summary';
+import { verifyKeyedMcpCredentials } from '../../helpers/keyed-mcp';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
 import { icon } from './icon';
 
 /**
  * 高德官方的托管 MCP(地点搜索、周边、路线规划、距离、天气、地理编码…),只认用户自己在高德开放平台申请的 Web 服务 Key。
  * Key 由平台代为保管(owner 2026-10-28 定:用户填自己的 Key,平台替他存,#921):填一次,他的每台设备(含云电脑)
- * 都经平台的 MCP 转发口用;Key ❌ 回到任何设备、❌ 进仓库。高德的地址、Key 放在哪(`?key=`)、连接时那次验 Key 的
- * 只读调用(查一次北京天气)都在平台的服务商表里,这里只声明表单。
+ * 都经平台的 MCP 转发口用;Key ❌ 回到任何设备、❌ 进仓库。平台那边有高德的地址、Key 放在哪(`?key=`)和验 Key 的那次调用。
+ * 下面的 `mcp` 只给压根没有这项平台服务的安装(社区自托管)用:那里 Key 存在这台电脑的加密凭据库里,由它自己拼地址。
  */
+export const AMAP_MCP_URL = 'https://mcp.amap.com/mcp';
 export const AMAP_KEY_GUIDE_URL = 'https://lbs.amap.com/api/mcp-server/create-project-and-key';
+
+// 高德对任何格式对的 key 都列工具,真调用才报 INVALID_USER_KEY:连接时查一次北京天气(只读、最便宜)。
+const mcp = {
+  serverUrl: AMAP_MCP_URL,
+  keyField: 'apiKey',
+  keyQueryParam: 'key',
+  probe: { tool: 'maps_weather', arguments: { city: '北京' } },
+};
 
 const plugin = defineIntegrationPlugin(
   {
@@ -58,6 +68,7 @@ const plugin = defineIntegrationPlugin(
           },
           helpUrl: AMAP_KEY_GUIDE_URL,
           custody: 'platform',
+          mcp,
         },
       ],
     },
@@ -65,5 +76,9 @@ const plugin = defineIntegrationPlugin(
   { icon }
 );
 
-// 没有本机的 verify:Key 只在平台那边验(存之前),设备上没有 Key 可验。
-export const provider = registerIntegrationPluginBehavior(plugin, {});
+// 只在没有平台服务的安装上跑(Key 存在这台电脑上时);平台保管时由平台在存之前验。
+export const provider = registerIntegrationPluginBehavior(plugin, {
+  auth: {
+    verify: (_host, credentials) => verifyKeyedMcpCredentials(plugin.metadata.name, mcp, credentials),
+  },
+});

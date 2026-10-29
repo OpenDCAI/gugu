@@ -10,6 +10,10 @@
  *  · POST|GET|DELETE /integrations/:provider/mcp  MCP Streamable HTTP 转发口,凭据由平台挂上;
  *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效)
  *
+ * 只有一种情况凭据留在设备上:这个安装压根没有这项服务(社区自托管,没部署云电脑管家)—— 网关回 404、体里没有
+ * 平台的出错码(`isPlatformServiceMissing`)。平台在、但说 503 not_open(没对这个人开放 / 没配好)❌ 是退路:
+ * 照实说「还没对你开放」,不在本机存。
+ *
  * 不碰 node / electron。
  */
 import { CloudComputerError, cloudComputerErrorFromResponse } from './cloudComputer'
@@ -43,6 +47,14 @@ export class PlatformCredentialRejectedError extends Error {
     super(`The saved ${provider} credential was rejected; reconnect it in Gugu.`)
     this.name = 'PlatformCredentialRejectedError'
   }
+}
+
+/**
+ * 这个安装没有这项服务:网关自己回的 404(Supabase「Requested function was not found」、自托管网关「no Route matched」),
+ * 体里没有平台的出错码。平台自己回的 404(unknown_provider / not_connected / not_found)、503 not_open、网络不通都 ❌ 算。
+ */
+export function isPlatformServiceMissing(error: unknown): boolean {
+  return error instanceof CloudComputerError && error.status === 404 && error.code === 'http_404'
 }
 
 export type PlatformIntegrationsClient = {

@@ -71,7 +71,8 @@ export const assistantPanelLocal = {
     }))).flat()
   },
   integrationCatalog() {
-    const en = buildIntegrationListPayload('en-US'), zh = buildIntegrationListPayload('zh-CN')
+    const custodyOf = (id: string) => platformCredentials.custody(id)
+    const en = buildIntegrationListPayload('en-US',custodyOf), zh = buildIntegrationListPayload('zh-CN',custodyOf)
     return en.map(item => ({ id: item.id,en: item,zh: zh.find(row => row.id === item.id)! }))
   },
   async apply(change: AssistantPanelChange, body: Uint8Array | null, sessionIds: readonly string[], ownerId: string) {
@@ -120,7 +121,7 @@ export const assistantPanelLocal = {
     }
     if (change.domain === 'integrations') {
       if (typeof data.providerId !== 'string' || typeof data.accountId !== 'string') throw new Error('PANEL_INTEGRATION_DATA_INVALID')
-      if (removed && platformCredentials.isPlatformProvider(data.providerId)) {
+      if (removed && platformCredentials.custody(data.providerId) === 'platform') {
         // #921 removing it here removes it on the platform, so every device of the person's is disconnected.
         const result = await integrationConnectionService.disconnect(data.providerId)
         if (!result.success) throw new Error('PANEL_INTEGRATION_DISCONNECT_FAILED')
