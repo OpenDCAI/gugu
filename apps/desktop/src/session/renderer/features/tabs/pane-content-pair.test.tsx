@@ -153,7 +153,7 @@ describe('并排:同一种两页时内容不挪地方', () => {
       const { pane, b } = mountTwo('page');
       act(() => pane.splitTab(b, 'right'));
       const divider = dom.window.document.querySelector<HTMLElement>('[data-pair-divider]')!;
-      vi.spyOn(divider.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      vi.spyOn(divider.closest<HTMLElement>('.bg-tab-face')!, 'getBoundingClientRect').mockReturnValue({
         left: 0, top: 0, width: 1000, height: 600,
       } as DOMRect);
       const shielded = () => dom.window.document.documentElement.hasAttribute('data-gugu-dragging');
