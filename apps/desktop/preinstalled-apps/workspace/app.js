@@ -1333,7 +1333,12 @@ function fileMenu(li, open, entry) {
   const cancel = () => { clearTimeout(timer); timer = null }
   li.addEventListener('contextmenu', (event) => {
     event.preventDefault()
-    if (!held) show({ x: event.clientX, y: event.clientY })
+    const holding = timer !== null
+    cancel()
+    if (!held) {
+      held = holding
+      show({ x: event.clientX, y: event.clientY })
+    }
   })
   li.addEventListener('keydown', (event) => {
     if (event.target.closest('input, textarea')) return
@@ -2273,6 +2278,7 @@ function renderPicks() {
     li.querySelector('.file-pick')?.setAttribute('aria-checked', String(on))
   }
   const count = state.picked.size
+  if (!count && !touchPane?.matches) state.selecting = false
   $('file-list').classList.toggle('selecting', state.selecting || count > 0)
   document.querySelector('aside.files').classList.toggle('has-picks', count > 0)
   const select = $('select-files')
@@ -2480,6 +2486,7 @@ function start() {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !event.target.closest('input, textarea, [contenteditable]')) {
       event.preventDefault()
       state.picked = new Set(state.order)
+      state.locating = null
       renderPicks()
       return
     }

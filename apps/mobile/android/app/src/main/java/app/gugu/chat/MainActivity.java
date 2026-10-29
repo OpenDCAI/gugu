@@ -29,6 +29,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GuguPhoneDataPlugin.class);
         registerPlugin(GuguAudioPermissionsPlugin.class);
         registerPlugin(MobileShellChrome.class);
+        registerPlugin(GuguMessageSelection.class);
         super.onCreate(savedInstanceState);
         if (BuildConfig.GUGU_ALLOW_LOCAL_HTTP) {
             getBridge().getWebView().getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -48,7 +49,7 @@ public class MainActivity extends BridgeActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                dispatchBackToWeb();
+                if (getBridge() == null || !((MessageSelectionWebView) getBridge().getWebView()).finishSelectionMode()) dispatchBackToWeb();
             }
         });
     }

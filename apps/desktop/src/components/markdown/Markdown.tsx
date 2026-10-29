@@ -207,4 +207,14 @@ export const Markdown = memo(function Markdown({
       </Streamdown>
     </DensityContext.Provider>
   )
-})
+}, sameMarkdownProps)
+
+// onOpenLink / renderImage are read through refs above, so a new identity is no reason to render and parse again:
+// callers pass inline arrows (a message bubble does on every render). Whether one is given still counts, since that
+// changes the element mapping.
+function sameMarkdownProps(prev: MarkdownProps, next: MarkdownProps): boolean {
+  for (const key of new Set([...Object.keys(prev), ...Object.keys(next)]) as Set<keyof MarkdownProps>) {
+    if (key === 'onOpenLink' || key === 'renderImage' ? !prev[key] !== !next[key] : prev[key] !== next[key]) return false
+  }
+  return true
+}

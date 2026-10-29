@@ -132,6 +132,37 @@ describe('picking', () => {
     expect(document.querySelector('.row-more')).toBe(null)
   })
 
+  test.each([450, 550])('a native touch contextmenu at %ims opens once, before or after the hold timer', async (nativeAt) => {
+    touch = true
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const target = row('b').querySelector('.file-open')!
+      target.dispatchEvent(Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' }))
+      await vi.advanceTimersByTimeAsync(nativeAt)
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+      expect($('menu').hidden).toBe(false)
+      await vi.advanceTimersByTimeAsync(500)
+      expect($('menu').hidden).toBe(false)
+      target.dispatchEvent(Object.assign(new MouseEvent('pointerup', { bubbles: true }), { pointerType: 'touch' }))
+      open('b')
+      expect($('menu').hidden).toBe(false)
+      expect(picked()).toEqual([])
+      expect(gugu.files.openWith).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+  })
+
+  test('deselecting the last desktop menu selection restores single-click opening', () => {
+    row('b').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    const select = [...$('menu').querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent === '选择')!
+    select.click()
+    expect(picked()).toEqual(['b'])
+    open('b')
+    expect(picked()).toEqual([])
+    expect($('select-files').getAttribute('aria-pressed')).toBe('false')
+    open('a')
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'a' }))
+  })
+
   test('the wide header selects all, reports a partial selection, and clears all', () => {
     const all = $('file-list').querySelector<HTMLButtonElement>('[aria-label="全选"]')!
     all.click()
@@ -155,6 +186,9 @@ describe('picking', () => {
     checkbox.click()
     expect(picked()).toEqual(['c'])
     expect(gugu.files.openWith).not.toHaveBeenCalled()
+    checkbox.click()
+    expect(picked()).toEqual([])
+    expect($('select-files').getAttribute('aria-pressed')).toBe('true')
     $('select-files').click()
     expect(picked()).toEqual([])
     expect($('select-files').getAttribute('aria-pressed')).toBe('false')
@@ -261,5 +295,15 @@ describe('what is picked, at once', () => {
     barButton('在聊天中定位').click()
     expect(gugu.showMessage).not.toHaveBeenCalled()
     expect(banner()).toBe('选中的文件都不是从聊天里来的。')
+  })
+
+  test('Ctrl+A clears the previous selection’s chat location', () => {
+    open('a', { ctrlKey: true })
+    barButton('在聊天中定位').click()
+    expect(bar().querySelector('.pick-at')!.textContent).toBe('1/1')
+    row('a').querySelector('.file-open')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))
+    expect(picked()).toEqual(['a', 'b', 'c', 'd'])
+    expect(bar().querySelector('.pick-at')).toBe(null)
+    expect(barButton('在聊天中定位')).toBeDefined()
   })
 })
