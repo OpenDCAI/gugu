@@ -2494,13 +2494,19 @@ function refreshDigestAgents(): void {
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
+  return sessionpageVersionSwitchActivity().busy
+}
+
+/** One reading supplies both the existing idle policy and its visible agent count. */
+export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
+  const busyAgents = listSessionStates().sessions.filter((session) =>
     busyForVersionSwitch(
       parseAgentStatusView(session.status ?? null),
       session.runtime,
       sessionProcess(session.conversationId)?.home ?? null,
     ),
-  )
+  ).length
+  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

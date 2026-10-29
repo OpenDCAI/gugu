@@ -779,14 +779,19 @@ export async function drainAllSessionMessageOutboxes(): Promise<void> {
       id: sessions.id,
       projectId: sessions.projectId,
       config: sessions.config,
+      archivedAt: sessions.archivedAt,
     })
     .from(sessions)
     .all();
-  const targets = rows.filter((row) => row.config && nextPendingSessionMessage(row.config));
-  await Promise.all(targets.map((row) => drainSessionMessageOutbox({
-    projectId: row.projectId,
-    sessionId: row.id,
-  })));
+  const targets = rows.filter((row) => !row.archivedAt && row.config && nextPendingSessionMessage(row.config));
+  await Promise.all(targets.map(async (row) => {
+    try {
+      await drainSessionMessageOutbox({ projectId: row.projectId, sessionId: row.id });
+    } catch (error) {
+      // Archival may win after the sweep reads its targets. Keep its outbox for Restore.
+      if (!(error instanceof SessionArchivedError)) throw error;
+    }
+  }));
 }
 
 setSessionMessageOutboxDrain(() => drainAllSessionMessageOutboxes());

@@ -781,13 +781,18 @@ export default {
       "you": " (you)"
     },
     "update": {
-      "downloading": "Updating",
+      "downloading": "Downloading {{version}}",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
       "ready": "New version ready, waiting for idle",
+      "readyCount_one": "New version ready, waiting for {{count}} agent to go idle",
+      "readyCount_other": "New version ready, waiting for {{count}} agents to go idle",
       "readyHint": "{{version}} downloaded; switches when idle.",
       "updateNow": "Restart and update now",
       "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
-      "confirmRestart": "Restart"
+      "confirmRestart": "Restart",
+      "restarting": "Restarting…",
+      "restartFailed": "Couldn't confirm the restart on {{name}}. Check its connection and try again.",
+      "restartTimeout": "{{name}} hasn't reported {{version}} yet. Check the device before trying again."
     },
     "versionUnknown": "Version unknown",
     "via": {

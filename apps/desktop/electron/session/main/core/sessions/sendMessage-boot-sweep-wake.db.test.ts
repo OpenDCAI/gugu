@@ -17,7 +17,7 @@ vi.mock('@main/core/projects/utils', () => ({ resolveSession: () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
-import { drainAllSessionMessageOutboxes, sendMessage } from './sendMessage';
+import { drainAllSessionMessageOutboxes, drainSessionMessageOutbox, sendMessage } from './sendMessage';
 import { setSessionMessageRouter } from './session-message-router';
 import { SessionpageLocalDeliveryRouter } from '../../../../sessionpage/session-injection';
 
@@ -68,5 +68,54 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
     expect(fixture.sqlite
       .prepare("SELECT json_extract(config, '$.messageOutbox') AS outbox FROM sessions WHERE id = ?")
       .get(target.sessionId)).not.toEqual({ outbox: null });
+  });
+
+  async function holdMessage(sessionId: string, id: string): Promise<void> {
+    await sendMessage({ projectId: target.projectId, sessionId, clientMessageId: id, text: 'held for startup' });
+    // Settle the normal no-router drain before changing archival state.
+    await drainSessionMessageOutbox({ projectId: target.projectId, sessionId });
+  }
+
+  it('continues boot with archived pending data preserved and active delivery still eligible', async () => {
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
+      VALUES ('archived','project-1','Archived','codex','pty','{"version":"1","type":"pty"}');`);
+    await holdMessage('archived', 'archived-held');
+    await holdMessage(target.sessionId, 'active-held');
+    fixture.sqlite.prepare('UPDATE sessions SET archived_at=? WHERE id=?').run('2026-10-29T00:00:00Z', 'archived');
+    const snapshot = () => ({
+      session: fixture.sqlite.prepare('SELECT config,archived_at FROM sessions WHERE id=?').get('archived'),
+      messages: fixture.sqlite.prepare('SELECT content,metadata FROM messages WHERE session_id=? ORDER BY id').all('archived'),
+    });
+    const before = snapshot();
+    const deliver = vi.fn(async () => ({ status: 'not-ready' as const }));
+    setSessionMessageRouter(deliver);
+
+    await expect(drainAllSessionMessageOutboxes()).resolves.toBeUndefined();
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledWith(target.sessionId, expect.objectContaining({ id: 'active-held' }));
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('allows archival to win between sweep selection and the serialized drain', async () => {
+    await holdMessage(target.sessionId, 'archiving-held');
+    const before = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id=?').get(target.sessionId);
+    const deliver = vi.fn(async () => ({ status: 'not-ready' as const }));
+    setSessionMessageRouter(deliver);
+
+    const sweep = drainAllSessionMessageOutboxes();
+    fixture.sqlite.prepare('UPDATE sessions SET archived_at=? WHERE id=?').run('2026-10-29T00:00:00Z', target.sessionId);
+    await expect(sweep).resolves.toBeUndefined();
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(fixture.sqlite.prepare('SELECT config FROM sessions WHERE id=?').get(target.sessionId)).toEqual(before);
+  });
+
+  it('keeps genuine active delivery failures visible to the boot caller', async () => {
+    await holdMessage(target.sessionId, 'failed-held');
+    const failure = new Error('provider transport failed');
+    setSessionMessageRouter(async () => { throw failure; });
+
+    await expect(drainAllSessionMessageOutboxes()).rejects.toBe(failure);
   });
 });

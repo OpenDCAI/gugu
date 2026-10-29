@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { parseServerConnectVia, SERVER_CONNECT_VIA_FILE } from '@gugu/core/cloud/serverConnectVia'
+import { SERVER_ACTIVITY_STALE_MS } from '@gugu/core/cloud/serverMachineHealth'
 import type { DeviceConnectVia } from '@gugu/core/shared/types/deviceHost'
 
 export type ServerAccount = {
@@ -161,9 +162,6 @@ export function emailFromAccessToken(accessToken: string): string | null {
   }
 }
 
-/** 子进程每 10 秒写一次忙闲;超过这么久没写,当它不存在(卡死的进程不该永远挡住升级)。 */
-const ACTIVITY_STALE_MS = 60_000
-
 /** 这个账号的子进程写下的忙闲(见 main.ts 的 server 分支):有 agent 在跑一轮或等人批准。 */
 export function accountIsBusy(dataDir: string, now = Date.now()): boolean {
   try {
@@ -171,7 +169,7 @@ export function accountIsBusy(dataDir: string, now = Date.now()): boolean {
       busy?: unknown
       at?: unknown
     }
-    return activity.busy === true && typeof activity.at === 'number' && now - activity.at < ACTIVITY_STALE_MS
+    return activity.busy === true && typeof activity.at === 'number' && now - activity.at < SERVER_ACTIVITY_STALE_MS
   } catch {
     return false
   }

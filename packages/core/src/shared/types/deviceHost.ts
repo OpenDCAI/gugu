@@ -43,6 +43,8 @@ export interface DeviceServerUpdate {
   /** failed:#6264 换成和桌面匹配的那一版没成(下载 / 试跑失败、换过去起不来),设备行给「更新没成功 · 重试」。 */
   state: 'downloading' | 'ready' | 'failed'
   version: string
+  /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
+  busy_agents?: number
 }
 
 export interface DeviceHostInfo {

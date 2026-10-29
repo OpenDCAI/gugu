@@ -3,6 +3,15 @@
  * 两处说同一件事,❌ 各写一套。纯函数,读的只是那台机器随心跳报上来的几项(老宿主不报 = 不知道,不下结论)。
  */
 import type { DeviceCapabilities } from '../shared/types/chat'
+import { compareServerVersions } from './serverVersionSelection'
+
+/** The first released server that treats the manual retry as a confirmed restart. */
+export function serverSupportsConfirmedRestart(version: string | null | undefined): boolean {
+  return Boolean(version && compareServerVersions(version, '0.2.58-beta.1056.1') >= 0)
+}
+
+/** Account activity older than this cannot block an update or supply a busy count. */
+export const SERVER_ACTIVITY_STALE_MS = 60_000
 
 /**
  * 桌面↔server 这条线说的协议版本。有不兼容的改动时加一;server 同时报「桌面至少要哪一版」。

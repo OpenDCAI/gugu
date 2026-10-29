@@ -6412,10 +6412,11 @@ app.whenReady().then(async () => {
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
     const activityStartedAt = Date.now()
     const reportActivity = (): void => {
-      const busy = loadEmdashBridge()?.sessionpageBusyForVersionSwitch?.() ?? false
+      const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({
-          busy,
+          busy: activity?.busy ?? false,
+          busyAgents: activity?.busyAgents,
           at: Date.now(),
           version: process.env.GUGU_TASK_HOST_VERSION ?? null,
           pid: process.pid,

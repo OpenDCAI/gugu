@@ -2,7 +2,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { formatBytes, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
+import { formatBytes, serverSupportsConfirmedRestart, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
 import { REMOTE_TUNNEL_OPEN } from '@gugu/core/cloud/remoteTunnel'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatRelativeTime } from '../../lib/relativeTime'
@@ -459,6 +459,7 @@ function DeviceRow({
   onRelogin?: () => void
 }) {
   const { t } = useTranslation('settings')
+  const { toast } = useToast()
   const [menuOpen, setMenuOpen] = useState(false)
   // 「改名」同「添加一台机器」:点了它这颗「⋯」随即卸掉、改名框自己接焦点,菜单关上时❌ 再归还焦点(理由见 AddServerMenu)。
   const renamingRef = useRef(false)
@@ -471,7 +472,20 @@ function DeviceRow({
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
-  const [updateNow, setUpdateNow] = useState<'ask' | 'sent' | null>(null)
+  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number } | null>(null)
+  const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
+  const canRestart = serverSupportsConfirmedRestart(model.version)
+  if ((updateNow === 'ask' && (!canRestart || model.update?.state !== 'ready'))
+    || (restarting && (model.version === restarting.version
+      || (model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)
+  useEffect(() => {
+    if (!restarting) return
+    const timer = setTimeout(() => {
+      setUpdateNow(null)
+      toast(t('devices.update.restartTimeout', { name: device.label, version: restarting.version }), 'error')
+    }, Math.max(0, restarting.deadline - Date.now()))
+    return () => clearTimeout(timer)
+  }, [restarting, toast, t, device.label])
   const signedOutText = sshLink === 'notSignedIn'
     ? t('devices.loginState.signedOut')
     : device.is_online || !signIn
@@ -503,16 +517,19 @@ function DeviceRow({
           <div className="flex min-w-0 flex-wrap items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
             {model.kind === 'this' && <Chip tone="accent">{t('devices.current')}</Chip>}
-            {model.update && model.update.state !== 'failed' && (
+            {restarting && <Chip tone="accent" data-testid="settings-device-restarting">{t('devices.update.restarting')}</Chip>}
+            {!restarting && model.update && model.update.state !== 'failed' && (
               <Chip
                 tone={model.update.state === 'ready' ? 'accent' : 'default'}
                 title={t(model.update.state === 'ready' ? 'devices.update.readyHint' : 'devices.update.downloadingHint', { version: model.update.version })}
                 data-testid="settings-device-update"
               >
-                {t(model.update.state === 'ready' ? 'devices.update.ready' : 'devices.update.downloading')}
+                {model.update.state === 'ready'
+                  ? t(typeof model.update.busy_agents === 'number' && model.update.busy_agents > 0 ? 'devices.update.readyCount' : 'devices.update.ready', { count: model.update.busy_agents })
+                  : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}
-            {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === null && (
+            {model.update?.state === 'ready' && canRestart && onRetryVersionMatch && updateNow === null && (
               <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
             )}
             {model.notices
@@ -525,11 +542,19 @@ function DeviceRow({
         )}
 
         {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
-        {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === 'ask' && (
+        {model.update?.state === 'ready' && canRestart && onRetryVersionMatch && updateNow === 'ask' && (
           <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
             <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('devices.update.updateNowConfirm', { name: device.label })}</span>
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
-            <Button size="sm" variant="primary" onClick={() => { setUpdateNow('sent'); void onRetryVersionMatch().then((ok) => { if (!ok) setUpdateNow(null) }) }} data-testid="settings-device-update-now-yes">
+            <Button size="sm" variant="primary" onClick={() => {
+              if (!model.update) return
+              setUpdateNow({ version: model.update.version, deadline: Date.now() + 60_000 })
+              const failed = (error?: unknown) => {
+                setUpdateNow(null)
+                toast(t('devices.update.restartFailed', { name: device.label }), 'error', error ? messageForUser(error) : undefined)
+              }
+              void onRetryVersionMatch().then((ok) => { if (!ok) failed() }, failed)
+            }} data-testid="settings-device-update-now-yes">
               {t('devices.update.confirmRestart')}
             </Button>
           </div>

@@ -781,13 +781,18 @@ export default {
       "you": "（你）"
     },
     "update": {
-      "downloading": "更新中",
+      "downloading": "正在下载 {{version}}",
       "downloadingHint": "正在下载 {{version}}，空闲时自动切换。",
       "ready": "新版本已就绪，等待空闲",
+      "readyCount_one": "新版本已就绪，等待 {{count}} 个任务空闲",
+      "readyCount_other": "新版本已就绪，等待 {{count}} 个任务空闲",
       "readyHint": "{{version}} 已下载，空闲时自动切换。",
       "updateNow": "现在重启更新",
       "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。",
-      "confirmRestart": "重启"
+      "confirmRestart": "重启",
+      "restarting": "正在重启…",
+      "restartFailed": "未能确认「{{name}}」已开始重启，请检查连接后重试。",
+      "restartTimeout": "「{{name}}」尚未报告 {{version}}，请先检查那台设备再重试。"
     },
     "versionUnknown": "版本未知",
     "via": {

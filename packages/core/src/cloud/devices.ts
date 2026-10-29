@@ -321,7 +321,9 @@ function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUp
   const row = value as Record<string, unknown>
   if (row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'failed') return {}
   if (typeof row.version !== 'string' || !row.version) return {}
-  return { server_update: { state: row.state, version: row.version.slice(0, 64) } }
+  const count = row.busy_agents
+  return { server_update: { state: row.state, version: row.version.slice(0, 64),
+    ...(typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? { busy_agents: count } : {}) } }
 }
 
 // @@@5912 设备在线只有一处判据(isDeviceOnline),它吃的是这个枚举 —— 所以解析也只留一处。

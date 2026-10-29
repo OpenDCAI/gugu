@@ -10,7 +10,7 @@ import { readFileSync, statfsSync } from 'node:fs'
 import { arch as osArch, homedir as osHomedir, platform as osPlatform, release as osRelease } from 'node:os'
 import { join } from 'node:path'
 import type { DeviceHostInfo, DeviceServerDisk, DeviceServerRollback, DeviceServerUpdate } from '../shared/types/deviceHost'
-import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from './serverMachineHealth'
+import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION, SERVER_ACTIVITY_STALE_MS } from './serverMachineHealth'
 import { readServerConnectVia } from './serverConnectVia'
 import { tunnelActiveAt, tunnelRelayUp } from './remoteTunnel'
 
@@ -77,7 +77,7 @@ export function describeOsName(input: { platform: string; release: string; osRel
  * 读守护进程写下的升级状态。认不出、过期、字段不全 ⇒ null(= 此刻没有在升级),
  * ❌ 不因为一个坏文件让心跳失败 —— 那会把整台机器显示成离线,拿主要的换次要的。
  */
-export function parseServerUpdateState(text: string, nowMs: number): DeviceServerUpdate | null {
+export function parseServerUpdateState(text: string, nowMs: number, activityText?: string | null): DeviceServerUpdate | null {
   let data: { state?: unknown; version?: unknown; at?: unknown }
   try {
     data = JSON.parse(text) as typeof data
@@ -91,7 +91,17 @@ export function parseServerUpdateState(text: string, nowMs: number): DeviceServe
   const limit =
     data.state === 'downloading' ? SERVER_UPDATE_DOWNLOADING_STALE_MS : data.state === 'failed' ? SERVER_UPDATE_FAILED_STALE_MS : SERVER_UPDATE_READY_STALE_MS
   if (age > limit) return null
-  return { state: data.state, version: data.version }
+  const update: DeviceServerUpdate = { state: data.state, version: data.version }
+  if (data.state === 'ready' && activityText) {
+    try {
+      const activity = JSON.parse(activityText) as { at?: unknown; busyAgents?: unknown }
+      if (typeof activity.at === 'number' && Number.isFinite(activity.at) && nowMs - activity.at >= 0 && nowMs - activity.at < SERVER_ACTIVITY_STALE_MS
+        && typeof activity.busyAgents === 'number' && Number.isSafeInteger(activity.busyAgents) && activity.busyAgents >= 0) {
+        update.busy_agents = activity.busyAgents
+      }
+    } catch { /* An unavailable activity count does not hide the update state. */ }
+  }
+  return update
 }
 
 /**
@@ -203,7 +213,8 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const accountDir = env.GUGU_TASK_HOST_USER_DATA?.trim()
     const accountText = accountDir ? readText(join(accountDir, SERVER_UPDATE_STATE_FILE)) : null
     const text = readText(join(home, 'data', SERVER_UPDATE_STATE_FILE))
-    const update = (accountText ? parseServerUpdateState(accountText, nowMs) : null) ?? (text ? parseServerUpdateState(text, nowMs) : null)
+    const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
+    const update = (accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null) ?? (text ? parseServerUpdateState(text, nowMs) : null)
     if (update) info.server_update = update
     // #6264 磁盘余量:一次 statfs 系统调用,随 30 秒一次的心跳报。满了之后升级、保存、登录态续期都会失败,
     // 以前界面上什么都看不到(机器照样「在线」)。
