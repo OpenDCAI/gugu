@@ -44,7 +44,7 @@ export function dmRecord(messages: readonly MessageItem[], names: Readonly<Recor
         ...(reply && reply.fromId ? { replyTo: { messageId: `msg:${reply.itemId}`, fromId: reply.fromId, from: reply.from ?? null, preview: reply.text } } : {}),
       }) : content,
       at: Date.parse(message.created_at),
-      ...(attachment && link ? { sentAttachment: { messageId: message.id, name: attachment.fileName, href: link, ...(attachment.caption ? { caption: attachment.caption } : {}) } } : {}),
+      ...(attachment && link ? { sentAttachment: { messageId: message.id, name: attachment.fileName, href: link, ...(attachment.kind === 'image' ? { kind: 'image' as const } : {}), ...(attachment.caption ? { caption: attachment.caption } : {}) } } : {}),
       ...(reply && !message.is_mine ? { sentReplyTo: reply.itemId, conversationReply: reply } : {}),
     }
     // IM confirms a persisted message, not a duration or an execution process.

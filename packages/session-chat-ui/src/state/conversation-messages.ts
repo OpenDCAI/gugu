@@ -1,3 +1,4 @@
+import { safeDeliveredBody } from './delivery-presentation';
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
@@ -34,10 +35,10 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const data = item as ChatMessage;
     const envelope = readDeliveryEnvelope(item.text);
     const first = envelope?.segments[0]?.facts;
-    messages.set(item.id, { item: data, text: envelope?.body ?? data.text, from: first?.from ?? undefined, fromId: first?.fromId ?? undefined, self: data.role === 'assistant' || undefined, chatId: groupOf(first) });
+    messages.set(item.id, { item: data, text: envelope ? envelope.segments.map(segment => safeDeliveredBody(segment.body)).join('\n\n') : data.text, from: first?.from ?? undefined, fromId: first?.fromId ?? undefined, self: data.role === 'assistant' || undefined, chatId: groupOf(first) });
     for (const segment of envelope?.segments ?? []) {
       const canonical = segment.facts?.messageId?.replace(/^msg:/, '');
-      if (canonical) messages.set(canonical, { item: data, text: segment.body, from: segment.facts?.from ?? undefined, fromId: segment.facts?.fromId ?? undefined, chatId: groupOf(segment.facts) });
+      if (canonical) messages.set(canonical, { item: data, text: safeDeliveredBody(segment.body), from: segment.facts?.from ?? undefined, fromId: segment.facts?.fromId ?? undefined, chatId: groupOf(segment.facts) });
     }
     const sentId = /:sent:([^:]+)$/.exec(item.id)?.[1];
     if (sentId) messages.set(sentId, { item: data, text: data.text, self: true, chatId: data.sentChat ? groups.get(data.sentChat) : undefined });

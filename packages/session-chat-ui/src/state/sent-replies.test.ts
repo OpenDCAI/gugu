@@ -131,3 +131,35 @@ it('projects text, a confirmed file card and text at their actual call positions
   expect(words(projected)[1]).toMatchObject({ sentAttachment: { name: 'proof.txt', href: `gugu-file://${id}?v=2` } });
   expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
 });
+
+it('ends an injected DM with its confirmed MCP reply instead of a second task summary', () => {
+  const record = turn();
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'task-summary', seq: 3, role: 'assistant', text: 'I have completed the task: 你好，我在。' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['你好，我在。']);
+  expect(record.items.at(-1)?.id).toBe('task-summary');
+});
+
+it('keeps a normal task response and the explanation of an unsuccessful DM reply', () => {
+  const record = turn({ ...send(), status: 'error' });
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'error', seq: 3, role: 'assistant', text: 'The send failed.' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['The send failed.']);
+  input.text = 'A task typed directly in this session';
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['The send failed.']);
+});
+
+it('also completes an injected DM when the confirmed reply is a file', () => {
+  const file = { ...send({ chat_id: 'group', file_name: 'reply.txt' }), tool: 'message_send_file',
+    outputText: JSON.stringify({ status: 'sent', message_id: id, file_name: 'reply.txt' }) };
+  const record = turn(file);
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'summary', seq: 3, role: 'assistant', text: 'I sent the file.' });
+  expect(words(withSentReplies(record, { allDestinations: true }))).toMatchObject([{ text: 'reply.txt' }]);
+});

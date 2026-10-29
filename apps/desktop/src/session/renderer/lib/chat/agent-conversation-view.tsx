@@ -1,3 +1,5 @@
+import { connectDeliveredMessagePresentation, resolveDeliveredAttachment } from './delivered-message-presentation';
+import { rendererLogger } from '@/lib/log';
 import { nativeChatAppearance } from './native-chat-appearance.css';
 import { ChatComposer } from '@gugu/session-ui/react/components';
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
@@ -15,6 +17,13 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
   const root = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
+    if (!props.state?.session?.setDeliveredMessages) return;
+    return connectDeliveredMessagePresentation(props.state, async id => {
+      const [{ chatService }, { getCurrentAuthUserId }] = await Promise.all([import('@/lib/chat'), import('@/lib/supabase')]);
+      return chatService.getMessageById(id, await getCurrentAuthUserId());
+    }, (messageId, error) => rendererLogger('chat/delivery-presentation').warn({ messageId, error }, 'Could not load original attachment message'));
+  }, [props.state]);
+  useEffect(() => {
     const host = root.current;
     if (!host || !shown || !onVisibleItems) return;
     let observing = true;
@@ -23,6 +32,7 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     let frame = 0;
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
+      if (composerContent && (!slot || slot.getBoundingClientRect().height <= 0)) return false;
       const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
       const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
       const content = body.getBoundingClientRect();
@@ -79,10 +89,11 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     document.addEventListener('visibilitychange', visibleAgain);
     host.addEventListener('scroll', schedule, true);
     return () => { observing = false; cancelAnimationFrame(frame); host.removeEventListener('scroll', schedule, true); document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
-  }, [shown, onVisibleItems, slot]);
+  }, [shown, onVisibleItems, slot, !!composerContent]);
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}
       composer={composerContent ? 'slot' : props.composer}
+      commands={{ ...props.commands, resolveAttachment: attachment => attachment.id.startsWith('gugu-message-file://') ? resolveDeliveredAttachment(attachment.id) : props.commands?.resolveAttachment?.(attachment) ?? Promise.resolve(null) }}
       onReady={view => { setSlot(view.composerSlot); onReady?.(view); }}
       onDisposed={() => { setSlot(null); props.onDisposed?.(); }}
       layout={{ preset: 'double', userGutter: 0, ...layout, agentConversation: true }} style={{ position: 'absolute', inset: 0 }} />

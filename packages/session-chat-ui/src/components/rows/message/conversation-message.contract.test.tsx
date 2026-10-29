@@ -351,3 +351,24 @@ it.each([320, 600])('paints a sent file as the existing left-side attachment car
     expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
   } finally { view.dispose(); }
 });
+
+it.each([320, 600])('renders an injected original image instead of local-path instructions at width %s', async width => {
+  const messageId = '3ab69453-5274-40be-ab76-6faa0d272212';
+  const raw: ChatMessage = { kind: 'message', id: 'original-image', role: 'user', text: `<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:${messageId}" chat="chat" chat_kind="dm"><![CDATA[Look at this\n[Folder file gugu-file://proof?v=2 — instructions]\n[Image attached at local path: /private/agent/image.png]]]></gugu_delivery>` };
+  const original = { text: 'Look at this', attachments: [{ id: `gugu-message-file://${messageId}`, name: 'original.png', kind: 'image' as const, href: 'gugu-file://proof?v=2' }] };
+  const resolveAttachment = vi.fn(async () => 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=');
+  const onOpenLink = vi.fn();
+  const view = await mount(normalizeMessage(raw, () => original), width, { resolveAttachment, onOpenLink });
+  try {
+    await expect.poll(() => view.host.querySelector('[data-attachment-chip] img')?.getAttribute('src')).toContain('data:image/gif');
+    const card = view.host.querySelector<HTMLButtonElement>('[data-attachment-chip]')!;
+    expect(card.dataset.kind).toBe('image');
+    expect(card.textContent).toBe('original.png');
+    expect(view.host.textContent).toContain('Look at this');
+    expect(view.host.textContent).not.toContain('/private/agent');
+    expect(view.host.textContent).not.toContain('Folder file');
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    card.click(); expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
+    expect(raw.text).toContain('/private/agent');
+  } finally { view.dispose(); }
+});

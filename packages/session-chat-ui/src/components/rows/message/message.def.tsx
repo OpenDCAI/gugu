@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { safeDeliveredBody, type DeliveryMessagePresentation } from '@session-chat/state/delivery-presentation';
 import { ConversationMessage, conversationMessageHeight, isConversationMessage } from './ConversationMessage';
 import { StreamContext, type StreamAnimation } from '@session-chat/components/contexts/StreamContext';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
@@ -47,9 +48,10 @@ import {
 /** 主人的回答一行:高度是常量,不换行(长了截断)。 */
 const QUESTION_ANSWER_H = 24;
 
-export function normalizeMessage(item: ChatMessage): ChatMessage {
+export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: string) => DeliveryMessagePresentation | undefined): ChatMessage {
   const originalDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
-  const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(segment.body) }));
+  const originalAttachments = originalDelivery?.segments.flatMap(segment => deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.attachments ?? []);
+  const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.text ?? safeDeliveredBody(segment.body)) }));
   const guguDelivery = originalDelivery ? {
     ...originalDelivery,
     body: segments!.map(segment => segment.body).join('\n\n'),
@@ -66,7 +68,7 @@ export function normalizeMessage(item: ChatMessage): ChatMessage {
     ...(guguDelivery ? { text: guguDelivery.body, guguDelivery } : {}),
     ...(hookNotice ? { text: hookNotice.body, hookNotice } : {}),
     ...(item.sentAttachment ? { text: item.sentAttachment.caption ?? '' } : {}),
-    attachments: item.sentAttachment ? [{ id: item.sentAttachment.messageId, name: item.sentAttachment.name, kind: 'file' as const, href: item.sentAttachment.href }] : item.attachments?.map((attachment) => ({
+    attachments: item.sentAttachment ? [{ id: item.sentAttachment.kind === 'image' ? `gugu-message-file://${item.sentAttachment.messageId}` : item.sentAttachment.messageId, name: item.sentAttachment.name, kind: item.sentAttachment.kind ?? 'file' as const, href: item.sentAttachment.href }] : (originalAttachments?.length ? originalAttachments : item.attachments)?.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
       ...(attachment.kind ? { kind: attachment.kind } : {}),
@@ -96,7 +98,7 @@ export function normalizeMessage(item: ChatMessage): ChatMessage {
 
 export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage {
   return {
-    ...normalizeMessage(item),
+    ...normalizeMessage(item, ctx.deliveredMessage),
     streaming: ctx.active && item.role === 'assistant',
   };
 }

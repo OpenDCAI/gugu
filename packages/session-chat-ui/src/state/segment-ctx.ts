@@ -12,6 +12,7 @@ import { BACKGROUND_TASKS_TOGGLE, turnDiscardedId } from './flatten';
 export function segmentCtxFor(context: ChatContext, state: ChatState, caches: ChatCaches, active: boolean): SegmentCtx {
   return {
     caches,
+    deliveredMessage: (id) => state.session.state.deliveredMessages?.get(id),
     agentConversation: context.theme.layout?.agentConversation,
     expanded: (_id: string) => false,
     active,

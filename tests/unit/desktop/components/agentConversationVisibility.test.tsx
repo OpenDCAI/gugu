@@ -108,3 +108,23 @@ it('does not let the post-layout scan read a covered message or run after hiding
   await paint()
   expect(onVisibleItems).not.toHaveBeenCalled()
 })
+
+it('waits for the floating composer geometry before marking a partially covered reply read', async () => {
+  const onVisibleItems = vi.fn()
+  let composerReady = false
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const composer = this.hasAttribute('data-test-composer')
+    const body = this.hasAttribute('data-agent-conversation-message') || this.hasAttribute('data-user-card')
+    const top = composer ? composerReady ? 500 : 600 : body ? 490 : 0
+    const height = this.hasAttribute('data-agent-conversation') ? 600 : composer ? composerReady ? 100 : 0 : 20
+    return { x: 0, y: top, top, bottom: top + height, left: 0, right: 400, width: 400, height, toJSON() {} }
+  })
+  await harness.render(createElement(AgentConversationView, { shown: true, composerContent: createElement('div', null, 'Editor'), onVisibleItems, context: {} as ChatContext, state: {} as ChatState }))
+  await paint()
+  expect(onVisibleItems).not.toHaveBeenCalled()
+  composerReady = true
+  harness.container.querySelector<HTMLElement>('[data-agent-conversation-message]')!.style.transform = 'translateY(0)'
+  await act(async () => {})
+  await paint()
+  expect(onVisibleItems).not.toHaveBeenCalled()
+})

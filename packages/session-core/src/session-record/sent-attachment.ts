@@ -3,7 +3,7 @@ import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import { sentMessageId } from './reply-process';
 
 /** Metadata from a confirmed send or an authorized IM row; never file bytes or a local path to open. */
-export type SentAttachment = { messageId: string; name: string; href: string; caption?: string };
+export type SentAttachment = { messageId: string; name: string; href: string; caption?: string; kind?: 'image' | 'file' };
 export type AttachmentTurn = TranscriptTurn & { sentAttachments?: Readonly<Record<string, SentAttachment>> };
 
 function resultObject(raw: unknown): Record<string, unknown> | null {

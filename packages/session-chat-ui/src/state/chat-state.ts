@@ -46,6 +46,7 @@ import type {
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
 import type { ViewState } from './view-state';
@@ -93,6 +94,7 @@ export type ChatSessionState = {
    * 转录把它画成列表末尾的一行,见 `BackgroundTasksItem`。
    */
   setBackgroundTasks(tasks: BackgroundTasks): void;
+  setDeliveredMessages(messages: ReadonlyMap<string, DeliveryMessagePresentation>): void;
 };
 
 export type ChatSessionSnapshot = {
@@ -113,6 +115,7 @@ export type ChatSessionSnapshot = {
   readonly condition: SessionCondition | null;
   /** 见 `setBackgroundTasks`。 */
   readonly backgroundTasks: BackgroundTasks;
+  readonly deliveredMessages?: ReadonlyMap<string, DeliveryMessagePresentation>;
   terminalOutputText(terminalId: string): string | null;
   terminalExitStatus(terminalId: string): TerminalExit | null;
 };
@@ -310,6 +313,7 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
 }
 
 function createSessionState(): ChatSessionState {
+  const [deliveredMessages, setDeliveredMessages] = createSignal<ReadonlyMap<string, DeliveryMessagePresentation>>(new Map());
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<PlanState | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
@@ -362,6 +366,7 @@ function createSessionState(): ChatSessionState {
     get condition() {
       return condition();
     },
+    get deliveredMessages() { return deliveredMessages(); },
     get backgroundTasks() {
       return backgroundTasks();
     },
@@ -381,6 +386,7 @@ function createSessionState(): ChatSessionState {
     setGenerating,
     setCondition,
     setBackgroundTasks,
+    setDeliveredMessages,
     setTerminalOutput(terminalId, text) {
       setTerminalOutputs((previous) => {
         const next = new Map(previous);

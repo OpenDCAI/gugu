@@ -1,4 +1,4 @@
-import { agentSendOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
+import { agentSendOf, replyItems, replySend, replySource, sourceChatMatches, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
 import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment';
 import type { TranscriptTurn } from '@session-chat/model';
 
@@ -35,5 +35,16 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     }
   }
   if (!replies.length) return turn;
-  return { ...turn, items: options.allDestinations ? turn.items.flatMap(item => [item, ...(after.get(item.id) ?? [])]) : [...turn.items, ...replies] };
+  // An injected private conversation is answered on its source line. Keep the
+  // provider record intact, but do not paint a second task summary after that send.
+  const lastReply = options.allDestinations && source?.chatKind === 'dm'
+    ? items.findLastIndex(item => {
+      if (item.kind !== 'mcp-tool-call') return false;
+      if (successfulMessageSend(item) && replySend(item, source)) return true;
+      if (!sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)) return false;
+      try { return sourceChatMatches(source, (JSON.parse(item.rawInput ?? '{}') as { chat_id?: unknown }).chat_id); } catch { return false; }
+    }) : -1;
+  const summaries = new Set(lastReply < 0 ? [] : items.slice(lastReply + 1).filter(item => item.kind === 'message' && item.role === 'assistant' && !/:sent:/.test(item.id)).map(item => item.id));
+  const original = summaries.size ? turn.items.filter(item => !summaries.has(item.id)) : turn.items;
+  return { ...turn, items: options.allDestinations ? original.flatMap(item => [item, ...(after.get(item.id) ?? [])]) : [...original, ...replies] };
 }
