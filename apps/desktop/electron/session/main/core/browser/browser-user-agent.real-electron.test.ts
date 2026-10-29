@@ -36,7 +36,6 @@ describe.skipIf(!electron)('browser UA during native-to-CDP navigation handoff',
       '@main/core/extensions/extension-agent-context': 'export async function agentSessionContext() { return null }',
       '@main/core/sessions/session-orchestration': 'export async function openAgentBrowserPane() {}',
       './browser-webcontents-registry': 'export const browserWebContentsRegistry = { setMouseDownObserver() {}, browsersOfSession() { return [] } }',
-      './cloud/cloud-browser': 'export function isCloudBrowserHost() { return false }; export function cloudAgentBrowserBridge() {}',
     };
     await build({
       entryPoints: [path.join(repo, 'apps/desktop/electron/session/main/core/browser/test-support/user-agent-race.ts')],

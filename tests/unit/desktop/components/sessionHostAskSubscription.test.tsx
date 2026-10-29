@@ -3,11 +3,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 
-/**
- * 另一台机器上的会话:那台重启过(云电脑睡醒、server 升级),订阅就没了、不会再推。Browser Use 页签一直看着这个任务的
- * 「请你登录 / 接手」,所以隔一会儿重读一份快照:新来的那一问出现,答完的那一问消失(10-28 实测:不重读就一直停在旧的)。
- * 没要重读的(会话页的提问条)照旧只读一次快照、再靠订阅。
- */
+/** A remote host's Ask can be reread after a subscription is lost across a restart. */
 const fx = vi.hoisted(() => ({
   settlements: [] as unknown[],
   snapshots: 0,
@@ -35,10 +31,8 @@ vi.mock('../../../../apps/desktop/src/session/renderer/utils/logger', () => ({ l
 
 import { useSessionHostAsk } from '../../../../apps/desktop/src/session/renderer/features/extensions/use-session-host-ask'
 
-const loginAsk = { itemId: 'ask-1', state: 'pending', origin: { source: 'browser-assistance', payload: { kind: 'login', site: 'example.com' } } }
-
-function Probe({ rereadMs }: { rereadMs?: number }) {
-  const ask = useSessionHostAsk('task-1', 'browser-assistance', rereadMs ? { rereadMs } : {})
+function Probe() {
+  const ask = useSessionHostAsk('task-1', 'app-install')
   return createNode('span', { 'data-ask': ask?.itemId ?? 'none' })
 }
 
@@ -59,23 +53,7 @@ describe('a watched session’s host ask is read again, not left to a subscripti
     vi.useRealTimers()
   })
 
-  it('an ask that arrives with no event shows up at the next re-read, and goes once it is answered', async () => {
-    await harness.render(createNode(Probe, { rereadMs: 4000 }))
-    await settle()
-    expect(harness.container.querySelector('span')?.getAttribute('data-ask')).toBe('none')
-
-    fx.settlements = [loginAsk]
-    await act(async () => { vi.advanceTimersByTime(4000) })
-    await settle()
-    expect(harness.container.querySelector('span')?.getAttribute('data-ask')).toBe('ask-1')
-
-    fx.settlements = [{ ...loginAsk, state: 'settled' }]
-    await act(async () => { vi.advanceTimersByTime(4000) })
-    await settle()
-    expect(harness.container.querySelector('span')?.getAttribute('data-ask')).toBe('none')
-  })
-
-  it('without rereadMs it reads the snapshot once and leaves the rest to the subscription', async () => {
+  it('reads one snapshot and leaves later updates to the subscription', async () => {
     await harness.render(createNode(Probe, {}))
     await settle()
     await act(async () => { vi.advanceTimersByTime(20_000) })

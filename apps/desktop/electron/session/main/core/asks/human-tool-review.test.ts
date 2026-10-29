@@ -18,7 +18,6 @@ vi.mock('../../../../mcp/gugu-im-server.mjs', () => ({ extensionAttachmentOf: as
 import { ask, hostAsks, resetAsks } from './ask';
 import { humanToolPending, restoreHumanToolResults, runHumanTool, yieldHumanToolWaits } from './human-tool-wait';
 import { readHumanToolRecords } from './human-tool-results';
-import { CloudBrowser } from '../browser/cloud/cloud-browser';
 import { runAppAction } from '../../../../mcp/app-tool-host';
 import { syncAsked } from '../session-timeline/service';
 
@@ -57,25 +56,6 @@ describe('human-tool review regressions', () => {
     }, humanToolPending);
     await expect(tool).resolves.toMatchObject({ optionId: 'install' }); await drain();
     expect(fixture.send).not.toHaveBeenCalled();
-  });
-
-  it.each(['same session', 'another session'])('a replacement request from %s is never a human refusal', async lane => {
-    const browser = new CloudBrowser({ PATH: '' }, fixture.root);
-    const next = lane === 'same session' ? 'session' : 'other';
-    const tabs = (browser as unknown as { sessionTab: Map<string, string> }).sessionTab;
-    tabs.set('session', 'tab'); tabs.set(next, 'tab');
-    const first = browser.requestTakeover('session', {});
-    const id = [...hostAsks.get('session')!.keys()][0]!;
-    yieldHumanToolWaits('session'); await first;
-    const second = browser.requestTakeover(next, {});
-    await drain();
-    expect(fixture.send).toHaveBeenCalledTimes(1);
-    const ended = result(fixture.send.mock.calls[0]![0]);
-    expect(ended.request_id).toBe(id);
-    expect(ended.result.message).toMatch(/withdrawn/i);
-    expect(ended.result.message).not.toMatch(/declined|person closed/i);
-    [...hostAsks.get(next)!.values()][0]!.answered({ optionId: 'cancel', by: 'desktop' });
-    await expect(second).resolves.toMatchObject({ ok: false, message: expect.stringContaining('declined') });
   });
 
   it('remembers admission during cross-device preparation and releases the later consent wait', async () => {

@@ -65,13 +65,11 @@ export const REMOTE_PROTOCOL_VERSION = 14
  * 13: Ask settlements use origin instead of host.
  *
  * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
- * 新宿主照旧带上 12 读的字段(Settlement.host、浏览器状态里的 assistance),新桌面收进来时把 12 的字段读成新名
- * (settlementFromWire),开窗时按那台机器的协议报 hello(`helloProtocol`):12 的老宿主见到 13 会当成版本信号、
- * 要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。下一次加一时,两个下沿跟着抬到新号减一。
+ * 新的一侧使用对方支持的协议字段和 hello 版本；差两档以上才提示更新。下一次加一时，
+ * 两个下沿跟着抬到新号减一。
  */
-// 14 (#846): removed the browser credential form. Protocol 13 remains connected;
-// its submissions receive an immediate feature_removed rejection. The new UI has no form,
-// including when connected to a protocol-13 server. Retire that refusal with the #846 migration.
+// Protocol 14 removed the saved-login form. The later remote-browser removal keeps this
+// compatibility window; removed RPC methods use the normal unknown-method response.
 export const MIN_CLIENT_PROTOCOL = 13
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
 export const MIN_SERVER_PROTOCOL = 13

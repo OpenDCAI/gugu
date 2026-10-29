@@ -8,7 +8,6 @@ import { extensionSurfaceStore } from './extension-surface-store';
 import { extensionViewStore, type ExtensionViewClaim } from './extension-view-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
-import { BrowserUseHostPage } from '@/components/browserUse/BrowserUseHostPage';
 import { ExtensionGuestBinding } from './extension-guest-binding';
 
 /**
@@ -62,23 +61,13 @@ export const ExtensionViewLayer = observer(function ExtensionViewLayer() {
             layerRef={layerRef}
             pageKey={page.key}
             itemId={page.itemId}
-            managed={contribution.hostSettings || contribution.hostBrowser}
-            hostBrowser={contribution.hostBrowser}
-            place={page.place}
+            managed={contribution.hostSettings}
           />
         ) : null;
       })}
     </div>
   );
 });
-
-/**
- * The task a per-task page belongs to, read from its place (`session:<id>`, extension-view-store `residentPlace`) — never
- * from whichever slot claims it now: the page is that task's for life. A page in no task (`app`) has none.
- */
-function sessionOfPlace(place: string | undefined): string | null {
-  return place?.startsWith('session:') ? place.slice('session:'.length) : null;
-}
 
 /** Following a claimed slot's box after it appears: until it holds still this many frames, or this long. */
 const FOLLOW_STILL_FRAMES = 10;
@@ -160,20 +149,14 @@ const ExtensionPage = observer(function ExtensionPage({
   pageKey,
   itemId,
   managed = false,
-  hostBrowser = false,
-  place,
 }: {
   kind: string;
   extensionId: string;
   layerRef: React.RefObject<HTMLDivElement | null>;
   pageKey?: string;
   itemId?: string;
-  /** Drawn by the host (its settings page, a task's browser page): no App HTML, no webview. */
+  /** Host settings page: no App HTML or webview. */
   managed?: boolean;
-  /** The host's page of a task's browser (`hostPage: 'browser'`). */
-  hostBrowser?: boolean;
-  /** Where this resident page lives for life (`residentPlace`): a per-task page's is `session:<id>`. */
-  place?: string;
 }) {
   const claimOf = useCallback(
     () => pageKey === undefined ? undefined : extensionViewStore.claims.get(pageKey),
@@ -439,7 +422,7 @@ const ExtensionPage = observer(function ExtensionPage({
       data-extension-item={itemId}
     >
       <div ref={innerRef} className="absolute" style={{ left: 0, top: 0, width: 0, height: 0 }}>
-        {hostBrowser ? <BrowserUseHostPage sessionId={sessionOfPlace(place)} active={claimOf() !== undefined} /> : managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
+        {managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
           key={`${extensionId}:${surface.partition}`}
           ref={attachWebview}
           src={surface.entryUrl}

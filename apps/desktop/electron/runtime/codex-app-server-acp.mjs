@@ -312,7 +312,7 @@ function hasLoopbackMcp(servers) {
  *
  * Only streamable HTTP MCP servers are accepted. Bearer values stay in env; config carries the name.
  */
-/** Above the longest wait a gugu MCP tool may have on a person (asks/sources.ts: the browser-assistance deadline, 10 min). */
+/** Allows a human to complete an MCP approval without the transport timing out first. */
 const GUGU_MCP_TOOL_TIMEOUT_SEC = 900
 
 function mcpConfig(servers) {
@@ -328,7 +328,7 @@ function mcpConfig(servers) {
     config[`mcp_servers.${key}.url`] = url
     // 问题 9:宿主交出的 server 都是咕咕发的,不逐次问(Codex 缺省按注解判,没注解就问)。
     config[`mcp_servers.${key}.default_tools_approval_mode`] = 'approve'
-    // A gugu tool can wait minutes for the person (a browser login / takeover up to 10 min). Codex gives every MCP call a
+    // A gugu tool can wait minutes for an App permission or another human decision. Codex gives every MCP call a
     // fixed 300 s (`timed out awaiting tools/call after 300s`), and progress notifications do not extend it, so the
     // servers we hand over get a limit above our longest wait.
     config[`mcp_servers.${key}.tool_timeout_sec`] = GUGU_MCP_TOOL_TIMEOUT_SEC

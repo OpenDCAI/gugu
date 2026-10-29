@@ -1,4 +1,3 @@
-import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,12 +26,11 @@ const log = createLogger('browser-agent-mcp')
  * - **每条会话一份**:Playwright 的状态(快照里的 ref、当前页)是一条会话的,❌ 会话之间共用。
  *
  * 递给会话的只有 Browser Use App 这一条路(App 的宿主程序 `host: 'browser-use'`,经扩展网关 / catalog):桌面驱动会话页的
- * 页签,咕咕 server 驱动云浏览器。没装 App 就没有浏览器工具 —— 旧的独立 `gugu-browser` MCP server 已去掉。
+ * 页签。咕咕 server 暂不提供浏览器操控。没装 App 就没有浏览器工具 —— 旧的独立 `gugu-browser` MCP server 已去掉。
  */
 
 /** 会话页那一侧经桥给的动作(agent-browser.ts 的 `agentBrowserBridge`)。 */
 export interface AgentBrowserBridge {
-  closeSession?: (sessionId: string) => Promise<void>
   states?: () => NonNullable<ExtensionAgentStatus['sessions']>
   openTransport: (sessionId: string, signal?: AbortSignal) => Promise<{ close(): void }>
   toolStarting: (sessionId: string) => { ok: true } | { ok: false; message: string }
@@ -40,57 +38,6 @@ export interface AgentBrowserBridge {
   setInitialUrl: (sessionId: string, url: string | null) => void
   /** 这条会话的工作目录(拿不到 = null)。 */
   workspaceRoot: (sessionId: string) => Promise<string | null>
-  /** #7199 云浏览器才有:请人登录(密码保险箱)/ 请人接手一步。结果话里永远不含账号密码。 */
-  requestLogin?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>
-  requestTakeover?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>
-  /** 交回 agent 之前把工具结果里的已填密码盖掉(Playwright 的快照会写出密码框的值)。 */
-  redact?: (text: string) => string
-}
-
-/**
- * 要脱敏时,工具不许自己挑文件名落盘(截图除外:图片里密码框本来就是圆点)。给了文件名的快照 / 控制台 / 网络记录
- * 会写进 agent 的工作目录、结果里只给个链接 —— redact 管不到文件里。去掉文件名,内容就回到结果里、照常被盖掉。
- */
-export function withoutOwnFilename(name: string, args: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!args || !('filename' in args) || name === 'browser_take_screenshot') return args
-  const rest = { ...args }
-  delete rest.filename
-  return rest
-}
-
-/**
- * Playwright 自己落盘的文字也过一遍 redact:每个动作附带的整页快照(page-*.yml)默认就写成输出目录里的文件、
- * 结果里只给链接(0.0.83 实测),agent 会去读。只看这一步里新写的文字文件。
- */
-export function redactOutputFiles(dir: string, sinceMs: number, redact: (text: string) => string): void {
-  let names: string[]
-  try {
-    names = fs.readdirSync(dir)
-  } catch {
-    return
-  }
-  for (const name of names) {
-    if (!/\.(ya?ml|log|md|txt|json)$/i.test(name)) continue
-    const file = join(dir, name)
-    try {
-      const stat = fs.statSync(file)
-      if (!stat.isFile() || stat.mtimeMs < sinceMs) continue
-      const text = fs.readFileSync(file, 'utf8')
-      const redacted = redact(text)
-      if (redacted !== text) fs.writeFileSync(file, redacted)
-    } catch (error) {
-      log.warn({ file, error: (error as Error).message }, 'could not redact a browser output file')
-    }
-  }
-}
-
-/** 工具结果里每一段文字过一遍 redact;图片(截图里密码框本来就是圆点)原样。 */
-export function redactToolResult(result: CallToolResult, redact: ((text: string) => string) | undefined): CallToolResult {
-  if (!redact) return result
-  return {
-    ...result,
-    content: result.content.map((part) => (part.type === 'text' ? { ...part, text: redact(part.text) } : part)),
-  }
 }
 
 type PlaywrightMcp = {
@@ -237,11 +184,10 @@ function toolsFor(sessionId: string, bridge: () => AgentBrowserBridge): SessionB
 }
 
 /** End this session's browser work, retaining the person's tab for the next turn. */
-export async function closeSessionBrowserTools(sessionId: string, bridge?: AgentBrowserBridge): Promise<void> {
+export async function closeSessionBrowserTools(sessionId: string): Promise<void> {
   const tools = sessionTools.get(sessionId)
   sessionTools.delete(sessionId)
   await tools?.close()
-  await bridge?.closeSession?.(sessionId)
 }
 
 function refused(message: string): CallToolResult {
@@ -274,15 +220,11 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   if (signal.aborted) return refused('This browser action was cancelled with the Agent turn.')
   const local = answeredLocally(params.name)
   if (local) return local
-  const person = PERSON_TOOLS.find((tool) => tool.name === params.name)
-  if (person) return callPersonTool(bridge(), sessionId, person.name, params.arguments, signal)
   const gate = bridge().toolStarting(sessionId)
   if (!gate.ok) return refused(gate.message)
   // The App's default startUrl is about:blank, not an instruction to navigate on a key/snapshot reconnect.
   const url = params.name === 'browser_navigate' ? params.arguments?.url : initialUrl === 'about:blank' ? undefined : initialUrl
   if (typeof url === 'string' && url) bridge().setInitialUrl(sessionId, url)
-  const redact = bridge().redact
-  const startedAt = Date.now() - 1_000
   const tools = toolsFor(sessionId, bridge)
   const cancel = () => {
     if (sessionTools.get(sessionId) === tools) sessionTools.delete(sessionId)
@@ -296,10 +238,7 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
     signal.throwIfAborted()
     const client = await tools.client()
     signal.throwIfAborted()
-    const request = redact ? { ...params, arguments: withoutOwnFilename(params.name, params.arguments) } : params
-    const result = await client.callTool(request, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS }) as CallToolResult
-    if (redact) redactOutputFiles(tools.outputDir, startedAt, redact)
-    return redactToolResult(result, redact)
+    return await client.callTool(params, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS }) as CallToolResult
   } catch (error) {
     log.warn({ sessionId, tool: params.name, error: (error as Error).message }, 'browser tool failed')
     return refused(`The browser tool could not run: ${(error as Error).message}`)
@@ -310,19 +249,18 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   }
 }
 
-/** Playwright 那套 + 桥有的请人来(云浏览器才有)。 */
-async function browserToolList(bridge: AgentBrowserBridge): Promise<Tool[]> {
-  return [...await browserAppToolSchemas(), ...personToolsOf(bridge)]
+/** The local App exposes the supported Playwright tools. */
+async function browserToolList(): Promise<Tool[]> {
+  return browserAppToolSchemas()
 }
 
 /**
  * The browser is an App program: ordinary App consent, scope, disclosure and live revocation all apply.
- * 桌面桥没有请人来,清单不变;server 的云浏览器桥有,App 就一并给 browser_request_login / takeover(都经 callBrowserTool)。
  */
 export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): NativeAppProgram {
   const used = new Map<string, { sessions: Set<string>; calls: Set<Promise<CallToolResult>> }>()
   return {
-    tools: () => browserToolList(bridge()),
+    tools: browserToolList,
     call(program, params, signal) {
       const sessionId = params._meta?.['gugu/sessionId']
       if (typeof sessionId !== 'string' || !sessionId) return Promise.resolve(refused('Browser Use needs a local Gugu session.'))
@@ -375,57 +313,6 @@ export function answeredLocally(toolName: string): CallToolResult | null {
     }
   }
   return null
-}
-
-/**
- * #7199 云浏览器多给的两个工具(Playwright 那套里没有、只有咕咕有的「请人来」):agent 卡在登录、验证码这类
- * 只有人能做的步骤时,❌ 在聊天里要密码、❌ 自己硬闯。工具挂着等人做完(最多 10 分钟),做完才返回。
- */
-export const PERSON_TOOLS = [
-  {
-    name: 'browser_request_login',
-    description:
-      'Ask the person to take control of your browser tab and log in on the page themselves, then press Done. ' +
-      'Use this for login pages: never ask for a password in chat or type one yourself. Returns when the person finishes or declines. ' +
-      'Take a fresh browser_snapshot and check the result before continuing.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what the login is for.' } },
-    },
-  },
-  {
-    name: 'browser_request_takeover',
-    description:
-      'Ask the person to do one step on the page themselves: a CAPTCHA, an SMS or 2FA code, a payment confirmation, or ' +
-      'anything you cannot or should not do. They take over the browser, do it and hand it back; this returns then. ' +
-      'Take a fresh browser_snapshot afterwards.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what they need to do.' } },
-      // 可变数组:要能当 MCP 的 Tool 列出(`as const` 下是只读的)。
-      required: ['reason'] as string[],
-    },
-  },
-] as const
-
-type PersonToolName = (typeof PERSON_TOOLS)[number]['name']
-
-export function personToolsOf(bridge: AgentBrowserBridge): typeof PERSON_TOOLS[number][] {
-  return PERSON_TOOLS.filter((tool) => (tool.name === 'browser_request_login' ? !!bridge.requestLogin : !!bridge.requestTakeover))
-}
-
-async function callPersonTool(
-  bridge: AgentBrowserBridge,
-  sessionId: string,
-  name: PersonToolName,
-  args: Record<string, unknown> | undefined,
-  signal: AbortSignal,
-): Promise<CallToolResult> {
-  const reason = typeof args?.reason === 'string' && args.reason.trim() ? args.reason.trim().slice(0, 200) : undefined
-  const ask = name === 'browser_request_login' ? bridge.requestLogin : bridge.requestTakeover
-  if (!ask) return refused(`${name} is not available in this browser.`)
-  const result = await ask(sessionId, reason ? { reason } : {}, signal)
-  return { content: [{ type: 'text', text: result.message }], ...(result.ok ? {} : { isError: true }) }
 }
 
 /** 这台机器上装着、开着、还许给 agent 工具的 Browser Use App(与 installedComputerUseApps 同一个判断)。 */
