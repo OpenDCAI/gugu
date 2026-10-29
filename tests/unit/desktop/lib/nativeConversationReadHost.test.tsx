@@ -70,3 +70,24 @@ it('continues reading after another surface clears the first unread captured by 
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
   expect(scope.mark).not.toHaveBeenCalledWith('dm', 3)
 })
+
+it('keeps reading receipts that become projected after the IM row reached an already open task', async () => {
+  const locator = { message_id: 'one', message_seq: 1, cursor_seq: 0, stream_kind: 'main' as const, stream_id: 'main', thread_root_id: null, unread_count: 1, version: 1, is_marked_unread: false }
+  const row = chat({ id: 'dm', peer_user_id: 'agent', kind: 'ai', last_read_seq: 0, unread_count: 1, unread_locator: locator })
+  scope.messages = [message({ id: 'one', chat_id: 'dm', seq: 1, sender_user_id: 'agent', is_mine: false })]
+  release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
+  updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
+  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], aliases: new Map([['receipt-one', ['one']]]) })
+  let arrive!: () => void
+  function Fixture() {
+    const { appendMessage } = useChatStore('appendMessage')
+    arrive = () => appendMessage(message({ id: 'two', chat_id: 'dm', seq: 2, sender_user_id: 'agent', is_mine: false }))
+    return <NativeConversationReadHost />
+  }
+  await renderWithConversations(harness, <Fixture />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
+  await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 1))
+  await act(async () => { arrive() })
+  expect(scope.mark).not.toHaveBeenCalledWith('dm', 2)
+  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], aliases: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
+  await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
+})

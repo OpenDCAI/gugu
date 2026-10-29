@@ -20,7 +20,10 @@ export class AgentDmReadCursor {
 
   visible(ids: readonly string[], rows: readonly MessageItem[]): MessageItem[] {
     for (const id of ids) this.seen.add(id)
-    const unread = rows.filter(row => row.seq > this.readSeq && !row.thread_root_id).sort((a, b) => a.seq - b.seq)
+    // IM can arrive before its transcript alias. A temporarily skipped row is
+    // not acknowledged: reconsider it when the projection becomes visible.
+    this.readSeq = this.confirmedSeq
+    const unread = rows.filter(row => row.seq > this.confirmedSeq && !row.thread_root_id).sort((a, b) => a.seq - b.seq)
     // The first unread may still be outside the loaded IM window.
     if (this.firstUnreadId && !this.firstWasRead(rows) && !this.seen.has(this.firstUnreadId) && !this.skipped.has(this.firstUnreadId)) return []
     for (const row of unread) {

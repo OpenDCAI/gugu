@@ -71,3 +71,15 @@ it('uses the captured server sequence when the old first unread is no longer in 
   expect(cursor.visible([rows[4].id], rows.slice(4))).toEqual([rows[4]])
   expect(cursor.canFollow(rows.slice(4))).toBe(false)
 })
+
+it('reads a newly projected receipt after its IM row arrived before the transcript alias', () => {
+  const cursor = new AgentDmReadCursor(rows[0].id, 0, 1)
+  expect(cursor.visible([rows[0].id], rows.slice(0, 1))).toEqual([rows[0]])
+  cursor.acknowledge(1)
+  cursor.ignore([rows[1].id])
+  expect(cursor.visible([], rows.slice(0, 2))).toEqual([])
+  expect(cursor.visible([rows[1].id], rows.slice(0, 3))).toEqual([rows[1]])
+  cursor.acknowledge(2)
+  expect(cursor.visible([rows[1].id], rows.slice(0, 3))).toEqual([])
+  expect(cursor.canFollow(rows.slice(0, 3))).toBe(false)
+})
