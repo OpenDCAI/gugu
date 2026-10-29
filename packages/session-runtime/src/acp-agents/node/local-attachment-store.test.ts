@@ -17,6 +17,18 @@ async function makeRoot(): Promise<string> {
 }
 
 describe('LocalAttachmentStore', () => {
+  it('reuses the upload identity when its acknowledgement was lost (#995)', async () => {
+    const root = await makeRoot();
+    const store = new LocalAttachmentStore(root);
+    const input = { uploadId: crypto.randomUUID(), data: new Uint8Array([1, 2, 3]),
+      name: 'retry.png', mimeType: 'image/png' as const };
+    const first = await store.put(input);
+    const retried = await new LocalAttachmentStore(root).put(input);
+    expect(retried).toEqual(first);
+    expect(JSON.parse(await readFile(join(root, 'index.json'), 'utf8'))).toHaveLength(1);
+    await expect(store.put({ ...input, data: new Uint8Array([4, 5, 6]) })).rejects.toThrow(/different content/);
+    await expect(store.get(first.id)).resolves.toEqual({ ref: first, data: input.data });
+  });
   /**
    * #5269,owner 2026-09-10:「正确的收敛是一律存一份」。这条从前的写法是
    * 「有原路径就**不**拷贝」,判据甚至反过来断言 objects 目录下不该有那个文件 ——

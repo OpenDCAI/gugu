@@ -639,6 +639,7 @@ const enUSCoreMessages = {
   'composer.cancelAttachment': 'Stop sending {name}',
   'composer.retryAttachment': 'Retry',
   'composer.attachmentUploading': 'Uploading…',
+  'composer.attachmentRetrying': 'Retrying upload…',
   'composer.attachmentUploadFailed': 'Upload failed',
   // 这家 agent 没声明它收图片 —— 附件仍然到达,只是以文件路径的形式随正文发出。
   'composer.attachmentAsPath': 'sent as a file path',
@@ -1585,6 +1586,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'composer.cancelAttachment': '取消传送 {name}',
   'composer.retryAttachment': '重试',
   'composer.attachmentUploading': '上传中…',
+  'composer.attachmentRetrying': '正在重传…',
   'composer.attachmentUploadFailed': '上传失败',
   'composer.attachmentAsPath': '以文件路径发送',
   'composer.attachmentTooLarge': '超过上限 {limit}，附不上。',

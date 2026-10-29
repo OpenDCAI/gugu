@@ -37,7 +37,7 @@ import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
-import type { BlobSource } from '@gugu/session-wire';
+import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
 import { batch } from 'solid-js';
 // TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
@@ -909,28 +909,20 @@ export class AcpChatStore {
   }
 
   async uploadAttachment(input: {
+    uploadId?: string;
     data?: Uint8Array;
     source?: BlobSource;
     size?: number;
     mimeType: AttachmentMimeType;
     name?: string;
     originalPath?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: { sent: number; total?: number }) => void;
   }): Promise<AttachmentRef | null> {
-    try {
-      const result = await this.session?.uploadAttachment(input);
-      if (!result) {
-        this._toastError('acpFailure.attachment', new Error('ACP session is not connected'));
-        return null;
-      }
-      if (!result.success) {
-        this._toastError('acpFailure.attachment', result.error);
-        return null;
-      }
-      return result.data;
-    } catch (error) {
-      this._toastError('acpFailure.attachment', error);
-      return null;
-    }
+    const result = await this.session?.uploadAttachment(input);
+    if (!result) throw new WireError('DISCONNECTED', 'ACP session is not connected');
+    if (!result.success) throw result.error;
+    return result.data;
   }
 
   async resolveToolImage(itemId: string, index: number): Promise<string | null> {

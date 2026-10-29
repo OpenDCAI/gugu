@@ -318,7 +318,8 @@ function fileUploadSource(store: AcpChatStore, file: File): UploadSource {
 async function uploadImageFile(
   store: AcpChatStore,
   file: File,
-  mimeType: AttachmentMimeType
+  mimeType: AttachmentMimeType,
+  options: { signal?: AbortSignal; uploadId: string; onProgress: (progress: { sent: number; total?: number }) => void }
 ): Promise<AttachmentRef | null> {
   // 字节一律存一份 —— ❌ 不再「有原路径就只记指向」。那条记录会随着用户挪走/删掉那个文件
   // 当场作废,而消息里那张图要长期画得出来(#5269,owner 2026-09-10 拍板)。
@@ -328,18 +329,14 @@ async function uploadImageFile(
     originalPath.length > 0 && !mustCopyRatherThanReference(originalPath) && !isHeicLikeFile(file)
       ? originalPath
       : undefined;
-  try {
-    return await store.uploadAttachment({
+  return store.uploadAttachment({
+      ...options,
       source: file.stream(),
       size: file.size,
       mimeType,
       name: file.name,
       ...(provenance ? { originalPath: provenance } : {}),
     });
-  } catch (error) {
-    log.warn('Failed to prepare ACP attachment upload', { name: file.name, error });
-    return null;
-  }
 }
 
 function resolveAttachmentDataUrl(store: AcpChatStore, id: string): Promise<string | null> {
@@ -444,6 +441,11 @@ const ComposerForStore = observer(function ComposerForStore({
   // 磁盘路径时上传只是把路径递过去,快到必赢,于是「从访达拷来的图」必然没有缩略图、点开预览也是
   // 空的(#5269,owner 2026-09-08 实撞)。id 不动,顺序就不再是判据。
   const imageRefsRef = useRef(new Map<string, AttachmentRef>());
+  const imageUploadsRef = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const uploads = imageUploadsRef.current;
+    return () => { for (const controller of uploads.values()) controller.abort(); uploads.clear(); };
+  }, []);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // 文件 / 文件夹 chip:贴上来就开始传到会话所在的机器,进度在 chip 上(#6264,product spec)。
@@ -701,6 +703,8 @@ const ComposerForStore = observer(function ComposerForStore({
       await Promise.all(
         supportedFiles.map(async (file) => {
           const chipId = `image:${crypto.randomUUID()}`;
+          const controller = new AbortController();
+          imageUploadsRef.current.set(chipId, controller);
           // ⚠️ **每一张图都在我们自己的地盘留一份,并且在正文里留一条指向它的引用** ——
           // 这是消息里看得见它的唯一依据(#5269)。ACP 上传只决定「这一轮 agent 收不收得到
           // 图片块」,❌ 不决定这条消息以后还看不看得见那张图:上传上去的那一份活在 agent 的
@@ -712,8 +716,10 @@ const ComposerForStore = observer(function ComposerForStore({
             sessionId: store.sessionId,
             uploadId: crypto.randomUUID(),
             source: fileUploadSource(store, file),
+            signal: controller.signal,
           }).then(
             (committed) => {
+              if (controller.signal.aborted) return;
               filePathsRef.current.set(chipId, committed.mentionPath.trim().replace(/\\/g, '/'));
             },
             (error: unknown) => log.warn('Failed to persist composer attachment', { name: file.name, error })
@@ -724,11 +730,15 @@ const ComposerForStore = observer(function ComposerForStore({
               chipId,
               update: (updater) => setAttachments(updater),
               readPreview: readFileAsDataUrl,
-              upload: (source, mimeType) => uploadImageFile(store, source, mimeType),
+              signal: controller.signal,
+              upload: (source, mimeType, options) => uploadImageFile(store, source, mimeType, options),
+              onRetry: (error) => log.warn('Retrying stalled ACP attachment upload', { name: file.name, error }),
+              onFailure: (error) => log.warn('Failed to prepare ACP attachment upload', { name: file.name, error }),
               rememberRef: (id, ref) => imageRefsRef.current.set(id, ref),
               labels: {
                 uploading: translate('composer.attachmentUploading'),
                 failed: translate('composer.attachmentUploadFailed'),
+                retrying: translate('composer.attachmentRetrying'),
               },
               formatSize: formatAttachmentSize,
             }),
@@ -738,6 +748,7 @@ const ComposerForStore = observer(function ComposerForStore({
             await both;
           } finally {
             pendingImagesRef.current.delete(both);
+            imageUploadsRef.current.delete(chipId);
           }
           // 上传腿失败 ≠ 这张图发不出去:引用那条腿成了的话,agent 照样读得到,消息里也照样
           // 看得见。红着说「上传失败」就成了假话 —— 改成与非图片附件同一句「以文件路径发送」。
@@ -763,6 +774,9 @@ const ComposerForStore = observer(function ComposerForStore({
   const handleAttachmentsChange = useCallback(
     (next: ComposerAttachment[]) => {
       const nextIds = new Set(next.map((attachment) => attachment.id));
+      for (const [id, controller] of imageUploadsRef.current) {
+        if (!nextIds.has(id)) { controller.abort(); imageUploadsRef.current.delete(id); }
+      }
       for (const id of [...filePathsRef.current.keys()]) {
         if (!nextIds.has(id)) filePathsRef.current.delete(id);
       }
