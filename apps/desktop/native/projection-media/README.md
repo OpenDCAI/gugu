@@ -6,4 +6,4 @@ The backend pins [Pion WebRTC v4.2.26](https://github.com/pion/webrtc/releases/t
 
 `go test -race ./...` checks an actual local ICE/DTLS/SRTP/SCTP connection, ordered bidirectional control, RTP payload delivery, close, relay refusal and control size bounds. The RTP payload in this test is synthetic: encoder output, browser video decoding, cross-device connectivity and production signaling remain unverified. FFmpeg integration and packaging are subsequent work.
 
-Pion is BSD-3-Clause licensed; its modules and checksums are pinned in `go.mod`/`go.sum`. The upstream [RTP-to-WebRTC example](https://github.com/pion/webrtc/tree/main/examples/rtp-to-webrtc) documents the encoder/transport boundary.
+Pion WebRTC v4.2.26 is [MIT licensed](https://github.com/pion/webrtc/blob/v4.2.26/LICENSE); its modules and checksums are pinned in `go.mod`/`go.sum`. Dependencies retain their own licenses. The upstream [RTP-to-WebRTC example](https://github.com/pion/webrtc/tree/v4.2.26/examples/rtp-to-webrtc) documents the encoder/transport boundary.

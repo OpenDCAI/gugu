@@ -35,6 +35,7 @@ type Transport struct {
 	done     chan struct{}
 	closed   chan struct{}
 	closeErr error
+	reason   error
 	open     chan struct{}
 	low      chan struct{}
 	incoming chan []byte
@@ -70,7 +71,7 @@ func New(config Config) (*Transport, error) {
 		return nil, err
 	}
 	t := &Transport{peer: peer, done: make(chan struct{}), closed: make(chan struct{}), open: make(chan struct{}), low: make(chan struct{}, 1), incoming: make(chan []byte, 64)}
-	fail := func(err error) (*Transport, error) { t.stop(); return nil, err }
+	fail := func(err error) (*Transport, error) { t.stop(err); return nil, err }
 	t.video, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "projection", "projection")
 	if err != nil {
 		return fail(err)
@@ -100,16 +101,16 @@ func New(config Config) (*Transport, error) {
 		}
 	})
 	t.control.OnOpen(func() {
-		if t.direct() != nil {
-			t.stop()
+		if err := t.direct(); err != nil {
+			t.stop(err)
 			return
 		}
 		t.opened.Do(func() { close(t.open) })
 	})
-	t.control.OnClose(func() { t.stop() })
+	t.control.OnClose(func() { t.stop(errors.New("projection control closed")) })
 	t.control.OnMessage(func(message webrtc.DataChannelMessage) {
 		if t.direct() != nil || !message.IsString || len(message.Data) > MaxControlBytes {
-			t.stop()
+			t.stop(errors.New("invalid projection control message"))
 			return
 		}
 		data := append([]byte(nil), message.Data...)
@@ -117,15 +118,17 @@ func New(config Config) (*Transport, error) {
 		case t.incoming <- data:
 		case <-t.done:
 		default:
-			t.stop()
+			t.stop(errors.New("projection control queue is full"))
 		}
 	})
 	peer.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		if state == webrtc.PeerConnectionStateConnected && t.direct() != nil {
-			t.stop()
+		if state == webrtc.PeerConnectionStateConnected {
+			if err := t.direct(); err != nil {
+				t.stop(err)
+			}
 		}
 		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			t.stop()
+			t.stop(fmt.Errorf("projection connection %s", state))
 		}
 	})
 	return t, nil
@@ -136,7 +139,7 @@ func ptr[T any](value T) *T { return &value }
 func (t *Transport) direct() error {
 	select {
 	case <-t.done:
-		return ErrClosed
+		return t.closedError()
 	default:
 	}
 	if t.peer.SCTP() == nil || t.peer.SCTP().Transport() == nil {
@@ -196,7 +199,7 @@ func (t *Transport) Ready(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-t.done:
-		return ErrClosed
+		return t.closedError()
 	case <-t.open:
 		return t.direct()
 	}
@@ -207,7 +210,7 @@ func (t *Transport) Receive(ctx context.Context) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-t.done:
-		return nil, ErrClosed
+		return nil, t.closedError()
 	case data := <-t.incoming:
 		if err := t.direct(); err != nil {
 			return nil, err
@@ -254,15 +257,23 @@ func (t *Transport) RTP(data []byte) error {
 	return t.video.WriteRTP(packet)
 }
 
-func (t *Transport) stop() {
+func (t *Transport) stop(reason error) {
 	t.once.Do(func() {
+		t.reason = reason
 		close(t.done)
 		go func() { t.closeErr = t.peer.Close(); close(t.closed) }()
 	})
 }
 
 func (t *Transport) Close() error {
-	t.stop()
+	t.stop(nil)
 	<-t.closed
 	return t.closeErr
+}
+
+func (t *Transport) closedError() error {
+	if t.reason == nil {
+		return ErrClosed
+	}
+	return fmt.Errorf("%w: %v", ErrClosed, t.reason)
 }
