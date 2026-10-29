@@ -61,7 +61,7 @@ import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClie
 /** A refusal of `gugu.files`: `code` and `detail` are what an App branches on (bridge-protocol.ts `ErrorDetail`), the message is for people. */
 export class AppFileError extends Error {
   constructor(
-    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken',
+    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken' | 'unavailable',
     message: string,
     readonly detail?: ErrorDetail,
   ) {

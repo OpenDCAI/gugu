@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FilesPlatform } from './app-files-core';
 import { createProjectFilePublisher } from '../../../../electron/projectFilePublication';
+import { bridgeFailure } from './bridge-protocol';
 
 /**
  * #719: a project chat that keeps its files on its host machine. An agent there could not store a file's next version —
@@ -166,6 +167,9 @@ describe('files.replace in a project chat that keeps its files on its host', () 
     const error = await files.replace(asAgent, { ref: { id: row.id as string }, file: content, expectedVersion: 1 }).catch((error: unknown) => error);
     expect(error).toMatchObject({ code: 'unavailable', message: expect.stringContaining('"Studio Mac" (小禾\'s computer)'),
       detail: { reason: status === 'cancelled' ? 'timeout' : status } });
+    expect(JSON.parse(JSON.stringify(bridgeFailure(error)))).toMatchObject({
+      code: 'unavailable', message: (error as Error).message, detail: { reason: status === 'cancelled' ? 'timeout' : status },
+    });
     expect((error as Error).message).toContain(status === 'host_offline' ? 'is offline' : 'did not take the new version in time');
     expect(row.version).toBe(1);
     expect(uploads).toEqual([]);
