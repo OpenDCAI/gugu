@@ -66,7 +66,7 @@ describe('attachment send recovery', () => {
     await done
     expect(mocks.upload).toHaveBeenCalledTimes(2)
     expect(mocks.commit).toHaveBeenCalledOnce(); expect(onSent).toHaveBeenCalledOnce()
-    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 120_000, outcome: 'timeout' }), 'attachment send stage timing')
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', elapsedMs: 120_001, outcome: 'timeout' }), 'attachment send stage timing')
   })
   it('recovers a lost commit response by its original ID without committing it twice', async () => {
     const { args, rows } = arrange()
@@ -137,7 +137,7 @@ it('the attachment fetch receives a signal that is aborted at the upload deadlin
   await vi.advanceTimersByTimeAsync(1)
   const firstSignal = signal!
   expect(firstSignal.aborted).toBe(false)
-  await vi.advanceTimersByTimeAsync(120_000)
+  await vi.advanceTimersByTimeAsync(120_100)
   expect(firstSignal.aborted).toBe(true)
   // Finish remaining retries without leaving real two-minute timers alive.
   await vi.advanceTimersByTimeAsync(250_000)
@@ -159,4 +159,91 @@ it('consumes the same-ID revision directly, including after the sender leaves th
   await send(serverRow('message-1'))
   expect(received).toHaveBeenCalledWith(expect.objectContaining({ id: 'message-1', seq: 42, is_mine: true }))
   cleanup(); expect(stop).toHaveBeenCalledOnce()
+})
+
+it('allows a large slow upload beyond two minutes instead of restarting its bytes', async () => {
+  const { args, onSent } = arrange()
+  const large = new File(['x'], 'large.png', { type: 'image/png' })
+  Object.defineProperty(large, 'size', { value: 50 * 1024 * 1024 })
+  mocks.upload.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve('staging/large'), 180_000)))
+  const result = sendAttachmentBatch({ ...args, files: [large] }).catch(error => error)
+  await vi.advanceTimersByTimeAsync(180_100)
+  expect(mocks.upload).toHaveBeenCalledOnce()
+  expect(onSent).toHaveBeenCalledOnce()
+  expect(await result).not.toBeInstanceOf(Error)
+})
+
+it('keeps a native publication pending after twenty seconds and never publishes a second file', async () => {
+  const { args, onSent, removePlaceholder } = arrange()
+  let finish: () => void = () => {}
+  const invoke = vi.fn((_channel, request) => !request.file ? Promise.resolve(true) : new Promise(resolve => {
+    finish = () => resolve({ id: 'file-item', version: 1, message: { ...serverRow(request.message.message_id), file_item_id: 'file-item', file_version: 1 } })
+  }))
+  vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: () => '/project/large.txt' } })
+  mocks.read.mockResolvedValue(null)
+  let finished = false
+  const done = sendAttachmentBatch({ ...args, files: [new File(['x'], 'large.txt', { type: 'text/plain' })] }).catch(error => error).finally(() => { finished = true })
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(finished).toBe(false)
+  expect(removePlaceholder).not.toHaveBeenCalled()
+  expect(invoke.mock.calls.filter(call => call[1].file)).toHaveLength(1)
+  finish()
+  await vi.advanceTimersByTimeAsync(10)
+  expect(await done).not.toBeInstanceOf(Error)
+  expect(onSent).toHaveBeenCalledOnce()
+  expect(invoke.mock.calls.filter(call => call[1].file)).toHaveLength(1)
+})
+
+it('reuses the same reservation request ID when uploading again after a transient failure', async () => {
+  const { args, rows } = arrange()
+  mocks.upload.mockRejectedValueOnce(new TypeError('offline'))
+  const done = sendAttachmentBatch(args)
+  await vi.advanceTimersByTimeAsync(600)
+  await done
+  expect(mocks.upload.mock.calls.map(call => call[2].request_id)).toEqual([rows[0].id, rows[0].id])
+})
+
+it.each(['readback', 'realtime'])('confirms a native publication through %s while its IPC is still pending', async confirmation => {
+  const { args, onSent, removePlaceholder } = arrange()
+  const invoke = vi.fn((_channel, request) => !request.file ? Promise.resolve(true) : new Promise(() => {}))
+  vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: () => '/project/large.txt' } })
+  let receive: (row: MessageItem) => void = () => {}
+  mocks.read.mockImplementation(async id => Date.now() - started >= 25_000 && confirmation === 'readback' ? serverRow(id) : null)
+  const started = Date.now()
+  const done = sendAttachmentBatch({ ...args, files: [new File(['x'], 'large.txt', { type: 'text/plain' })], observeMessage: (_id, callback) => { receive = callback; return vi.fn() } })
+  await vi.advanceTimersByTimeAsync(25_000)
+  expect(removePlaceholder).not.toHaveBeenCalled()
+  if (confirmation === 'realtime') receive(serverRow(invoke.mock.calls.find(call => call[1].file)![1].message.message_id) as MessageItem)
+  await vi.advanceTimersByTimeAsync(2_100)
+  await done
+  expect(onSent).toHaveBeenCalledOnce()
+  expect(invoke.mock.calls.filter(call => call[1].file)).toHaveLength(1)
+})
+
+it('caps the size allowance at the signed upload plan expiry', async () => {
+  const { args } = arrange()
+  mocks.upload.mockImplementationOnce((_endpoint, _file, _scope, options) => {
+    options.onPlan({ expires_at: new Date(Date.now() + 30_000).toISOString() })
+    return new Promise(() => {})
+  })
+  const done = sendAttachmentBatch(args)
+  await vi.advanceTimersByTimeAsync(30_600)
+  await done
+  expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'upload', outcome: 'timeout', elapsedMs: 30_000 }), 'attachment send stage timing')
+  expect(mocks.upload).toHaveBeenCalledTimes(2)
+})
+
+it('works when an older WebView has no AbortSignal.any', async () => {
+  const { args } = arrange()
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!
+  Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined })
+  try {
+    let receive: (row: MessageItem) => void = () => {}
+    mocks.commit.mockImplementation(() => new Promise(() => {}))
+    const done = sendAttachmentBatch({ ...args, observeMessage: (_id, callback) => { receive = callback; return vi.fn() } })
+    await vi.advanceTimersByTimeAsync(10)
+    const messageId = mocks.commit.mock.calls[0][1].message_id
+    receive(serverRow(messageId) as MessageItem)
+    await done
+  } finally { Object.defineProperty(AbortSignal, 'any', descriptor) }
 })

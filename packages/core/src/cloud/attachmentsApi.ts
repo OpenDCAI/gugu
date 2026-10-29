@@ -51,16 +51,18 @@ export async function uploadAttachmentBytes(
   endpoint: AttachmentsEndpoint,
   file: { bytes: Uint8Array | Blob; name: string; contentType: string },
   scope: { chat_id: string | null; as: string; request_id?: string },
+  options?: { onPlan?: (plan: AttachmentUploadPlan) => void },
 ): Promise<string> {
   const size = file.bytes instanceof Blob ? file.bytes.size : file.bytes.byteLength
   const form = await call(endpoint, 'upload', {
     size_bytes: size, content_type: file.contentType, as: scope.as, chat_id: scope.chat_id, request_id: scope.request_id ?? crypto.randomUUID(),
-  }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+  }) as { staging_key: string; url: string; fields: Record<string, string>; max_bytes: number; expires_at?: string; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+  options?.onPlan?.(form)
   await uploadAttachmentPlan(endpoint, form, file)
   return form.staging_key
 }
 
-export type AttachmentUploadPlan = { url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
+export type AttachmentUploadPlan = { expires_at?: string; url: string; fields: Record<string, string>; max_bytes: number; method?: 'POST' | 'PUT'; headers?: Record<string, string> }
 
 /** Ordinary and temporary uploads execute the same scoped provider plan; signing remains server-side. */
 export async function uploadAttachmentPlan(endpoint: AttachmentsEndpoint, form: AttachmentUploadPlan, file: { bytes: Uint8Array | Blob; name: string; contentType: string }): Promise<void> {

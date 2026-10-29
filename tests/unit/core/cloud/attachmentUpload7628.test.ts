@@ -2,6 +2,22 @@ import { describe, expect, it, vi } from 'vitest'
 import { uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 
 describe('attachment upload transports', () => {
+  it('reports the signed expiry before transferring bytes and preserves the reservation ID', async () => {
+    const plan = { staging_key: 'staging/u/file', url: 'https://storage.example/scoped', method: 'PUT', fields: {}, max_bytes: 1024, expires_at: '2030-01-01T01:00:00Z' }
+    const onPlan = vi.fn()
+    const fetcher = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/upload')) {
+        expect(JSON.parse(init.body as string).request_id).toBe('reservation-id')
+        return new Response(JSON.stringify(plan))
+      }
+      expect(onPlan).toHaveBeenCalledExactlyOnceWith(plan)
+      return new Response(null, { status: 204 })
+    })
+    await uploadAttachmentBytes({ supabaseUrl: 'https://project.example', anonKey: 'public', token: 'user', fetch: fetcher as typeof fetch }, {
+      bytes: new Uint8Array([1]), name: 'file.bin', contentType: 'application/octet-stream',
+    }, { chat_id: 'chat', as: 'sender', request_id: 'reservation-id' }, { onPlan })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
   it('uses a raw PUT body for a Supabase signed upload', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({

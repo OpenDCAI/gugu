@@ -48,11 +48,11 @@ import {
 import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevisionSource'
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
-import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'; import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
+import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
+import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 const revisionLog = rendererLogger('chat/account-revision')
-
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
   const { toast } = useToast()

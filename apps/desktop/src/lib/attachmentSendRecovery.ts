@@ -4,7 +4,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from './chat'
 import { i18n } from '../i18n'
 import { commitPreparedChatAttachment, type PreparedChatAttachment } from './attachmentsEndpoint'
-import { AttachmentStageTimeout, type AttachmentSendTiming } from './attachmentSendTiming'
+import { AttachmentStageTimeout, linkedAttachmentSignal, type AttachmentSendTiming } from './attachmentSendTiming'
 import { readMessageCreatedRevision, type AccountRevisionListener } from './accountRevisionCoordinator'
 
 export type ObserveAttachmentMessage = (id: string, receive: (row: MessageItem) => void) => () => void
@@ -15,7 +15,7 @@ export function retryableAttachmentError(error: unknown): boolean {
 }
 export function attachmentAttemptEndpoint(endpoint: AttachmentsEndpoint, signal: AbortSignal): AttachmentsEndpoint {
   return { ...endpoint, fetch: (input, init) => (endpoint.fetch ?? fetch)(input, {
-    ...init, signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal,
+    ...init, signal: init?.signal ? linkedAttachmentSignal([signal, init.signal]) : signal,
   }) }
 }
 export async function retryAttachmentUpload<T>(run: (attempt: number) => Promise<T>): Promise<T> {
@@ -67,7 +67,7 @@ export async function settleAttachmentSend(args: {
         // A native publication may have written a folder revision before its IPC
         // response was lost. Poll its message, never publish that file twice.
         if (attempt > 1 && 'local' in prepared) throw failure
-        const raw = await timing.stage('commit', attempt, signal => commitPreparedChatAttachment(attachmentAttemptEndpoint(endpoint, signal), prepared, commit), cancellation.signal)
+        const raw = await timing.stage('commit', attempt, signal => commitPreparedChatAttachment(attachmentAttemptEndpoint(endpoint, signal), prepared, commit), cancellation.signal, 'local' in prepared ? { timeoutMs: null } : undefined)
         const row = messageItemFromRow(raw, commit.sender_user_id)
         if (authoritative(row)) return row
         // An incomplete acknowledgement must be verified, never fabricated into a successful message.
@@ -93,7 +93,20 @@ export async function settleAttachmentSend(args: {
     }
   }
   try {
-    const row = observed ?? await Promise.race([confirmed, publish()])
+    const pollNative = async (): Promise<MessageItem> => {
+      for (let attempt = 1; ; attempt++) {
+        cancellation.signal.throwIfAborted()
+        try { const row = await readback(attempt); if (authoritative(row)) { source = 'readback'; return row } }
+        catch (error) { if (cancellation.signal.aborted) throw error }
+        await new Promise<void>((resolve, reject) => {
+          const signal = cancellation.signal
+          const onAbort = () => { clearTimeout(timer); reject(signal.reason) }
+          const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, 2000)
+          signal.addEventListener('abort', onAbort, { once: true })
+        })
+      }
+    }
+    const row = observed ?? await Promise.race([confirmed, publish(), ...('local' in prepared ? [pollNative()] : [])])
     timing.finish('success', source)
     return { ...row, local_send_state: null, local_send_error: null }
   } catch (error) {

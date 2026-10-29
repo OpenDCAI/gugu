@@ -3,7 +3,7 @@ import { formatAttachmentMetadata, inferAttachmentKind, resolveFileMimeType } fr
 import { type AttachmentsEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { attachmentsEndpoint, prepareChatAttachment, type PreparedChatAttachment } from '../../lib/attachmentsEndpoint'
 import { requireThreadCapableChat } from '../../lib/chatThreadGate'
-import { attachmentSendTiming, type AttachmentSendTiming } from '../../lib/attachmentSendTiming'
+import { attachmentSendTiming, attachmentUploadTimeoutMs, type AttachmentSendTiming } from '../../lib/attachmentSendTiming'
 import { attachmentAttemptEndpoint, retryAttachmentUpload, settleAttachmentSend, type ObserveAttachmentMessage } from '../../lib/attachmentSendRecovery'
 
 // @@@2188 composer 分阶段发送的附件批执行器(自 ChatAreaPanel.handleSendAttachments 抽出)。
@@ -24,7 +24,11 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
       next += 1
       try {
         const file = files[index]
-        settle[index].resolve(await retryAttachmentUpload(attempt => timings[index].stage('upload', attempt, signal => prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file, scope))))
+        const prepared = await retryAttachmentUpload(attempt => timings[index].stage('upload', attempt,
+          (signal, capDeadline) => prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
+            { ...scope, request_id: timings[index].clientId }, plan => capDeadline(plan.expires_at)),
+          undefined, { timeoutMs: attachmentUploadTimeoutMs(file.size) }))
+        settle[index].resolve(prepared)
       } catch (error) {
         timings[index].finish('failed', 'upload')
         settle[index].reject(error)

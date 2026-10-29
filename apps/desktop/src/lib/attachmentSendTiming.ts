@@ -9,15 +9,44 @@ export class AttachmentStageTimeout extends Error {
 }
 
 /** Like chatSendTiming: correlated IDs and elapsed time only, never file contents, URLs or tokens. */
+export function attachmentUploadTimeoutMs(sizeBytes: number): number {
+  // Reserve two minutes for setup, then allow an 8 KiB/s uplink. The signed
+  // upload plan caps this allowance at its actual expiry once it arrives.
+  return ATTACHMENT_SEND_DEADLINES.upload + Math.ceil(sizeBytes / 8192 * 1000)
+}
+export function linkedAttachmentSignal(signals: readonly AbortSignal[]): AbortSignal {
+  const controller = new AbortController()
+  const listeners = signals.map(signal => {
+    const abort = () => controller.abort(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    return () => signal.removeEventListener('abort', abort)
+  })
+  controller.signal.addEventListener('abort', () => { for (const dispose of listeners) dispose() }, { once: true })
+  const aborted = signals.find(signal => signal.aborted)
+  if (aborted) controller.abort(aborted.reason)
+  return controller.signal
+}
 export function attachmentSendTiming(clientId: string, chatId: string) {
   const submitted = performance.now()
   return {
-    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal) => Promise<T>, parent?: AbortSignal): Promise<T> {
+    clientId,
+    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal, capDeadline: (expiresAt: string | undefined) => void) => Promise<T>, parent?: AbortSignal, options?: { timeoutMs: number | null }): Promise<T> {
       const started = performance.now(), controller = new AbortController()
-      const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal
+      const signal = parent ? linkedAttachmentSignal([parent, controller.signal]) : controller.signal
       const fields = { clientId, chatId, stage, attempt }
-      log.info(fields, 'attachment send stage started')
-      const timeout = setTimeout(() => controller.abort(new AttachmentStageTimeout(stage)), ATTACHMENT_SEND_DEADLINES[stage])
+      const timeoutMs = options ? options.timeoutMs : ATTACHMENT_SEND_DEADLINES[stage]
+      let deadline = timeoutMs === null ? Infinity : Date.now() + timeoutMs
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const arm = () => {
+        clearTimeout(timeout)
+        if (Number.isFinite(deadline)) timeout = setTimeout(() => controller.abort(new AttachmentStageTimeout(stage)), Math.max(0, deadline - Date.now()))
+      }
+      const capDeadline = (expiresAt: string | undefined) => {
+        if (!expiresAt) return
+        const expiry = Date.parse(expiresAt)
+        if (Number.isFinite(expiry)) { deadline = Math.min(deadline, expiry); arm() }
+      }
+      arm()
       let onAbort: () => void = () => {}
       const aborted = new Promise<never>((_resolve, reject) => {
         onAbort = () => reject(signal.reason)
@@ -25,7 +54,7 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
         else signal.addEventListener('abort', onAbort, { once: true })
       })
       try {
-        const result = await Promise.race([aborted, Promise.resolve().then(() => { signal.throwIfAborted(); return operation(signal) })])
+        const result = await Promise.race([aborted, Promise.resolve().then(() => { signal.throwIfAborted(); return operation(signal, capDeadline) })])
         const elapsedMs = Math.round(performance.now() - started)
         log[elapsedMs > 2000 ? 'warn' : 'info']({ ...fields, elapsedMs, outcome: 'success' }, 'attachment send stage timing')
         return result
@@ -33,7 +62,7 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
         log[signal.aborted && !(error instanceof AttachmentStageTimeout) ? 'info' : 'warn']({ ...fields, elapsedMs: Math.round(performance.now() - started), outcome: error instanceof AttachmentStageTimeout ? 'timeout' : signal.aborted ? 'cancelled' : 'failed' }, 'attachment send stage timing')
         throw error
       } finally {
-        clearTimeout(timeout); signal.removeEventListener('abort', onAbort)
+        clearTimeout(timeout); signal.removeEventListener('abort', onAbort); controller.abort(new Error('Attachment stage finished'))
       }
     },
     finish(outcome: 'success' | 'failed', source?: string) {
