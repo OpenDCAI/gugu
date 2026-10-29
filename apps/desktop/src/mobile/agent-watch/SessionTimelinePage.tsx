@@ -14,7 +14,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { SessionConversation } from './SessionConversation'
-import { enqueueSessionInput } from '@/lib/sessionInputOutboxBridge'
+import { enqueueSessionInput, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
@@ -73,6 +73,7 @@ export function SessionTimelinePage({
   const { label: machineLabel } = useMachineLabel()
   const phoneHost = isPhoneDevice(device)
   const networkOnline = useNetworkOnline()
+  const queuedInputs = useQueuedSessionInputs(session.conversationId)
   const online = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
@@ -202,8 +203,8 @@ export function SessionTimelinePage({
         />
       ) : null}
 
-      {!online ? (
-        /* 离线但本地还有缓存:内容照常看,只说清「现在发不出去」。云电脑没醒着:说正在叫醒它。 */
+      {!online && (networkOnline || queuedInputs.length === 0) ? (
+        /* 本机断网且有待发消息时,连接提示只在队列旁显示;没有待发内容仍提示离线。 */
         offlineNotice
       ) : null}
 
