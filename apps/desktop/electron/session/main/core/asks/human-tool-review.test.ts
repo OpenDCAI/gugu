@@ -152,6 +152,8 @@ describe('human-tool review regressions', () => {
     expect(actual.pictures).toBeUndefined();
     expect(actual.pictures_error).toEqual(expect.any(String));
     expect(actual.pictures_error.length).toBeGreaterThan(0);
+    expect(actual.pictures_error).toMatch(failure === 'invalid picture' ? /invalid/ : /could not be saved/);
+    expect(actual.pictures_error).not.toContain(fixture.root);
     expect(readHumanToolRecords('session')).toEqual([]);
   });
 });

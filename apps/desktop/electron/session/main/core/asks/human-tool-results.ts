@@ -57,10 +57,12 @@ export function prepareHumanToolResult(record: HumanToolRecord, result: unknown)
   const encoded = encodeResult(result);
   let shown = encoded;
   let picturesError: string | undefined;
+  let picturePhase: 'validation' | 'storage' = 'validation';
   const saved: HumanToolPicture[] = [];
   try {
     const split = withPictures(encoded);
     shown = split.shown;
+    picturePhase = 'storage';
     let label = '';
     for (const picture of split.pictures) {
       if (picture.type === 'text') { label = picture.text.slice('Picture: '.length); continue; }
@@ -74,13 +76,15 @@ export function prepareHumanToolResult(record: HumanToolRecord, result: unknown)
       saved.push({ label, mime_type: picture.mimeType, file_path: target });
     }
   } catch (error) {
-    picturesError = error instanceof Error ? error.message : String(error);
+    picturesError = picturePhase === 'validation'
+      ? 'Result pictures were invalid and could not be attached.'
+      : 'Result pictures could not be saved and were not attached.';
     // A picture failure must not lose the actual tool outcome or inline the rejected bytes.
     if (encoded && typeof encoded === 'object' && !Array.isArray(encoded)) {
       shown = Object.fromEntries(Object.entries(encoded).filter(([key]) => key !== 'pictures'));
     }
     saved.length = 0;
-    log.warn('Human tool pictures could not be attached', { sessionId: record.sessionId, requestId: record.requestId, error: picturesError });
+    log.warn('Human tool pictures could not be attached', { sessionId: record.sessionId, requestId: record.requestId, error: String(error) });
   }
   return { ...record, state: 'finished', result: shown, encoded: true, ...(saved.length ? { pictures: saved } : {}),
     ...(picturesError ? { picturesError } : {}) };
