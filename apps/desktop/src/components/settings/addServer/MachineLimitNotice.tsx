@@ -27,8 +27,8 @@ export function MachineLimitNotice({
 }) {
   const { t } = useTranslation('settings')
   const { devices, phones } = useDevicesStore()
-  const endpoints = [...devices, ...(phones ?? [])]
-  const machines = useMemo(() => deviceMachines([...devices, ...(phones ?? [])]), [devices, phones])
+  const endpoints = useMemo(() => [...devices, ...(phones ?? [])], [devices, phones])
+  const machines = useMemo(() => deviceMachines(endpoints), [endpoints])
   const { openRemoveDevices, dialogs } = useDeviceRemoval(machines)
   const [reading, setReading] = useState<{ source: typeof refusal; value: typeof refusal; error: string } | null>(null)
   const [retry, setRetry] = useState(0)
@@ -83,8 +83,7 @@ export function MachineLimitNotice({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={machine.device_ids.some((id) => !endpoints.some((device) => device.device_id === id))
-                  || machine.device_ids.every((id) => endpoints.some((device) => device.device_id === id && device.is_current_device))}
+                disabled={machine.device_ids.some((id) => !endpoints.some((device) => device.device_id === id))}
                 onClick={() => openRemoveDevices(machine.device_ids)}
                 aria-label={t('devices.remove.label', { name: machine.label })}
               >
