@@ -10,6 +10,8 @@ import { initialState, reduce, type ParserState } from './reducer';
 
 export interface AcpTranscriptParserDeps {
   sessionId: string;
+  /** Live runtimes supply a fresh identity per turn; bounded replay does not invent origins. */
+  newTurnReference?: () => string;
 }
 
 export type ReplayResult = {
