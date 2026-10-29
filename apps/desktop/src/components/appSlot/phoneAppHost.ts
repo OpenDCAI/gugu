@@ -574,7 +574,7 @@ export function hostAppFrame(
         return Promise.resolve(undefined)
       }
       case 'clipboardWriteText':
-        return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
+        return platform.writeClipboardText(pageArgument('clipboardWriteText', args))
       case 'listAgents': {
         const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
         if (!manifest) refused('not-installed', 'This App is not installed')

@@ -29,14 +29,15 @@ function mount(composer: 'slot' | 'none' = 'none') {
   host.className = nativeChatAppearance;
   host.style.cssText = 'position:fixed;top:0;left:0;width:640px;height:500px';
   document.body.append(host);
-  const view = createChatView({ context, state, parent: host, composer });
+  const writeClipboardText = vi.fn(async (_text: string) => {});
+  const view = createChatView({ context, state, parent: host, composer, commands: { writeClipboardText } });
   dispose = () => { view.dispose(); context.dispose(); state.dispose(); host.remove(); };
   const header = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]');
-  return { state, context, host, header, view };
+  return { state, context, host, header, view, writeClipboardText };
 }
 
 it('shows end actions only after done; preserves inspection, the divider, and measured row height', async () => {
-  const { state, context, host, header } = mount();
+  const { state, context, host, header, writeClipboardText } = mount();
   state.transcript.activeTurn.set(TURN);
   await until('live tool-only header', () => header()?.dataset.live === 'true');
   expect(host.querySelector('[data-slot="turn-completion"]')).toBeNull();
@@ -59,9 +60,10 @@ it('shows end actions only after done; preserves inspection, the divider, and me
   const completion = host.querySelector<HTMLElement>('[data-slot="turn-completion"]')!;
   const button = completion.querySelector('button')!;
   expect(getComputedStyle(button).opacity).toBe('1');
-  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   button.click();
-  expect(writeText).toHaveBeenCalledWith('message_send\nreplied (id=msg:sent)');
+  expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith('message_send\nreplied (id=msg:sent)');
+  expect(writeText).not.toHaveBeenCalled();
   const measured = turnCompletionUnitDef.measure(
     { kind: 'turn-completion', id: 'tool-only:completion', turnId: TURN.id, text: 'message_send' },
     { theme: context.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches, expandedId: null },
