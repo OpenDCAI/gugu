@@ -10,7 +10,6 @@ import { IMPLICIT_SESSION_HOME_PROJECT_ID } from './session-home-project-constan
 import { homeView } from '@renderer/app/home-view';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectHome } from '@renderer/features/projects/components/main-panel/project-home';
-import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { NewSessionComposer, NewSessionPage } from './new-session-page';
 import { remoteInstallNote } from './remote-install-before-create';
 import { MachinePicker } from '@renderer/features/remote-hosts/machine-picker';
@@ -305,9 +304,7 @@ describe('NewSessionPage', () => {
   });
 
   /** 产品里会话页始终活在 task locale provider 下面，测试也走同一条渲染路径。 */
-  // 生产里 QueryClientProvider 包在 App 根上(App.tsx),项目级动作(「在哪里打开项目」)靠它取
-  // 已安装的编辑器清单。这个壳只渲染局部子树,不补上就会以 `No QueryClient set` 失败 ——
-  // 那是壳的缺口,不是产品缺陷。
+  // 与生产一样使用共享查询上下文;这个壳只渲染局部子树。
   function localized(...children: React.ReactNode[]) {
     return React.createElement(
       QueryClientProvider,
@@ -326,7 +323,7 @@ describe('NewSessionPage', () => {
     });
   }
 
-  // 项目块画的那几样(app/project-block.tsx):窗口 chrome、页签条右端的「在哪里打开」、项目首页。
+  // 项目块画的窗口 chrome 与项目首页(app/project-block.tsx)。
   async function renderProjectHome() {
     const projectId = mocks.projectId;
     await act(async () => {
@@ -336,7 +333,6 @@ describe('NewSessionPage', () => {
           React.createElement(
             React.Fragment,
             null,
-            React.createElement(ProjectTitleActions, { projectId }),
             React.createElement(ProjectHome, { projectId })
           )
         )
@@ -436,43 +432,11 @@ describe('NewSessionPage', () => {
     expect(container.querySelector('[data-testid="create-delivery-error"]')).toBeNull();
   });
 
-  it('会话页那一排不长项目设置齿轮,「在哪里打开项目」还留着', async () => {
-    // owner 2026-09-09:「在具体的 session 这里,它其实没有『特别多项目级』的按钮……
-    // 真正意义上其实是多了一个按钮。」他拍的三层归属是**动作的分类**,不是「每层按钮都要
-    // 出现在每个视图」—— 会话页上那枚齿轮点了只会拨项目页的状态,屏幕一动不动。
-    // ❌ 别用「补一步 navigate」糊过去:那是让一枚不该在这儿的按钮变得能用。
-    mocks.currentView = 'task';
-    await renderProjectHome();
-
-    expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    // 「在哪里打开项目」留着:在会话里想拿编辑器打开这个仓是常态,它不在这次砍的范围里。
-    expect(container.querySelector('[data-open-in-row]')).not.toBeNull();
-  });
-
-  it('项目设置齿轮已下线:项目页这一排也不再有,但项目级动作本身没被端走', async () => {
-    // 2026-09-10 owner:「目前已有的项目设置基本不是我们想要的,所以就先不展示了项目设置。
-    // 但任务设置可以有」——「任务设置」指的是侧栏 ⌘, 那个多标签设置页,不在这条的范围里。
-    // 这条从前断言的是「项目页照旧有齿轮」(用来证明上一条砍的只是会话页那一格)。现在齿轮
-    // 两个视图都没有了,阴控换成:❌ 别顺手把整排项目级动作端走 —— 「在哪里打开项目」必须还在,
-    // 否则这条红,说明砍过头了。
-    mocks.currentView = 'project';
-    await renderProjectHome();
-
-    expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    expect(container.querySelector('[data-open-in-row]')).not.toBeNull();
-    expect(mocks.setProjectView).not.toHaveBeenCalled();
-  });
-
-  it('shows no project-level actions on a session that has no user project', async () => {
-    // 「没选仓库」时创建的会话跑在一个隐藏的内部项目(task-home)里 —— 它按设计
-    // 「must never be rendered as a selectable project」,侧栏项目区里也没有它。
-    // owner 实机点破:「没有项目的会话页,怎么显示项目设置按钮,按理说没有项目区啊」。
-    // ❌ 这条不能只断言齿轮:「在哪里打开项目」同样是项目级动作,漏一个就还是漏。
+  it('keeps the window drag region for a session with no user project', async () => {
     mocks.projectId = IMPLICIT_SESSION_HOME_PROJECT_ID;
     await renderProjectHome();
 
     expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    expect(container.querySelector('[data-open-in-row]')).toBeNull();
     // The shared window drag region remains available without project actions.
     expect(container.querySelector('[data-session-titlebar-drag-region]')).not.toBeNull();
   });
