@@ -10,14 +10,15 @@ import { createReactHarness } from '../../../support/testHarness';
 
 const menu = vi.hoisted(() => vi.fn());
 const writeClipboardText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
+const toast = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/contentContextMenu', () => ({ showRendererContentMenu: menu }));
 vi.mock('@/platform', () => ({ platform: { writeClipboardText } }));
-vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
+vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 const { useSessionMessageQuotes } = await import('../../../../apps/desktop/src/session/renderer/features/sessions/acp/use-session-message-quotes');
 
 let harness: ReturnType<typeof createReactHarness>;
-beforeEach(() => { harness = createReactHarness(); menu.mockReset(); writeClipboardText.mockClear(); document.getSelection()?.removeAllRanges(); });
+beforeEach(() => { harness = createReactHarness(); menu.mockReset(); writeClipboardText.mockClear(); toast.mockClear(); document.getSelection()?.removeAllRanges(); });
 afterEach(() => harness.cleanup());
 
 async function setup() {
@@ -44,6 +45,15 @@ describe('task message quote entry points', () => {
     await act(async () => c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith(selected ? 'same' : 'same words');
     expect(getSessionQuote(c.state)).toBeNull();
+    c.dispose(); c.root.remove();
+  });
+  it('reports clipboard failure without a copied-success notification', async () => {
+    const c = await setup();
+    menu.mockResolvedValue('copy');
+    writeClipboardText.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    await act(async () => c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith('same words');
+    expect(toast).toHaveBeenCalledExactlyOnceWith({ title: 'task.copyFailed', tier: 'error' });
     c.dispose(); c.root.remove();
   });
   it('quotes a whole Solid message by identity, keeps the draft and never sends it', async () => {
