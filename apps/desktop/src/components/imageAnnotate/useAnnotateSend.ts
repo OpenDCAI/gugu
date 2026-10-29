@@ -47,7 +47,7 @@ export function useAnnotateSend(item: ImageViewerItem, doc: AnnotateDocument, ou
     const blob = await output(), detail = await compose(blob)
     let toUserIds: string[] = []
     if (original.is_whisper) {
-      toUserIds = [...new Set([original.sender_user_id, ...(original.to_user_ids ?? [])])].filter(id => id !== session.user.id)
+      toUserIds = [...new Set([original.sender_user_id, ...(original.to_user_ids ?? [])])].filter((id): id is string => id !== null && id !== session.user.id)
       if (toUserIds.length !== 1) throw new Error(t('originalUnavailable'))
     } else if ((chat?.kind === 'group' || chat?.kind === 'topic') && detail.text.includes('@')) {
       const loaded = await chatService.getGroupCollab(source.chatId)
