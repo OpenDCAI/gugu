@@ -18,6 +18,18 @@ const models: SessionpageSessionCreateModels = {
 const active: Array<ReturnType<typeof createReactHarness>>=[]
 afterEach(()=>{for(const h of active.splice(0))h.cleanup()})
 describe('phone Agent model options',()=>{
+  it('shows Default while refreshing a known catalogue and loading only before that catalogue arrives',async()=>{
+    const h=createReactHarness();active.push(h)
+    const props={options,selection:defaultSelection(options),onChange:vi.fn(),busy:false,modelsState:'loading' as const}
+    await h.render(createElement(CreateOptionsPill,{...props,models:null}))
+    await clickElement(h.container.querySelector<HTMLElement>('[data-testid="agent-watch-create-options-open"]')!)
+    const row=()=>h.container.querySelector('[data-testid="agent-watch-create-options-drill"][data-dimension="model"]')?.textContent??''
+    expect(row()).toContain('正在问')
+    await h.render(createElement(CreateOptionsPill,{...props,models}))
+    expect(row()).toContain('默认');expect(row()).not.toContain('正在问')
+    await h.render(createElement(CreateOptionsPill,{...props,models:{...models,harness:'codex'}}))
+    expect(row()).toContain('正在问')
+  })
   it('shows the fixed phone Agent identity and opens models directly without exposing an engine or private project',async()=>{
     const h=createReactHarness();active.push(h);const onChange=vi.fn(),selection=defaultSelection(options)
     await h.render(createElement(CreateOptionsPill,{options,selection,onChange,busy:false,models,modelsState:'ready',phoneHost:true}))

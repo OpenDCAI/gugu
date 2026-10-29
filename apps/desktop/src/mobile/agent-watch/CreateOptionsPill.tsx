@@ -265,7 +265,7 @@ export function CreateOptionsPill({
                   <span className="gg-aw-summary-label">{t('agentWatch.create.model')}</span>
                   <span className="gg-aw-summary-value">
                     {selectedModelName(models, selection)
-                      ?? (modelsState === 'loading'
+                      ?? (modelsState === 'loading' && (!models || models.harness !== selection.harness)
                         ? t('agentWatch.create.modelLoading')
                         : t('agentWatch.create.modelDefault'))}
                   </span>
