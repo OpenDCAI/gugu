@@ -1,5 +1,30 @@
 import { expect, it } from 'vitest';
-import { openExtensionProgramAccess, revokeExtensionProgramAccess } from './extension-program-access';
+import { openExtensionProgramAccess, revokeExtensionProgramAccess, withExtensionProgramAccess } from './extension-program-access';
+
+it('single-call cancellation waits for its authority cleanup before answering the caller', async () => {
+  const parent = new AbortController();
+  const cleanup = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  let outcome = 'pending';
+  const call = withExtensionProgramAccess('cleanup-app', parent.signal, async (signal) => {
+    try {
+      await new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        entered.resolve();
+      });
+    } finally { await cleanup.promise; }
+  }).then(() => { outcome = 'completed'; }, () => { outcome = 'interrupted'; });
+  try {
+    await entered.promise;
+    parent.abort();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(outcome).toBe('pending');
+  } finally {
+    cleanup.resolve();
+    await call;
+  }
+  expect(outcome).toBe('interrupted');
+});
 
 it('a late resource release cannot detach the re-enabled App from the next revocation', () => {
   const old = openExtensionProgramAccess('resource-app');
