@@ -29,26 +29,32 @@ beforeEach(async () => {
 })
 afterEach(() => {
   harness.cleanup()
+  vi.unstubAllGlobals()
   localStorage.removeItem('app-theme')
   delete document.documentElement.dataset.theme
   delete document.documentElement.dataset.themePreference
 })
 
 it.each([
-  ['zh-CN', '主题', '素白'],
-  ['en-US', 'Theme', 'Plain white'],
-])('%s: General settings offers and selects the fourth appearance', async (locale, label, white) => {
+  ['zh-CN', '主题', 390],
+  ['zh-CN', '主题', 1280],
+  ['en-US', 'Theme', 390],
+  ['en-US', 'Theme', 1280],
+] as const)('%s settings (%s, %spx): offers only light, dark and system', async (locale, label, width) => {
+  await page.viewport(width, 844)
   await i18n.changeLanguage(locale)
   await harness.render(<LocalizationProvider><ThemeProvider><GeneralSection onOpenPermissions={() => {}} /></ThemeProvider></LocalizationProvider>)
   const group = harness.container.querySelector(`[role="radiogroup"][aria-label="${label}"]`)!
   const options = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-  expect(options).toHaveLength(4)
-  const option = options.find((button) => button.textContent === white)!
-  await act(async () => { await userEvent.click(option) })
-  expect(option.getAttribute('aria-checked')).toBe('true')
-  expect(options.filter((button) => button.getAttribute('aria-checked') === 'true')).toHaveLength(1)
-  expect(localStorage.getItem('app-theme')).toBe('plain-white')
-  expect(document.documentElement.dataset.theme).toBe('light')
+  const preferences = ['light', 'dark', 'system'] as const
+  const labels = locale === 'zh-CN' ? ['浅色', '深色', '跟随系统'] : ['Light', 'Dark', 'System']
+  expect(options.map(button => button.textContent)).toEqual(labels)
+  for (const [index, preference] of preferences.entries()) {
+    await act(async () => { await userEvent.click(options[index]!) })
+    expect(options[index]!.getAttribute('aria-checked')).toBe('true')
+    expect(options.filter(button => button.getAttribute('aria-checked') === 'true')).toHaveLength(1)
+    expect(localStorage.getItem('app-theme')).toBe(preference)
+  }
 })
 
 function surfaces() {
@@ -71,56 +77,75 @@ function surfaces() {
   return { shell, phone, desktop, panel, menu }
 }
 
-it('replaces the gradient with pure white in every shared scope, using neutral glass', () => {
-  writeThemePreference('plain-white')
-  const { shell, phone, desktop, panel, menu } = surfaces()
-  for (const surface of [shell, phone, desktop, panel]) {
+function referenceBackground(background: string) {
+  const reference = document.createElement('div')
+  reference.style.background = background
+  harness.container.appendChild(reference)
+  const style = getComputedStyle(reference)
+  return { image: style.backgroundImage, color: style.backgroundColor }
+}
+
+const appearances = [
+  ['light', false, 'light'],
+  ['dark', true, 'dark'],
+  ['system', false, 'light'],
+  ['system', true, 'dark'],
+] as const
+
+function setAppearance(preference: 'light' | 'dark' | 'system', dark: boolean) {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: dark })))
+  writeThemePreference(preference)
+}
+
+it.each(appearances)('%s with system dark=%s: phone surfaces use the neutral %s background', (preference, dark) => {
+  setAppearance(preference, dark)
+  const { shell, phone } = surfaces()
+  const neutral = referenceBackground('var(--bg)')
+  for (const surface of [shell, phone]) {
     const style = getComputedStyle(surface)
     expect(style.backgroundImage).toBe('none')
-    expect(style.backgroundColor).toBe('rgb(255, 255, 255)')
-  }
-  for (const scope of [shell, phone, desktop, menu]) {
-    const style = getComputedStyle(scope)
-    expect(style.getPropertyValue('--ta-panel-bg').trim()).toBe(style.getPropertyValue('--bg').trim())
-    expect(style.getPropertyValue('--ta-glass').trim()).toBe(style.getPropertyValue('--card').trim())
-    expect(style.getPropertyValue('--ta-tint-ink').trim()).toBe(style.getPropertyValue('--fg').trim())
+    expect(style.backgroundColor).toBe(neutral.color)
+    expect(style.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   }
 })
 
-it.each(['phone group', 'phone assistant', 'desktop assistant'])(
-  '%s: received bubbles remain distinct from the plain white page', (place) => {
-    writeThemePreference('plain-white')
-    const { shell, phone, panel } = surfaces()
-    const surface = place === 'phone group' ? shell : place === 'phone assistant' ? phone : panel
+it.each(['phone group', 'phone assistant'])(
+  '%s: received bubbles use the existing light gray fill', (place) => {
+    writeThemePreference('light')
+    const { shell, phone } = surfaces()
+    const surface = place === 'phone group' ? shell : phone
     const chat = document.createElement('div')
     if (place !== 'phone group') chat.className = 'ta-chat'
     const bubble = document.createElement('div')
     bubble.textContent = 'Keyboard-assistant-check received.'
-    Object.assign(bubble.style, buildBubbleStyle(false, false, place !== 'desktop assistant'))
+    Object.assign(bubble.style, buildBubbleStyle(false, false, true))
     const messageList = document.createElement('div')
     messageList.appendChild(bubble)
     chat.appendChild(messageList)
     surface.appendChild(chat)
 
     const background = getComputedStyle(bubble).backgroundColor
+    expect(background).toBe(referenceBackground('var(--muted)').color)
     expect(background).not.toBe('rgba(0, 0, 0, 0)')
-    expect(background).not.toBe(getComputedStyle(surface).backgroundColor)
+    expect(background).not.toBe(referenceBackground('var(--bg)').color)
   },
 )
 
-it('keeps the default gradient and dark gradient, including switching away from white', async () => {
-  const { shell, panel } = surfaces()
-  expect(localStorage.getItem('app-theme')).toBeNull()
-  for (const surface of [shell, panel]) {
-    expect(getComputedStyle(surface).backgroundImage).toContain('rgb(169, 201, 234)')
-  }
-  await act(async () => { writeThemePreference('plain-white') })
-  await act(async () => { writeThemePreference('dark') })
-  for (const surface of [shell, panel]) {
-    expect(getComputedStyle(surface).backgroundImage).toContain('rgb(31, 44, 61)')
-  }
-  await act(async () => { writeThemePreference('light') })
-  for (const surface of [shell, panel]) {
-    expect(getComputedStyle(surface).backgroundImage).toContain('rgb(169, 201, 234)')
-  }
+// Fixed existing desktop palettes, independent of the stylesheet under test.
+const desktopBaseline = {
+  light: {
+    app: 'linear-gradient(180deg, #dfe6ec 0%, #e5e8ec 55%, #ecebe8 100%)',
+    panel: 'linear-gradient(180deg, #a9c9ea 0%, #c5d8ef 30%, #e2e5f3 60%, #f4e6dc 80%, #fcd9b5 100%)',
+  },
+  dark: {
+    app: 'linear-gradient(180deg, #14171c 0%, #17181b 60%, #1b1916 100%)',
+    panel: 'linear-gradient(180deg, #1f2c3d 0%, #23283a 45%, #2a2531 70%, #33271f 100%)',
+  },
+}
+
+it.each(appearances)('%s with system dark=%s: desktop retains the existing %s appearance', (preference, dark, effective) => {
+  setAppearance(preference, dark)
+  const { desktop, panel } = surfaces()
+  expect(getComputedStyle(desktop).backgroundImage).toBe(referenceBackground(desktopBaseline[effective].app).image)
+  expect(getComputedStyle(panel).backgroundImage).toBe(referenceBackground(desktopBaseline[effective].panel).image)
 })
