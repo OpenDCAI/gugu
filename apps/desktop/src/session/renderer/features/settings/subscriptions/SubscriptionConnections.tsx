@@ -89,12 +89,16 @@ export function SubscriptionConnections({ agent, machine, onError }: {
   });
   // 跟最近一次动作走:新动作一开始 `action.error` 就清空,重叠的两次里先失败的那次不会把原因留下。
   const busy = sessionsBusyOf(action.error);
-  const failure = busy
-    ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
-    : action.error ? errorText(action.error) : null;
-  const tone = busy ? 'gentle' : 'error';
+  // 带着「关掉」还被拒 = 那台机器上的咕咕不认这一格(旧版本):说清楚去更新，❌ 再摆一个按了没反应的按钮。
+  const closeUnsupported = !!busy && action.variables?.stopBusySessions === true;
+  const failure = closeUnsupported
+    ? translate('subscriptions.connections.closeUnsupported')
+    : busy
+      ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
+      : action.error ? errorText(action.error) : null;
+  const tone = busy && !closeUnsupported ? 'gentle' : 'error';
   // 被拒的那次切的是哪个连接:「关掉并切换」原样再切一次。
-  const refusedId = busy && action.variables?.kind === 'select' ? action.variables.id : null;
+  const refusedId = busy && !closeUnsupported && action.variables?.kind === 'select' ? action.variables.id : null;
   const { mutate } = action;
   const closeAndSwitch = useCallback(() => {
     if (refusedId) mutate({ kind: 'select', id: refusedId, stopBusySessions: true });
@@ -172,8 +176,9 @@ function ConnectionOption({ connection, agent, machine, busy, onRemove }: {
   const usage = useQuery({
     queryKey: subscriptionKey(machine, agent.id, 'usage', connection.id),
     queryFn: () => readUsage(machine, agent.id, false, connection.id),
-    staleTime: SUBSCRIPTION_STALE_MS, retry: false,
-    enabled: connection.kind !== 'api-key',
+    staleTime: SUBSCRIPTION_STALE_MS, retry: false, refetchOnWindowFocus: false,
+    // 没登录的号没有额度可读;API key 的余量只在厂商后台。
+    enabled: connection.kind !== 'api-key' && details.data?.status.kind === 'authenticated',
   });
   const quota = usage.data?.kind === 'windows' ? remainingLine(usage.data.windows, translate) : null;
   const nearlyUsed = usage.data?.kind === 'windows' && usage.data.windows.some((window) => window.usedPercent >= NEARLY_USED_PERCENT);

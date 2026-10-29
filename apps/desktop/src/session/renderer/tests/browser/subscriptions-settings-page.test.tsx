@@ -51,6 +51,7 @@ const control = vi.hoisted(() => ({
   selectMessage: 'Switch failed',
   selectBusy: null as { providerId: string; count: number } | null,
   stopBusySessions: [] as boolean[],
+  oldHost: false,
   usageByConnection: {} as Record<string, { windowMinutes: number; usedPercent: number }[]>,
   connectionsError: false,
 }));
@@ -89,7 +90,7 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     selectConnection: async ({ connectionId, stopBusySessions }: { connectionId: string; stopBusySessions?: boolean }) => {
       control.stopBusySessions.push(stopBusySessions === true);
       // 「关掉并切换」= 正在工作的也关掉:宿主不再拒。
-      if (control.rejectSelect && !(stopBusySessions && control.selectBusy)) {
+      if (control.rejectSelect && !(stopBusySessions && control.selectBusy && !control.oldHost)) {
         return { success: false, error: { type: 'invalid-state', message: control.selectMessage, ...(control.selectBusy ? { sessionsBusy: control.selectBusy } : {}) } };
       }
       control.selected = connectionId;
@@ -133,6 +134,7 @@ beforeEach(() => {
   control.selectMessage = 'Switch failed';
   control.selectBusy = null;
   control.stopBusySessions = [];
+  control.oldHost = false;
   control.usageByConnection = {};
   control.connectionsError = false;
   control.connections = [{ id: 'native', kind: 'native', name: '', current: true }];
@@ -389,6 +391,29 @@ it('a refusal offers one click that closes the working sessions and switches to 
   await until('the refusal is gone', () => row.querySelector('.subscription-note') === null && row.querySelector('[data-testid="subscription-close-and-switch"]') === null);
   expect(row.querySelector('[role="alert"]')).toBeNull();
   expect(thrown).toEqual([]);
+});
+
+// 远端那台的咕咕还是旧版:它不认「关掉」这一格，带上了照样拒。说清楚去更新,❌ 再摆一个按了没反应的按钮。
+it('a host too old to close working sessions says to update it instead of offering the button again', async () => {
+  setLocalePreference('zh-CN');
+  control.codex = true;
+  control.rejectSelect = true;
+  control.oldHost = true;
+  control.selectBusy = { providerId: 'codex', count: 2 };
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the refusal offers to close and switch', () => row.querySelector('[data-testid="subscription-close-and-switch"]') !== null);
+  (row.querySelector('[data-testid="subscription-close-and-switch"]') as HTMLButtonElement).click();
+  await until('the outdated host is named', () => row.querySelector('[role="alert"]') !== null);
+  expect(row.querySelector('[role="alert"]')?.textContent).toBe('那台机器上的咕咕版本太旧，关不掉正在工作的会话。更新后再切换。');
+  expect(row.querySelector('[data-testid="subscription-close-and-switch"]')).toBeNull();
+  expect(control.stopBusySessions).toEqual([false, true]);
+  expect(control.connections.find(c => c.current)?.id).toBe('native');
 });
 
 it('a real failure is red and offers no close-and-switch', async () => {
