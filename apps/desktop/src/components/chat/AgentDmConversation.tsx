@@ -59,7 +59,7 @@ export function AgentDmConversation(props: Props) {
 function AgentDmSession({ chat, shown, mobile = false, onBack, chrome, embedded, searchQuery }: Props) {
   const { session } = useAgentDmSession(chat.peer_user_id ?? null)
   const target = session.state === 'ready' ? session : null
-  return <DmConversation key={`${chat.id}/${target?.sessionId ?? 'im'}`} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} embedded={embedded} searchQuery={searchQuery} />
+  return <DmConversation key={chat.id} chat={chat} target={target} shown={shown} mobile={mobile} onBack={onBack} chrome={chrome} embedded={embedded} searchQuery={searchQuery} />
 }
 
 function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded, searchQuery = '' }: {
@@ -128,7 +128,7 @@ function DmConversation({ chat, target, shown, mobile, onBack, chrome, embedded,
     {!embedded && !chrome && <PaneHeader title={name} titleLevel="panel" mobile={mobile}
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
-    <SessionTranscriptView uri={target?.sessionId ?? `dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
+    <SessionTranscriptView uri={`dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
       commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
         conversationProcessNotice: processId => {
           const notice = visibleMessages.find(message => message.content_type === 'system' && processId === `im:${message.id}:process`)

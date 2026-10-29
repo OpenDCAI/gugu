@@ -174,6 +174,30 @@ it('retries resting visibility until acknowledged and uses the newer chat cursor
   expect(markMessageVisible).not.toHaveBeenCalled()
 })
 
+it('keeps the DM model and entry anchor when its readable session arrives after IM visibility', async () => {
+  const id = 'c411fbd9-251e-4636-906e-0a7b30460053'
+  const first = { ...received, id, seq: 1 }
+  const unread = { ...dm, last_read_seq: 0, unread_locator: { message_id: id, message_seq: 1, cursor_seq: 0 } } as typeof dm
+  const render = (chat: typeof dm) => renderWithAppProviders(harness, createElement(AgentDmConversation, { chat, shown: true }), { chat: {
+    activeChat: chat, activeChatId: dm.id, messages: [first], markMessageVisible: vi.fn(),
+  } })
+  probe.session = { state: 'resolving' }
+  await render(unread)
+  const before = probe.props as { uri: string; onVisibleItems: (ids: string[]) => void }
+  before.onVisibleItems([id])
+  probe.setScrollMode.mockClear()
+  probe.session = { state: 'ready', deviceId: 'own-device', sessionId: 'own-session', local: false }
+  probe.turns = [{ id: 'provider-turn', seq: 1, initiator: 'agent', outcome: { kind: 'done' }, items: [{
+    kind: 'mcp-tool-call', id: 'provider-send', seq: 1, toolCallId: 'send', server: 'plugin_gugu-product_gugu', tool: 'message_send', title: 'Send', status: 'done',
+    rawInput: JSON.stringify({ chat_id: dm.id, text: first.content }), outputText: `sent (id=msg:${id})`,
+  }] }]
+  // The opening IM view already confirmed the entry. Resolving a session is
+  // enrichment of this same DM, not another activation with a fresh locator.
+  await render({ ...unread, last_read_seq: 1, unread_locator: null })
+  expect((probe.props as { uri: string }).uri).toBe(before.uri)
+  expect(probe.setScrollMode).toHaveBeenCalledWith({ kind: 'anchor', itemId: `provider-send:sent:${id}`, edge: 'top', offset: -8 })
+})
+
 it('does not wait forever for a first unread that an anchor load confirms is unavailable', async () => {
   const next = { ...received, id: 'visible', seq: 2 }
   const markMessageVisible = vi.fn(), loadMessageAnchor = vi.fn(async () => {})

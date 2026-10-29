@@ -16,11 +16,11 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   const view = useRef<ChatView | null>(null)
   const [loadedAnchor, setLoadedAnchor] = useState<string | null>(null)
   const atBottom = useRef(false)
-  const activation = useRef<{ shown: boolean; cursor: AgentDmReadCursor; first: string | null; placed: string | null; loading: boolean } | null>(null)
+  const activation = useRef<{ shown: boolean; cursor: AgentDmReadCursor; first: string | null; placed: string | null; loading: boolean; seenEntry: boolean } | null>(null)
   if (!activation.current || (shown && !activation.current.shown)) {
     const locator = unreadEntry?.locator ?? chat.unread_locator
     const first = locator?.message_id ?? null
-    activation.current = { shown, cursor: new AgentDmReadCursor(first, Math.max(locator?.cursor_seq ?? 0, chat.last_read_seq)), first, placed: null, loading: false }
+    activation.current = { shown, cursor: new AgentDmReadCursor(first, Math.max(locator?.cursor_seq ?? 0, chat.last_read_seq)), first, placed: null, loading: false, seenEntry: false }
   }
   activation.current.shown = shown
   const current = activation.current
@@ -48,7 +48,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   useLayoutEffect(() => {
     reportFollowing()
     place()
-    if (!shown || !current.first || messages.some(row => row.id === current.first) || current.loading) return
+    if (!shown || current.seenEntry || !current.first || messages.some(row => row.id === current.first) || current.loading) return
     current.loading = true
     const id = current.first
     void loadMessageAnchor(id).then(() => { if (activation.current === current) setLoadedAnchor(id) }).catch(onError)
@@ -58,7 +58,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     if (!shown || document.visibilityState === 'hidden') return
     const canonical = visibleDmMessageIds(ids, aliases, messages)
     for (const row of current.cursor.visible(canonical, messages)) markMessageVisible(row)
-    if (current.first && canonical.includes(current.first)) { current.first = null; unreadEntry?.onSeen() }
+    if (!current.seenEntry && current.first && canonical.includes(current.first)) { current.seenEntry = true; unreadEntry?.onSeen() }
     reportFollowing()
   }, [shown, aliases, messages, current, markMessageVisible, unreadEntry, reportFollowing])
   return { view, onVisibleItems, onAtBottomChange: (value: boolean) => { atBottom.current = value; reportFollowing() },
