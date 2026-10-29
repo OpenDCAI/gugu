@@ -244,7 +244,7 @@ it('adds a third-party API and explicitly switches the connection without openin
 it.each([390, 720])('Gugu credits fit a %s px settings container and align the reset date with its explanation', async width => {
   host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
   root.render(<GuguSubscriptionRow />);
-  await until('the Gugu balances render', () => host.querySelector('.subscription-quota')?.textContent?.includes('8.2'));
+  await until('the Gugu balances render', () => host.querySelector('.subscription-quota')?.textContent?.includes('8.2') ?? false);
   const row = host.querySelector<HTMLElement>('[data-testid="subscription-row-gugu"]')!;
   const quotas = [...row.querySelectorAll<HTMLElement>('.subscription-quota')];
   await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
