@@ -137,7 +137,7 @@ export function MeetingReminder({ enabled }: { enabled: boolean }) {
         <span className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">
           {[t('meeting.heading'), [clock(meeting.start), clock(meeting.end)].filter(Boolean).join(' - ')].join(' · ')}
         </span>
-        {failed ? <span className="text-[length:var(--font-caption)] text-[var(--danger)]">{t('meeting.error')}</span> : null}
+        {failed ? <span className="text-[length:var(--font-caption)] text-[var(--danger-fg)]">{t('meeting.error')}</span> : null}
       </div>
       <Button
         variant="primary"

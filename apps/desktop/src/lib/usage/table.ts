@@ -1,7 +1,9 @@
 // 用量页表格的两条小规则(模型标签颜色与分页页码),纯函数、单测覆盖。
 
-// 模型标签颜色:名字做 FNV-1a 哈希后落到 12 色色板上,同一个名字永远同一种颜色。
-const TAG_COLORS = ['#2f7de1', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#dc2626', '#65a30d', '#db2777', '#4f46e5', '#ca8a04', '#0d9488', '#7c3aed']
+// 模型标签颜色:名字做 FNV-1a 哈希后落到 12 色上,同一个名字永远同一种颜色。12 色是 tokens.css「theme batch B」
+// 的 --usage-tag-1..12(两主题都 ≥3:1);标签点是 DOM,直接用变量。
+export const TAG_COLOR_COUNT = 12
+const TAG_COLORS = Array.from({ length: TAG_COLOR_COUNT }, (_, i) => `var(--usage-tag-${i + 1})`)
 export function stringToColor(value: string): string {
   let hash = 0x811c9dc5
   for (let i = 0; i < value.length; i++) {

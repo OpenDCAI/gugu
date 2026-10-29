@@ -18,7 +18,7 @@ import { useChatStore } from '../../store/chatContext'
 const styleStateCenter: React.CSSProperties = { padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-body)' }
 const panelStyle: CSSProperties = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }
 const countStyle: CSSProperties = { fontWeight: 400, fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginLeft: 2 }
-const styleInlineError: React.CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger)' }
+const styleInlineError: React.CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger-fg)' }
 
 export function AnnouncementDrawer({
   chatId,
@@ -513,7 +513,7 @@ function AnnouncementCard({
               aria-label={t('announcement.delete')}
               title={t('announcement.deleteTitle')}
               onClick={onDelete}
-              style={{ color: 'var(--danger)' }}
+              style={{ color: 'var(--danger-fg)' }}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24">
                 <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 6h18m-2 0l-1 14H6L5 6m5 0V4h4v2" />

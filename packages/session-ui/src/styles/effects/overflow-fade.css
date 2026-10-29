@@ -43,14 +43,14 @@
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 calc(var(--sf-t) * var(--fade-size)),
-    #000 100%
+    black calc(var(--sf-t) * var(--fade-size)),
+    black 100%
   );
   mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 calc(var(--sf-t) * var(--fade-size)),
-    #000 100%
+    black calc(var(--sf-t) * var(--fade-size)),
+    black 100%
   );
 
   /*

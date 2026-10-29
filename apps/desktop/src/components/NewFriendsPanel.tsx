@@ -59,7 +59,7 @@ function requestActionButtonClass(kind: 'ok' | 'no', disabled: boolean): string 
 
 // 与请求行(px 6)同一条左边线。
 const styleSectionLabel: CSSProperties = { padding: '12px 6px 4px', fontSize: 'var(--font-caption)', fontWeight: 600, color: 'var(--text-tertiary)' }
-const styleRowError: CSSProperties = { padding: '0 6px 8px', fontSize: 'var(--font-caption)', color: 'var(--danger)' }
+const styleRowError: CSSProperties = { padding: '0 6px 8px', fontSize: 'var(--font-caption)', color: 'var(--danger-fg)' }
 const stylePlaceholderAvatar: CSSProperties = { width: 34, height: 34, borderRadius: 'var(--radius-circle)', background: 'var(--bg-elevated)', flexShrink: 0 }
 const openOnKey = (open: () => void) => (event: KeyboardEvent<HTMLDivElement>) => {
   if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open() }
@@ -421,7 +421,7 @@ export function NewFriendsPanel({ onOpenGroupChat, onBack }: { onOpenGroupChat?:
       </div>
 
       {requestsStatus === 'error' && (
-        <div role="alert" className="mx-4 mb-3 text-sm text-[var(--danger)]">
+        <div role="alert" className="mx-4 mb-3 text-sm text-[var(--danger-fg)]">
           {messageForUser(new Error(requestsError ?? ''))}
           <Button variant="ghost" size="sm" className="ml-2 underline" onClick={() => void refreshRequests()}>{t('common.retry')}</Button>
         </div>

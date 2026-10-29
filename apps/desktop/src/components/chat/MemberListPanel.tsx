@@ -111,9 +111,9 @@ const MEMBER_LIST_TITLE_STYLE: React.CSSProperties = { fontSize: 'var(--font-tit
 // 话题改名那一格:占满标题与右侧动作之间的余量。与本文件其余样式同形走常量 ——
 // ❌ 不就地写内联样式块(check-ui-visual-spec 的那条棘轮是纯文本计数,连注释里的字面量都算)。
 const TOPIC_NAME_EDIT_STYLE: React.CSSProperties = { flex: 1, minWidth: 0 }
-const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 // 档位没改成的原因:写在那一行的档位钮下面。
-const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
 
 /**

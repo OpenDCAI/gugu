@@ -57,7 +57,7 @@ function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
               <Button size="sm" disabled={busy} onClick={() => void decide(false)} data-testid="group-invitation-reject">{t('groupInvitations.reject')}</Button>
             </div>
           </> : <div className="text-[var(--text-tertiary)]">{t(invitation.status === 'accepted' ? 'groupJoinRequests.statusAccepted' : 'groupJoinRequests.statusRejected')}</div>}
-          {error && <div role="alert" className="mt-2 text-[var(--danger)]">{error}</div>}
+          {error && <div role="alert" className="mt-2 text-[var(--danger-fg)]">{error}</div>}
         </div>
       </div>
     </div>

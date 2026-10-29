@@ -69,7 +69,7 @@
 .ta-phone-page-segments .gg-segtab { flex: 1; min-width: 0; min-height: var(--control-h-touch); line-height: var(--lh-body); white-space: normal; }
 
 /* 删除确认卡里没删成的那一句。 */
-.ta-phone-confirm-failed { margin: 0; font-size: var(--font-body); line-height: 20px; color: var(--danger); }
+.ta-phone-confirm-failed { margin: 0; font-size: var(--font-body); line-height: 20px; color: var(--danger-fg); }
 
 /* 定时任务详情里「改时间」:行尾一个胶囊样的字。 */
 .ta-phone-row-link { color: var(--ta-fg); font-weight: 500; }

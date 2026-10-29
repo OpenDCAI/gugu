@@ -87,7 +87,7 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
         <IconButton size="sm" aria-label={t('common.save')} disabled={saving} onClick={() => void save()}><Check /></IconButton>
         <IconButton size="sm" aria-label={t('common.cancel')} disabled={saving} onClick={cancel}><X /></IconButton>
       </div>
-      {error && <div role="alert" className="text-[length:var(--font-caption)] font-normal text-[var(--danger)]">{error}</div>}
+      {error && <div role="alert" className="text-[length:var(--font-caption)] font-normal text-[var(--danger-fg)]">{error}</div>}
     </div>
   )
 }

@@ -117,7 +117,7 @@ function RequestBody({
         ))}
       </dl>
       <p className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">{t('devices.approveServer.warning')}</p>
-      {view.error && <p className="text-[length:var(--font-body)] text-[var(--danger)]" role="alert">{view.error}</p>}
+      {view.error && <p className="text-[length:var(--font-body)] text-[var(--danger-fg)]" role="alert">{view.error}</p>}
       <Button variant="primary" size="lg" disabled={view.busy} onClick={() => onDecide(true)} data-testid="server-login-approve-allow">
         {t('devices.approveServer.allow', { host })}
       </Button>
