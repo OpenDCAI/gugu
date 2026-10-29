@@ -121,6 +121,26 @@ describe('sticky user lanes', () => {
     expect(aTop === null || aTop < 0, 'a left with its turn').toBe(true);
   });
 
+  it('a long delivered insertion in the same turn scrolls clear of the preceding pinned bubble', async () => {
+    const first = longTurn('a', 0, 1);
+    const text = '输入框遮挡 · 过程行展开 · 原消息引用回跳。请保留真实截图。\n\n'.repeat(30);
+    first.items.splice(1, 0, {
+      kind: 'message', id: 'inserted', seq: 1, role: 'user',
+      text: `<gugu_delivery route="chat" msg="msg:inserted" from="Reviewer" from_id="user:reviewer" chat="project" chat_kind="group"><![CDATA[${text}]]></gugu_delivery>`,
+    } as TranscriptTurn['items'][number]);
+    const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
+    const t = await mount([first, longTurn('b', 1, 150)], undefined, theme);
+    await until('inserted bubble is rendered', () => t.card('inserted') != null);
+    const insertedTop = t.cardTop('inserted')!;
+    expect(t.card('inserted')!.getBoundingClientRect().height).toBeGreaterThan(200);
+    for (let step = 0; step < 45; step++) {
+      t.scrollEl.scrollTop = Math.max(0, insertedTop - 100 + step * 6);
+      const previous = t.card('a-user');
+      const inserted = t.card('inserted');
+      if (previous && inserted) expect(previous.getBoundingClientRect().bottom, `handoff step ${step}`).toBeLessThanOrEqual(inserted.getBoundingClientRect().top + 1);
+    }
+  });
+
   it('gives every user message of the running turn its own lane, not only the last one', async () => {
     // The running turn holds b and the message c inserted into it; before the fix only c was an
     // anchor, so a stayed stuck over all of b.
