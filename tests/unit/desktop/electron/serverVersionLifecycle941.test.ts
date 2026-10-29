@@ -13,7 +13,7 @@ const saved = process.env.GUGU_SERVER_HOME
 const userId = '11111111-1111-4111-8111-111111111111'
 const now = 1_800_000_000_000
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-version941-'))
+  home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-version941-')))
   process.env.GUGU_SERVER_HOME = home
   for (const version of ['1.0.0', '2.0.0', '3.0.0', '4.0.0', '5.0.0']) {
     fs.mkdirSync(path.join(home, 'versions', version, 'bin'), { recursive: true })
