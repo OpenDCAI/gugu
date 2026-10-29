@@ -270,6 +270,7 @@ describe('credentials the platform keeps (#921)', () => {
       error: expect.stringMatching(/rejected; reconnect/),
     });
     expect(await amapEntry(b.service)).toBeNull();
+    expect(b.service.needsReconnect('amap', (await b.fixture.registry.listAccounts('amap'))[0]!)).toBe(true);
     // Still listed on the device, so the person can reconnect or disconnect it there.
     expect((await b.fixture.registry.listAccounts('amap')).map((row) => row.accountId)).toEqual(['default']);
   });
@@ -570,6 +571,9 @@ describe('credentials the platform keeps (#921)', () => {
       expect(await b.service.check('amap')).toEqual(rejected);
       expect(await b.service.checkAccounts('amap')).toEqual([{ accountId: 'default', ...rejected }]);
       expect(await amapEntry(b.service)).toBeNull();
+      // The assistant's index hears the same: needs a reconnect, not usable now.
+      const [row] = await b.fixture.registry.listAccounts('amap');
+      expect(b.service.needsReconnect('amap', row!)).toBe(true);
       for (let round = 0; round < 4; round += 1) {
         clock.now += 10 * 60_000;
         await b.service.refresh({ maxAgeMs: 0 });

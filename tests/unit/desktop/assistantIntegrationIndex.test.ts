@@ -5,7 +5,13 @@ const data = vi.hoisted(() => ({
   resolveSecret: vi.fn(() => { throw new Error('Must not decrypt credentials') }),
 }))
 // #921 a credential the platform keeps: asking the platform first brings in what another device connected.
-const platform = vi.hoisted(() => ({ keepsAmap: false, refresh: vi.fn(async () => { if (platform.keepsAmap) data.connected.add('amap'); return true }) }))
+const platform = vi.hoisted(() => ({
+  keepsAmap: false,
+  refresh: vi.fn(async () => { if (platform.keepsAmap) data.connected.add('amap'); return true }),
+  /** The platform lists the account as needing a reconnect, or the provider rejected this device's old key. */
+  amapNeedsReconnect: false,
+  needsReconnect: vi.fn((provider: string) => provider === 'amap' && platform.amapNeedsReconnect),
+}))
 vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry: { getAll: () => [
   { metadata: { id: 'dingtalk', name: '钉钉' } }, { metadata: { id: 'feishu', name: '飞书' } }, { metadata: { id: 'email', name: '邮箱' } },
   { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
@@ -66,4 +72,16 @@ it('lists an integration the platform keeps for the person even when this device
   expect(platform.refresh).toHaveBeenCalled()
   expect(rows.find(row => row.id === 'amap:default')).toMatchObject({ name: '高德地图', isDefault: true })
   expect(rows.find(row => row.id === 'amap:default')).not.toHaveProperty('note')
+})
+
+it('an account that needs a reconnect is not offered as usable: the assistant hears it needs the person on the connection page (#921)', async () => {
+  platform.keepsAmap = true
+  platform.amapNeedsReconnect = true
+  try {
+    const row = (await configuredIntegrationIndex()).find(row => row.id === 'amap:default')
+    expect(row).toMatchObject({ name: '高德地图', note: '高德地图要重新连接，现在用不了；请他到连接页处理' })
+    expect(row).not.toHaveProperty('use')
+  } finally {
+    platform.amapNeedsReconnect = false
+  }
 })
