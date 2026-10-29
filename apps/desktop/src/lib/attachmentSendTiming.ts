@@ -30,11 +30,11 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
   const submitted = performance.now()
   return {
     clientId,
-    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal, capDeadline: (expiresAt: string | undefined) => void) => Promise<T>, parent?: AbortSignal, options?: { timeoutMs: number | null }): Promise<T> {
+    async stage<T>(stage: AttachmentSendStage, attempt: number, operation: (signal: AbortSignal, capDeadline: (expiresAt: string | undefined) => void) => Promise<T>, parent?: AbortSignal, options?: { timeoutMs?: number | null; logResult?: (result: T) => boolean }): Promise<T> {
       const started = performance.now(), controller = new AbortController()
       const signal = parent ? linkedAttachmentSignal([parent, controller.signal]) : controller.signal
       const fields = { clientId, chatId, stage, attempt }
-      const timeoutMs = options ? options.timeoutMs : ATTACHMENT_SEND_DEADLINES[stage]
+      const timeoutMs = options?.timeoutMs === undefined ? ATTACHMENT_SEND_DEADLINES[stage] : options.timeoutMs
       let deadline = timeoutMs === null ? Infinity : Date.now() + timeoutMs
       let timeout: ReturnType<typeof setTimeout> | undefined
       const arm = () => {
@@ -56,7 +56,7 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
       try {
         const result = await Promise.race([aborted, Promise.resolve().then(() => { signal.throwIfAborted(); return operation(signal, capDeadline) })])
         const elapsedMs = Math.round(performance.now() - started)
-        log[elapsedMs > 2000 ? 'warn' : 'info']({ ...fields, elapsedMs, outcome: 'success' }, 'attachment send stage timing')
+        if (options?.logResult?.(result) !== false) log[elapsedMs > 2000 ? 'warn' : 'info']({ ...fields, elapsedMs, outcome: 'success' }, 'attachment send stage timing')
         return result
       } catch (error) {
         log[signal.aborted && !(error instanceof AttachmentStageTimeout) ? 'info' : 'warn']({ ...fields, elapsedMs: Math.round(performance.now() - started), outcome: error instanceof AttachmentStageTimeout ? 'timeout' : signal.aborted ? 'cancelled' : 'failed' }, 'attachment send stage timing')
@@ -65,7 +65,7 @@ export function attachmentSendTiming(clientId: string, chatId: string) {
         clearTimeout(timeout); signal.removeEventListener('abort', onAbort); controller.abort(new Error('Attachment stage finished'))
       }
     },
-    finish(outcome: 'success' | 'failed', source?: string) {
+    finish(outcome: 'success' | 'failed' | 'unknown', source?: string) {
       const totalMs = Math.round(performance.now() - submitted)
       log[outcome === 'failed' || totalMs > 2000 ? 'warn' : 'info']({ clientId, chatId, totalMs, outcome, source }, 'attachment send timing')
     },

@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 
 describe('attachment upload transports', () => {
+  it.each([{ retry: false, request_id: 'reservation' }, { retry: true, request_id: undefined }])('does not accept a storage conflict without a retry of the same reservation (%j)', async options => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      staging_key: 'staging/u/file', url: 'https://storage.example/scoped', method: 'PUT', fields: {}, max_bytes: 1024,
+    }))).mockResolvedValueOnce(new Response(null, { status: 409 }))
+    await expect(uploadAttachmentBytes({ supabaseUrl: 'https://project.example', anonKey: 'public', token: 'user', fetch: fetcher }, {
+      bytes: new Uint8Array([1]), name: 'data.bin', contentType: 'application/octet-stream',
+    }, { chat_id: 'chat', as: 'sender', request_id: options.request_id }, { retry: options.retry })).rejects.toThrow('409')
+  })
   it('reports the signed expiry before transferring bytes and preserves the reservation ID', async () => {
     const plan = { staging_key: 'staging/u/file', url: 'https://storage.example/scoped', method: 'PUT', fields: {}, max_bytes: 1024, expires_at: '2030-01-01T01:00:00Z' }
     const onPlan = vi.fn()

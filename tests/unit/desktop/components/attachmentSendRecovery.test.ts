@@ -214,7 +214,7 @@ it.each(['readback', 'realtime'])('confirms a native publication through %s whil
   await vi.advanceTimersByTimeAsync(25_000)
   expect(removePlaceholder).not.toHaveBeenCalled()
   if (confirmation === 'realtime') receive(serverRow(invoke.mock.calls.find(call => call[1].file)![1].message.message_id) as MessageItem)
-  await vi.advanceTimersByTimeAsync(2_100)
+  await vi.advanceTimersByTimeAsync(6_100)
   await done
   expect(onSent).toHaveBeenCalledOnce()
   expect(invoke.mock.calls.filter(call => call[1].file)).toHaveLength(1)
@@ -246,4 +246,55 @@ it('works when an older WebView has no AbortSignal.any', async () => {
     receive(serverRow(messageId) as MessageItem)
     await done
   } finally { Object.defineProperty(AbortSignal, 'any', descriptor) }
+})
+
+it('stops polling an ambiguous native publication, keeps an unknown bubble and accepts its late receipt', async () => {
+  const { args, rows, onSent, removePlaceholder } = arrange()
+  let finish: () => void = () => {}
+  const invoke = vi.fn((_channel, request) => !request.file ? Promise.resolve(true) : new Promise(resolve => {
+    finish = () => resolve({ id: 'file-item', version: 1, message: { ...serverRow(request.message.message_id), file_item_id: 'file-item', file_version: 1 } })
+  }))
+  vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: () => '/project/large.txt' } })
+  mocks.read.mockResolvedValue(null)
+  const done = sendAttachmentBatch({ ...args, files: [new File(['x'], 'large.txt', { type: 'text/plain' })] })
+  await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000)
+  expect(rows.at(-1)).toMatchObject({ id: rows[0].id, local_send_state: 'unknown' })
+  expect(removePlaceholder).not.toHaveBeenCalled()
+  expect(mocks.read.mock.calls.length).toBeLessThan(20)
+  expect(logger.info.mock.calls.filter(([fields]) => fields.stage === 'readback')).toHaveLength(0)
+  const reads = mocks.read.mock.calls.length
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(mocks.read.mock.calls.length).toBe(reads)
+  await done
+  expect(onSent).toHaveBeenCalledOnce()
+  finish()
+  await vi.advanceTimersByTimeAsync(10)
+  expect(rows.at(-1)).toMatchObject({ id: rows[0].id, seq: 42, local_send_state: null })
+  expect(invoke.mock.calls.filter(call => call[1].file)).toHaveLength(1)
+})
+
+it('commits the original upload after a lost storage response is followed by a retry conflict', async () => {
+  const { args, onSent } = arrange()
+  const actual = await vi.importActual<typeof import('@gugu/core/cloud/attachmentsApi')>('@gugu/core/cloud/attachmentsApi')
+  mocks.upload.mockImplementation(actual.uploadAttachmentBytes)
+  mocks.commit.mockImplementation(actual.commitAttachment)
+  const reservations: string[] = []
+  let uploads = 0, commits = 0
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/upload')) {
+      reservations.push(JSON.parse(init.body as string).request_id)
+      return new Response(JSON.stringify({ staging_key: 'staging/photo', url: 'https://oss.test/uploaded', method: 'PUT', fields: {}, max_bytes: 1000 }))
+    }
+    if (url === 'https://oss.test/uploaded') {
+      if (++uploads === 1) throw new TypeError('response lost after storage accepted the bytes')
+      return new Response(null, { status: 409 })
+    }
+    commits++
+    return new Response(JSON.stringify({ message: serverRow(JSON.parse(init.body as string).message_id) }))
+  }))
+  const done = sendAttachmentBatch(args).catch(error => error)
+  await vi.advanceTimersByTimeAsync(600)
+  expect(await done).not.toBeInstanceOf(Error)
+  expect(new Set(reservations).size).toBe(1)
+  expect(uploads).toBe(2); expect(commits).toBe(1); expect(onSent).toHaveBeenCalledOnce()
 })

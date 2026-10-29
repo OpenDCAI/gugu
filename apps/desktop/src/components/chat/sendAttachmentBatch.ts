@@ -26,7 +26,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
         const file = files[index]
         const prepared = await retryAttachmentUpload(attempt => timings[index].stage('upload', attempt,
           (signal, capDeadline) => prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
-            { ...scope, request_id: timings[index].clientId }, plan => capDeadline(plan.expires_at)),
+            { ...scope, request_id: timings[index].clientId }, plan => capDeadline(plan.expires_at), attempt > 1),
           undefined, { timeoutMs: attachmentUploadTimeoutMs(file.size) }))
         settle[index].resolve(prepared)
       } catch (error) {
@@ -109,7 +109,9 @@ export async function sendAttachmentBatch(args: {
     for (; index < args.files.length; index += 1) {
       const file = args.files[index]
       const prepared = await uploads[index]
-      const persisted = await settleAttachmentSend({ endpoint, prepared, timing: timings[index], observeMessage: args.observeMessage, commit: {
+      let pending = placeholders?.[index]
+      const persisted = await settleAttachmentSend({ endpoint, prepared, timing: timings[index], observeMessage: args.observeMessage,
+        onLateMessage: row => { args.appendMessage(row); pending?.release() }, commit: {
         message_id: messageIds[index],
         chat_id: args.chatId,
         sender_user_id: args.senderId,
@@ -122,9 +124,10 @@ export async function sendAttachmentBatch(args: {
         ...(index === captionIndex && args.caption ? { caption: args.caption } : {}),
       } })
       // appendMessage 按 thread_root_id 自路由：话题附件进 threadMessages,主线附件进主时间线。
-      args.appendMessage(persisted)
-      placeholders?.[index].release()
-      firstInsertedId ??= persisted.id
+      if (!persisted) pending ??= placeholderRow(file, index === captionIndex ? args.caption : undefined, args)
+      args.appendMessage(persisted ?? { ...pending!.message, id: messageIds[index], local_send_state: 'unknown' })
+      if (persisted) pending?.release()
+      firstInsertedId ??= messageIds[index]
       args.onSent?.(file, index)
     }
   } catch (error) {

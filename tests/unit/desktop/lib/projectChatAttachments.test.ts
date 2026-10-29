@@ -39,14 +39,14 @@ describe('project composer attachments use the group-file publisher', () => {
     const prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner' })
     expect(prepared).toEqual({ staging_key: 'staging' }); await commitPreparedChatAttachment(endpoint, prepared, args)
     expect(n.invoke).toHaveBeenCalledOnce(); expect(n.getPathForFile).not.toHaveBeenCalled()
-    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined })
+    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined, retry: false })
     expect(f.commit).toHaveBeenCalledWith(endpoint, { ...args, staging_key: 'staging' })
   })
   it('uploads an image when sent, also in a project chat that keeps other files on the machine', async () => {
     const n = native(), image = new File(['png'], 'shot.png', { type: 'image/png' })
     await expect(prepareChatAttachment(endpoint, image, { chat_id: 'group', as: 'owner' })).resolves.toEqual({ staging_key: 'staging' })
     expect(n.invoke).not.toHaveBeenCalled()
-    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: image, name: 'shot.png', contentType: 'image/png' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined })
+    expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: image, name: 'shot.png', contentType: 'image/png' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined, retry: false })
   })
   it('does not put a whisper into the shared project folder', async () => {
     const n = native(), selected = file(), prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner', is_whisper: true })
@@ -58,7 +58,7 @@ describe('project composer attachments use the group-file publisher', () => {
     const n = native(), selected = file(), prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner' })
     n.invoke.mockResolvedValueOnce(null as never)
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual({ id: 'cloud-message' })
-    expect(f.upload).toHaveBeenCalledExactlyOnceWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined })
+    expect(f.upload).toHaveBeenCalledExactlyOnceWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined, retry: false })
     expect(f.commit).toHaveBeenCalledExactlyOnceWith(endpoint, { ...args, staging_key: 'staging' })
   })
   it('propagates a host fence or atomic message refusal without falling back to cloud', async () => {

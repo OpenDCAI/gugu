@@ -748,6 +748,8 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "unknown": "状态待确认",
+      "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
       "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",
