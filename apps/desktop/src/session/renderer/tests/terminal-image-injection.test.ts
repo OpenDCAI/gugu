@@ -35,9 +35,12 @@ describe('terminal-image-injection', () => {
     expect(mustCopyRatherThanReference('/Users/me/Documents/project/src/app.ts')).toBe(false);
     expect(mustCopyRatherThanReference('/Users/me/Library/Containers/com.gugu.app.beta/Data/a.png')).toBe(false);
     expect(mustCopyRatherThanReference('/Users/me/Library/Group Containers/ABCDE12345.com.gugu.app/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Containers/nextmind.gugu.beta/Data/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Group Containers/ABCDE12345.nextmind.gugu/a.png')).toBe(false);
     expect(mustCopyRatherThanReference('/var/folders/xx/T/gugu-drop-123-image.png')).toBe(false);
     // 名字里带 Containers 但不在 ~/Library 下的普通目录照旧指原文件。
     expect(mustCopyRatherThanReference('/Users/me/code/Containers/readme.md')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/proj/Library/Containers/Stack/a.swift')).toBe(false);
   });
 
   it('escapes spaces without wrapping in quotes', () => {

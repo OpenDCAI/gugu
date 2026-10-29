@@ -7,8 +7,10 @@ import { electronApi } from '../electron-api';
 
 const MAX_DROPPED_BLOB_BYTES = 50 * 1024 * 1024;
 
-export async function resolveDroppedFile(file: File): Promise<string | null> {
+export async function resolveDroppedFile(file: File, directory = false): Promise<string | null> {
   const originalPath = electronApi().getPathForFile(file).trim();
+  // 文件夹读不出字节,也本就是要 agent 在原处干活:照原路径给。
+  if (directory) return originalPath || null;
   if (originalPath && !mustCopyRatherThanReference(originalPath) && !isHeicLikeFile(file)) {
     return originalPath;
   }

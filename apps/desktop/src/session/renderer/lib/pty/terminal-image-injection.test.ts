@@ -38,6 +38,13 @@ it('keeps a copy of a file from another app’s container and hands the terminal
   expect(mocks.toast).not.toHaveBeenCalled();
 });
 
+it('hands a dropped folder over by its path, wherever it is, because it has no bytes to copy', async () => {
+  mocks.path = '/tmp/repro';
+  expect(await resolveDroppedFile(new File([], 'repro'), true)).toBe('/tmp/repro');
+  expect(mocks.persist).not.toHaveBeenCalled();
+  expect(mocks.toast).not.toHaveBeenCalled();
+});
+
 it('says so on the spot when the copy cannot be kept, instead of falling back to the original path', async () => {
   mocks.path = '/Users/me/Library/Containers/com.wiheads.paste/Data/tmp/images/shot.png';
   mocks.persist.mockResolvedValue({ success: false, error: { message: 'disk full' } });
