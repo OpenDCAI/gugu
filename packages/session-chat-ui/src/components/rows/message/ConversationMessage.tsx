@@ -21,6 +21,8 @@ import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
 import { conversationRoot, conversationHeader, conversationName, conversationNarration, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
 
+import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
+
 const HEADER_H = CONVERSATION_HEADER_H;
 const TIME_H = CONVERSATION_PROCESS_H;
 
@@ -35,7 +37,7 @@ export function conversationContext(ctx: MeasureCtx): MeasureCtx {
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
   const long = item.text.length > 700 || item.text.split('\n').length > 10;
-  return { ...vars, footerH: 16, collapsedMaxH: long ? 252 : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
+  return { ...vars, footerH: 16, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
 function segments(item: ChatMessage): ChatMessage[] {

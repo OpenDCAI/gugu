@@ -25,6 +25,7 @@ import { resolveLocalAgentRunContext } from '@main/core/agents/agent-run-context
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
 import { persistCommittedTurn, storedRevertBoundary, truncateStoredHistory } from '@main/core/sessions/session-turn-store';
 import { createHistoryReverter } from './history-revert';
+import { connectNativePromptPreparation } from './native-prompt-preparation';
 import { applyTurnToAuthExpiry, type AuthExpiryWriter } from '@main/core/agent-config/auth-expiry-from-turns';
 import { clearProviderSessionMissing, markProviderSessionMissing } from '@main/core/sessions/mark-provider-session-missing';
 import { isResidentNeverRun } from '@main/core/sessions/never-run-session';
@@ -278,6 +279,8 @@ const acpWorker = lazyWorker(
           },
         })
       );
+      // #881 The assistant panel's per-turn notice is prepared here, in the host, for the runtime's provider requests.
+      handle.scope.add(await connectNativePromptPreparation(handle.client, log));
       handle.scope.add(
         handle.onRestarted(() => {
           // A restarted worker has no surviving adapter processes or session records.

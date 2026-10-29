@@ -182,6 +182,9 @@ export type SharedCaches = {
 // hit across streaming updates.
 
 export type ParseCaches = {
+  /** Per-segment native scroll intent; survives virtual-row unmounts and view remounts. */
+  processScrollPositions: Map<string, { top: number; atEnd: boolean }>;
+
   /** Parse markdown into a Block[] with identity-stable caching per messageId. */
   parseBlocks(id: string, markdown: string): Block[];
   /**
@@ -342,8 +345,10 @@ export function createParseCaches(
   // Streaming parse records — keyed by messageId. Cleared when the non-streaming
   // parseBlocks path is taken (i.e. on turn freeze).
   const streamCache = new Map<string, StreamingRecord>();
+  const processScrollPositions = new Map<string, { top: number; atEnd: boolean }>();
 
   return {
+    processScrollPositions,
     parseBlocks(id, markdown) {
       // Clear any streaming record — this path is taken after turn freeze.
       streamCache.delete(id);
@@ -426,6 +431,7 @@ export function createParseCaches(
     clearAll() {
       blockCache.clear();
       streamCache.clear();
+      processScrollPositions.clear();
     },
   };
 }

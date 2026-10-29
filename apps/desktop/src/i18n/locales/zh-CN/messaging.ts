@@ -423,10 +423,6 @@ export default {
     "attachmentPersistenceFailed": "附件 {{fileName}} 保存失败。",
     "attach": "添加",
     "cancelQuote": "取消引用",
-    "commands": {
-      "clear": "清空输入框",
-      "shrug": "插入 ¯\\_(ツ)_/¯"
-    },
     "disabled": "当前对话不可发送",
     "exitWhisper": "退出悄悄话",
     "replyUnavailable": "原消息不可用，取消回复后可发送新消息。",
@@ -439,12 +435,11 @@ export default {
     "mentionAll": "所有人",
     "mentionMembers": "@ 提及成员",
     "mentionNoMatch": "没有匹配的成员",
-    "placeholder": "发送消息… 输入 / 唤起命令",
+    "placeholder": "发送消息…",
     "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
     "sendFailed": "发送失败：{{reason}}",
-    "slashCommands": "斜杠命令",
     "verb": {
       "task": "新任务"
     },

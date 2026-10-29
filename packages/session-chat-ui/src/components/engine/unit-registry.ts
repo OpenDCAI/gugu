@@ -47,6 +47,7 @@ import { turnOutcomeUnitDef } from '@session-chat/components/rows/turn-outcome/t
 import { turnProcessUnitDef } from '@session-chat/components/rows/turn-process/turn-process.def';
 import { turnCompletionUnitDef } from '@session-chat/components/rows/turn-process/turn-completion.def';
 import { toolRunUnitDef } from '@session-chat/components/rows/tool-run/tool-run.def';
+import { createProcessStepsUnitDef } from '@session-chat/components/rows/conversation-process/process-steps.def';
 import { conversationStepUnitDef } from '@session-chat/components/rows/conversation-step/conversation-step.def';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isPlanApprovalToolName, isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
@@ -289,6 +290,7 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
  * Composite item unit defs also handle their own internal layout.
  */
 export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
+  'conversation-process-steps': createProcessStepsUnitDef(() => UNIT_REGISTRY) as unknown as RegistryUnitDef,
   // Message unit (single unit per message, renders block stack internally)
   message: messageUnitDef as unknown as RegistryUnitDef,
   // Composite item units (single-unit per ChatItem kind)

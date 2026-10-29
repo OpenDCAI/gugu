@@ -424,10 +424,6 @@ export default {
     "attachmentPersistenceFailed": "Could not save {{fileName}}",
     "attach": "Add",
     "cancelQuote": "Cancel reply",
-    "commands": {
-      "clear": "Clear the composer",
-      "shrug": "Insert ¯\\_(ツ)_/¯"
-    },
     "disabled": "You cannot send messages in this chat",
     "exitWhisper": "Exit whisper mode",
     "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
@@ -440,12 +436,11 @@ export default {
     "mentionAll": "Everyone",
     "mentionMembers": "Mention a member",
     "mentionNoMatch": "No matching members",
-    "placeholder": "Write a message… Type / for commands",
+    "placeholder": "Write a message…",
     "mobilePlaceholder": "Message",
     "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
     "sendFailed": "Could not send: {{reason}}",
-    "slashCommands": "Slash commands",
     "verb": {
       "task": "New task"
     },

@@ -144,7 +144,10 @@ function locate(row: HTMLElement, query: string, expected: number): Range | null
 /** Scroll every inner scroller between the row and the range (tool panes, output windows) onto the range. */
 function revealInner(range: Range, row: HTMLElement): void {
   const start = range.startContainer;
-  for (let el = start instanceof HTMLElement ? start : start.parentElement; el && el !== row; el = el.parentElement) {
+  // Process leaves sit inside an independently scrolling viewport, outside the
+  // leaf row itself. Include it when revealing a match, just like tool outputs.
+  const stop = row.closest('[data-slot="conversation-process-steps"]')?.parentElement ?? row;
+  for (let el = start instanceof HTMLElement ? start : start.parentElement; el && el !== stop; el = el.parentElement) {
     if (el.scrollHeight <= el.clientHeight + 1 || !/^(auto|scroll)$/.test(getComputedStyle(el).overflowY)) continue;
     const box = el.getBoundingClientRect();
     const hit = range.getBoundingClientRect();
