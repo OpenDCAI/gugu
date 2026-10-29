@@ -50,15 +50,17 @@ describe('send destinations resolved from the signed-in chat list', () => {
     expect(agentSendLabel(agentSendOf(send('216013'))!.to, defaultChatTranslator, chatDisplayName)).toBe('Sent to Other group')
   })
 
-  it('keeps canonical UUID, project-name and alias behavior when resolving a public number', () => {
+  it('uses the actual group name for UUID and public addresses regardless of which bound folder is found', () => {
     publishChatSummaries([group()])
-    project.chatId = CHAT; project.name = 'Project name'
-    expect(chatDisplayName(CHAT)).toBe('Project name')
-    expect(chatDisplayName('216012')).toBe('Project name')
+    project.chatId = CHAT; project.name = 'First local folder'
+    expect(chatDisplayName(CHAT)).toBe('Design review')
+    expect(chatDisplayName('216012')).toBe('Design review')
+    project.name = 'Another local folder'
+    expect(agentSendLabel(agentSendOf(send('216012'))!.to, defaultChatTranslator, chatDisplayName)).toBe('Sent to Design review')
     publishChatSummaries([group({ alias: 'My alias' })])
     expect(chatDisplayName('216012')).toBe('My alias')
     publishChatSummaries([])
-    expect(chatDisplayName(CHAT)).toBe('Project name')
+    expect(chatDisplayName(CHAT)).toBe('Another local folder')
   })
 
   it('notifies once when a public number appears, changes or disappears, and resolves renamed chats', () => {
