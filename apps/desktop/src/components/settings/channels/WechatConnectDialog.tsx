@@ -11,6 +11,7 @@ import { ChannelAgentPicker } from './ChannelAgentPicker'
 import { useOwnedAgents } from './channelAgents'
 import { platform } from '../../../platform'
 import { ChannelBrandIcon } from './ChannelBrandIcon'
+import { qrColors } from '../../../lib/qrColors'
 
 const body = 'text-[length:var(--font-body)] leading-[1.5]'
 
@@ -27,7 +28,7 @@ function QrImage({ text, alt }: { text: string; alt: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    void QRCode.toDataURL(text, { width: 200, margin: 1, color: { dark: '#111111', light: '#ffffff' } }).then((url) => {
+    void QRCode.toDataURL(text, { width: 200, margin: 1, color: qrColors() }).then((url) => {
       if (!cancelled) setDataUrl(url)
     })
     return () => {

@@ -147,7 +147,7 @@ function CompositeTile({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'white',
+    color: 'var(--color-white)',
     fontSize: Math.max(8, Math.round(Math.min(w, h) * 0.5)),
     fontWeight: 600,
   }
