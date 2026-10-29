@@ -32,6 +32,28 @@ describe('MessageBubble touch menu', () => {
     await longPress(messageBubble().querySelector('.gg-md')!)
     expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
   })
+  it.each(['before https://example.com/path after', 'https://example.com/path'])('opens phone link actions without inventing a native selection: %s', async content => {
+    await renderMessage(undefined, true, vi.fn(), { content })
+    const link = messageBubble().querySelector('a')!
+    await longPress(link)
+    expect(window.getSelection()?.toString()).toBe('')
+    expect(document.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
+    for (const action of ['reply', 'forward', 'delete', 'openLink', 'copyLink']) {
+      expect(document.querySelector(`[data-testid="message-action-${action}"]`), action).not.toBeNull()
+    }
+  })
+  it('copies the selected phone text through the real companion toolbar button', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage()
+    await act(async () => {
+      selectMessageText('from mobile')
+      document.dispatchEvent(new Event('selectionchange'))
+      document.dispatchEvent(new Event('touchend'))
+    })
+    await clickElement(document.querySelector('[data-testid="message-selection-copy"]')!)
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('from mobile')
+  })
   it('does not cancel the native context menu on selectable phone text', async () => {
     await renderMessage()
     const text = messageBubble().querySelector('.gg-md')!
@@ -104,10 +126,10 @@ describe('MessageBubble touch menu', () => {
     const toast = vi.fn()
     await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
     await selectPhoneLink(messageBubble().querySelector('a')!)
-    expect(document.querySelector('[data-testid="message-selection-openLink"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
     expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
     expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
-    await clickElement(document.querySelector('[data-testid="message-selection-copyLink"]')!)
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
     expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
   })
   it('keeps a file message\'s menu to message actions: its gugu URL lives on the file (preview, group files), not here', async () => {
@@ -123,7 +145,7 @@ describe('MessageBubble touch menu', () => {
     const link = messageBubble().querySelector('a')!
     const open = vi.spyOn(link, 'click').mockImplementation(() => {})
     await selectPhoneLink(link)
-    await clickElement(document.querySelector('[data-testid="message-selection-openLink"]')!)
+    await clickElement(document.querySelector('[data-testid="message-action-openLink"]')!)
     expect(open).toHaveBeenCalledOnce()
   })
   it('does not offer link actions for an ordinary message press', async () => {
@@ -570,10 +592,4 @@ function touchPointerEvent(type: string, init: { clientX: number; clientY: numbe
 
 async function selectPhoneLink(link: HTMLAnchorElement) {
   await longPress(link)
-  await act(async () => {
-    const range = document.createRange(); range.selectNodeContents(link)
-    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
-    document.dispatchEvent(new Event('selectionchange'))
-    document.dispatchEvent(new Event('touchend'))
-  })
 }

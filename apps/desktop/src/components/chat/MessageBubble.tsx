@@ -307,7 +307,9 @@ export const MessageBubble = memo(function MessageBubble({
     onClearQuote: selectionId => onQuote(msg, { originalContent: msg.content, selectionId, clear: true }),
     actions: text => messageSelectionActionItems({ ...messageActions(() => {}, text), onShowReactions: openEmojiPickerFromButton }, t),
   })
-  const nativeTextTarget = (target: EventTarget | null) => compactMobile && target instanceof Node && !!textSelection.root?.contains(target)
+  const nativeTextTarget = (target: EventTarget | null) => compactMobile && target instanceof Node
+    && !!textSelection.root?.contains(target)
+    && !(target instanceof Element ? target : target.parentElement)?.closest('a[href]')
 
   const isRetracted = !!msg.retracted_at
 
