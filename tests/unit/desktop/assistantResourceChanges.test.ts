@@ -127,6 +127,26 @@ it('tells an already-running assistant once when a connected application gains i
   expect((await journal.prepare()).text).toBe('')
 })
 
+it('still tells a resumed assistant the route of an application connected from the panel', async () => {
+  const { journal } = await fixture()
+  // The panel's receipt arrives first and knows only that Feishu is saved.
+  await journal.notice('connected', { resource: 'integrations', id: 'feishu', operation: 'saved', deviceId: 'device:mac', after: { name: '飞书' } })
+  await (await journal.prepare()).accepted()
+  // The next index read is the first to report how it is used (#881: this was taken for the receipt's echo).
+  const routed = snapshot({ apps: ['feishu'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'feishu:default', name: '飞书', modifiedAt: stamp,
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] } }] })
+    : line)
+  await journal.observe(routed)
+  const route = await journal.prepare()
+  expect(route.text).toContain('飞书已连接，要用就派任务')
+  expect(route.text).toContain('lark-calendar')
+  expect(route.text).toContain('session_spawn')
+  await route.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('includes a configured application on the next message and disconnects it once', async () => {
   const { journal } = await fixture()
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })
