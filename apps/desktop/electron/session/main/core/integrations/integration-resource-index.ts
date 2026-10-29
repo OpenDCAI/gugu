@@ -1,12 +1,16 @@
 import { integrationPluginRegistry } from '@gugu/session-plugins/integrations'
 import { providerAccountRegistry } from '../provider-accounts/provider-account-registry-instance'
 import { cliMethodOf, connectedCliSkills } from './cli/cli-integrations'
+import { platformCredentials } from './platform-credentials-instance'
 import { integrationGivesSessionTools } from './session-integrations'
 import { log } from '@main/lib/logger'
 
 /** Runs beside the active account registry; metadata and CLI skill names,
- * without decrypting credentials or starting a provider command. */
+ * without decrypting credentials or starting a provider command. Credentials the
+ * platform keeps (#921) are asked of the platform first, so a connection made on
+ * another device of the person's is listed here too. */
 export async function configuredIntegrationIndex() {
+  await platformCredentials.refresh()
   const configured = await Promise.all(integrationPluginRegistry.getAll().map(async plugin => ({
     plugin, accounts: await providerAccountRegistry.listAccounts(plugin.metadata.id),
   })))
@@ -31,7 +35,10 @@ export async function configuredIntegrationIndex() {
     return accounts.map(account => ({
       id: `${provider}:${account.accountId}`, name: plugin.metadata.name,
       modifiedAt: new Date(account.updatedAt).toISOString(), isDefault: account.isDefault,
-      ...(use ? { use } : {}), ...(note ? { note } : {}),
+      // #921 kept but not usable now (rejected): a task would get no tools; only the person can fix it.
+      ...(platformCredentials.needsReconnect(provider, account)
+        ? { note: `${plugin.metadata.name}要重新连接，现在用不了；到连接页重新填 Key` }
+        : { ...(use ? { use } : {}), ...(note ? { note } : {}) }),
     }))
   })
 }

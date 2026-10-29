@@ -70,7 +70,7 @@ import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { log } from '@renderer/utils/logger';
 import { composerAttachmentSource } from '@renderer/features/sessions/acp/composer-attachment-source';
-import { isHeicLikeFile, isUnstableDropPath } from '@renderer/lib/pty/terminal-image-paths';
+import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
 import { electronApi } from '@renderer/lib/electron-api';
 import { rpcOn } from '@renderer/lib/ipc';
 import {
@@ -618,7 +618,7 @@ export function useInitialSessionState(
       const originalPath = machine ? '' : electronApi().getPathForFile(file).trim();
       const source = composerAttachmentSource({
         originalPath,
-        isUnstableDropPath: isUnstableDropPath(originalPath),
+        mustCopy: mustCopyRatherThanReference(originalPath),
         isHeicLike: isHeicLikeFile(file),
       });
       const name = file.name || originalPath.split('/').pop() || 'attachment';

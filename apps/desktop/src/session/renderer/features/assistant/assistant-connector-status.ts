@@ -9,5 +9,7 @@ export function connectorState(configured: boolean | undefined, status: Connecti
   if (cloudSnapshot && configured === true && !status) return 'unverified';
   if (configured === undefined || !status) return 'checking';
   if (status.connected) return 'connected';
-  return status.errorType === 'auth_failed' || status.errorType === 'authorization_expired' ? 'needsReauth' : 'checkFailed';
+  return status.errorType === 'auth_failed' || status.errorType === 'authorization_expired' || status.errorType === 'key_rejected'
+    ? 'needsReauth'
+    : 'checkFailed';
 }
