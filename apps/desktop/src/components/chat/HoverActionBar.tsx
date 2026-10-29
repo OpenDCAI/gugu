@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { Ellipsis, Reply, Smile } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { popupMotion } from '../ui/variants'
-import { TOOLTIP_OPEN_DELAY_MS } from '@/styles/motion'
 import { claimHoverOwner, readHoverOwner, releaseHoverOwner, setHoverOwner, subscribeHoverOwner } from './hover-owner'
 
 const barStyle: CSSProperties = {
@@ -15,11 +14,12 @@ const barStyle: CSSProperties = {
 }
 
 /** Base UI owns travel from the row into its portal (safe polygon + close delay), including button gaps. */
-export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
+export function MessageHoverRegion({ enabled, forceOpen, style, children, actions }: {
   enabled: boolean
   forceOpen: boolean
   style: CSSProperties
-  children: (visible: boolean) => ReactNode
+  children: ReactNode
+  actions: ReactNode
 }) {
   const [id] = useState(() => Symbol('message-hover'))
   const [hovered, setHovered] = useState(false)
@@ -45,14 +45,15 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
   return (
     <PreviewCard.Root open={visible} onOpenChange={onOpenChange}>
       <div style={style}>
-        {children(visible)}
+        {children}
+        {visible && actions}
       </div>
     </PreviewCard.Root>
   )
 }
 
 export function MessageHoverTrigger(props: ComponentProps<typeof PreviewCard.Trigger>) {
-  return <PreviewCard.Trigger {...props} render={<div />} delay={TOOLTIP_OPEN_DELAY_MS} />
+  return <PreviewCard.Trigger {...props} render={<div />} delay={0} />
 }
 
 export function HoverActionBar({ isMine, isRetracted, anchorRef, reactButtonRef, moreButtonRef, onReact, onReply, onMore }: {
