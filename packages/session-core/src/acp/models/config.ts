@@ -71,6 +71,10 @@ export const sessionCommandSchema = z.object({
 });
 export type SessionCommand = z.infer<typeof sessionCommandSchema>;
 
+/** Command facts retain native fields; the composer consumes only the optional input hint. */
+export type SessionCommandDefinition = { name: string; description: string; input?: { hint?: string; type?: string } | null };
+
+
 export const sessionConfigStateSchema = z.object({
   /** Model selector state; null when the provider has not exposed model configuration. */
   modelOptions: z

@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { RequestError, type SessionUpdate } from '@agentclientprotocol/sdk';
 import { isOk } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,12 +31,12 @@ describe('a stopped native delivery already in provider history', () => {
 
     // Canonical provider history, not the host's optimistic row recorded at admission.
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'user_message_chunk', messageId: 'native-persisted-user',
           content: { type: 'text', text: DELIVERY },
-        } as SessionUpdate,
+        }),
       });
       return {};
     });
@@ -62,9 +63,9 @@ describe('a stopped native delivery already in provider history', () => {
     await rt.queuePrompt(start.sessionId, { text: DELIVERY, origin: 'communication' });
     await rt.stopSession(start.sessionId);
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+      await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: DELIVERY },
-      } });
+      } as SessionUpdate) });
       return {};
     });
     await rt.startSession({ ...start, providerSessionId: 'session-1' });
@@ -77,9 +78,9 @@ describe('a stopped native delivery already in provider history', () => {
     const h = makeAcpHarness({ providerId: 'codex', recoverDelivery: recoverDeliveryEnvelopes });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({ sessionId: 'native-old', update: {
+      await h.client().sessionEvent({ sessionId: 'native-old', event: decodeSessionUpdate({
         sessionUpdate: 'user_message_chunk', content: { type: 'text', text: DELIVERY },
-      } });
+      } as SessionUpdate) });
       throw new RequestError(-32015, 'History unknown', {
         kind: 'history_unknown', sessionId: 'native-old', reason: 'history read failed',
       });

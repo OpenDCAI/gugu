@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { foldItem, type FoldEvent } from './item-fold';
 import { toolNodeSchema } from '../models/turns/tool-calls';
 
-const start: FoldEvent = { kind: 'tool_call', toolCallId: 'send', title: 'message_send', toolKind: 'other', status: 'pending', parentToolCallId: null, diffs: [], locations: [] };
-const done: FoldEvent = { kind: 'tool_update', toolCallId: 'send', title: null, toolKind: null, status: 'completed', parentToolCallId: null, diffs: [] };
+const start: FoldEvent = { kind: 'tool_call', toolCallId: 'send', title: 'message_send', toolKind: 'other', status: 'pending', parentToolCallId: null, locations: [] };
+const done: FoldEvent = { kind: 'tool_update', toolCallId: 'send', title: null, toolKind: null, status: 'completed', parentToolCallId: null };
 
 describe('authentic tool boundary clocks', () => {
   it('retains arrival and first completion across later updates', () => {

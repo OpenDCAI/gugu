@@ -1,0 +1,127 @@
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { chmodSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
+import { expect, it } from 'vitest';
+import { awaitFact } from '../../../support/awaitFact';
+
+async function fixture(body: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'codex-v2-receipts-'));
+  const bin = join(dir, 'codex.cjs');
+  writeFileSync(bin, `#!/usr/bin/env node
+const out = message => process.stdout.write(JSON.stringify(message) + '\\n')
+const inputs = []
+require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+ const m = JSON.parse(line)
+ if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: 'thread', turns: [] }, model: 'model', activePermissionProfile: ':workspace' } })
+ if (m.method === 'model/list') return out({ id: m.id, result: { data: [{ id: 'model', model: 'model', displayName: 'Model' }] } })
+ if (m.method === 'permissionProfile/list') return out({ id: m.id, result: { data: [{ id: ':workspace', name: 'Workspace', allowed: true }] } })
+ ${body}
+ if (m.id !== undefined) out({ id: m.id, result: { data: [] } })
+})`);
+  chmodSync(bin, 0o755);
+  const child = spawn(process.execPath, [resolve('apps/desktop/electron/runtime/codex-app-server-acp.mjs')], {
+    cwd: dir, env: { ...process.env, GUGU_CODEX_BIN: bin }, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const updates: v2.SessionUpdate[] = [];
+  const connection = v2.client({ name: 'fixture' }).onNotification(v2.methods.client.session.update, ({ params }) => { updates.push(params.update); }).connect(
+    v2.ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>),
+  );
+  await connection.agent.request(v2.methods.agent.initialize, { protocolVersion: 2, info: { name: 'fixture', version: '1' } });
+  await connection.agent.request(v2.methods.agent.session.new, { cwd: dir, mcpServers: [] });
+  return { child, updates, agent: connection.agent, close: async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
+    }
+    unlinkSync(bin); rmdirSync(dir);
+  } };
+}
+
+it('correlates native client IDs, including reverse receipts and an unrelated user echo before idle', async () => {
+  const p = await fixture(`
+ if (m.method === 'turn/start' || m.method === 'turn/steer') {
+  inputs.push(m)
+  if (inputs.length < 2) return
+  const [a, b] = inputs
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
+  const user = (request, id, clientId) => out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id, clientId, content: request.params.input } } })
+  user(a, 'unowned-native', 'another-client')
+  user(b, 'second-native', b.params.clientUserMessageId)
+  out({ id: b.id, result: { turn: { id: 'turn' } } })
+  out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } } })
+  out({ id: a.id, result: { turn: { id: 'turn' } } })
+  user(a, 'first-native', a.params.clientUserMessageId)
+  return
+ }`);
+  try {
+    const completed: string[] = [];
+    const first = p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'first' }] }).then(receipt => { completed.push('first'); return receipt; });
+    const second = p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'second' }] }).then(receipt => { completed.push('second'); return receipt; });
+    expect(await Promise.all([first, second])).toEqual([{ messageId: 'first-native' }, { messageId: 'second-native' }]);
+    expect(completed).toEqual(['second', 'first']);
+    expect(p.updates).toContainEqual({ sessionUpdate: 'user_message', messageId: 'unowned-native', content: [{ type: 'text', text: 'first' }] });
+    expect(p.updates).toContainEqual({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+  } finally { await p.close(); }
+});
+
+const awaitingInsertion = `
+ if (m.method === 'turn/start') {
+  inputs.push(m)
+  const id = 'turn-' + inputs.length
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id } } })
+  out({ id: m.id, result: { turn: { id } } })
+  if (inputs.length > 1) {
+   out({ method: 'item/started', params: { threadId: 'thread', turnId: id, item: { type: 'userMessage', id: 'next-native', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+   out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id, status: 'completed' } } })
+  }
+  return
+ }
+ if (m.method === 'turn/interrupt') {
+  out({ id: m.id, result: {} })
+  return out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: m.params.turnId, status: 'interrupted' } } })
+ }`;
+
+it('cancels an uninserted request without inventing acceptance, then admits a new cycle', async () => {
+  const p = await fixture(awaitingInsertion);
+  try {
+    const pending = p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'cancel' }] });
+    const refused = expect(pending).rejects.toMatchObject({ code: -32800 });
+    await awaitFact('native running before cancellation', () => p.updates.some(u => u.sessionUpdate === 'state_update' && u.state === 'running'), { producer: p.child });
+    await p.agent.notify(v2.methods.agent.session.cancel, { sessionId: 'thread' });
+    await refused;
+    await awaitFact('native idle after cancellation', () => p.updates.some(u => u.sessionUpdate === 'state_update' && u.state === 'idle'), { producer: p.child });
+    expect(await p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'next' }] })).toEqual({ messageId: 'next-native' });
+  } finally { await p.close(); }
+});
+
+it('connection exit rejects outstanding native receipts', async () => {
+  const p = await fixture(awaitingInsertion);
+  try {
+    const pending = p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'pending' }] });
+    const refused = expect(pending).rejects.toBeDefined();
+    await awaitFact('native running before close', () => p.updates.some(u => u.sessionUpdate === 'state_update' && u.state === 'running'), { producer: p.child });
+    p.child.stdin.end();
+    await refused;
+  } finally { await p.close(); }
+});
+
+it('an older native completion cannot report idle for the new foreground cycle', async () => {
+  const p = await fixture(`
+ if (m.method === 'turn/start') {
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'old' } } })
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'current' } } })
+  out({ method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'old', status: 'completed' } } })
+  out({ method: 'item/started', params: { threadId: 'thread', turnId: 'current', item: { type: 'userMessage', id: 'inserted', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+  return out({ id: m.id, result: { turn: { id: 'current' } } })
+ }`);
+  try {
+    expect(await p.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'current' }] })).toEqual({ messageId: 'inserted' });
+    expect(p.updates.filter(u => u.sessionUpdate === 'state_update')).toEqual([
+      { sessionUpdate: 'state_update', state: 'running' },
+      { sessionUpdate: 'state_update', state: 'running' },
+    ]);
+  } finally { await p.close(); }
+});

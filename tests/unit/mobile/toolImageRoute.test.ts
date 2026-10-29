@@ -2,6 +2,7 @@
 //
 // 复核 47b50d577:手机取一张工具图走一问一答(`once` → taskhost.call):有 12 秒期限、回包是一条独立的广播。
 // 走窗口(`rpc` → invoke)的话那一问没有期限,线活着就一直等;一片回包丢了还会把这条会话的推送一起压住。
+import { REMOTE_PROTOCOL_VERSION } from '../../../packages/core/src/cloud/serverMachineHealth'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: vi.fn(), subscribeDeviceRpcEvents: vi.fn() }))
@@ -30,7 +31,7 @@ describe('手机取一张工具图走哪条路', () => {
     expect(callDeviceRpc).toHaveBeenCalledWith(
       'device-1',
       SESSION_HOST_RPC.call,
-      { channel: 'sessionTimeline.sessionToolImage', args: [{ conversationId: 'conversation-1', itemId: 'tc1', index: 2 }] },
+      { channel: 'sessionTimeline.sessionToolImage', args: [{ conversationId: 'conversation-1', itemId: 'tc1', index: 2 }], protocol: REMOTE_PROTOCOL_VERSION },
       { timeoutMs: 12_000 },
     )
     await expect(reply).resolves.toEqual(shot)

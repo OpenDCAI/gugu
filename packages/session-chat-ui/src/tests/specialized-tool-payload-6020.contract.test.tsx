@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /** @jsxImportSource solid-js */
 import { expect, it, vi } from 'vitest';
 import { AcpTranscriptParser } from '@gugu/session-core/acp/transcript-parser';
@@ -14,11 +15,11 @@ const paint = (): Promise<void> => new Promise((resolve) => requestAnimationFram
 it.each(['read', 'read-with-location', 'execute'] as const)('#6020 %s keeps adapter payloads through the specialized renderer', async (mode) => {
   const kind = mode === 'execute' ? 'execute' : 'read';
   const parser = new AcpTranscriptParser({ sessionId: 'specialized-details' });
-  parser.push({ sessionUpdate: 'tool_call', toolCallId: 'call', title: kind === 'execute' ? 'echo command' : 'read',
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call', title: kind === 'execute' ? 'echo command' : 'read',
     kind, status: 'completed', rawInput: { ...(kind === 'execute' ? { cwd: '/FULL_ARGUMENT' } : { path: '/FULL_ARGUMENT', offset: 42 }) },
     rawOutput: { detail: 'FULL_RESULT' },
     ...(mode === 'read-with-location' ? { locations: [{ path: '/FULL_ARGUMENT' }] } : {}),
-    ...(kind === 'execute' ? { content: [{ type: 'content', content: { type: 'text', text: 'COMMAND_STDOUT' } }] } : {}) });
+    ...(kind === 'execute' ? { content: [{ type: 'content', content: { type: 'text', text: 'COMMAND_STDOUT' } }] } : {}) }));
   const id = parser.activeTurn!.items[0].id;
   parser.endTurn();
   const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });

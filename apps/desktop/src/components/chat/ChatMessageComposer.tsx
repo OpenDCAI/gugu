@@ -12,7 +12,6 @@ import { rankMentionCandidates } from '@/lib/mentionRanking'
 import { useProjectGroupMembers } from '@/lib/projectGroupChatsBridge'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
-import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
 import { useChatStore } from '../../store/chatContext'
 import { useTheme } from '../../store/theme'
@@ -177,8 +176,6 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}
           attachments={composerAttachments} onAttachmentsChange={(next) => { const kept = attachments.filter((file) => next.some((item) => item.id === file.id)); revokeAttachmentPreviewUrls(attachments.filter((file) => !kept.includes(file))); setAttachments(kept) }}
           toolbarExtra={<><ComposerAttachButton glyph={attachGlyph} actions={phoneTask.action ? [...(attachMenu ?? []), phoneTask.action] : attachMenu} disabled={disabled} mobile={mobile} onPickFile={() => fileInputRef.current?.click()} />{isMain && !mobile && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={() => editorApiRef.current?.getText() ?? ''} onCarried={() => writeDraft(chatId, '')} />}</>}
-          queryCommands={async (query) => SLASH_COMMANDS.filter((command) => command.trigger.slice(1).startsWith(query)).map((command) => ({ id: command.id, name: command.id, behavior: 'execute' as const }))}
-          onCommand={(item) => SLASH_COMMANDS.find((command) => command.id === item.id)?.run({ setText: (update) => writeDraft(chatId, update(editorApiRef.current?.getText() ?? '')), clearText: () => writeDraft(chatId, '') })}
           className={inChatSlot ? sessionComposerDockedWidthClassName : undefined} />
       </div>
     </MessageProvider>
