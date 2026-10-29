@@ -51,7 +51,10 @@ describe('App/session scoped picture and input', () => {
     const pending = Array.from({ length: 64 }, (_, index) => v.input(index + 1).catch(() => undefined));
     await vi.waitFor(() => expect(held).toBe(true));
     const input = kind === 'key' ? { kind: 'key', action: 'up', key: 'Shift' } : { kind: 'pointer', action: 'up', button: 'left', x: 0.5, y: 0.5 };
-    const release = v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 65, input }).catch(() => undefined);
+    await expect(v.viewer.receive({ type: 'input', generation: 'a different viewer', frame: 1, sequence: 65, input })).rejects.toThrow(/queue is full/);
+    expect(held).toBe(true);
+    // A release intent for this viewer still cleans up if its picture became stale.
+    const release = v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 2, sequence: 65, input }).catch(() => undefined);
     blocked.resolve(); await Promise.all([...pending, release]);
     expect(held).toBe(false);
     expect(s.source.disconnect).toHaveBeenCalled();

@@ -17,6 +17,27 @@ const frame = { sequence: 1, width: 1, height: 1, mime: 'image/png' as const, da
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
 describe('painted frame and reconnect input routing', () => {
+  it('bounds a flood of release barriers by resetting the old generation instead of discarding releases', async () => {
+    const h = host(); const blocked = Promise.withResolvers<void>();
+    vi.mocked(h.projection.send).mockImplementation(async ({ packet }) => {
+      if (packet.type === 'input' && packet.sequence === 1) await blocked.promise;
+    });
+    const client = await projectionClient(h, 'source', { paint: async () => {} });
+    h.emit({ type: 'state', generation: 'a', state: 'connecting' });
+    h.emit({ type: 'frame', generation: 'a', frame }); await flush();
+    const down = client.input({ kind: 'key', action: 'down', key: 'Shift' });
+    const release = Array.from({ length: 65 }, (_, key) => client.input({ kind: 'key', action: 'up', key: `key-${key}` }));
+    await Promise.all(release);
+    expect(h.projection.watch).toHaveBeenCalledTimes(2);
+    blocked.resolve(); await down;
+    h.emit({ type: 'state', generation: 'b', state: 'connecting' });
+    h.emit({ type: 'frame', generation: 'b', frame }); await flush();
+    await expect(client.input({ kind: 'text', text: 'new generation' })).resolves.toEqual({ status: 'applied' });
+    const input = vi.mocked(h.projection.send).mock.calls.map(([args]) => args.packet).filter(packet => packet.type === 'input');
+    expect(input.map(packet => packet.generation)).toEqual(['a', 'b']);
+    await client.close();
+  });
+
   it.each(['key', 'pointer'] as const)('keeps a %s release barrier when ordinary queued input is full', async kind => {
     const h = host(); const blocked = Promise.withResolvers<void>();
     vi.mocked(h.projection.send).mockImplementation(async ({ packet }) => {
