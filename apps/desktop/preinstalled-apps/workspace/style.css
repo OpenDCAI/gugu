@@ -100,7 +100,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file.picked { background: var(--em-selected); }
 .file-open:focus-visible { outline: none; }
 .file:has(.file-open:focus-visible) { outline: 2px solid var(--em-focus-ring); outline-offset: -2px; }
-.pick-bar { flex: none; display: flex; align-items: center; gap: 2px; margin: var(--em-spacing-lg); padding: 4px var(--em-spacing-sm); border-radius: var(--em-radius-control); background: var(--em-selected); color: var(--em-foreground); font-size: var(--em-font-caption); overflow-x: auto; }
+.pick-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; margin: var(--em-spacing-lg); padding: 4px var(--em-spacing-sm); border-radius: var(--em-radius-control); background: var(--em-selected); color: var(--em-foreground); font-size: var(--em-font-caption); }
 .pick-bar[hidden] { display: none; }
 .pick-bar button { border: 0; background: none; color: inherit; white-space: nowrap; min-height: 28px; padding: 0 var(--em-spacing-sm); }
 .pick-bar button:disabled { opacity: .4; }
@@ -129,14 +129,15 @@ img.details-picture { object-fit: contain; }
 /* Wide (an expanded tab): the rows line up as a table, and the details sit beside the list. */
 .files { container-type: inline-size; }
 @container (min-width: 720px) {
-  .table-head { display: grid; grid-template-columns: 22px var(--em-icon-lg) minmax(0, 1fr) 130px 80px; column-gap: var(--em-spacing-md); align-items: center; padding: 0 8px 4px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border); }
+  .table-head { display: grid; grid-template-columns: 22px 24px minmax(0, 1fr) 130px 80px; column-gap: var(--em-spacing-md); align-items: center; padding: 0 8px 4px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border); }
   .table-head > [data-cell='name'] { grid-column: 3; }
   .table-head > button:not(.pick-all) { border: 0; background: none; padding: 0; min-height: 0; text-align: start; font: inherit; color: inherit; }
   .table-head > [aria-current='true'] { color: var(--em-foreground); font-weight: 600; }
   .file:not(.cell) { padding-block: 4px; padding-inline-start: 38px; min-height: var(--em-control-h-touch); }
-  .file:not(.cell) .file-open { grid-template-columns: var(--em-icon-lg) minmax(0, 1fr) 130px 80px; align-items: center; padding-inline-end: 0; }
+  .file:not(.cell) .file-open { grid-template-columns: 24px minmax(0, 1fr) 130px 80px; align-items: center; padding-inline-end: 0; }
   .file:not(.cell) .file-name { font-size: var(--em-font-body); line-height: var(--em-lh-body); }
-  .file:not(.cell) .file-mark { width: var(--em-icon-lg); height: var(--em-icon-lg); grid-row: auto; }
+  .file:not(.cell) .file-mark { width: 24px; height: 24px; grid-row: auto; }
+  .file:not(.cell) .file-badge { font-size: 8.5px; }
   .file:not(.cell) .file-meta { display: contents; }
   .file:not(.cell) .file-cell::before { content: none; }
   .file:not(.cell) .file-cell { display: block; grid-row: 1; font-size: var(--em-font-caption); color: var(--em-foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +168,7 @@ img.details-picture { object-fit: contain; }
   .menu.file-context button { min-height: var(--em-control-h-touch); }
   .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chip { flex: none; }
-  .pick-bar { order: 1; margin: 0; left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; flex-wrap: wrap; justify-content: center; overflow-x: visible; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .pick-bar { order: 1; margin: 0; left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; justify-content: center; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
   .details { padding-top: var(--em-spacing-sm); }
   .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
   .file-list.as-grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
