@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 import { compactionUnitDef } from '@session-chat/components/rows/boundary/compaction.def'
 import { contextResetUnitDef } from '@session-chat/components/rows/boundary/context-reset.def'
 import { daySeparatorUnitDef } from '@session-chat/components/rows/day-separator/day-separator.def'
@@ -77,9 +79,8 @@ const thinking: ChatThinking = {
 const diff: ChatDiff = {
   kind: 'diff',
   id: 'contract-diff',
-  path: 'src/height.ts',
-  oldText: 'const height = 20;\nreturn height;',
-  newText: 'const height = 21;\nreturn height;\n// measured',
+  patches: [textFilePatch('src/height.ts', 'const height = 20;\nreturn height;', 'const height = 21;\nreturn height;\n// measured')],
+
   status: 'done'
 }
 

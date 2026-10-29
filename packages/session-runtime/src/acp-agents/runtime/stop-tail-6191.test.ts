@@ -1,3 +1,4 @@
+import { decodePermissionRequest, decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
  * #6191 —— 协议层回放:Stop 之后跟来一条 agent 文本。
  *
@@ -27,11 +28,11 @@ type Committed = { source: string; turnId: string; text: string };
 
 async function stopWithPendingPermission(
   sessionId: string,
-  reportsState = false,
+  nativeState = false,
   committed: Committed[] = [],
 ) {
   const h = makeAcpHarness({
-    reportsState,
+    nativeState,
     onTurnCommitted: ({ source, turn }) =>
       committed.push({ source, turnId: turn.id, text: JSON.stringify(turn.items) }),
   });
@@ -49,16 +50,16 @@ async function stopWithPendingPermission(
   await h.agent.called('prompt');
   expect(h.agent.prompt).toHaveBeenCalledTimes(1);
   // 自报状态的桥接收下 prompt 就报 running(每次真机读数都是这个顺序)。
-  if (reportsState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('running') });
-  await client.sessionUpdate({
+  if (nativeState) await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('running')) });
+  await client.sessionEvent({
     sessionId: SESSION,
-    update: { sessionUpdate: 'tool_call', toolCallId: 'call_sleep', title: 'sleep 120', kind: 'execute', status: 'pending' } as SessionUpdate,
+    event: decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call_sleep', title: 'sleep 120', kind: 'execute', status: 'pending' } as SessionUpdate),
   });
-  const permission = client.requestPermission({
+  const permission = client.requestPermission(decodePermissionRequest({
     sessionId: SESSION,
     toolCall: { toolCallId: 'call_sleep', title: 'sleep 120', kind: 'execute' },
     options: [{ optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' }],
-  } as never);
+  } as never));
   await until(
     'permission request is pending',
     () => rt.getSessionState(sessionId).pendingPermissions.length,
@@ -70,7 +71,7 @@ async function stopWithPendingPermission(
   await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } });
   resolvePrompt({ stopReason: 'cancelled' });
   await turn;
-  if (reportsState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('idle') });
+  if (nativeState) await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('idle')) });
   expect(rt.getSessionState(sessionId).canCancel, 'Stop 落定').toBe(false);
   return { h, rt, client };
 }
@@ -79,7 +80,7 @@ describe('#6191 Stop 之后的尾随 agent 文本', () => {
   it('没声明自发轮的家:尾巴归被停的那一轮,停止键不再亮,追问立刻发出', async () => {
     const { h, rt, client } = await stopWithPendingPermission('conv-copilot-shape');
 
-    await client.sessionUpdate({ sessionId: SESSION, update: text('Info: Operation cancelled by user') });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('Info: Operation cancelled by user')) });
 
     const state = rt.getSessionState('conv-copilot-shape');
     expect(state.canCancel, '停止键不许重新亮').toBe(false);
@@ -100,11 +101,11 @@ describe('#6191 Stop 之后的尾随 agent 文本', () => {
   it('阴控 —— 自报状态的家(claude 桥接 1.3.0):它自己开工就忙,报 idle 才停', async () => {
     const { rt, client } = await stopWithPendingPermission('conv-claude-shape', true);
 
-    await client.sessionUpdate({ sessionId: SESSION, update: agentState('running') });
-    await client.sessionUpdate({ sessionId: SESSION, update: text('子任务跑完了') });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('running')) });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('子任务跑完了')) });
     expect(rt.getSessionState('conv-claude-shape').canCancel).toBe(true);
 
-    await client.sessionUpdate({ sessionId: SESSION, update: agentState('idle') });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('idle')) });
     expect(rt.getSessionState('conv-claude-shape').canCancel).toBe(false);
   });
 
@@ -113,7 +114,7 @@ describe('#6191 Stop 之后的尾随 agent 文本', () => {
     const { client } = await stopWithPendingPermission('conv-persist', undefined, committed);
     const stoppedId = committed.at(-1)!.turnId;
 
-    await client.sessionUpdate({ sessionId: SESSION, update: text('Info: Operation cancelled by user') });
+    await client.sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(text('Info: Operation cancelled by user')) });
 
     expect(committed.map((entry) => entry.source)).toEqual(['live', 'revision']);
     expect(committed[1]!.turnId).toBe(stoppedId);
@@ -135,13 +136,13 @@ describe('#6191 Stop 之后的尾随 agent 文本', () => {
     });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({ sessionId: 'session-old', update: text('重放回来的正文') });
+      await h.client().sessionEvent({ sessionId: 'session-old', event: decodeSessionUpdate(text('重放回来的正文')) });
       return {};
     });
     expect(isOk(await rt.resumeSession({ ...makeStartInput({ sessionId: 'conv-replayed' }), providerSessionId: 'session-old' }))).toBe(true);
     expect(committed.map((entry) => entry.source)).toEqual(['replay']);
 
-    await h.client().sessionUpdate({ sessionId: 'session-old', update: text('迟到的尾巴') });
+    await h.client().sessionEvent({ sessionId: 'session-old', event: decodeSessionUpdate(text('迟到的尾巴')) });
 
     expect(committed.map((entry) => entry.source), '不发修订').toEqual(['replay']);
     expect(error).toHaveBeenCalledWith(

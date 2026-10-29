@@ -1,3 +1,4 @@
+import type { TerminalState } from '@gugu/session-core/acp/client';
 /**
  * ChatState — per-conversation, width-independent state.
  *
@@ -40,9 +41,8 @@ import { createParseCaches } from '../core/caches';
 import type { ParseCaches } from '../core/caches';
 import type {
   AcpPermissionRequest,
-  PlanState,
+  SessionPlans,
   SessionCondition,
-  TerminalExit,
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
@@ -81,11 +81,9 @@ export type HeightmapStore = {
 export type ChatSessionState = {
   readonly state: ChatSessionSnapshot;
   setPermissions(permissions: readonly AcpPermissionRequest[]): void;
-  setPlan(plan: PlanState | null): void;
+  setPlan(plan: SessionPlans | null): void;
   setPendingPrompt(prompt: PendingPrompt | null): void;
-  setTerminalOutput(terminalId: string, text: string | null): void;
-  setTerminalOutputs(outputs: ReadonlyMap<string, string>): void;
-  setTerminalExitStatus(terminalId: string, exitStatus: TerminalExit): void;
+  setTerminals(terminals: readonly TerminalState[]): void;
   setGenerating(generating: boolean): void;
   /** 写这条会话此刻的状态；null = 没有条件要说。 */
   setCondition(condition: SessionCondition | null): void;
@@ -99,7 +97,7 @@ export type ChatSessionState = {
 
 export type ChatSessionSnapshot = {
   readonly permissions: readonly AcpPermissionRequest[];
-  readonly plan: PlanState | null;
+  readonly plan: SessionPlans | null;
   readonly pendingToolCallIds: Set<string>;
   readonly pendingPrompt: PendingPrompt | null;
   /**
@@ -116,8 +114,7 @@ export type ChatSessionSnapshot = {
   /** 见 `setBackgroundTasks`。 */
   readonly backgroundTasks: BackgroundTasks;
   readonly deliveredMessages?: ReadonlyMap<string, DeliveryMessagePresentation>;
-  terminalOutputText(terminalId: string): string | null;
-  terminalExitStatus(terminalId: string): TerminalExit | null;
+  terminalSnapshot(terminalId: string): TerminalState | null;
 };
 
 export type { PendingPrompt } from './pending-prompt';
@@ -130,13 +127,13 @@ type LiveReadable<T> = {
 
 export type ConnectSessionSource = {
   activeTurn: LiveReadable<TranscriptTurn | null>;
-  plan: LiveReadable<PlanState | null>;
+  plan: LiveReadable<SessionPlans | null>;
   sessionState: LiveReadable<{
     pendingPermissions: readonly AcpPermissionRequest[];
     /** runtime 投影出来的忙态(见 session-runtime machine `projectSessionState`)。 */
     isGenerating?: boolean;
   }>;
-  terminalOutputs?: LiveReadable<ReadonlyMap<string, string>>;
+  terminals?: LiveReadable<readonly TerminalState[]>;
 };
 
 export type ConnectSessionOptions = {
@@ -241,7 +238,7 @@ export function createChatState(ctx: ChatContext, opts?: ChatStateOptions): Chat
     parseCaches = createParseCaches(ctx.mentionProvider, ctx.commandProvider, opts?.uri);
     viewState = createViewState();
     [getExpandedUserId, setExpandedUserId] = createSignal<string | null>(null);
-    session = createSessionState();
+    session = createSessionState(transcript);
   });
 
   // Scroll mode — plain mutable value; not reactive (ChatRoot reads it once on
@@ -312,10 +309,10 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
   );
 }
 
-function createSessionState(): ChatSessionState {
+function createSessionState(transcript: TranscriptApi): ChatSessionState {
   const [deliveredMessages, setDeliveredMessages] = createSignal<ReadonlyMap<string, DeliveryMessagePresentation>>(new Map());
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
-  const [plan, setPlan] = createSignal<PlanState | null>(null);
+  const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
@@ -323,26 +320,14 @@ function createSessionState(): ChatSessionState {
   const [backgroundTasks, setBackgroundTasks] = createSignal<BackgroundTasks>(NO_BACKGROUND_TASKS, {
     equals: sameBackgroundTasks,
   });
-  const [terminalOutputs, setTerminalOutputs] = createSignal<ReadonlyMap<string, string>>(
-    new Map()
-  );
-  // @@@exit statuses latch, outputs do not.
-  //
-  // Live output tracks a terminal that exists: when the agent releases the
-  // terminal the binding clears the entry and the row falls back to the static
-  // tool output it already had. An exit status has no such fallback — it exists
-  // only in the client's own terminal registry, and the agent typically releases
-  // the terminal moments after reading the code. So this map is only ever written
-  // to, never cleared per-terminal: what we saw happen to a process stays true
-  // after the handle to that process is gone. Terminal ids are per-terminal
-  // UUIDs, so entries never collide, and the map's lifetime is the conversation's.
-  const [terminalExits, setTerminalExits] = createSignal<ReadonlyMap<string, TerminalExit>>(
-    new Map()
-  );
+  const [terminals, setTerminals] = createSignal<ReadonlyMap<string, TerminalState>>(new Map());
+  const recordedTerminals = createMemo(() => new Map(
+    transcript.state.committedTurns.flatMap(turn => turn.terminals ?? []).map(terminal => [terminal.terminalId, terminal])
+  ));
   const pendingToolCallIds = createMemo(() => {
     const ids = new Set<string>();
     for (const request of permissions()) {
-      ids.add(request.toolCall.toolCallId);
+      if (request.toolCall) ids.add(request.toolCall.toolCallId);
     }
     return ids;
   });
@@ -370,11 +355,8 @@ function createSessionState(): ChatSessionState {
     get backgroundTasks() {
       return backgroundTasks();
     },
-    terminalOutputText(terminalId) {
-      return terminalOutputs().get(terminalId) ?? null;
-    },
-    terminalExitStatus(terminalId) {
-      return terminalExits().get(terminalId) ?? null;
+    terminalSnapshot(terminalId) {
+      return terminals().get(terminalId) ?? recordedTerminals().get(terminalId) ?? null;
     },
   };
 
@@ -387,35 +369,7 @@ function createSessionState(): ChatSessionState {
     setCondition,
     setBackgroundTasks,
     setDeliveredMessages,
-    setTerminalOutput(terminalId, text) {
-      setTerminalOutputs((previous) => {
-        const next = new Map(previous);
-        if (text === null) {
-          next.delete(terminalId);
-        } else {
-          next.set(terminalId, text);
-        }
-        return next;
-      });
-    },
-    setTerminalOutputs: (next) => setTerminalOutputs(new Map(next)),
-    setTerminalExitStatus(terminalId, exitStatus) {
-      setTerminalExits((previous) => {
-        // Compared field-wise, not by identity: the binding re-reads the whole
-        // terminals list on every live change, so an unchanged exit status
-        // arrives as a fresh object each time and identity would re-render
-        // every row on every output chunk.
-        const current = previous.get(terminalId);
-        if (
-          current &&
-          current.exitCode === exitStatus.exitCode &&
-          current.signal === exitStatus.signal
-        ) {
-          return previous;
-        }
-        return new Map(previous).set(terminalId, exitStatus);
-      });
-    },
+    setTerminals: (next) => setTerminals(new Map(next.map(terminal => [terminal.terminalId, terminal]))),
   };
 }
 
@@ -450,21 +404,21 @@ export function connectSession(
     }
     hadActiveTurn = turn !== null;
   };
-  const syncTerminalOutputs = (): void => {
-    if (!source.terminalOutputs) return;
-    state.session.setTerminalOutputs(source.terminalOutputs.getSnapshot() ?? new Map());
+  const syncTerminals = (): void => {
+    if (!source.terminals) return;
+    state.session.setTerminals(source.terminals.getSnapshot() ?? []);
   };
 
   syncSessionState();
   syncPlan();
   syncActiveTurn();
-  syncTerminalOutputs();
+  syncTerminals();
 
   const unsubs = [
     source.sessionState.subscribe(syncSessionState),
     source.plan.subscribe(syncPlan),
     source.activeTurn.subscribe(syncActiveTurn),
-    ...(source.terminalOutputs ? [source.terminalOutputs.subscribe(syncTerminalOutputs)] : []),
+    ...(source.terminals ? [source.terminals.subscribe(syncTerminals)] : []),
   ];
   return () => {
     for (const unsub of unsubs) unsub();

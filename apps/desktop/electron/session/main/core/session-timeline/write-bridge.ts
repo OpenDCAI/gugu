@@ -128,6 +128,7 @@ export async function deliverSessionText(
   const body = text.trim();
   if (!body && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
 
+
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
   // 直接判 `=== 'pty'` 会把活着的终端会话漏到下面的 unsupported_runtime。
   //

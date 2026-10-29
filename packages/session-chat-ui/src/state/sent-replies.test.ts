@@ -35,7 +35,7 @@ describe('session replies sent to IM', () => {
     } satisfies ItemSegmenter]));
     const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true,
       plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
-      terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
+      terminalSnapshot: () => null } as unknown as SegmentCtx;
     const rows = flattenTier([record], ctx, segmenters);
     // On the session page the send is drawn as the agent's words (agent-send); the reply copied out of it is not drawn again.
     const said = rows.filter(row => (row.kind === 'agent-send' && (row.data as { send?: { text?: string } }).send?.text === '你好，我在。')
@@ -110,7 +110,7 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
   } satisfies ItemSegmenter]));
   const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true, agentConversation: true,
     plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
-    terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
+    terminalSnapshot: () => null } as unknown as SegmentCtx;
   const rows = flattenTier([record], ctx, segmenters);
   expect(rows.filter(row => row.kind === 'turn-process').map(row => row.data)).toMatchObject([{ silent: true }]);
   const head = rows.find(row => row.kind === 'message' && (row.data as { conversationPart?: string }).conversationPart === 'head')?.data;

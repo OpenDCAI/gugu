@@ -43,7 +43,7 @@ const state = vi.hoisted(() => ({
   pendingWatchCalls: [] as string[],
   pendingWatchDisposed: 0,
   /** 用例手里的那根线：调它就等于运行时报了一批新的待答审批。 */
-  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void),
+  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void),
   /** 活运行时报的会话选项(live-options 的桩);默认三格都没有。 */
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
@@ -196,11 +196,11 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
     conversationId: string,
-    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void
+    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void
   ) => {
     state.pendingWatchCalls.push(conversationId);
     if (!state.pendingWatchAvailable) return null;
-    state.emitPending = onChange;
+    state.emitPending = (requests, queue, reply, terminals = [], active) => onChange(requests, queue, reply, terminals, active);
     return {
       dispose: () => {
         state.pendingWatchDisposed += 1;
@@ -320,6 +320,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
         settlements.set(itemId, { ...settlement, state: 'cancelled', resolvedAt: 3 });
       }
     },
+    syncTerminals: () => {},
     syncLiveReply: () => undefined,
     syncQueuedPrompts: (prompts) => {
       queuedPrompts = prompts.map(({ id, text }) => ({ id, text }));
@@ -394,7 +395,7 @@ describe('session timeline service', () => {
     });
     expect(await service.nativeRecord({ conversationId: 'conv-1', limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 5 }, { seq: 6 }, { seq: 7 }], hasNewer: true } });
     const active = { id: 'live:10', seq: 10, initiator: 'user' as const, items: [] };
-    state.emitPending?.([], [], null, active);
+    state.emitPending?.([], [], null, [], active);
     expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
     expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
   });

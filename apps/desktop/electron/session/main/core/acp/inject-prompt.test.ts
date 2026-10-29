@@ -43,6 +43,7 @@ describe('shared ACP prompt admission', () => {
     expect(deliveries.map(delivery => delivery.outcome)).toEqual(['queued', 'queued', 'queued']);
     await finish();
     await Promise.all(deliveries.map(delivery => delivery.completion));
+    await harness.agent.called('prompt', texts.length + 1);
     const sent = harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt);
     expect(sent).toEqual(texts.map(text => [{ type: 'text', text }]));
     const history = runtime.getHistory('conv-1');
@@ -79,6 +80,7 @@ describe('shared ACP prompt admission', () => {
     for (const text of envelopes) deliveries.push(await injectEmdashPromptDetached('conv-1', text));
     await finish();
     await Promise.all(deliveries.map(delivery => delivery.completion));
+    await harness.agent.called('prompt', 2);
     expect(harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt)).toEqual([
       [{ type: 'text', text: mergeDeliveryEnvelopes(envelopes) }],
     ]);

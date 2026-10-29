@@ -16,7 +16,8 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
       const applications = new Map<string, Row>()
       for (const item of row.items as Row[]) {
         const id = String(item.id).split(':')[0]!
-        applications.set(id, { id, name: item.name, ...(item.path ? { path: item.path } : {}), ...(item.use ? { use: item.use } : {}) })
+        applications.set(id, { id, name: item.name, ...(item.path ? { path: item.path } : {}), ...(item.use ? { use: item.use } : {}),
+          ...(item.note ? { note: item.note } : {}) })
       }
       row.items = [...applications.values()]
     }
@@ -47,8 +48,8 @@ export function boundedAssistantIndex(lines: string[], details?: string): string
           && Array.isArray(row.items) && row.items.some(item => (item as Row).path || ((item as Row).use as Row | undefined)?.task_skills))
         if (!applications) throw new Error('Assistant required resources exceed their context budget')
         // The route outranks its details: a connected application still says how it is used.
-        applications.items = (applications.items as Row[]).map(({ id, name, use }) => ({ id, name,
-          ...(use ? { use: { note: (use as Row).note, delegate: (use as Row).delegate } } : {}) }))
+        applications.items = (applications.items as Row[]).map(({ id, name, use, note }) => ({ id, name,
+          ...(use ? { use: { note: (use as Row).note, delegate: (use as Row).delegate } } : {}), ...(note ? { note } : {}) }))
         applications.omitted_details = true
         result = render()
         continue

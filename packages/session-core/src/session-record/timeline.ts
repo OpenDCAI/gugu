@@ -1,12 +1,12 @@
+import type { TerminalState } from '../acp/models/terminals';
 import type { SessionLiveReply } from './live-reply';
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 
 import type { QueuedPrompt } from '../acp/models/prompt';
 import { toolCallName } from '../acp/models/turns/tool-calls';
 import type { TranscriptItem, TranscriptTurn, TranscriptTurnOutcome } from '../acp/models/turns/turn';
 import { RECENT_ACTION_MAX_ENTRIES, RECENT_ACTION_WINDOW_MS, recentActionName } from '../acp/recent-actions';
 import { AcpTranscriptParser } from '../acp/reducer';
-import { decodeSessionUpdate } from '../acp/reducer/decode';
 import type { ParserState } from '../acp/reducer/reducer';
 import type {
   PendingRequest,
@@ -38,7 +38,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 3;
+export const TIMELINE_ARCHIVE_VERSION = 6;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -55,11 +55,7 @@ export type TimelineArchive = {
   readonly settlementSeq: readonly (readonly [string, number])[];
   readonly removed: readonly (readonly [string, number])[];
   readonly recentActions: readonly RecentActionEntry[];
-  /**
-   * 每一轮上次发布到哪个 seq。存了它，装回来之后**手机手里的游标仍然有效** ——
-   * 它只要「我那之后的增量」，不必整份重下一次快照。不存的话就只能换代重来，
-   * 那等于把省下来的机器时间又在传输上赔回去。
-   */
+  /** Cached publication indexes avoid publishing unchanged items again after the initial snapshot. */
   readonly published: readonly TurnPublishArchive[];
 };
 
@@ -198,6 +194,8 @@ class RecordTimeline implements SessionTimeline {
   private queuedDirty = false;
   private liveReply: SessionLiveReply | null = null;
   private liveReplyDirty = false;
+  private terminals: readonly TerminalState[] = [];
+  private terminalsDirty = false;
   private liveReplyTimer: ReturnType<typeof setTimeout> | null = null;
   private subscribers = new Set<Subscriber>();
   /** 最近一条记录的 provider 时钟。没有时钟的记录跟着上一条走，❌ 别拿 Date.now() 冒充。 */
@@ -252,7 +250,7 @@ class RecordTimeline implements SessionTimeline {
   private restoreArchive(archive: TimelineArchive | null): boolean {
     if (!archive || archive.version !== TIMELINE_ARCHIVE_VERSION) return false;
     this.parser.restoreState(archive.parser);
-    this.epochValue = archive.epoch;
+    // Keep this publisher's fresh epoch: an archive can predate frames already seen by a client.
     this.seq = archive.seq;
     this.lastAt = archive.lastAt;
     this.lastBoundaryMessageId = archive.lastBoundaryMessageId;
@@ -344,7 +342,8 @@ class RecordTimeline implements SessionTimeline {
       hasOlder: turns.length < all.length,
       ...this.recentActionsSnapshot(),
       queuedPrompts: [...this.queued],
-      liveReply: this.liveReply
+      liveReply: this.liveReply,
+      terminals: this.terminals
     };
   }
 
@@ -435,6 +434,7 @@ class RecordTimeline implements SessionTimeline {
         itemId: request.itemId,
         kind: request.kind,
         title: request.title,
+        ...(request.subject !== undefined ? { subject: request.subject } : {}),
         ...(request.detail !== undefined ? { detail: request.detail } : {}),
         ...(request.options.length > 0 ? { options: request.options } : {}),
         ...(request.origin ? { origin: request.origin } : {}),
@@ -476,6 +476,13 @@ class RecordTimeline implements SessionTimeline {
     if (JSON.stringify(next) === JSON.stringify(this.queued)) return;
     this.queued = next;
     this.queuedDirty = true;
+    this.publish();
+  }
+
+  syncTerminals(terminals: readonly TerminalState[]): void {
+    if (this.disposed || JSON.stringify(this.terminals) === JSON.stringify(terminals)) return;
+    this.terminals = terminals;
+    this.terminalsDirty = true;
     this.publish();
   }
 
@@ -574,15 +581,9 @@ class RecordTimeline implements SessionTimeline {
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
-        // Even an empty final thinking row carries its provider message identity.
-        // Later fragments of that same message use the common completed-turn tail.
-        const tail = !this.parser.activeTurn &&
-          (entry.update.sessionUpdate === 'agent_message_chunk' || entry.update.sessionUpdate === 'agent_thought_chunk') &&
-          entry.update.messageId && entry.update.messageId === this.lastBoundaryMessageId;
-        if (tail) this.parser.pushTail(decodeSessionUpdate(entry.update), at);
-        else this.parser.push(entry.update, at);
+        this.parser.pushRecordEvent(entry.event, at, this.lastBoundaryMessageId);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
-        this.trackSettlement(entry.update, at);
+        this.trackSettlement(entry.event, at);
       }
       changed = true;
     }
@@ -597,8 +598,8 @@ class RecordTimeline implements SessionTimeline {
    * ⇒ 有人答了 = 已经在别处答了（终端里直接答的);没答(拒答、超时、这一轮被停、codex 回「这一问用不了」)= 本地这条作废。
    * 答没答按工具判,判据只在 `questionAnswered`。
    */
-  private trackSettlement(update: SessionUpdate, at: number): void {
-    if (update.sessionUpdate === 'tool_call') {
+  private trackSettlement(update: NormalizedEvent, at: number): void {
+    if (update.kind === 'tool_call') {
       const question = readQuestion(update);
       if (!question || this.settlements.has(question.itemId)) return;
       if (question.kind === 'question' && !question.questions) this.questionsAwaitingInput.set(question.itemId, question.toolName);
@@ -620,10 +621,10 @@ class RecordTimeline implements SessionTimeline {
       });
       return;
     }
-    if (update.sessionUpdate === 'tool_call_update') {
+    if (update.kind === 'tool_update') {
       const awaiting = this.questionsAwaitingInput.get(update.toolCallId);
       if (awaiting !== undefined && update.rawInput !== undefined) {
-        const late = readQuestion({ sessionUpdate: 'tool_call', toolCallId: update.toolCallId, title: awaiting, rawInput: update.rawInput });
+        const late = readQuestion({ toolCallId: update.toolCallId, title: awaiting, rawInput: update.rawInput ?? undefined });
         if (late?.questions) {
           this.questionsAwaitingInput.delete(update.toolCallId);
           const pending = this.settlements.get(update.toolCallId);
@@ -723,7 +724,7 @@ class RecordTimeline implements SessionTimeline {
     if (this.disposed || this.suspended) return;
     const turns = this.currentTurns();
     const nextSeq = this.seq + 1;
-    let changed = this.needsPublish || this.dirtySettlements.size > 0 || this.queuedDirty || this.liveReplyDirty;
+    let changed = this.needsPublish || this.dirtySettlements.size > 0 || this.queuedDirty || this.liveReplyDirty || this.terminalsDirty;
 
     // 先把要变的都算出来放一边，确认真有变化才提交 —— seq 只在有变化时前进。
     const staged = new Map<string, PublishedTurn>();
@@ -790,6 +791,7 @@ class RecordTimeline implements SessionTimeline {
     this.dirtySettlements.clear();
     this.queuedDirty = false;
     this.liveReplyDirty = false;
+    this.terminalsDirty = false;
     this.needsPublish = false;
 
     for (const subscriber of [...this.subscribers]) this.deliver(subscriber);
@@ -851,11 +853,10 @@ class RecordTimeline implements SessionTimeline {
       settlements,
       ...this.recentActionsSnapshot(),
       queuedPrompts: [...this.queued],
-      liveReply: this.liveReply
+      liveReply: this.liveReply,
+      terminals: this.terminals
     };
   }
-
-
 
   private recordRecentActions(items: readonly TranscriptItem[], at: number): void {
     for (const item of items) {

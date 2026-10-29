@@ -221,7 +221,7 @@ describe('AgentTerminalManager.killAll()', () => {
         expect(healthy.killFn).toHaveBeenCalledWith('SIGTERM');
         expect(manager.get(failedId)).toBeDefined();
         expect(manager.get(healthyId)).toBeUndefined();
-        expect(recording.terminalReleased).toEqual([{ sessionId: 'conv-1', terminalId: healthyId }]);
+        expect(recording.terminalReleased).toEqual([{ sessionId: 'conv-1', scope: 'conv-1', terminalId: healthyId }]);
         expect(report).toHaveBeenCalledWith('ACP terminal process cleanup failed', { terminalId: failedId, sessionId: 'conv-1', error });
       } finally {
         report.mockRestore();

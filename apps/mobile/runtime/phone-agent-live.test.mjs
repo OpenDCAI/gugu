@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { createPhoneLiveProjection, createPhonePiObserver } from './phone-agent-live.mjs'
-import { toolCallStart } from '../../../packages/session-core/src/session-record/sources/shared.ts'
+import { toolCallStart, toolCallResult } from '../../../packages/session-core/src/session-record/sources/shared.ts'
 
 test('real text deltas retain the same shared entry keys and message ID when authoritative Pi text arrives', () => {
   const live = createPhoneLiveProjection()
@@ -12,10 +12,11 @@ test('real text deltas retain the same shared entry keys and message ID when aut
   live.accept(agent, job, { kind: 'delta', id: 'live-message', index: 0, textKind: 'text', text: '实时' })
   live.accept(agent, job, { kind: 'delta', id: 'live-message', index: 0, textKind: 'text', text: '回答' })
   const streaming = live.project(agent, []).pending
-  assert.equal(streaming.map((entry) => entry.update.content.text).join(''), '实时回答')
+  assert.equal(streaming.map((entry) => entry.event.text).join(''), '实时回答')
+  assert.ok(streaming.every((entry) => entry.event.kind === 'message' && !('update' in entry)))
   live.accept(agent, job, { kind: 'complete', id: 'live-message', at: 10, content: [{ type: 'text', text: '实时回答' }] })
   live.accept(agent, job, { kind: 'committed', id: 'live-message', recordId: 'provider-message' })
-  const raw = [{ key: 'pi:provider-message#0', at: 10, update: { sessionUpdate: 'agent_message_chunk', messageId: 'pi:provider-message#0', content: { type: 'text', text: '实时回答' } } }]
+  const raw = [{ key: 'pi:provider-message#0', at: 10, event: { kind: 'message', role: 'assistant', messageId: 'pi:provider-message#0', text: '实时回答' } }]
   const persisted = live.project(agent, raw)
   assert.deepEqual(persisted.base, streaming)
   assert.deepEqual(persisted.pending, [])
@@ -33,19 +34,20 @@ test('tool declarations/results use the actual tool ID and disk handoff does not
   live.accept(agent, job, { kind: 'complete', id: 'tool-message', at: 10, content: [{ type: 'toolCall', id: 'actual-tool', name: 'phone_call', arguments: { name: 'calendar.events.list', args: {} } }] })
   live.accept(agent, job, { kind: 'tool', toolCallId: 'actual-tool', name: 'phone_call', args: {}, at: 11 })
   live.accept(agent, job, { kind: 'committed', id: 'tool-message', recordId: 'a1' })
-  live.accept(agent, job, { kind: 'result', id: 'tool-result', toolCallId: 'actual-tool', at: 12, content: [{ type: 'text', text: '真实结果' }], isError: false })
+  live.accept(agent, job, { kind: 'result', id: 'tool-result', toolCallId: 'actual-tool', at: 12, content: [{ type: 'text', text: '真实结果' }, { type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=' }], isError: false })
   live.accept(agent, job, { kind: 'committed', id: 'tool-result', recordId: 'r1' })
   const first = live.project(agent, []).pending
-  assert.equal(first.filter((entry) => entry.update.sessionUpdate === 'tool_call').length, 1)
+  assert.equal(first.filter((entry) => entry.event.kind === 'tool_call').length, 1)
   const raw = [
-    { key: 'pi:a1#0', at: 10, update: toolCallStart('actual-tool', 'phone_call', 'other', { name: 'calendar.events.list', args: {} }) },
-    { key: 'pi:r1#0', at: 12, update: { sessionUpdate: 'tool_call_update', toolCallId: 'actual-tool', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: '真实结果' } }] } },
+    { key: 'pi:a1#0', at: 10, event: toolCallStart('actual-tool', 'phone_call', 'other', { name: 'calendar.events.list', args: {} }) },
+    { key: 'pi:r1#0', at: 12, event: toolCallResult('actual-tool', 'completed', { text: '真实结果', images: [{ mimeType: 'image/png', data: 'aW1hZ2U=' }] }) },
   ]
   const persisted = live.project(agent, raw)
   assert.deepEqual(persisted.pending, [])
-  assert.equal(persisted.base[0].key, first.find((entry) => entry.update.sessionUpdate === 'tool_call').key)
-  assert.equal(persisted.base[1].key, first.find((entry) => entry.update.sessionUpdate === 'tool_call_update').key)
-  assert.equal(persisted.base[1].update.toolCallId, 'actual-tool')
+  assert.equal(persisted.base[0].key, first.find((entry) => entry.event.kind === 'tool_call').key)
+  assert.equal(persisted.base[1].key, first.find((entry) => entry.event.kind === 'tool_update').key)
+  assert.equal(persisted.base[1].event.toolCallId, 'actual-tool')
+  assert.deepEqual(persisted.base[1].event.images, first.find((entry) => entry.event.kind === 'tool_update').event.images)
 })
 
 test('SDK observation resolves commit by message identity and emits only safe retry/compaction metadata', async () => {

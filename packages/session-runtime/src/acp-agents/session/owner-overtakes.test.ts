@@ -5,27 +5,26 @@
  */
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeAcpAgent } from '../acp-test-support';
-import { SessionCell } from './cell';
+import { FakeAcpAgent, requestActivityCell } from '../acp-test-support';
+import type { SessionCell } from './cell';
 
-function steeringCell(reportsState = false, callbacks?: ConstructorParameters<typeof SessionCell>[0]['callbacks']) {
+function steeringCell(_agentStarted = false, callbacks?: ConstructorParameters<typeof SessionCell>[0]['callbacks']) {
   const agent = new FakeAcpAgent();
   agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'injected' });
   agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(() => {}));
-  const cell = new SessionCell({
+  const cell = requestActivityCell(agent, {
     mergeEnvelopes: (texts) => texts.join('\n'),
     sessionId: 'conv-1',
     projectId: 'proj-1',
     providerId: 'claude',
     acpSessionId: 'session-1',
-    agent,
     supportsSteering: true,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
     ...(callbacks ? { callbacks } : {}),
   });
   cell.applySessionReady();
-  if (reportsState) cell.setReportsState(true);
+  
   return { cell, agent };
 }
 
@@ -40,7 +39,8 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
   it('in a turn a delivery started, the owner\'s message steers in at once, ahead of a queued delivery', async () => {
     const { cell, agent } = steeringCell();
     void cell.prompt({ text: DELIVERY, origin: 'communication' });
-    await Promise.resolve();
+    await agent.called('prompt');
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Working on it.' });
     expect(cell.sessionState.lifecycle).toBe('working');
     expect(cell.history().active?.trigger).toEqual({ kind: 'delivery', chatIds: ['chat-gugu'] });
     await cell.queueBehindTurn({ text: DELIVERY.replace('ping', 'pong'), origin: 'communication' });
@@ -55,7 +55,7 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
 
   it('in a turn the agent started on its own (no prompt in flight), the owner\'s message steers in at once', async () => {
     const { cell, agent } = steeringCell(true);
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     expect(cell.sessionState.lifecycle).toBe('working');
     cell.push({ kind: 'message', role: 'assistant', messageId: 'a1', text: 'Background job finished; checking.' });
     expect(cell.history().active?.trigger).toEqual({ kind: 'agent' });
@@ -70,7 +70,8 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
   it('❌ negative: in a turn the owner started, the next message is queued as before', async () => {
     const { cell, agent } = steeringCell();
     void cell.prompt({ text: 'do the long task', origin: 'manual' });
-    await Promise.resolve();
+    await agent.called('prompt');
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Working on it.' });
     expect(cell.sessionState.lifecycle).toBe('working');
     expect(cell.history().active?.trigger).toEqual({ kind: 'owner' });
 
@@ -85,7 +86,7 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
     const { cell, agent } = steeringCell(true);
     void cell.prompt({ text: 'do the long task', origin: 'manual' });
     await Promise.resolve();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
 
     const next = await cell.queueBehindTurn({ text: 'and then this', origin: 'manual' });
 
@@ -96,7 +97,8 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
   it('typed text (sent verbatim from elsewhere, e.g. a startup delegation) is not the owner: its turn is a delivery, and the owner steers in', async () => {
     const { cell, agent } = steeringCell();
     void cell.prompt({ text: 'please review the migration', origin: 'typed' });
-    await Promise.resolve();
+    await agent.called('prompt');
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Working on it.' });
     expect(cell.sessionState.lifecycle).toBe('working');
     expect(cell.history().active?.trigger).toEqual({ kind: 'delivery' });
 
@@ -147,7 +149,7 @@ describe('SessionCell: the owner is not queued behind a turn someone else starte
 
     void created.prompt({ text: '<gugu_delivery route="scheduled" schedule="daily">run it</gugu_delivery>', origin: 'communication' });
     await Promise.resolve();
-    created.push({ kind: 'agent_state', state: 'running' });
+    created.push({ kind: 'agent_state', source: 'agent', state: 'running' });
 
     const visible = frames.filter((frame) => frame.active || frame.lifecycle === 'working');
     expect(visible.length).toBeGreaterThan(0);

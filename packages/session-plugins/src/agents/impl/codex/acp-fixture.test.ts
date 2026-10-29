@@ -1,27 +1,20 @@
-/**
- * Fixture-driven snapshot tests for Codex ACP transcript parsing.
- *
- * The fixture stores raw ACP output. This test applies Codex enrichment while
- * parsing, so the exit status the adapter reports in `rawOutput.exit_code` /
- * `_meta.terminal_exit` is materialized onto the execute rows — driving the
- * parser without the hook would exercise a path the product does not use.
- */
+/** Historical codex ACP wire audit; native history has its own record-source fixtures. */
 
 import {
   agentStateSchema,
-  planStateSchema,
+  sessionPlansSchema,
   sessionConfigStateSchema,
   sessionUsageSchema,
   transcriptTurnSchema,
 } from '@gugu/session-core/acp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { driveParser, loadFixture } from '../../../../tooling/fixtures/acp/drive-parser';
-import { enrichCodexUpdate } from './acp-transform';
+import { entitySnapshot } from '../../../../tooling/fixtures/acp/entity-snapshot';
 
 const fixture = loadFixture(new URL('./fixtures/acp-transcript.json', import.meta.url));
 
 function createParser() {
-  return driveParser(fixture, { enrich: enrichCodexUpdate });
+  return driveParser(fixture);
 }
 
 beforeAll(() => {
@@ -36,7 +29,7 @@ afterAll(() => {
 describe('Codex ACP fixture parsing', () => {
   it('transcript', () => {
     const parser = createParser();
-    expect({ committed: parser.history, active: parser.activeTurn }).toMatchSnapshot();
+    expect(entitySnapshot({ committed: parser.history, active: parser.activeTurn })).toMatchSnapshot();
   });
 
   it('config', () => {
@@ -70,7 +63,7 @@ describe('Codex ACP fixture parsing', () => {
     expect(() => transcriptTurnSchema.nullable().parse(parser.activeTurn)).not.toThrow();
     expect(() => sessionConfigStateSchema.parse(parser.config)).not.toThrow();
     expect(() => sessionUsageSchema.nullable().parse(parser.usage)).not.toThrow();
-    expect(() => planStateSchema.nullable().parse(parser.plan)).not.toThrow();
+    expect(() => sessionPlansSchema.nullable().parse(parser.plan)).not.toThrow();
     expect(() => agentStateSchema.array().parse(parser.agents)).not.toThrow();
   });
 });

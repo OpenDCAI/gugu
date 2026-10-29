@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,14 +71,21 @@ function collect(source: SessionRecordSource) {
   return { entries, resets, started };
 }
 
-const texts = (entries: RecordEntry[], kind: 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk') =>
-  contentEntries(entries).flatMap((entry) => {
-    const update = entry.update;
-    if (update.sessionUpdate !== kind) return [];
-    return update.content.type === 'text' ? [update.content.text] : [];
+const texts = (entries: RecordEntry[], role: 'user' | 'assistant' | 'thinking') =>
+  contentEntries(entries).flatMap(({ event }) => {
+    if (event.kind === 'thinking') return role === 'thinking' ? [event.text] : [];
+    return event.kind === 'message' && event.role === role ? [event.text] : [];
   });
 
 describe('hermes state.db 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const fixture = await loadFixture();
+    const { path } = await stageDb(fixture, fixture.messages, true);
+    const { entries, started } = collect(createHermesSqliteSource({ harness: 'hermes', providerSessionId: fixture.session.id, roots: [path] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('按候选库依次找有这个会话的那一份;都没有就响亮地失败', async () => {
     const fixture = await loadFixture();
     const { path } = await stageDb(fixture, fixture.messages, true);
@@ -113,13 +121,13 @@ describe('hermes state.db 记录源', () => {
     const { path } = await stageDb(fixture, fixture.messages, true);
     const { entries, started } = collect(createHermesSqliteSource({ harness: 'hermes', providerSessionId: fixture.session.id, roots: [path] }));
     await started;
-    const users = texts(entries, 'user_message_chunk');
+    const users = texts(entries, 'user');
     expect(users).toHaveLength(fixture.messages.filter((row) => row.role === 'user').length - 1);
     expect(users.some((text) => text.startsWith('[System:'))).toBe(false);
-    expect(texts(entries, 'agent_thought_chunk')).toEqual(['I should list the folder first.']);
-    const calls = contentEntries(entries).flatMap((entry) => (entry.update.sessionUpdate === 'tool_call' ? [entry.update] : []));
-    expect(calls.map((call) => [call.toolCallId, call.kind, call.rawInput])).toContainEqual(['call_11', 'execute', { command: 'ls' }]);
-    const results = contentEntries(entries).flatMap((entry) => (entry.update.sessionUpdate === 'tool_call_update' ? [entry.update.toolCallId] : []));
+    expect(texts(entries, 'thinking')).toEqual(['I should list the folder first.']);
+    const calls = contentEntries(entries).flatMap((entry) => ((entry.event.kind === 'tool_call') ? [entry.event] : []));
+    expect(calls.map((call) => [call.toolCallId, call.toolKind, call.rawInput ? JSON.parse(call.rawInput) : undefined])).toContainEqual(['call_11', 'execute', { command: 'ls' }]);
+    const results = contentEntries(entries).flatMap((entry) => ((entry.event.kind === 'tool_update') ? [entry.event.toolCallId] : []));
     expect(results).toEqual(['call_11', 'call_10']);
   });
 
@@ -171,7 +179,7 @@ describe('hermes state.db 记录源', () => {
     insert({ ...fixture.messages[0], id: 18, role: 'user', content: 'SUMMARY OF EARLIER TURNS', _compressed_summary: 1 });
     await source.catchUp?.();
     expect(resets).toEqual([]);
-    expect(texts(entries, 'user_message_chunk')).not.toContain('SUMMARY OF EARLIER TURNS');
+    expect(texts(entries, 'user')).not.toContain('SUMMARY OF EARLIER TURNS');
 
     entries.length = 0;
     db.prepare('update messages set active = 0, compacted = 0 where id = 16').run();

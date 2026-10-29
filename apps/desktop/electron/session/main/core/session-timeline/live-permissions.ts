@@ -2,6 +2,8 @@ import {
   sessionStateSchema,
   sessionSummarySchema,
   transcriptTurnSchema,
+  terminalStateSchema,
+  type TerminalState,
   type TranscriptTurn,
   type QueuedPrompt,
   type SessionState,
@@ -49,16 +51,23 @@ export type SessionStateWatch = { dispose(): void };
  */
 async function watchRunningSessionState(
   sessionId: string,
-  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, activeTurn?: TranscriptTurn | null) => void
+  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, terminals: readonly TerminalState[], activeTurn?: TranscriptTurn | null) => void
 ): Promise<SessionStateWatch | null> {
   const client = await peekAcpRuntimeClient();
   if (!client) return null;
 
   let state: SessionState | null = null;
   let turn: TranscriptTurn | null = null;
+  let terminals: readonly TerminalState[] = [];
+  let terminalReplica: ReplicaState<TerminalState[]> | null = null;
   let activeTurn: ReplicaState<TranscriptTurn | null> | null = null;
+  const detachTerminals = () => {
+    if (terminalReplica) void terminalReplica.dispose();
+    terminalReplica = null;
+    terminals = [];
+  };
   const emitLatest = () => {
-    if (state) onChange(state.pendingPermissions.map(permissionToPendingRequest), state.queuedPrompts, state.isGenerating ? liveReplyOf(turn) : null, turn);
+    if (state) onChange(state.pendingPermissions.map(permissionToPendingRequest), state.queuedPrompts, state.isGenerating ? liveReplyOf(turn) : null, terminals, turn);
   };
   const emit = (next: SessionState) => { state = next; emitLatest(); };
 
@@ -69,6 +78,16 @@ async function watchRunningSessionState(
       onChange: (next) => { if (session === replica) emit(next); },
     });
     session = replica;
+    const terminal = new ReplicaState<TerminalState[]>(client.session.state({ sessionId }, 'terminals'), {
+      schema: z.array(terminalStateSchema),
+      onChange: next => { if (terminalReplica === terminal) { terminals = next; emitLatest(); } },
+    });
+    terminalReplica = terminal;
+    void terminal.ready.then(() => {
+      if (terminalReplica === terminal) { terminals = terminal.current(); emitLatest(); }
+    }, (error: unknown) => {
+      if (terminalReplica === terminal) log.warn('sessionTimeline: terminals unavailable', { sessionId, error: String(error) });
+    });
     const active = new ReplicaState<TranscriptTurn | null>(client.session.state({ sessionId }, 'activeTurn'), {
       schema: transcriptTurnSchema.nullable(),
       onChange: (next) => { if (activeTurn === active) { turn = next; emitLatest(); } },
@@ -98,10 +117,11 @@ async function watchRunningSessionState(
           session = null;
           state = null;
           turn = null;
+          detachTerminals();
           if (activeTurn === active) activeTurn = null;
           void active.dispose();
           void replica.dispose();
-          onChange([], [], null);
+          onChange([], [], null, []);
         }
       }
     );
@@ -112,11 +132,12 @@ async function watchRunningSessionState(
     session = null;
     state = null;
     turn = null;
+    detachTerminals();
     const active = activeTurn;
     activeTurn = null;
     if (active) void active.dispose();
     void replica.dispose();
-    onChange([], [], null);
+    onChange([], [], null, []);
   };
   // `sessions.list` 里有记录 ≠ 还活着:结束的会话留在表里、lifecycle 变 closed,它的 session.state
   // 已经没了(同一条判据见 live-options.ts 的 readConfig)。
@@ -143,6 +164,7 @@ async function watchRunningSessionState(
       activeTurn = null;
       state = null;
       turn = null;
+      detachTerminals();
       if (active) void active.dispose();
     },
   };
@@ -151,7 +173,7 @@ async function watchRunningSessionState(
 /** A timeline may open before its runtime, or survive a model switch that replaces that runtime. */
 export async function watchSessionState(
   sessionId: string,
-  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, activeTurn?: TranscriptTurn | null) => void
+  onChange: (requests: PendingRequest[], queuedPrompts: QueuedPrompt[], liveReply: SessionLiveReply | null, terminals: readonly TerminalState[], activeTurn?: TranscriptTurn | null) => void
 ): Promise<SessionStateWatch> {
   let disposed = false;
   let generation = 0;
@@ -160,16 +182,16 @@ export async function watchSessionState(
     const own = ++generation;
     current?.dispose();
     current = null;
-    if (!disposed) onChange([], [], null);
+    if (!disposed) onChange([], [], null, []);
     try {
-      const next = await watchRunningSessionState(sessionId, (requests, queue, reply, activeTurn) => {
-        if (!disposed && generation === own) onChange(requests, queue, reply, activeTurn);
+      const next = await watchRunningSessionState(sessionId, (requests, queue, reply, terminals, activeTurn) => {
+        if (!disposed && generation === own) onChange(requests, queue, reply, terminals, activeTurn);
       });
       if (disposed || generation !== own) next?.dispose();
       else current = next;
     } catch (error) {
       if (!disposed && generation === own) {
-        onChange([], [], null);
+        onChange([], [], null, []);
         log.warn('sessionTimeline: live runtime watch unavailable', { sessionId, error: String(error) });
       }
     }

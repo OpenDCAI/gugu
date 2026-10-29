@@ -1,4 +1,4 @@
-import type { ToolImage, ToolImageRef, ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
+import type { TerminalState, ToolImage, ToolImageRef, ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import type {
   TimelineAfterResult,
@@ -21,7 +21,7 @@ import type {
 export const TRANSPORT_TEXT_LIMIT = 8_192;
 
 /** 会被裁的那些格子：工具调用带回来的大块文本。❌ 不裁用户自己写的消息。 */
-const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content', 'oldText', 'newText'] as const;
+const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content'] as const;
 
 /**
  * 工具交回来的图**不随记录走**:每张只留 `{ mimeType, chars }`(`imageRefs`),手机等那张图滚进视口、那一轮
@@ -34,6 +34,8 @@ const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content', 'oldTe
 function imageRefsOf(images: readonly ToolImage[]): ToolImageRef[] {
   return images.map((image) => ({ mimeType: image.mimeType, chars: image.data.length }));
 }
+
+const TRANSPORTED_BLOCKS = new Set(['diff', 'terminal']);
 
 function isToolNode(item: TranscriptItem): item is ToolNode {
   return item.kind !== 'message' && item.kind !== 'thinking';
@@ -62,6 +64,14 @@ function trimToolNode(node: ToolNode, limit: number): ToolNode {
   if (images) {
     patch ??= {};
     patch.imageRefs = imageRefsOf(images);
+  }
+
+  // Text and picture blocks are already projected into the trimmed `outputText` / `imageRefs` above;
+  // only the blocks a view reads from the entity itself (patches, terminal references) travel.
+  const blocks = node.kind === 'tool-group' ? undefined : node.contentBlocks;
+  if (blocks?.some((block) => !TRANSPORTED_BLOCKS.has(block.type))) {
+    patch ??= {};
+    patch.contentBlocks = blocks.filter((block) => TRANSPORTED_BLOCKS.has(block.type));
   }
 
   // 工具组与嵌套调用都往下走：大输出常常挂在子调用上（一个 Bash 组里的某一条）。
@@ -171,6 +181,12 @@ function fitTurnsToBudget(
   return start === 0 ? { turns, dropped: false } : { turns: turns.slice(start), dropped: true };
 }
 
+function trimTerminals(terminals: readonly TerminalState[] | undefined, limit: number): readonly TerminalState[] | undefined {
+  if (!terminals?.some(terminal => terminal.output.length > limit)) return terminals;
+  return terminals.map(terminal => terminal.output.length > limit
+    ? { ...terminal, output: terminal.output.slice(0, limit), truncated: true } : terminal);
+}
+
 /** The phone and desktop cursor APIs use one field trim and one UTF-8 page budget. */
 function trimTurnPageForTransport<T extends { turns: TranscriptTurn[]; hasOlder: boolean }>(
   page: T,
@@ -211,7 +227,9 @@ export function trimSnapshotForTransport(
   limit = TRANSPORT_TEXT_LIMIT,
   budget = TRANSPORT_PAYLOAD_BUDGET,
 ): TimelineSnapshot {
-  return trimTurnPageForTransport(snapshot, limit, budget);
+  const terminals = trimTerminals(snapshot.terminals, limit);
+  const page = trimTurnPageForTransport(snapshot, limit, budget);
+  return terminals === snapshot.terminals ? page : { ...page, ...(terminals !== undefined ? { terminals } : {}) };
 }
 
 export function trimBatchForTransport(
@@ -219,7 +237,8 @@ export function trimBatchForTransport(
   limit = TRANSPORT_TEXT_LIMIT,
 ): TimelineBatch {
   const turns = trimPatches(batch.turns, limit);
-  return turns === batch.turns ? batch : { ...batch, turns };
+  const terminals = trimTerminals(batch.terminals, limit);
+  return turns === batch.turns && terminals === batch.terminals ? batch : { ...batch, turns, ...(terminals !== undefined ? { terminals } : {}) };
 }
 
 export function trimOlderForTransport(

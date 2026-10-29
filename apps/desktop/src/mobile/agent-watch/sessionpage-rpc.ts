@@ -7,7 +7,8 @@ import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
 import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
 import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, FILE_PATCH_PROTOCOL, protocol14FileChanges, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
@@ -135,9 +136,11 @@ export function machineRpc(deviceId: string) {
 function once(deviceId: string) {
   return createRPCClient<RpcRouter>(async (channel, ...args) => {
     if (!reachable(deviceId)) throw new SessionpageRpcError('unreachable', translateSessionMessage('deviceScope.unreachable', { device: deviceId.slice(0, 8) }))
-    const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs: 12_000 })
+    const reply = await callDeviceRpc<{ value: unknown; protocol?: number }>(deviceId, SESSION_HOST_RPC.call,
+      { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-    return reply.result?.value
+    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
+    return protocol14FileChanges(reply.result?.value, reply.result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
   })
 }
 
@@ -153,7 +156,7 @@ type PhoneAppAnswer<A> = A extends AppSpawnAction ? { agentId: string } : A exte
 export async function appCallOn<A extends PhoneAppAction>(deviceId: string, caller: unknown, action: A): Promise<PhoneAppAnswer<A>> {
   const timeoutMs = action.action === 'app_call' ? appCallWaitMs(action) : action.action === 'spawn' ? 90_000 : 180_000
   const reply = await callDeviceRpc<{ value: PhoneAppAnswer<A> }>(deviceId, SESSION_HOST_RPC.call,
-    { channel: `agentSession.${action.action}`, args: [caller, action] }, { timeoutMs })
+    { channel: `agentSession.${action.action}`, args: [caller, action], protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs })
   if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
   if (!reply.result && action.action !== 'app_call') throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
   return reply.result?.value as PhoneAppAnswer<A>

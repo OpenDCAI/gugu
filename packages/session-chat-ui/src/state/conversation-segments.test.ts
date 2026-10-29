@@ -18,7 +18,7 @@ const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process
 } satisfies ItemSegmenter]));
 const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ caches: {}, expanded: () => false, active,
   foldTurnProcess: true, agentConversation: true, translate: defaultChatTranslator, plan: () => null,
-  pendingToolCallIds: () => new Set(), terminalOutputText: () => null, terminalExitStatus: () => null,
+  pendingToolCallIds: () => new Set(), terminalSnapshot: () => null,
   isTurnProcessExpanded: (id: string) => toggles.includes(id),
 } as unknown as SegmentCtx);
 
