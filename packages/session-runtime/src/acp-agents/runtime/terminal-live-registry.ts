@@ -85,7 +85,10 @@ export class TerminalLiveRegistry {
   snapshotSession(sessionId: string): TerminalState[] {
     const cached = this.snapshots.get(sessionId);
     if (cached) return cached;
-    const snapshots = [...(this.bySession.get(sessionId)?.values() ?? [])].map((record) => record.snapshot ??= {
+    const session = this.bySession.get(sessionId);
+    // 没有终端的会话不记:关掉之后迟到的一次同步不该替一条已经拆掉的会话留下一格。
+    if (!session) return [];
+    const snapshots = [...session.values()].map((record) => record.snapshot ??= {
       ...record.state,
       // Incomplete trailing UTF-8 stays invisible until another chunk or exit arrives.
       output: new TextDecoder().decode(record.bytes, { stream: record.state.exitStatus === null }),
