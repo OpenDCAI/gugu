@@ -22,6 +22,16 @@ function fixture(events = [event()], localNow = Date.parse('2026-10-26T01:00:00Z
 }
 afterEach(() => { vi.useRealTimers() })
 describe('one account work outbox', () => {
+  it.each(['CLIENT_OUTDATED', 'client_outdated'])('releases an incompatible claimant without a delivery failure or accumulated backoff (%s)', async code => {
+    const f = fixture([event({ failed_attempts: 8, attempts: 9 })])
+    f.deliver.mockRejectedValue(Object.assign(new Error('requester must update'), { code }))
+    await f.pump.kick()
+    expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({
+      p_stage: 'retry', p_error_code: 'CLIENT_OUTDATED', p_receipt: { failure_observed: false }, p_retry_after_seconds: 1,
+    }), context)
+    expect(f.retryIn).toHaveBeenCalledWith(1000)
+  })
+
   it('defers a moved home before contacting any old delivery address',async()=>{
     const f=fixture([event({delivery_target:null} as never)])
     await f.pump.kick();expect(f.deliver).not.toHaveBeenCalled()
