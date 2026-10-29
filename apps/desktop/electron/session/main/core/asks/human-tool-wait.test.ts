@@ -170,7 +170,7 @@ describe('a human request outlives only its steered tool waiter', () => {
     expect(readHumanToolRecords('session')).toEqual([]);
   });
 
-  it('does not carry a past steer into a human request that was not waiting yet', async () => {
+  it('remembers a steer during this operation until its human request is registered', async () => {
     let begin!: () => void;
     const setup = new Promise<void>(resolve => { begin = resolve; });
     const tool = runHumanTool<unknown>('session', 'browser_request_takeover', undefined, async signal => {
@@ -181,11 +181,11 @@ describe('a human request outlives only its steered tool waiter', () => {
     const returned = vi.fn(); void tool.then(returned);
     yieldHumanToolWaits('session'); begin();
     await drain();
-    expect(returned).not.toHaveBeenCalled();
+    expect(returned).toHaveBeenCalledWith(expect.objectContaining({ state: 'pending', request_id: 'late-card' }));
     hostAsks.get('session')!.get('late-card')!.answered({ optionId: 'done', by: 'desktop' });
-    expect(await tool).toMatchObject({ optionId: 'done' });
+    expect(await tool).toMatchObject({ state: 'pending', request_id: 'late-card' });
     await drain();
-    expect(fixture.send).not.toHaveBeenCalled();
+    expect(fixture.send).toHaveBeenCalledTimes(1);
   });
 
   it('retries a failed result handoff with the same message ID and the recorded actual result', async () => {

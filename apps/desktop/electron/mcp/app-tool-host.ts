@@ -16,6 +16,9 @@ import { claimTakes } from '../../src/session/shared/extensions/file-openers'
 import { FOLDER_PACKAGE_MAX_BYTES } from '../session/main/core/extensions/received-packages'
 import { installAgreedOn, InstallRefusedError } from '../../src/session/shared/extensions/install-agreed-on'
 import { sessionpageSessionOfGrantKey } from '../stable-mcp-persistence'
+import { EXTENSION_TOOL_DEFS } from './gugu-extension-tool'
+import type { HumanToolKind } from '../session/main/core/asks/human-tool-results'
+import { runHumanTool, humanToolPending } from '../session/main/core/asks/human-tool-wait'
 
 /**
  * 一次 app_* 调用在宿主这一侧走完:`device` 指另一台机器就整趟交给那一台;否则先读卡片 / 判 chat 与 item,
@@ -31,9 +34,9 @@ export async function runAppAction(
   const perform = (lifetime?: AbortSignal) => dispatchAppAction(action, context,
     ready => run(ready, lifetime), runSession ? ready => runSession(ready, lifetime) : undefined)
   const sessionId = context.grantKey ? sessionpageSessionOfGrantKey(context.grantKey) : null
-  if (!sessionId) return perform(signal)
-  const { runHumanTool, humanToolPending } = await import('../session/main/core/asks/human-tool-wait')
-  return runHumanTool<unknown>(sessionId, 'app_install', signal, perform, humanToolPending)
+  const name = EXTENSION_TOOL_DEFS.find(def => def.action === (action as { action?: string }).action)?.name
+  if (!sessionId || !name) return perform(signal)
+  return runHumanTool<unknown>(sessionId, name as HumanToolKind, signal, perform, humanToolPending)
 }
 
 /** The original local/remote workflow continues after its caller receives pending. */

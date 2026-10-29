@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { log } from '@main/lib/logger';
 import {
-  readHumanToolRecords, reportHumanToolDelivery, saveHumanToolRecord,
+  readHumanToolRecords, reportHumanToolDelivery, saveHumanToolRecord, prepareHumanToolResult,
   type HumanToolKind, type HumanToolRecord,
 } from './human-tool-results';
 
@@ -13,6 +13,7 @@ type Operation = {
   sessionId: string;
   waiting?: string;
   yielded: boolean;
+  steered: boolean;
   settled: boolean;
   controller: AbortController;
   record: HumanToolRecord;
@@ -29,6 +30,7 @@ export const humanToolPending = (requestId: string): HumanToolPending => ({
 /** Only the runtime's real promptSteered event may call this. Queued input is deliberately absent. */
 export function yieldHumanToolWaits(sessionId: string): void {
   for (const operation of active) if (operation.sessionId === sessionId && !operation.settled) {
+    operation.steered = true;
     if (operation.waiting) operation.release();
   }
 }
@@ -39,6 +41,8 @@ export function registerHumanToolAsk(sessionId: string, requestId: string): () =
   if (!operation || operation.settled || operation.sessionId !== sessionId) return () => undefined;
   operation.waiting = requestId;
   if (!operation.yielded) operation.record.requestId = requestId;
+  // Let the initial snapshot publish (and any immediate answer settle) before releasing.
+  if (operation.steered) queueMicrotask(operation.release);
   return () => { if (operation.waiting === requestId) operation.waiting = undefined; };
 }
 
@@ -67,7 +71,7 @@ export function runHumanTool<T>(sessionId: string, tool: HumanToolKind, signal: 
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener('abort', onAbort, { once: true });
     const operation: Operation = {
-      sessionId, yielded: false, settled: false, controller,
+      sessionId, yielded: false, steered: false, settled: false, controller,
       record: { id: randomUUID(), requestId: '', sessionId, tool, messageId: randomUUID(), state: 'waiting' },
       release: () => {
         if (!operation.waiting || operation.settled || operation.yielded || controller.signal.aborted) return;
@@ -85,8 +89,8 @@ export function runHumanTool<T>(sessionId: string, tool: HumanToolKind, signal: 
       active.delete(operation);
       signal?.removeEventListener('abort', onAbort);
       if (!operation.yielded) { if (failed) reject(result); else resolve(result as T); return; }
-      operation.record = { ...operation.record, state: 'finished', result: failed ? { error: String(result) } : result };
       try {
+        operation.record = prepareHumanToolResult(operation.record, failed ? { error: String(result) } : result);
         saveHumanToolRecord(operation.record);
         if (!operation.record.paused) reportHumanToolDelivery(operation.record);
       } catch (error) { log.error('Human tool result persistence failed', { sessionId, error: String(error) }); }

@@ -58,6 +58,7 @@ type AssistanceOutcome =
   | { kind: 'filled'; fill: FillResult }
   | { kind: 'returned' }
   | { kind: 'dismissed' }
+  | { kind: 'withdrawn' }
   | { kind: 'stopped' }
   | { kind: 'timeout' }
   | { kind: 'ended'; reason: string };
@@ -478,6 +479,7 @@ export class CloudBrowser {
       if (this.holder) await this.releaseControl(this.holder);
       return { kind: 'returned' };
     }
+    if (result === 'withdrawn' && !this.endedReason && this.automation !== 'stopped') return { kind: 'withdrawn' };
     if (result === 'unavailable') return { kind: 'ended', reason: 'This task is unavailable; no request was opened.' };
     return result === 'timeout' ? { kind: 'timeout' } : this.endedReason ? { kind: 'ended', reason: this.endedReason } : { kind: this.automation === 'stopped' ? 'stopped' : 'dismissed' };
   }
@@ -727,6 +729,8 @@ function filledMessage(site: string, fill: FillResult, source: 'saved' | 'recent
 
 function outcomeMessage(outcome: AssistanceOutcome, kind: 'login' | 'takeover'): string {
   switch (outcome.kind) {
+    case 'withdrawn':
+      return 'The original browser request was withdrawn before the person answered. This is not approval or a refusal by the person.';
     case 'dismissed':
       return kind === 'login'
         ? 'The person closed the password vault without logging in. Do not ask for the password in chat; tell them you need them to log in and wait.'
