@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -3149,6 +3150,8 @@ const reportShutdownPhase = (event: ShutdownPhaseEvent): void => {
   shutdownLogger.info(event, `[shutdown] phase=${event.phase} state=${event.state} elapsedMs=${event.elapsedMs}${error}`)
 }
 
+// 正常退出:留一句,下次开机收残据此说「重启打断了这一轮」,❌ 说成没正常退出。
+app.on('before-quit', () => noteExitReason(app.getPath('userData'), 'restart'))
 app.on('before-quit', createRuntimeBeforeQuitHandler({
   getHost: () => deviceRuntimeHost,
   setQuitting: (value) => {
@@ -3233,6 +3236,8 @@ const killEnginesOnCrash = (label: string): void => {
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
 const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
+  noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
     killEnginesOnCrash(label)
     process.exit(code)
