@@ -67,6 +67,7 @@ export async function resolveLocalAcpSpawnContext(
     surface: 'acp',
     descriptor: plugin.capabilities.sessionBundle,
     executable: runContext.cli.path,
+    versionLine: plugin.capabilities.hostDependency.versionLine,
     executionContext: localLaunchProbeContext,
     fileStamp: diskFileStamp,
     // 这一格从前这条路上根本没读 ⇒ 打包机上的 electron 跑不动某些适配器时,终端腿换了

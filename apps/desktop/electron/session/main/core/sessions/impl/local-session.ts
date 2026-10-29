@@ -382,6 +382,7 @@ export class LocalSessionProvider implements SessionProvider {
         surface: 'tui',
         descriptor: plugin.capabilities.sessionBundle,
         executable: executableCli,
+        versionLine: plugin.capabilities.hostDependency.versionLine,
         executionContext: this.ctx,
         runtimeExecutable: runContext.runtimeExecutable,
         // 经 node 起的家(pi)在 Windows 上要从 `.cmd` 壳读出 JS 入口再交给 node(#6390)。

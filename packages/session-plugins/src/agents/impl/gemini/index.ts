@@ -9,6 +9,7 @@ import {
   MANAGED_NODE_VERSION,
   buildStandardCommand,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { GEMINI_PERMISSION_MODES } from './permission-modes';
@@ -102,12 +103,12 @@ export const plugin = definePlugin(
     //    真要把 gemini 的登录态接回来，先决定它的登录动作长什么样，❌ 别先补一个读不到的判据。
     // 托管安装(npm backend):`@google/gemini-cli` 是纯 JS(bin `bundle/gemini.js`),
     // 依赖树由 mise 内置的 aube 装,机器上不需要有 node/npm;跑它的 node 由咕咕自己钉。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'gemini',
       backend: 'npm',
       package: '@google/gemini-cli',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     /**
      * 用户自己往这家装 MCP server 的通道：`~/.gemini/settings.json` 的 `mcpServers`
      * （适配器早已存在于 session-core helpers —— qwen 的适配器就是它的别名）。
