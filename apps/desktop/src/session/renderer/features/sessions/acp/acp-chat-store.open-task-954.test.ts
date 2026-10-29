@@ -230,17 +230,6 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(history(store)).toEqual(['saved-turn']);
   });
 
-  it('does not infer missing re-probe consent from an error before the durable mark arrives', async () => {
-    const { store, open } = savedTask();
-    boundary.start.mockResolvedValueOnce({ success: false, error: {
-      type: 'provider_session_missing', cause: { name: 'Error', message: 'saved ID is absent' },
-    } });
-    await open();
-    store.retry();
-    expect(boundary.start).toHaveBeenCalledTimes(1);
-    expect(store.loadError?.kind).toBe('provider_session_missing');
-  });
-
   it('ordinary retry still starts fresh after the host clears the old provider reference', async () => {
     const { store, record, open } = savedTask(true);
     await open();
@@ -261,6 +250,7 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     store.setDraftText('superseded draft');
     store.setDraftText(text);
     // Recovery happens before the debounce; it must cancel that pending timer.
+    boundary.liveDraft = { rev: 0, text: 'older engine draft', updatedAt: 1 };
     runInAction(() => { delete record.providerSessionState; });
     store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(store.session).not.toBeNull());
@@ -273,21 +263,25 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(store.draftText).toBe(text);
   });
 
-  it('flushes a detached local draft above the live snapshot revision instead of treating it as an acknowledgement', async () => {
+  it.each([2, 3])('acknowledges engine revision %i without overwriting its newer draft', async rev => {
     const { store, record, open } = savedTask(true);
     await open();
     vi.useFakeTimers();
-    store.setDraftText('local text typed while missing');
-    await vi.runOnlyPendingTimersAsync();
-    boundary.liveDraft = { rev: 25, text: 'older engine draft', updatedAt: 1 };
+    store.setDraftText('first local draft');
+    store.setDraftText('unacknowledged local draft');
+    boundary.liveDraft = { rev, text: 'newer draft from another device', updatedAt: 1 };
     runInAction(() => { delete record.providerSessionState; });
     store.retry({ retryMissing: true });
     await vi.waitFor(() => expect(store.session).not.toBeNull());
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.draft).not.toHaveBeenCalled();
+    // A subsequent genuine local edit advances from the acknowledged revision.
+    store.setDraftText('new edit after recovery');
+    await vi.runOnlyPendingTimersAsync();
     expect(boundary.draft).toHaveBeenCalledExactlyOnceWith({
       sessionId: store.runtimeSessionId,
-      draft: { rev: 26, input: { text: 'local text typed while missing' } },
+      draft: { rev: rev + 1, input: { text: 'new edit after recovery' } },
     });
-    expect(store.draftText).toBe('local text typed while missing');
   });
 
   it('does not write an untouched draft when a session becomes live', async () => {
@@ -298,31 +292,39 @@ describe('saved tasks remain open when their provider cannot resume', () => {
 
 });
 
-// Keep the renderer's missing predicate owned by one computed getter. Traverse
-// comparisons rather than counting a particular formatting of the expression.
-function missingPredicateOwners(source: string): string[] {
+// A read of the durable field belongs to the getter even when its spelling is
+// aliased or compared differently. Scan the whole module, including outside classes.
+function missingStateReadsOutsideGetter(source: string): string[] {
   const file = ts.createSourceFile('acp-chat-store.ts', source, ts.ScriptTarget.Latest, true);
   const store = file.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'AcpChatStore');
   if (!store || !ts.isClassDeclaration(store)) throw new Error('AcpChatStore declaration not found');
-  const owners: string[] = [];
-  for (const member of store.members) {
-    const visit = (node: ts.Node): void => {
-      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
-        && ts.isPropertyAccessExpression(node.left) && ts.isStringLiteral(node.right)
-        && ((node.left.name.text === 'providerSessionState' && node.right.text === 'missing')
-          || (node.left.getText(file).startsWith('this.loadError') && node.right.text === 'provider_session_missing'))) {
-        owners.push(member.name?.getText(file) ?? '<anonymous>');
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(member);
-  }
-  return owners;
+  const getter = store.members.find(node => ts.isGetAccessorDeclaration(node) && node.name.getText(file) === 'providerSessionMissing');
+  if (!getter || !ts.isGetAccessorDeclaration(getter) || !getter.body) throw new Error('Missing predicate getter not found');
+  const body = getter.body;
+  const outside: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === 'providerSessionState'
+      && (node.pos < body.pos || node.end > body.end)) {
+      outside.push(node.parent.getText(file));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return outside;
 }
 
-it('enforces a single owner for the missing predicate and detects a copied comparison', () => {
-  const source = readFileSync(new URL('./acp-chat-store.ts', import.meta.url), 'utf8');
-  expect(missingPredicateOwners(source)).toEqual(['providerSessionMissing', 'providerSessionMissing']);
-  const duplicate = source.replace('  retry(', "  copiedPredicate() { return this.loadError?.kind === 'provider_session_missing'; }\n  retry(");
-  expect(missingPredicateOwners(duplicate)).toContain('copiedPredicate');
+const storeSource = () => readFileSync(new URL('./acp-chat-store.ts', import.meta.url), 'utf8');
+it('forbids reading providerSessionState outside the one missing getter', () => {
+  expect(missingStateReadsOutsideGetter(storeSource())).toEqual([]);
+});
+it.each([
+  "if (record.providerSessionState !== 'missing') {}",
+  "if (record.providerSessionState == 'missing') {}",
+  "if ('missing' === record.providerSessionState) {}",
+  "switch (record.providerSessionState) { case 'missing': break; }",
+  "const { providerSessionState: state } = record; if (state === 'missing') {}",
+  "const key = 'providerSessionState'; const state = record[key];",
+  "function outsideClass() { return record.providerSessionState; }",
+])('the single-source guard rejects %s', copiedRead => {
+  expect(missingStateReadsOutsideGetter(`${storeSource()}\n${copiedRead}`)).not.toEqual([]);
 });

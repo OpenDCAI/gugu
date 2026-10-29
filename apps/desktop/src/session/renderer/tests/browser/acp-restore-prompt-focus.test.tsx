@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { runInAction } from 'mobx'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { observable, runInAction } from 'mobx'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { MessageProvider } from '@gugu/session-ui/react/components'
 import { LocalizationProvider, setLocalePreference } from '@/i18n'
@@ -12,14 +12,43 @@ import '@renderer/index.css'
 
 const active = vi.hoisted(() => ({
   store: null as unknown,
-  record: null as { id: string; providerId: string; providerSessionId: string; providerSessionState: 'missing'; firstUtterance?: string } | null,
-  restart: vi.fn(),
+  record: null as { id: string; providerId: string; providerSessionId: string | null; providerSessionState?: 'missing'; firstUtterance?: string } | null,
+  restart: vi.fn(), start: vi.fn(), draft: vi.fn(),
 }))
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
   sessionRegistry: { get: (id: string) => active.record?.id === id ? {
     sessions: new Map([[id, { data: active.record, seen: true }]]),
     restartSession: active.restart,
   } : undefined },
+}))
+// The panel and retry/store logic are real; only the host runtime/replication
+// boundary is controlled, as in the store's resume-failure tests.
+vi.mock('@renderer/lib/acp/runtime-client', () => ({
+  getAcpRuntimeClient: async () => ({
+    startSession: active.start, setPromptDraft: active.draft,
+    session: { state: (_key: unknown, topic: string) => ({ topic }) },
+    getHistory: async () => ({ success: true, data: {
+      turns: [], nextCursor: null, cursor: { epoch: 'provider', seq: 0 }, reset: false, count: 0,
+    } }),
+  }),
+}))
+vi.mock('@gugu/session-wire', async original => ({
+  ...(await original<typeof import('@gugu/session-wire')>()),
+  ReplicaState: class {
+    readonly ready = Promise.resolve()
+    constructor(private handle: { topic: string }) {}
+    current() {
+      switch (this.handle.topic) {
+        case 'state': return { lifecycle: 'ready', isGenerating: false, queuedPrompts: [], pendingPermissions: [], canSubmit: true }
+        case 'agents': case 'terminals': return []
+        case 'config': return {}
+        default: return null
+      }
+    }
+    onChange() { return () => {} }
+    onGone() { return () => {} }
+    async dispose() {}
+  },
 }))
 vi.mock('@renderer/features/tabs/pane-context', () => ({
   PaneContext: React.createContext(null),
@@ -36,7 +65,9 @@ vi.mock('@renderer/lib/stores/use-agents', () => ({
 
 Object.defineProperty(window, 'electronAPI', {
   configurable: true,
-  value: { invoke: async () => [], eventOn: () => () => {}, eventSend: () => {}, getPathForFile: () => '' },
+  value: { invoke: async (channel: string, request?: { fromSeq?: number }) => channel === 'sessions.getStoredHistory'
+    ? { turns: [{ id: 'saved-turn', seq: 0, initiator: 'user', items: [{ kind: 'message', id: 'saved-prompt', seq: 0, role: 'user', text: 'Saved history remains readable' }] }].filter(turn => turn.seq >= (request?.fromSeq ?? 0)), originTurnIds: [], nextCursor: null }
+    : [], eventOn: () => () => {}, eventSend: () => {}, getPathForFile: () => '' },
 })
 const { AcpChatStore } = await import('@renderer/features/sessions/acp/acp-chat-store')
 const { AcpChatPanel } = await import('@renderer/features/sessions/acp/acp-chat-panel')
@@ -44,6 +75,11 @@ let root: Root | null = null
 let host: HTMLDivElement | null = null
 let store: InstanceType<typeof AcpChatStore> | null = null
 let client: QueryClient | null = null
+
+beforeEach(() => {
+  active.start.mockReset().mockResolvedValue({ success: true, data: { providerSessionId: 'live-provider-id' } })
+  active.draft.mockReset().mockResolvedValue({ success: true, data: undefined })
+})
 
 afterEach(() => {
   root?.unmount()
@@ -118,8 +154,9 @@ async function mountFailedTask(kind: 'provider_session_missing' | 'adapter_lost'
   const current = new AcpChatStore('condition-actions', 'project')
   store = current
   active.store = current
-  active.record = { id: current.sessionId, providerId: 'codex', providerSessionId: 'saved-provider-id', providerSessionState: 'missing', firstUtterance }
-  const internals = current as unknown as { _bootstrapped: boolean }
+  active.record = observable({ id: current.sessionId, providerId: 'codex', providerSessionId: 'saved-provider-id', providerSessionState: 'missing' as const, firstUtterance })
+  const internals = current as unknown as { _bootstrapped: boolean; _startInput: () => unknown }
+  internals._startInput = () => ({ sessionId: current.sessionId, providerId: 'codex', providerSessionId: active.record?.providerSessionId })
   runInAction(() => {
     internals._bootstrapped = true
     current.historyLoading = false
@@ -153,18 +190,26 @@ describe('missing-session condition actions', () => {
     expect(active.restart).not.toHaveBeenCalled()
   })
 
-  it('Start fresh waits for the host reset and then uses the ordinary retry path', async () => {
+  it('Start fresh really starts after a reset event that arrives later than the RPC reply', async () => {
     const reset = Promise.withResolvers<void>()
     active.restart.mockReturnValueOnce(reset.promise)
     const current = await mountFailedTask('provider_session_missing', 'original prompt')
-    const retry = vi.spyOn(current, 'retry').mockImplementation(() => {})
     await until('Start fresh is visible', () => conditionButton('startFresh').query()?.checkVisibility() === true)
     await conditionButton('startFresh').click()
     expect(active.restart.mock.calls).toEqual([[current.sessionId]])
-    expect(retry).not.toHaveBeenCalled()
     reset.resolve()
-    await until('retry follows the successful host reset', () => retry.mock.calls.length === 1)
-    expect(retry.mock.calls).toEqual([[]])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(active.start).not.toHaveBeenCalled()
+    // Deliver the existing host session:changed reset only after the RPC reply.
+    runInAction(() => {
+      active.record!.providerSessionId = null
+      delete active.record!.providerSessionState
+    })
+    await until('the real retry attaches a live session', () => current.session !== null)
+    expect(active.start).toHaveBeenCalledExactlyOnceWith({ input: expect.objectContaining({ providerSessionId: null }) })
+    expect(current.loadError).toBeNull()
+    expect(current.chatState.transcript.state.committedTurns.map(turn => turn.id)).toEqual(['saved-turn'])
   })
 
   it('does not retry if Start fresh fails at the host boundary', async () => {
@@ -184,12 +229,14 @@ describe('missing-session condition actions', () => {
     expect(conditionButton('startFresh').query()).toBeNull()
   })
 
-  it('Reconnect leaves missing re-probing disabled', async () => {
+  it('Reconnect rebuilds the visible missing condition without probing the old ID', async () => {
     const current = await mountFailedTask('adapter_lost', 'original prompt')
-    const retry = vi.spyOn(current, 'retry').mockImplementation(() => {})
     await until('Reconnect is visible', () => conditionButton('reconnect').query()?.checkVisibility() === true)
     await conditionButton('reconnect').click()
-    expect(retry.mock.calls).toEqual([[]])
+    await until('ordinary retry restores the missing condition', () => current.loadError?.kind === 'provider_session_missing' && current.historyLoading === false)
+    await until('the missing Retry action is still visible', () => conditionButton('retry').query()?.checkVisibility() === true)
+    expect(active.start).not.toHaveBeenCalled()
+    expect(current.chatState.transcript.state.committedTurns.map(turn => turn.id)).toEqual(['saved-turn'])
     expect(active.restart).not.toHaveBeenCalled()
   })
 })

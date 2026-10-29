@@ -23,7 +23,7 @@ import type {
   MentionItem,
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
-import { autorun } from 'mobx';
+import { autorun, when } from 'mobx';
 import { observer, useObserver } from 'mobx-react-lite';
 import { collectBackgroundCommands, collectSubagents } from '@renderer/features/sessions/view/background-task-rosters';
 import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals';
@@ -2107,7 +2107,11 @@ export const AcpChatPanel = observer(function AcpChatPanel({
                   void sessionRegistry
                     .get(store.sessionId)
                     ?.restartSession(store.sessionId)
-                    .then(() => store.retry())
+                    .then(async () => {
+                      // The host reset may reply before session:changed arrives.
+                      await when(() => !sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)?.data.providerSessionId);
+                      store.retry();
+                    })
                     .catch(() => {});
                 },
               }] : []),

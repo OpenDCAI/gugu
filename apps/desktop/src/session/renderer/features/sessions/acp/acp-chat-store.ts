@@ -838,8 +838,6 @@ export class AcpChatStore {
     // Terminal load errors stay put so remounts and generic retry callers do not
     // respawn/provision again — which ones are terminal lives in acp-load-error.
     if (this.historyLoading || !this.loadError || isTerminalLoadError(this.loadError)) return;
-    // Start fresh clears the saved ID first; every retry of a missing ID is explicit.
-    if (this.providerSessionMissing && this._sessionRecord()?.providerSessionId && !options?.retryMissing) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
@@ -1839,13 +1837,9 @@ export class AcpChatStore {
         // 引擎就绪时首轮已经开出(活动轮接过了乐观行)或已讲完(在历史里);仍挂着就是它还排在运行时队列里,
         // 由队列那一格显示 —— 再留着就是同一句话画两遍。连上之前排进去的那几句同理,换成运行时那份真队列。
         this._handOffStartupPreviews();
-        const draft = clientSession.draft.current();
-        if (this._pendingDraftRev !== null) {
-          // An initial live snapshot cannot acknowledge text typed while detached.
-          // The engine only accepts revisions strictly above its current draft.
-          this._draftRev = Math.max(this._draftRev, (draft?.rev ?? -1) + 1);
-          this._pendingDraftRev = this._draftRev;
-        } else this._applyDraftSnapshot(draft);
+        // A newer/equal live snapshot acknowledges the pending revision. Only
+        // a still-newer local draft remains pending and needs flushing.
+        this._applyDraftSnapshot(clientSession.draft.current());
         this.historyLoading = false;
         this.loadError = null;
         this._flushDraftWrite();
