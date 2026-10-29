@@ -118,7 +118,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => [
     quote.chatId ? chatName(quote.chatId) : null,
     // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
-    quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? self()?.displayName,
+    quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? (quote.unloaded ? null : self()?.displayName),
   ].filter((part): part is string => Boolean(part?.trim())).join(' · ');
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
@@ -128,11 +128,13 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       <SenderName class={conversationName} name={name()} target={senderTarget()} />
       <Show when={sentQuote(props.data)}>{quote => <>
         <span class={conversationTimeSeparator} aria-hidden="true" />
-        <span class={conversationQuote} data-slot="conversation-quote" title={quote().text}>
+        <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
+          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
+          aria-label={translate('transcript.showOriginalMessage')}>
           <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
-          <span>{quoteSummary(quote().text)}</span>
+          <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
-        </span>
+        </button>
       </>}</Show>
       {/* owner 0 号图:名字那一行只写名字 —— ❌ 后面再跟被回复那条的摘要(管家 10-28 定)。 */}
     </div>

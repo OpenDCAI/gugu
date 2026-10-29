@@ -434,6 +434,10 @@ export default {
       },
       "switchToTunnel": "Use a remote tunnel instead",
       "machineLimit": {
+        "occupants": "Machines occupying slots",
+        "available": "A slot is available. Retry adding the machine.",
+        "continue": "Continue waiting",
+
         "total": "Gugu server limit reached ({{used}}/{{max}}); not added.",
         "tunnel": "Remote tunnel limit reached ({{used}}/{{max}}); not added. Remote SSH doesn't count.",
         "unknown": "Gugu server limit reached; not added.",

@@ -96,7 +96,6 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
   const installed = service.get(request.extensionId);
   const tab = installed.manifest.contributes.tabs.find((candidate) => candidate.name === request.tabName);
   if (!tab) throw new Error(`"${request.tabName}" is not a tab of App "${request.extensionId}"`);
-  if (tab.hostPage === 'browser') throw new Error("This tab is the host's page of a task's browser; open its tab_kind in a task to see that task's browser.");
   if (tab.hostPage) throw new Error('This App uses the host settings page; open it to review configuration and program status.');
   const kept = request.page === undefined ? null : keptPage(request.page, request);
   const page = kept ?? openPage(request);

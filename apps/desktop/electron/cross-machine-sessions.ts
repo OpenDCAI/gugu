@@ -7,6 +7,7 @@
  * 离线、不在名下、够不着、太旧都在发出之前说清;发出去没回音就说「那边可能已经做了」,❌ 排队、❌ 换机器。
  */
 import type { Device } from '@gugu/core/shared/types/chat'
+import { deviceMachines } from '@gugu/core/shared/deviceMachines'
 import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import { cloudComputerPresence, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
@@ -492,7 +493,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   return {
     devices: async () => {
       const { thisDeviceId, rows } = await devices()
-      return rows.map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
+      return deviceMachines(rows.map(device => ({ ...device, is_current_device: device.device_id === thisDeviceId })))
+        .map(({ device: { device_id, label, is_online } }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
     },
     async listDeviceRows() {
       const [{ thisDeviceId, rows }, cloud] = await Promise.all([
@@ -500,8 +502,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         // 管家问不到不挡列机器:那一行就照库里的在线与否列(不标 cloud_computer)。
         deps.cloudComputerState?.().catch(() => null) ?? Promise.resolve(null),
       ])
-      return rows
-        .map((device) => {
+      return deviceMachines(rows.map(device => ({ ...device, is_current_device: device.device_id === thisDeviceId })))
+        .map(({ device }) => {
           // #7199 云电脑标出它此刻的样子:asleep 也接活 —— 把它当 device 传过去就会先叫醒它。
           const presence = cloudComputerPresence(device, cloud)
           return {

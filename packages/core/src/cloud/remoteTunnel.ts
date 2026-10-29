@@ -129,11 +129,11 @@ export function onTunnelRelayChange(listener: (up: boolean) => void): () => void
 // ── 心跳随行报的「隧道最近一次有流量」 ─────────────────────────────────────────
 //
 // 云电脑的管家据此判「在用」:最近 10 分钟有人在用就不自动睡。「在用」是白名单(总控 2026-10-15 定),只认人在用的:
-//   · 端口转发(浏览器预览 / 端口)上的任何字节 —— 登记成「安静」的端口除外(见下面 quietTunnelPort);
+//   · 端口转发(页面预览 / 端口)上的任何字节;
 //   · 终端的输入与输出(设备连接上的 pty.sendInput / pty:data,判定在 electron/server/device-link-host.ts);
-//   · 自己分得清「人在操作」的服务直接调 noteTunnelActivity(云浏览器:接管后的点击、键盘、文字……)。
+//   · 明确的人类交互由服务直接调 noteTunnelActivity。
 // ❌ 别的都不算:心跳、状态轮询、刚连上的订阅与打开、机器推来的变动 —— 那是「光连着」,算了机器就永远醒着、一直计费
-// (10-15 实测:云浏览器每 20 秒一次的 cloudBrowser.status、机器推的 files:changes 把没人用的云电脑一直顶着醒)。
+// (10-15 实测:状态轮询和机器推的 files:changes 曾把没人用的云电脑一直顶着醒)。
 // 新加一个要人在用、又走隧道的功能:把它的输入加进白名单或在服务里调 noteTunnelActivity,漏了的代价是机器会睡 —— 看得见。
 // 心跳每 30 秒一次,随行带上最近那一刻;账号进程起来之后还没有过 = 不报。
 
@@ -152,25 +152,4 @@ export function tunnelActiveAt(): string | null {
 /** 测试用。 */
 export function resetTunnelActivityForTest(): void {
   activeAtMs = null
-}
-
-// 「安静」的本机端口:转发到它上的字节不算「在用」。给自己分得清人在不在操作的服务用(云浏览器的实时画面:
-// 画面帧、ack、保活一直在走,只有接管后的输入才算,由它自己 noteTunnelActivity)。同一个端口可以登记多次,按次数撤销。
-const quietPorts = new Map<number, number>()
-
-/** 登记一个安静端口;返回撤销登记的函数(只生效一次)。 */
-export function quietTunnelPort(port: number): () => void {
-  quietPorts.set(port, (quietPorts.get(port) ?? 0) + 1)
-  let done = false
-  return () => {
-    if (done) return
-    done = true
-    const left = (quietPorts.get(port) ?? 1) - 1
-    if (left > 0) quietPorts.set(port, left)
-    else quietPorts.delete(port)
-  }
-}
-
-export function isQuietTunnelPort(port: number): boolean {
-  return quietPorts.has(port)
 }

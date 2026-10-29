@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, type Session } from 'electron';
 import type { BrowserContext, Page } from 'playwright-core';
-import { findChrome, chromeArgs } from '../session/main/core/browser/cloud/chrome';
+import { findAppBrowser } from './app-browser';
 import { setupExtensionProtocol, type ExtensionBundle } from '../session/main/core/extensions/extension-protocol';
 import type { BackgroundRuntime } from '../session/main/core/extensions/extension-background';
 import { decideExtensionRequest, applyExtensionCorsGrant, extensionCorsRequest } from '../session/main/core/extensions/extension-network-policy';
@@ -56,9 +56,9 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
   void (async () => {
     await previous;
     if (destroyed) { released(); return; }
-    const binary = findChrome(process.env);
-    if (!binary) throw new Error('App background pages need Chrome or Chromium on this server (GUGU_CLOUD_BROWSER_CHROME selects it)');
-    // The server already ships this dependency for its browser tools; never download another browser.
+    const binary = findAppBrowser(process.env);
+    if (!binary) throw new Error('App background pages need Chrome or Chromium on this server (GUGU_APP_BROWSER_CHROME selects it)');
+    // App background HTML uses the packaged Playwright runtime; never download another browser.
     const requireHere = createRequire(__filename);
     const requireMcp = createRequire(requireHere.resolve('@playwright/mcp'));
     const { chromium } = requireMcp('playwright-core') as typeof import('playwright-core');
@@ -67,8 +67,7 @@ export function serverExtensionBackground(bundle: ExtensionBundle, entry: string
       executablePath: binary,
       headless: true,
       serviceWorkers: 'block',
-      args: chromeArgs({ userDataDir: root, cacheDir: path.join(root, 'cache'), headless: true, root: process.getuid?.() === 0 })
-        .filter((arg) => !arg.startsWith('--remote-debugging-') && !arg.startsWith('--user-data-dir=') && arg !== 'about:blank'),
+      args: [`--disk-cache-dir=${path.join(root, 'cache')}`, ...(process.getuid?.() === 0 ? ['--no-sandbox'] : [])],
     });
     starting = false;
     if (destroyed) { await context.close(); released(); return; }

@@ -641,6 +641,7 @@ export default {
     "noResults": "没有找到",
     "projects": "项目 · {{count}}",
     "friends": "朋友 · {{count}}",
+    "groupAgents": "群里遇到的 Agent · {{count}}",
     "rooms": "群 · {{count}}",
     "agents": "Agent · {{count}}",
     "groupChat": "群聊",

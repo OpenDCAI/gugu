@@ -26,10 +26,12 @@ import {
 } from '../shared/deviceActions'
 import type { DeviceRpcResponse } from './deviceRpcProtocol'
 import { unwrapPayload } from './payload'
+import { deviceMachines } from '../shared/deviceMachines'
 
 /** 调用方看到的一台设备(gugu_devices 那一行里用得上的几格)。 */
 export interface DeviceActionTarget {
   device_id: string
+  machine_id?: string | null
   label: string
   platform?: string | null
   online: boolean
@@ -171,7 +173,9 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
   return {
     async describe(deviceId, filter = {}) {
       const devices = await deps.listDevices()
-      if (!deviceId) return devices.map((d) => view(d, 'groups'))
+      if (!deviceId) return deviceMachines(devices.map(device => ({
+        ...device, is_online: device.online, is_current_device: device.this_machine,
+      }))).map(machine => view(machine.device, 'groups'))
       const device = devices.find((d) => d.device_id === deviceId)
       if (!device) throw new Error(`你的账号下没有设备 ${deviceId}(不带 device 调 device_actions 列出你的设备)`)
       if (!filter.group && !filter.name) return [view(device, 'actions')]

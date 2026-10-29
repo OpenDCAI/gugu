@@ -15,6 +15,7 @@ import {
   pendingLocalAssistant,
   resumeLocalAssistant,
   setUpAssistantOnThisComputer,
+  AssistantSetupError,
   type AssistantSetupDraft,
 } from '../../lib/assistantSetup'
 import { offerCustomizeCard, writeSetupStep } from '../../lib/assistantSetupState'
@@ -91,6 +92,7 @@ export function AssistantOnboarding({
   const [retryCleanup, setRetryCleanup] = useState<(() => Promise<void>) | null>(null)
   useEffect(() => () => localAttempt.current?.abort(), [])
   const [error, setError] = useState<string | null>(null)
+  const [setupEnded, setSetupEnded] = useState(false)
   const [cloudFailure, setCloudFailure] = useState<CloudComputerActionFailure | null>(null)
   const [member, setMember] = useState<boolean | null>(null)
   const [memberError, setMemberError] = useState<string | null>(null)
@@ -113,11 +115,12 @@ export function AssistantOnboarding({
     localInstallationStarted.current = true
     setInstalling(true)
     setBusy('resume')
-    writeSetupStep(ownerUserId, 'connect')
+    writeSetupStep(ownerUserId, 'shell')
     resumeLocalAssistant(record)
-      .then(() => { resumed = true; reloadMyAssistant(ownerUserId) })
+      .then(() => { resumed = true; writeSetupStep(ownerUserId, 'connect'); reloadMyAssistant(ownerUserId) })
       .catch((e: unknown) => {
-        writeSetupStep(ownerUserId, null)
+        writeSetupStep(ownerUserId, 'shell')
+        setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
         setError(messageForUser(e))
         log.error({ error: String(e) }, 'resume local assistant failed')
       })
@@ -165,6 +168,7 @@ export function AssistantOnboarding({
     const attempt = new AbortController()
     localAttempt.current = attempt
     setError(null)
+    setSetupEnded(false)
     setRetryCleanup(null)
     let keepBusy = false
     try {
@@ -177,17 +181,19 @@ export function AssistantOnboarding({
         localInstallationStarted.current = true
         setInstalling(true)
         setCancelling(false)
-        writeSetupStep(ownerUserId, 'connect')
+        writeSetupStep(ownerUserId, 'shell')
         offerCustomizeCard(ownerUserId)
       }
       if (pending) {
         onInstalling()
         await resumeLocalAssistant(pending)
       } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
+      writeSetupStep(ownerUserId, 'connect')
       reloadMyAssistant(ownerUserId)
     } catch (e) {
       keepBusy = localInstallationStarted.current || e instanceof AssistantSetupCleanupError
-      writeSetupStep(ownerUserId, null)
+      writeSetupStep(ownerUserId, keepBusy ? 'shell' : null)
+      setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
       if (e instanceof AssistantSetupCleanupError) setRetryCleanup(() => e.retry)
       if (!(e instanceof Error && e.name === 'AbortError')) {
         setError(messageForUser(e))
@@ -230,7 +236,7 @@ export function AssistantOnboarding({
               {busy === 'resume' ? t('setup.resuming', { name: displayName }) : t('setup.installing', { name: displayName })}
             </h1>
             {error && busy === 'computer' ? <>
-              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : error}</p>
+              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : error}</p>
               <Button onClick={async () => {
                 if (retryCleanup) {
                   setCancelling(true)
@@ -242,7 +248,7 @@ export function AssistantOnboarding({
                   finally { setCancelling(false) }
                 }
                 void installHere()
-              }} disabled={cancelling}>{t('setup.retry')}</Button>
+              }} disabled={cancelling}>{t(setupEnded ? 'setup.startNew' : 'setup.retry')}</Button>
             </> : <p className="ta-onb-sub inline-flex items-center gap-2">
               <LoadingIndicator size="inline" />
               {t('setup.installingBody')}

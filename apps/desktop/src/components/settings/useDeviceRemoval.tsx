@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { deviceRowModel, type BoundAgentsState } from '../../lib/deviceRowModel'
-import { deviceMachineFor, type DeviceMachine } from '../../lib/deviceMachines'
+import { deviceMachineFor, type DeviceMachine } from '@gugu/core/shared/deviceMachines'
 import { supersededBy } from '../../lib/deviceSuperseded'
 import { rendererLogger } from '../../lib/log'
 import { useSshMachines } from '../../hooks/useSshMachines'
@@ -26,6 +26,7 @@ type DialogState =
 export function useDeviceRemoval(machines: readonly DeviceMachine[]): {
   addressOf: (deviceId: string) => string | null
   openRemove: (device: Device) => void
+  canRemoveDevices: (deviceIds: readonly string[]) => boolean
   /**
    * 经同一个确认页移除这些设备(同一台机器的版本;当前这台跳过)。传一台机器的全部 device_id = 移除整台机器,
    * 每个版本都删;只传其中几个 = 只移除这几个版本。
@@ -43,6 +44,12 @@ export function useDeviceRemoval(machines: readonly DeviceMachine[]): {
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
   const addressOf = useCallback((deviceId: string) => addresses.get(deviceId) ?? null, [addresses])
+  const endpoints = useMemo(() => machines.flatMap(machine => machine.configurations), [machines])
+  const removable = useMemo(() => endpoints.filter(device => !device.is_current_device), [endpoints])
+  const canRemoveDevices = useCallback((deviceIds: readonly string[]) => (
+    deviceIds.every(id => endpoints.some(device => device.device_id === id))
+    && removable.some(device => deviceIds.includes(device.device_id))
+  ), [endpoints, removable])
 
   const loadAgents = useCallback(async (devices: readonly Device[]) => {
     setAgents({ agents: [], loading: true, cascadeChecked: false })
@@ -70,11 +77,11 @@ export function useDeviceRemoval(machines: readonly DeviceMachine[]): {
   }, [loadAgents])
 
   const openRemoveDevices = useCallback((deviceIds: readonly string[]) => {
-    const devices = machines.flatMap(machine => machine.configurations).filter(device => deviceIds.includes(device.device_id) && !device.is_current_device)
-    if (devices.length === 0) return
+    if (!canRemoveDevices(deviceIds)) return
+    const devices = removable.filter(device => deviceIds.includes(device.device_id))
     setDialog({ kind: 'remove', devices, removing: false, failed: '' })
     void loadAgents(devices)
-  }, [machines, loadAgents])
+  }, [canRemoveDevices, removable, loadAgents])
 
   const openUninstall = useCallback((device: Device) => {
     setDialog(current => ({ kind: 'uninstall', device, machineKey: current?.kind === 'versions' ? current.machineKey : undefined }))
@@ -170,5 +177,5 @@ export function useDeviceRemoval(machines: readonly DeviceMachine[]): {
     )}
   </>
 
-  return { addressOf, openRemove, openRemoveDevices, openUninstall, openVersions, configurationActions, dialogs }
+  return { addressOf, openRemove, canRemoveDevices, openRemoveDevices, openUninstall, openVersions, configurationActions, dialogs }
 }

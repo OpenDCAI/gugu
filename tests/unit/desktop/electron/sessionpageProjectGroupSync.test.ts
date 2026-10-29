@@ -296,6 +296,20 @@ afterEach(async () => {
   home = ''
 })
 describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () => {
+  it('replays interrupted creates through the same owner-scoped roster task binding', async () => {
+    const { sessionpageAgentSessionForStart, SESSION_CACHE_KEY, OWNER_CACHE_KEY, PARKED_SESSION_CACHE_KEY } = await import(SUT)
+    roster.push({ id: 'assistant-record', name: 'Gugu', agent_type: 'claude-code', gugu_user_id: 'assistant',
+      cache: { [SESSION_CACHE_KEY]: 'interrupted-task', [OWNER_CACHE_KEY]: 'owner-1' } })
+    expect(await sessionpageAgentSessionForStart('assistant', 'owner-1')).toBe('interrupted-task')
+    expect(await sessionpageAgentSessionForStart('assistant', 'owner-1')).toBe('interrupted-task')
+    await expect(sessionpageAgentSessionForStart('assistant', 'other-owner')).rejects.toThrow('owner mismatch')
+    expect(await sessionpageAgentSessionForStart('new-agent', 'owner-1')).toBeUndefined()
+    expect(roster).toHaveLength(1)
+    expect(roster[0]!.cache![SESSION_CACHE_KEY]).toBe('interrupted-task')
+    delete roster[0]!.cache![SESSION_CACHE_KEY]
+    roster[0]!.cache![PARKED_SESSION_CACHE_KEY] = 'interrupted-task'
+    expect(await sessionpageAgentSessionForStart('assistant', 'owner-1')).toBe('interrupted-task')
+  })
   it('同一项目的两个会话 → 同一个群,群名 = 项目名', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const a = await provisionSessionpageAgentForSession(
