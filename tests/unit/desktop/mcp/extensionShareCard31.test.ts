@@ -52,21 +52,21 @@ async function agent(first: string) {
         return { version }
       }
       if (name === 'install') return { installed: true, id: 'dinner-vote', version, next: 'It is in the chat as a card now.' }
+      if (name === 'pack_installed') return { file_path: '/tmp/gugu-app-cards/dinner-vote-1.0.0.guguext', file_name: 'dinner-vote-1.0.0.guguext', sha256: 'e'.repeat(64), version }
       return { file_path: `/tmp/dinner-vote-${version}.guguext`, file_name: `dinner-vote-${version}.guguext`, sha256: 'f'.repeat(64), version }
     },
   })
   const client = new Client({ name: 'f31', version: '1' })
   clients.push(client)
   await client.connect(new StreamableHTTPClientTransport(new URL(grant.url), { requestInit: { headers: { Authorization: `Bearer ${grant.capability}` } } }))
-  const call = async (tool: string) => {
+  const call = async (tool: string, args: Record<string, unknown> = { source_dir: '/tmp/vote', chat_id: 'chat-1' }) => {
     // app_install is in the catalog (#7335) but still answers to its own name; app_pack goes through catalog_call.
-    const args = { source_dir: '/tmp/vote', chat_id: 'chat-1' }
     const result = tool === 'app_install'
       ? await client.callTool({ name: tool, arguments: args })
       : await client.callTool({ name: 'catalog_call', arguments: { tool, args } })
     return { isError: result.isError === true, body: text(result) }
   }
-  return { install: () => call('app_install'), pack: () => call('app_pack'), seen }
+  return { install: (args?: Record<string, unknown>) => call('app_install', args), pack: () => call('app_pack'), seen }
 }
 
 describe('app_install { chat_id }: the answer carries the card, typed once (F31)', () => {
@@ -157,6 +157,22 @@ describe('app_install { chat_id }: the answer carries the card, typed once (F31)
     const body = JSON.parse((await (await agent('1.0.0')).install()).body)
     expect(body.message_id).toBe(`msg:${CARD}`)
     expect(body.next).toMatch(/^Already in the chat: it has a card of dinner-vote-1\.0\.0\.guguext \(message_id\); its contents could not be compared/)
+  })
+
+  // 5-minute game rounds 2-3 (10-29): an App installed here goes into another chat as its installed copy, as a market App does.
+  it('an App installed here (app): its installed copy is packed for the card; never bumped, it has no folder', async () => {
+    sendCard.mockResolvedValue({ messageId: CARD, alreadyThere: true, differs: true })
+    const { install, seen } = await agent('1.0.0')
+    const answer = await install({ app: 'dinner-vote', chat_id: 'chat-1' })
+    expect(answer.isError, answer.body).toBe(false)
+    expect(seen).toEqual([{ action: 'install', app: 'dinner-vote', chat_id: 'chat-1' }, { action: 'pack_installed', id: 'dinner-vote' }])
+    expect(JSON.parse(answer.body).next).toMatch(/with other contents too, so nothing new was sent/)
+  })
+
+  it('app without chat_id is refused on the tool face: it is installed already', async () => {
+    const answer = await (await agent('1.0.0')).install({ app: 'dinner-vote' })
+    expect(answer.isError).toBe(true)
+    expect(answer.body).toContain('app is installed here already — give chat_id')
   })
 
   it('a new version sends a new card', async () => {

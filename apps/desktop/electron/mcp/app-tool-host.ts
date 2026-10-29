@@ -151,7 +151,7 @@ async function withPackedCardSent(
   context: GuguMcpContext,
   run: (action: unknown) => Promise<unknown>,
 ): Promise<unknown> {
-  const { action: name, chat_id: chatId, source_dir: sourceDir, market } = action as { action?: unknown; chat_id?: unknown; source_dir?: unknown; market?: unknown }
+  const { action: name, chat_id: chatId, source_dir: sourceDir, market, app } = action as { action?: unknown; chat_id?: unknown; source_dir?: unknown; market?: unknown; app?: unknown }
   if ((name !== 'pack' && name !== 'install') || chatId === undefined) return run(action)
   const tool = `app_${name}`
   if (context.kind !== 'social' || context.forkOf !== undefined) {
@@ -229,11 +229,13 @@ async function withPackedCardSent(
         'then app_install again with the same chat_id and data: the data file is kept.',
     }
   }
-  // An App from the market is in no folder of the agent's: the installed copy is packed for the card (App 市场方案 10-07).
-  const pack = async () => await run(market !== undefined ? { action: 'pack_installed', id: installed.id } : { action: 'pack', source_dir: sourceDir }) as Packed
+  // An App from the market, or one named as installed (app), is in no folder of the agent's: the installed copy is packed
+  // for the card (App 市场方案 10-07).
+  const installedCopy = market !== undefined || app !== undefined
+  const pack = async () => await run(installedCopy ? { action: 'pack_installed', id: installed.id } : { action: 'pack', source_dir: sourceDir }) as Packed
   // F107 The bumped version is installed here too, as quietly as any reinstall asking nothing new.
   let current = installed
-  const { packed, message_id, note } = await share(await pack(), market !== undefined ? null : async () => {
+  const { packed, message_id, note } = await share(await pack(), installedCopy ? null : async () => {
     current = await run({ action: 'install', source_dir: sourceDir, chat_id: chatId }) as InstallAnswer
     return pack()
   })

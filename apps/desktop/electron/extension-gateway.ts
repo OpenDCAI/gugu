@@ -10,7 +10,7 @@ import type { CatalogTool } from './mcp/gugu-catalog-tools'
 import type { AppSearchHit } from './mcp/gugu-app-search-tool'
 import type { CloudMarketEntry } from '@shared/extensions/market'
 import type { ExtensionManifest } from '@shared/extensions/manifest'
-import { extensionTabKind } from '@shared/extensions/manifest'
+import { claimedSuffixes, extensionTabKind } from '@shared/extensions/manifest'
 import { declaredPermissions } from './session/main/core/extensions/extension-authoring'
 import { compatRefusal } from './session/main/core/extensions/market-catalog'
 import {
@@ -118,6 +118,10 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
     next: (app.givesAgents
       ? `catalog_list { name: "${id}" } lists its tools and skill`
       : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }') +
+      // 5-minute game rounds 2-3 (10-29): 「on」 was read as 「in this chat」 for a chat App made in another chat.
+      (contributes.tabs.some((tab) => claimedSuffixes(tab, 'chat').length > 0)
+        ? `. It is on your owner's computer, in no chat by itself: app_install { app: "${id}", chat_id, data } puts it into a chat (its data file, a check, the card)`
+        : '') +
       '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
   }
