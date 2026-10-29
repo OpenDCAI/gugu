@@ -43,7 +43,7 @@ export function accountProjectsOf(deviceId: string, records: readonly DeviceProj
 export function accountBindingsOf(deviceId: string, records: readonly DeviceProject[]): ProjectGroupBinding[] {
   return inbound(deviceId, records).flatMap((record) =>
     record.chatId
-      ? [{ projectId: record.localProjectId, chatId: record.chatId, ...(record.groupRepresentative ? { representative: true } : {}) }]
+      ? [{ projectId: record.localProjectId, chatId: record.chatId }]
       : []
   );
 }

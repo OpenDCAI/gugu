@@ -1,5 +1,5 @@
 import type { ProjectsTranslate } from '@renderer/localization/messages-projects';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import { isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
 import { appState } from '@renderer/lib/stores/app-state';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { HOME_PROJECT_LABEL } from '@renderer/features/remote-hosts/machine-home';
@@ -63,7 +63,7 @@ export function asMounted(store: ProjectStore | undefined): MountedProject | und
  */
 export function firstMountedProjectId(machine: string | null = null): string | undefined {
   for (const [id, store] of getProjectManagerStore().projects.entries()) {
-    if (isImplicitSessionHomeProject(store)) continue;
+    if (isWorkspaceProject(store)) continue;
     if (machineRegistry.machineOf(id) !== machine) continue;
     if (asMounted(store)) return id;
   }

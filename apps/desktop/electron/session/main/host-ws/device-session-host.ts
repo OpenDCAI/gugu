@@ -48,7 +48,8 @@ const REMOTE_ALLOWED_APP = new Set([
   'app.getAppVersion',
   'app.getPlatform',
   'app.getHomeDirectory',
-  'app.getTaskHomeDir',
+  // 那台机器的任务工作区目录(#609 别的电脑在那台上开不选文件夹的任务;从前这里写的 getTaskHomeDir 早没有这条)。
+  'app.getSessionHomeDir',
   'app.getElectronVersion',
   'app.readUserFile',
   'app.readUserImageDataUrl',

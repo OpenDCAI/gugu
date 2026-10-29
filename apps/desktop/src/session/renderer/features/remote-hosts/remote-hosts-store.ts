@@ -26,7 +26,7 @@ import {
   type MachineLinkState,
 } from '@renderer/lib/machine-clients';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
+import { aliasFixedId, machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
@@ -54,7 +54,11 @@ import type { SessionShellPeer } from '@shared/lib/ipc/shell-port';
 import { normalizeAgentType } from '@gugu/core/agentTypes';
 import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { sessionListFromDigest, startSessionListSync, type SessionListSync } from '@/session/shared/remote-sessions/session-list-sync';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import {
+  IMPLICIT_SESSION_HOME_PROJECT_ID,
+  IMPLICIT_SESSION_HOME_PROJECT_NAME,
+  isImplicitSessionHomeProject,
+} from '@renderer/features/sessions/session-home-project-constants';
 import {
   remoteHostReachable,
   cloudComputerWakeFailureOf,
@@ -144,7 +148,7 @@ export class RemoteHostsStore {
   /** 每台连上过的机器一份会话列表同步(这一端的目录只有这里写)。 */
   private readonly listSyncs = new Map<string, SessionListSync>();
   private readonly linkOffs = new Map<string, () => void>();
-  private readonly homeProjectPromises = new Map<string, Promise<string>>();
+  private readonly projectPromises = new Map<string, Promise<string>>();
   /** #113 deviceId → 经连接读到它的清单之后、连着期间看到的账号上那份(内容指纹;见 accountCopyReplacesLive)。 */
   private readonly accountSeenLive = new Map<string, string>();
   private stopDevices: (() => void) | null = null;
@@ -153,13 +157,13 @@ export class RemoteHostsStore {
   constructor() {
     makeAutoObservable<
       RemoteHostsStore,
-      'bridge' | 'linkOffs' | 'homeProjectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs'
+      'bridge' | 'linkOffs' | 'projectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs'
     >(this, {
       bridge: observable.ref,
       directory: observable.ref,
       listSyncs: false,
       linkOffs: false,
-      homeProjectPromises: false,
+      projectPromises: false,
       accountSeenLive: false,
       stopDevices: false,
       started: false,
@@ -178,7 +182,7 @@ export class RemoteHostsStore {
       sessionsOf: (deviceId) => this.sessionsOf(deviceId),
       isAssistantHome: (deviceId) => this.device(deviceId)?.assistantHome === true,
       projectGroupOf: (projectId) => projectGroupsStore.chatIdOf(projectId),
-      projectGroupRepresentativeOf: (projectId) => projectGroupsStore.isRepresentative(projectId),
+      connected: (deviceId) => this.connectionState(deviceId) === 'connected',
     };
     // #7341 第二步:各台机器上的本地项目绑的项目群(同群 = 同一个项目,侧栏合成一行)。
     projectGroupsStore.start(
@@ -485,12 +489,13 @@ export class RemoteHostsStore {
   /**
    * 在这台机器上把这个文件夹加成项目(新建时选了那台机器上还不是项目的文件夹),挂上,返回项目 id。
    * 与本机「打开文件夹」同一步(projectManager.createProject),只是建在那台机器上。
+   * `automatic` = 替人登记的(主目录、助理的目录,#609),❌ 人在新建框里亲手选的文件夹。
    */
-  async ensureProject(deviceId: string, path: string): Promise<string> {
+  async ensureProject(deviceId: string, path: string, automatic = false): Promise<string> {
     const name = path.replace(/\/+$/, '').split('/').pop() || path;
     const projectId = await appState.projects.createProject(
       { type: 'local', machine: deviceId },
-      { mode: 'pick', path, name, initGitRepository: false, createDirectory: false, allowNonGit: true }
+      { mode: 'pick', path, name, initGitRepository: false, createDirectory: false, allowNonGit: true, automatic }
     );
     if (!projectId) throw new Error(`could not add ${path} as a project on ${deviceId}`);
     await appState.projects.ensureMounted(projectId);
@@ -498,23 +503,51 @@ export class RemoteHostsStore {
   }
 
   /**
-   * 那台机器的主目录项目(没选项目时会话落在这里):那台机器上已有同路径项目就复用,没有就建一个。返回项目 id。
+   * #609 那台机器的任务工作区(没选项目时会话落在这里,与本机一样列在「任务」):已有就挂上,没有就在那台机器上建。
+   * id 是固定 id 在那台机器上的别名(machine-routing),发过去时换回固定 id,那台机器认它是任务工作区。
    * 同一台机器同时只建一次(新建页与对话页创建框可能同时要)。
    */
+  ensureTaskWorkspace(deviceId: string): Promise<string> {
+    return this.once(`tasks:${deviceId}`, async () => {
+      const id = aliasFixedId(IMPLICIT_SESSION_HOME_PROJECT_ID, deviceId);
+      if (!appState.projects.projects.has(id)) {
+        // 比这一版旧的咕咕 server 不回这一问(device-session-host 的白名单):照旧落在它的主目录项目里。
+        const path = await rpcOn(deviceId).app.getSessionHomeDir().catch(() => null);
+        if (!path) return this.ensureHomeProject(deviceId);
+        const created = await appState.projects.createProject(
+          { type: 'local', machine: deviceId },
+          { mode: 'pick', path, name: IMPLICIT_SESSION_HOME_PROJECT_NAME, initGitRepository: false, allowNonGit: true },
+          id
+        );
+        if (!created) throw new Error(`could not open the task workspace on ${deviceId}`);
+      }
+      await appState.projects.ensureMounted(id);
+      return id;
+    });
+  }
+
+  /**
+   * 那台机器的主目录项目(云上个人助理的家,assistant-machine.ts):那台机器上已有同路径项目就复用,没有就建一个。
+   * 返回项目 id。同一台机器同时只建一次。
+   */
   ensureHomeProject(deviceId: string): Promise<string> {
-    const inFlight = this.homeProjectPromises.get(deviceId);
-    if (inFlight) return inFlight;
-    const promise = (async () => {
+    return this.once(`home:${deviceId}`, async () => {
       const home = await this.ensureHomeDir(deviceId);
       const onMachine = [...appState.projects.projects.values()]
         .filter((project) => machineRegistry.machineOf(project.id) === deviceId && !isImplicitSessionHomeProject(project))
         .map((project) => ({ id: project.id, path: project.data?.path }));
       const existing = findHomeProject(onMachine, home);
-      if (!existing) return this.ensureProject(deviceId, home);
+      if (!existing) return this.ensureProject(deviceId, home, true);
       await appState.projects.ensureMounted(existing.id);
       return existing.id;
-    })().finally(() => this.homeProjectPromises.delete(deviceId));
-    this.homeProjectPromises.set(deviceId, promise);
+    });
+  }
+
+  private once(key: string, run: () => Promise<string>): Promise<string> {
+    const inFlight = this.projectPromises.get(key);
+    if (inFlight) return inFlight;
+    const promise = run().finally(() => this.projectPromises.delete(key));
+    this.projectPromises.set(key, promise);
     return promise;
   }
 

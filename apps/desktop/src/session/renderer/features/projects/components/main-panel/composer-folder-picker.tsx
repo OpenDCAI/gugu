@@ -13,7 +13,7 @@ import {
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { shortHome } from './project-folder-card';
-import type { ProjectFoldersState } from './project-folders';
+import type { ProjectFoldersState, ShownFolder } from './project-folders';
 
 function folderName(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
@@ -34,7 +34,7 @@ export const ComposerFolderPicker = observer(function ComposerFolderPicker({
   showMachine?: boolean;
   onAttach: () => void;
   /** 文件夹所在机器的名字(#7341 第二步);文件夹分在几台机器上时每一项都标出来,❌ 几个「项目根目录」分不清。 */
-  machineLabelOf?: (projectId: string) => string;
+  machineLabelOf?: (deviceId: string | null) => string;
 }) {
   const { translate } = useSessionMessages();
   const chosen = state.chosen;
@@ -42,13 +42,13 @@ export const ComposerFolderPicker = observer(function ComposerFolderPicker({
   const label = (folder: ProjectFolder) => (folder.kind === 'root' ? translate('projects.folders.root') : folderName(folder.path));
   // 读到之前 / 读不到时不画:❌ 拿一个猜的根目录名冒充选择(读不到的原因卡片上照实说了)。
   if (!state.folders || !chosen) return null;
-  const spansMachines = showMachine || !!machineLabelOf && new Set(state.folders.map((folder) => machineLabelOf(folder.projectId))).size > 1;
-  const where = (folder: ProjectFolder) => (spansMachines && machineLabelOf ? `${machineLabelOf(folder.projectId)} · ${shortHome(folder.path)}` : shortHome(folder.path));
+  const spansMachines = showMachine || !!machineLabelOf && new Set(state.folders.map((folder) => machineLabelOf(folder.deviceId))).size > 1;
+  const where = (folder: ShownFolder) => (spansMachines && machineLabelOf ? `${machineLabelOf(folder.deviceId)} · ${shortHome(folder.path)}` : shortHome(folder.path));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={sessionComposerTrayTriggerClassName} data-testid="composer-folder-picker" title={chosen.path}>
         <Folder className="size-3 shrink-0" />
-        <span className="max-w-[240px] truncate">{showMachine && machineLabelOf ? `${machineLabelOf(chosen.projectId)} · ` : ''}{label(chosen)}</span>
+        <span className="max-w-[240px] truncate">{showMachine && machineLabelOf ? `${machineLabelOf(chosen.deviceId)} · ` : ''}{label(chosen)}</span>
         <ChevronDown className="size-3 shrink-0" />
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" className="min-w-72 p-1">

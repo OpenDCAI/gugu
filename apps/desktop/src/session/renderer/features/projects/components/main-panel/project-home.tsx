@@ -75,7 +75,7 @@ export const ProjectTaskComposer = observer(function ProjectTaskComposer({
 }) {
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
-  const { rowId, scope, scopedFolders, targetProjectId, machineContext, projectMachines, machineOfProject, pickAndAttach } = stage;
+  const { rowId, scope, scopedFolders, targetProjectId, machineContext, projectMachines, machineOf, pickAndAttach } = stage;
   // gugu #2328: 挂载中页面已上屏,发送由新会话要建进去的那个项目挂上之后解锁;这行小字是
   // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
   const isBootstrapping = projectViewKind(getProjectStore(targetProjectId)) === 'bootstrapping';
@@ -106,7 +106,7 @@ export const ProjectTaskComposer = observer(function ProjectTaskComposer({
             folderPicker={
               <ComposerFolderPicker
                 folders={scopedFolders}
-                machineLabelOf={(id) => machineOfProject(id).label}
+                machineLabelOf={(deviceId) => machineOf(deviceId).label}
                 showMachine={projectMachines.length > 1}
                 onAttach={() => pickAndAttach(machineRegistry.machineOf(targetProjectId))}
               />

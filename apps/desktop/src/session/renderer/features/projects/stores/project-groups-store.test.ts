@@ -38,14 +38,12 @@ describe('ProjectGroupsStore', () => {
     const store = new ProjectGroupsStore();
     store.start(() => []);
     await settle();
-    store.applyBindings('d22', [{ projectId: 'd22-shop', chatId: 'chat-shop', representative: true }]);
+    store.applyBindings('d22', [{ projectId: 'd22-shop', chatId: 'chat-shop' }]);
     expect(store.chatIdOf('local-shop')).toBe('chat-shop');
     expect(store.chatIdOf('d22-shop')).toBe('chat-shop');
-    expect(store.isRepresentative('d22-shop')).toBe(true);
     // 账号上那份变了(在 d22 上撤销了并入):整份换掉。
     store.applyBindings('d22', []);
     expect(store.chatIdOf('d22-shop')).toBeUndefined();
-    expect(store.isRepresentative('d22-shop')).toBe(false);
     expect(store.chatIdOf('local-shop')).toBe('chat-shop');
   });
 
@@ -60,7 +58,7 @@ describe('ProjectGroupsStore', () => {
   });
 
   it('nothing is remembered on this computer between runs (the account holds it)', async () => {
-    answer('local', [{ projectId: 'z-target', chatId: 'chat-shared', representative: true }]);
+    answer('local', [{ projectId: 'z-target', chatId: 'chat-shared' }]);
     new ProjectGroupsStore().start(() => []);
     await settle();
     expect(localStorage.length).toBe(0);
