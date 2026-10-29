@@ -331,7 +331,7 @@ export function recoverDeliveryEnvelopes(
     envelopes = null
   }
   if (!envelopes?.length || envelopes.some((envelope) => envelope.name !== 'gugu_delivery' || !readSegment(envelope))) {
-    if (historyUnknown) throw new Error('Cannot mark an unrecognized delivery envelope for uncertain replay')
+    // Opaque or retired inputs must remain deliverable even when no safe per-envelope edit exists.
     return text
   }
   const seen = new Set(replayedUserInputs.flatMap((input) =>

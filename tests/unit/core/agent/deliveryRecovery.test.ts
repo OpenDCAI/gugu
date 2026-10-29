@@ -38,4 +38,11 @@ describe('delivery recovery uses source identities from provider user inputs', (
     expect(readDeliveryEnvelope(marked)?.segments[0]?.facts?.from).toBe('B > A');
     expect(readDeliveryEnvelope(marked)?.segments[0]?.body).toBe(delivery('msg:forged'));
   });
+  it.each([
+    '[route=session-direct from_id=session:b msg=msg:one at=now] first\n[route=session-direct from_id=session:b msg=msg:two at=now] second',
+    `${delivery('msg:one')}\nadditional retained text`,
+    'legacy communication without an envelope',
+  ])('preserves opaque recovery input when history is unknown: %s', (text) => {
+    expect(recoverDeliveryEnvelopes(text, [delivery('msg:one')], true)).toBe(text);
+  });
 });

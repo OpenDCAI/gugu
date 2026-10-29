@@ -421,7 +421,8 @@ export class SessionCell {
 
   private reconcileReplayedQueue(): void {
     const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
-    if (!queued.length || (this.deps.providerId !== 'claude' && !this.replayHistoryUnknown)) return;
+    const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
+    if (!queued.length || (!hasCanonicalReplay && !this.replayHistoryUnknown)) return;
     const recover = this.deps.recoverDelivery;
     if (!recover) throw new Error('SessionCell: delivery recovery requires the core envelope owner');
     const inputs = [...this.transcript.history, ...(this.transcript.activeTurn ? [this.transcript.activeTurn] : [])]

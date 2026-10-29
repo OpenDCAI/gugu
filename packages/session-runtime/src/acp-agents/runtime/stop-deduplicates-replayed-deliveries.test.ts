@@ -11,8 +11,8 @@ const requestText = (request: PromptRequest) => request.prompt
   .filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n');
 
 describe('a stopped native delivery already in provider history', () => {
-  it('is admitted once across stop and resume, instead of submitting the same source message again', async () => {
-    const h = makeAcpHarness({ recoverDelivery: recoverDeliveryEnvelopes });
+  it.each(['claude', 'codex'])('%s admits a source once across stop and resume', async (providerId) => {
+    const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     h.agent.initialize.mockResolvedValue({
       protocolVersion: 1, agentCapabilities: { loadSession: true },
       _meta: { steering: { supported: true } },
@@ -20,7 +20,7 @@ describe('a stopped native delivery already in provider history', () => {
     h.agent.extMethod.mockResolvedValue({ outcome: 'injected' });
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     const rt = new AcpRuntime(h.deps);
-    const start = makeStartInput({ sessionId: 'stop-dedup' });
+    const start = makeStartInput({ providerId, sessionId: 'stop-dedup' });
     expect(isOk(await rt.startSession(start))).toBe(true);
     expect(isOk(rt.promptDetached(start.sessionId, { text: 'long task', origin: 'manual' }))).toBe(true);
     await h.agent.called('prompt');
@@ -50,11 +50,11 @@ describe('a stopped native delivery already in provider history', () => {
     expect([...steers, ...prompts].filter((text) => text.includes('msg="msg:accepted-1"'))).toHaveLength(1);
   });
 
-  it('sends an unsent delivery behind the owner once; an assistant quote is not a user receipt', async () => {
-    const h = makeAcpHarness({ recoverDelivery: recoverDeliveryEnvelopes });
+  it.each(['claude', 'codex'])('%s sends an unsent delivery behind the owner; an assistant quote is not a receipt', async (providerId) => {
+    const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     const rt = new AcpRuntime(h.deps);
-    const start = makeStartInput({ sessionId: 'owner-then-delivery' });
+    const start = makeStartInput({ providerId, sessionId: 'owner-then-delivery' });
     await rt.startSession(start);
     rt.promptDetached(start.sessionId, { text: 'long task', origin: 'manual' });
     await h.agent.called('prompt');
@@ -74,7 +74,7 @@ describe('a stopped native delivery already in provider history', () => {
   });
 
   it('replays an explicitly unknown history even when partial user replay contains the id, and marks the envelope', async () => {
-    const h = makeAcpHarness({ recoverDelivery: recoverDeliveryEnvelopes });
+    const h = makeAcpHarness({ providerId: 'codex', recoverDelivery: recoverDeliveryEnvelopes });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession.mockImplementation(async () => {
       await h.client().sessionUpdate({ sessionId: 'native-old', update: {
@@ -85,7 +85,7 @@ describe('a stopped native delivery already in provider history', () => {
       });
     });
     const result = await rt.startSession(makeStartInput({
-      sessionId: 'unknown-history', providerSessionId: 'native-old',
+      providerId: 'codex', sessionId: 'unknown-history', providerSessionId: 'native-old',
       initialQueue: [{ text: DELIVERY, origin: 'communication' }],
     }));
     expect(isOk(result)).toBe(true);
@@ -111,5 +111,27 @@ describe('a stopped native delivery already in provider history', () => {
       })))).toBe(false);
       expect(h.agent.prompt).not.toHaveBeenCalled();
     }
+  });
+
+  it.each([
+    ['retired batch', '[route=session-direct from_id=session:b msg=msg:one at=now] first\n[route=session-direct from_id=session:b msg=msg:two at=now] second'],
+    ['envelope with trailing text', `${DELIVERY}\nadditional retained text`],
+    ['unrecognized text', 'legacy communication without an envelope'],
+  ])('opens with unknown Codex history and redelivers %s unchanged', async (_kind, text) => {
+    const h = makeAcpHarness({ providerId: 'codex', recoverDelivery: recoverDeliveryEnvelopes });
+    h.agent.loadSession.mockRejectedValue(new RequestError(-32015, 'History unknown', {
+      kind: 'history_unknown', sessionId: 'native-old', reason: 'history read failed',
+    }));
+    const rt = new AcpRuntime(h.deps);
+    const sessionId = 'unknown-legacy';
+    expect(isOk(await rt.startSession(makeStartInput({
+      providerId: 'codex', sessionId, providerSessionId: 'native-old',
+      initialQueue: [{ text, origin: 'communication' }],
+    })))).toBe(true);
+    await vi.waitFor(() => expect(h.agent.prompt).toHaveBeenCalledTimes(1));
+    expect(requestText(h.agent.prompt.mock.calls[0][0] as PromptRequest)).toBe(text);
+    expect(h.deps.promptQueueStore?.load(sessionId)).toEqual([]);
+    expect(h.agent.newSession).not.toHaveBeenCalled();
+    expect(JSON.stringify(rt.getChatHistory(sessionId))).toContain('History unknown: history read failed');
   });
 });

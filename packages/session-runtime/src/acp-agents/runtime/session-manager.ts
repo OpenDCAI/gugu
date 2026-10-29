@@ -872,7 +872,7 @@ export class SessionManager implements InboundRouter {
             loadingCell.markReplayHistoryUnknown();
             startupNotices.push({
               code: 'provider-notice',
-              detail: `History unknown: ${reason}. Recovered deliveries are marked as possibly already received.`,
+              detail: `History unknown: ${reason}. Recovered deliveries may already have been received.`,
             });
             return {};
           });
