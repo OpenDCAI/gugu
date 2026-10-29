@@ -16,6 +16,7 @@ import type {
   TimelineSnapshot,
 } from '@gugu/session-core/session-record/contract'
 import { createNode, createReactHarness } from '../../support/testHarness'
+import { stubVisibleIntersection } from '../../support/visibleIntersection'
 
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class SessionpageRpcError extends Error {},
@@ -68,6 +69,7 @@ const LATER = { id: 't2', seq: 2, initiator: 'user', outcome: { kind: 'done' }, 
 let harness: ReturnType<typeof createReactHarness>
 const scrollTo = Element.prototype.scrollTo
 beforeEach(async () => {
+  stubVisibleIntersection()
   Element.prototype.scrollTo = () => undefined
   await clearTimelineCache()
   harness = createReactHarness()
@@ -76,6 +78,7 @@ afterEach(() => {
   harness.cleanup()
   Element.prototype.scrollTo = scrollTo
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 function thread(turns: TranscriptTurn[], question: Settlement) {

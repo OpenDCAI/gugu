@@ -5,6 +5,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
+import { stubVisibleIntersection } from '../../../support/visibleIntersection'
 
 const transcript = vi.hoisted(() => ({ commands: undefined as ChatCommands | undefined }))
 const auth = vi.hoisted(() => ({ owner: 'draft-owner-a' }))
@@ -41,10 +42,11 @@ async function show(onSend = async (_text: string) => undefined) {
   }), { auth: { id: auth.owner } })
 }
 beforeEach(() => {
+  stubVisibleIntersection()
   localStorage.clear(); auth.owner = 'draft-owner-a'; rpc.invoke.mockReset(); rpc.invoke.mockImplementation(() => new Promise(() => undefined)); harness = createReactHarness()
   Element.prototype.scrollTo = () => undefined
 })
-afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll })
+afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals() })
 
 describe('the existing phone task composer recovers an unacknowledged send', () => {
   it('restores the actual empty input without replay, then an explicit retry keeps the original id', async () => {

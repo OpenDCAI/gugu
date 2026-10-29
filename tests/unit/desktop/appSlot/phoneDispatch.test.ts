@@ -6,6 +6,7 @@ import { writeCachedDevices } from '../../../../apps/desktop/src/store/devicesCa
 import { retainDeviceSessions, updateDeviceSessions, liveDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { phoneDispatch } from '../../../../apps/desktop/src/components/appSlot/phoneDispatch'
+import { registerNativeComposer } from '../../../../apps/desktop/src/lib/nativeComposerHandoff'
 const rpc = vi.hoisted(() => vi.fn())
 const lists = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ appCallOn: rpc, fetchSessionsList: lists }))
@@ -62,10 +63,13 @@ describe('phone dispatch through the existing agent directory and App RPC', () =
   })
   it('opens the listed task with a draft, sends nothing, and offers only available composers', async () => {
     const shown = vi.fn(); window.addEventListener(APP_SHOW_SESSION_EVENT, shown, { once: true })
+    const receive = vi.fn()
+    const stop = registerNativeComposer('task-1', receive)
     expect(dispatch().local).toEqual([AGENT])
     await expect(dispatch().agents.draft({ agent: AGENT, named: true }, '')).rejects.toMatchObject({ code: 'invalid' })
-    await expect(dispatch().agents.draft({ agent: AGENT, named: true }, 'please review')).resolves.toBe(AGENT)
-    expect(shown.mock.calls[0][0].detail).toMatchObject({ deviceId: 'desktop', session: { conversationId: 'task-1' }, draft: { text: 'please review\n' } })
+    try { await expect(dispatch().agents.draft({ agent: AGENT, named: true }, 'please review')).resolves.toBe(AGENT) } finally { stop() }
+    expect(shown.mock.calls[0][0].detail).toMatchObject({ deviceId: 'desktop', session: { conversationId: 'task-1' } })
+    expect(receive).toHaveBeenCalledWith({ text: 'please review\n', files: [] })
     expect(rpc).not.toHaveBeenCalled()
     updateDeviceSessions('desktop', { cached: true }); expect(dispatch().local).toEqual([])
   })

@@ -3,6 +3,7 @@ import { act, createElement, useEffect, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../support/testHarness'
 import { readComposer, writeComposer } from '../../support/composerEditor'
+import { stubVisibleIntersection } from '../../support/visibleIntersection'
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class extends Error {}, fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
@@ -17,8 +18,8 @@ import { SessionConversation } from '../../../apps/desktop/src/mobile/agent-watc
 import { emptyAgentWatchTimeline } from '../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 let harness: ReturnType<typeof createReactHarness>
 const oldScroll = Element.prototype.scrollTo
-beforeEach(() => { harness = createReactHarness(); Element.prototype.scrollTo = () => undefined })
-afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll })
+beforeEach(() => { harness = createReactHarness(); stubVisibleIntersection(); Element.prototype.scrollTo = () => undefined })
+afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals() })
 it('puts each App draft in the real task composer once, preserving human edits and sending nothing', async () => {
   const onSend = vi.fn(), applied = vi.fn()
   const timeline = emptyAgentWatchTimeline()

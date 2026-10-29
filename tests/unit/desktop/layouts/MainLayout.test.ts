@@ -292,6 +292,9 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
   },
   chatStoreMock: {
     chats: [] as Array<{ id: string }>,
+    identitiesById: {},
+    draftAttachments: {},
+    setDraftAttachments: vi.fn(),
     activeChatId: null as string | null,
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
