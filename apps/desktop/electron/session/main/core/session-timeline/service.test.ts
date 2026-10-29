@@ -64,6 +64,7 @@ vi.mock('../sessions/agent-question-store', () => ({
 }));
 
 vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
 
 vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
 

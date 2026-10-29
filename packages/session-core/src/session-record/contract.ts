@@ -608,6 +608,8 @@ export type SessionpageProjectSummary = { id: string; name: string; path: string
 export type SessionpageSessionSummary = {
   /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
   nativeInputVersion?: 1;
+  /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
+  nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
   nativeUnreadKeys?: string[];
   nativeUnreadCount?: number;

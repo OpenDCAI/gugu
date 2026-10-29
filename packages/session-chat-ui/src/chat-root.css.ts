@@ -112,14 +112,20 @@ export const pinLane = style({
   pointerEvents: 'none',
 });
 
-/** The user message row inside its lane. Opaque so rows scrolling beneath do not show through. */
+/** The user row inside its lane; its backdrop is opaque only while stuck. */
 export const pinSticky = style({
   // `top` is per row (ChatRoot): the card lands on the pin line whatever the row's collapsed top gap.
   position: 'sticky',
   pointerEvents: 'auto',
-  background: vars.bg,
   // `scroll-state` is newer than csstype's list; it lets pinFade show only while the row is stuck.
   containerType: 'scroll-state' as 'normal',
+});
+
+/** A normal bubble has no full-width card behind it. Protect the pinned row once it actually sticks. */
+export const pinBackdrop = style({
+  position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
+  background: vars.bg, opacity: 0,
+  '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
 });
 
 /** 16px fade under the stuck row: signals that rows scroll beneath it. Not drawn at rest. */

@@ -30,6 +30,8 @@ import { SessionAppMenu } from './SessionAppMenu'
 import { useMachineLabel } from './useMachineLabel'
 import { SessionAppFrame } from '@/components/appSlot/SessionAppFrame'
 import { installedExtensionsStore } from '@/session/renderer/features/extensions/installed-extensions-store'
+import { useNetworkOnline } from '@/hooks/useNetworkOnline'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 /**
  * owner 10-16 The App tabs a session offers on the phone: installed, switched on, opening no file — the session page's 「+」
@@ -70,7 +72,8 @@ export function SessionTimelinePage({
   const { t } = useTranslation('main')
   const { label: machineLabel } = useMachineLabel()
   const phoneHost = isPhoneDevice(device)
-  const online = device.is_online && (!phoneHost || isAgentHostDevice(device))
+  const networkOnline = useNetworkOnline()
+  const online = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
@@ -100,7 +103,7 @@ export function SessionTimelinePage({
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
   // Header state uses the host summary; an unreachable host never advertises a running snapshot.
-  const presentation = sessionPresentation(session, online)
+  const presentation = online ? sessionPresentation(session, true) : null
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
@@ -124,24 +127,12 @@ export function SessionTimelinePage({
     ) : undefined,
     headerTestId: 'agent-watch-hero',
   }
+  const offlineNotice = !networkOnline
+    ? <AgentWatchNote title={translateSessionMessage('conversation.connectionUnavailable')} testId="agent-watch-local-offline" />
+    : cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
 
-  /**
-   * 机器离线 —— ⚠️ 这里此前是一句早返回,把本地缓存的那份时间线一起挡掉了
-   * (`useAgentWatchSession` 的 `readCachedTimeline` 明明读得出来)。
-   * 结果是「机器不在线 = 我连自己说过什么都看不到」,而那份内容就躺在这台手机上
-   * (spec `session-always-openable`:「打不开」不是一种可接受的降级形态)。
-   *
-   * ⇒ 离线只说明**发不出去**,不说明**看不了**:缓存里有东西就照常画,离线这件事作为
-   *   时间线顶上的一条说明出现;缓存里确实空的时候,它才是这一屏的全部内容。
-   */
-  if (!online && timeline.turns.length === 0) {
-    return (
-      <AgentWatchScreen {...taskHeader} onBack={onBack} testId="agent-watch-timeline-page">
-        {cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />}
-      </AgentWatchScreen>
-    )
-  }
-
+  // Keep the same task composer even before a cold offline phone has any timeline.
+  // Its durable input queue waits for the host's stable acknowledgement contract.
   // 动作失败贴着**动作发生的地方**显示(输入框正上方),❌ 不跑到页顶去冒充「打不开时间线」——
   // 发送失败时时间线好端端在那儿,页顶那个红框还配一个「重新读取」,对发送毫无意义。
   const actionErrorNotice = actionError ? (
@@ -201,7 +192,7 @@ export function SessionTimelinePage({
       onBack={onBack}
       testId="agent-watch-timeline-page"
       actions={headerActions}
-      bodyFill={phase !== 'error'}
+      bodyFill
     >
       {timeline.lastReset ? (
         <AgentWatchNote
@@ -213,10 +204,10 @@ export function SessionTimelinePage({
 
       {!online ? (
         /* 离线但本地还有缓存:内容照常看,只说清「现在发不出去」。云电脑没醒着:说正在叫醒它。 */
-        cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
+        offlineNotice
       ) : null}
 
-      {(error || nativeRecord.error) ? (
+      {networkOnline && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
           detail={nativeRecord.error ?? error ?? undefined}

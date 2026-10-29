@@ -20,20 +20,30 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
   useEffect(() => { const id = key.current; if (!shown) publishNativeConversationVisibility(id, null); return () => publishNativeConversationVisibility(id, null) }, [shown, sessionId])
   const chats = useChatSummaries()
   const legacyFirst = [...chats.values()].find(chat => chat.peerUserId === summary?.agent?.userId)?.firstUnreadMessageId
-  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<string>(), placed: false })
+  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<string>(), placed: false, legacy: { first: null as string | null, placed: false } })
   if (current.current.sessionId !== sessionId || current.current.deviceId !== deviceId) {
-    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), placed: false }
+    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), placed: false, legacy: { first: null, placed: false } }
   } else if (shown && !current.current.shown) {
-    current.current.visible.clear(); current.current.placed = false
+    current.current.visible.clear(); current.current.placed = false; current.current.legacy = { first: null, placed: false }
   }
   current.current.shown = shown
   const place = useCallback(() => {
     const state = current.current
     const first = summary?.nativeUnreadKeys?.[0]
+    if (!legacyFirst) state.legacy = { first: null, placed: false }
+    else if (!state.legacy.first) state.legacy.first = legacyFirst
     const aliases = dmRecordIds(readTurns.current())
-    const legacyItem = legacyFirst ? [...aliases].find(([id, ids]) => id !== legacyFirst && ids.includes(legacyFirst))?.[0] : null
-    if (!state.shown || !state.view || state.placed || (!first && !legacyItem)) return
-    const itemId = legacyItem ?? readTurns.current().flatMap(turn => turn.items).find(item => (summary?.nativeUnreadAliases?.[nativeMessageKey(item.id)] ?? nativeMessageKey(item.id)) === first)?.id
+    const legacyItem = state.legacy.first ? [...aliases].find(([id, ids]) => id !== state.legacy.first && ids.includes(state.legacy.first!))?.[0] : null
+    if (!state.shown || !state.view) return
+    // The two counters have separate ownership. An earlier native landing
+    // cannot consume a later IM entry before its first receipt is readable.
+    if (legacyItem && !state.legacy.placed) {
+      state.legacy.placed = true
+      state.view.setScrollMode({ kind: 'anchor', itemId: legacyItem, edge: 'top', offset: -8 })
+      return
+    }
+    if (state.placed || !first) return
+    const itemId = readTurns.current().flatMap(turn => turn.items).find(item => (summary?.nativeUnreadAliases?.[nativeMessageKey(item.id)] ?? nativeMessageKey(item.id)) === first)?.id
     if (itemId) { state.placed = true; state.view.setScrollMode({ kind: 'anchor', itemId, edge: 'top', offset: -8 }) }
   }, [summary, legacyFirst])
   useEffect(place, [place, shown])

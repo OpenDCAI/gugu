@@ -5,6 +5,7 @@ import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondA
 import { askSourceSpec } from '../asks/sources';
 import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
 import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
+import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
@@ -731,6 +732,7 @@ function summaryOf(
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
     nativeInputVersion: 1,
+    nativeLastMessage: nativeConversationActivity(session.id),
     nativeUnreadKeys: nativeConversationUnread(session.id),
     nativeUnreadAliases: nativeConversationAliases(session.id),
     ...(location.supported ? {} : { unsupportedReason: location.reason, ...notStartedFacts(session) }),
@@ -1097,7 +1099,7 @@ const sessionsSubscriptions = new Map<string, { stop: () => void }>();
 const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
-const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadCount'];
+const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadCount', 'nativeLastMessage'];
 function changesSessionList(channel: string, data: unknown): boolean {
   if (channel === sessionCreatedChannel.name || channel === sessionDeletedChannel.name) {
     return true;

@@ -79,6 +79,17 @@ async function mount(
 }
 
 describe('sticky user lanes', () => {
+  it('paints the full-width user backdrop only while the lane is stuck', async () => {
+    const t = await mount();
+    const wrapper = t.card('a-user')!.closest('[data-index]')!.firstElementChild!;
+    expect(getComputedStyle(wrapper).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    const backdrop = () => wrapper.querySelector<HTMLElement>('[data-chat-pin-backdrop]');
+    expect(backdrop()).not.toBeNull();
+    expect(getComputedStyle(backdrop()!).opacity).toBe('0');
+    await t.scrollTo(900);
+    await until('the stuck card is backed by the opaque lane', () => getComputedStyle(backdrop()!).opacity === '1');
+    expect(t.cardTop('a-user')).toBeCloseTo(PIN_LINE, 0);
+  });
   it('sticks the user row in the same frame as the scroll, deep inside a long turn', async () => {
     const t = await mount();
     for (const st of [200, 900, 1700, 2600]) {

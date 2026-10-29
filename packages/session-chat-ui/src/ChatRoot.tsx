@@ -97,6 +97,7 @@ import {
   heroSlotHiddenClass,
   heroSlotVisibleClass,
   outerClip,
+  pinBackdrop,
   pinFade,
   pinLane,
   pinSticky,
@@ -2044,6 +2045,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 classList={{ [pinSticky]: isPinAnchor() }}
                                 style={isPinAnchor() ? { top: `${userTopGap - (u()?.gapBefore ?? 0)}px` } : undefined}
                               >
+                              <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
                                 index={unitIndex}

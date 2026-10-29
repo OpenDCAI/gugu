@@ -6,6 +6,7 @@ import { db, type AppDb } from '@main/db/client';
 import { kv, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
+import { noteNativeConversationActivity, truncateNativeConversationActivity } from './session-conversation-activity';
 
 type JournalDb = Pick<AppDb, 'select' | 'insert'>;
 const keyFor = (sessionId: string) => `native-conversation-read:${sessionId}`;
@@ -41,8 +42,14 @@ function update(sessionId: string, change: (journal: NativeReadJournal) => Nativ
   return { unread: result.unread, publish };
 }
 
+function publishActivity(sessionId: string): void {
+  const session = db.select({ projectId: sessions.projectId }).from(sessions).where(eq(sessions.id, sessionId)).get();
+  if (session) events.emit(sessionChangedChannel, { sessionId, projectId: session.projectId, changes: { nativeLastMessage: true } });
+}
+
 /** Delivery-envelope conversations retain IM read ownership. Raw personal inputs use the native journal. */
 export function noteNativeConversationReplies(sessionId: string, turn: TranscriptTurn, live: TranscriptTurn = turn, transaction?: JournalDb): (() => void) | undefined {
+  const activity = noteNativeConversationActivity(sessionId, turn, transaction ?? db);
   let nativeInput = true;
   const personal = new Set<string>();
   for (const item of turn.items) {
@@ -52,7 +59,11 @@ export function noteNativeConversationReplies(sessionId: string, turn: Transcrip
   }
   const keys = nativeReplyKeys(turn).filter(id => personal.has(id));
   const aliases = new Map(turn.items.flatMap((item, index) => item.kind === 'message' && live.items[index]?.kind === 'message' ? [[item.id, nativeMessageKey(live.items[index]!.id)]] : []));
-  if (keys.length) return update(sessionId, journal => addNativeReplies(journal, keys, aliases), transaction).publish;
+  const publish = keys.length ? update(sessionId, journal => addNativeReplies(journal, keys, aliases), transaction).publish : undefined;
+  if (activity || publish) return () => {
+    publish?.();
+    if (activity) publishActivity(sessionId);
+  };
 }
 export function markNativeConversationVisible(sessionId: string, itemIds: readonly string[]): string[] {
   if (itemIds.length > 500) throw new Error('Too many visible conversation messages');
@@ -60,9 +71,11 @@ export function markNativeConversationVisible(sessionId: string, itemIds: readon
 }
 
 export function truncateNativeConversationRead(sessionId: string, fromSeq: number, transaction?: JournalDb): (() => void) | undefined {
+  const activity = truncateNativeConversationActivity(sessionId, fromSeq, transaction ?? db);
   const prefix = `${sessionId}:turn:s`;
-  return update(sessionId, journal => Object.fromEntries(Object.entries(journal).filter(([key]) => {
+  const publish = update(sessionId, journal => Object.fromEntries(Object.entries(journal).filter(([key]) => {
     const seq = key.startsWith(prefix) ? /^(\d+):/.exec(key.slice(prefix.length))?.[1] : undefined;
     return seq === undefined || Number(seq) < fromSeq;
   })), transaction).publish;
+  return () => { publish(); if (activity) publishActivity(sessionId); };
 }

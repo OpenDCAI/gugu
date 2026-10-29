@@ -1809,7 +1809,10 @@ export const AcpChatPanel = observer(function AcpChatPanel({
 
   const visibility = useConversationVisibility(useContext(PageShownContext));
   const rootRef = visibility.ref;
-  const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => store?.chatState.transcript.state.committedTurns ?? []);
+  const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
+    const transcript = store?.chatState.transcript.state;
+    return transcript ? [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])] : [];
+  });
   const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const sourceMessage = useSessionSourceMessage(store, viewRef, () => toast({ title: translate('transcript.originalMessageMissing'), variant: 'destructive' }));

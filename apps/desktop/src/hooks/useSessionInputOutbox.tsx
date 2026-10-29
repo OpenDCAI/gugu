@@ -1,5 +1,6 @@
 import { state, changed, EMPTY } from '@/lib/sessionInputOutboxBridge'
 import { NativeConversationReadHost } from '@/components/chat/NativeConversationReadHost'
+import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
 import { useLocalSessionDirectory } from './useLocalSessionDirectory'
 import { useEffect, useRef } from 'react'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
@@ -69,5 +70,5 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
     }
   }, [accountId])
   useEffect(() => { void state().queue?.then(queue => queue.flush()).catch(() => undefined) }, [devices, phones])
-  return <NativeConversationReadHost />
+  return <><ChatSummariesHost /><NativeConversationReadHost /></>
 }

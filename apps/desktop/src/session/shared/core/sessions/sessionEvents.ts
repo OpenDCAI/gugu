@@ -17,6 +17,8 @@ export const sessionChangedChannel = defineEvent<{
   changes: {
     /** Native personal replies still unseen; independent of the project attention flag. */
     nativeUnreadCount?: number;
+    /** The host's native preview changed; list subscribers reread the canonical summary. */
+    nativeLastMessage?: true;
     /**
      * 这条会话的 provider 会话 id。**`null` = 清空**(这条会话现在没有可续的 provider 会话)。
      *

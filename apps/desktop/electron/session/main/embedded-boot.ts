@@ -2441,6 +2441,8 @@ export { createSessionpageSessionDeviceRpcHandlers } from './core/session-timeli
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
+  nativeInputVersion?: 1
+  runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
   projectName: string
@@ -2463,6 +2465,8 @@ export function sessionpageSessionDigest(): Array<{
   return [...sessions]
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
+      nativeInputVersion: session.nativeInputVersion,
+      runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
       projectName: projectName.get(session.projectId) ?? '',

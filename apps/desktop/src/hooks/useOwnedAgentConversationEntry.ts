@@ -19,19 +19,22 @@ import { messageForUser } from '@/lib/userFacingError'
 export function useOwnedAgentConversationEntry(input: {
   ownerId: string; chats: readonly ChatItem[]; contacts: readonly ContactUser[]; mobile: boolean; onOpen: () => void
 }): (chatId: string, peerId?: string, draft?: string | NativeComposerDraft) => boolean {
-  const { drafts, writeDraft, draftAttachments, setDraftAttachments } = useChatStore('drafts', 'writeDraft', 'draftAttachments', 'setDraftAttachments')
+  const { drafts, writeDraft, draftAttachments, setDraftAttachments, identitiesById, setActiveChatId } = useChatStore('drafts', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setActiveChatId')
   const draftState = useRef({ drafts, writeDraft, draftAttachments, setDraftAttachments })
   draftState.current = { drafts, writeDraft, draftAttachments, setDraftAttachments }
   const { devices, phones } = useDevicesStore()
-  const current = useRef(input)
-  current.current = input
+  // The account IM repository already retains canonical ownership. Cold offline
+  // entry must not depend on the network-only contact relationship refresh.
+  const current = useRef({ ...input, identitiesById, setActiveChatId })
+  current.current = { ...input, identitiesById, setActiveChatId }
   const generation = useRef(0)
   const open = useCallback((chatId: string, peerId?: string, draft?: string | NativeComposerDraft) => {
     const state = current.current
     const asked = ++generation.current
     const peer = state.chats.find(chat => chat.id === chatId && (chat.kind === 'dm' || chat.kind === 'ai'))?.peer_user_id ?? peerId
-    const contact = state.contacts.find(one => one.id === peer)
+    const contact = state.contacts.find(one => one.id === peer) ?? (peer ? state.identitiesById[peer] : undefined)
     if (!contact || !isOwnedAgent(contact, state.ownerId) || contact.id === readAssistantShellBridge()?.getSnapshot()?.assistant?.id) return false
+    state.setActiveChatId(chatId)
     const old = draftState.current
     const incoming: NativeComposerDraft | undefined = typeof draft === 'string' ? { text: draft } : draft
     const text = incoming ? incoming.append ? appendToDraft(old.drafts?.[chatId] ?? '', incoming.text) : incoming.text : old.drafts?.[chatId] ?? ''
@@ -65,6 +68,6 @@ export function useOwnedAgentConversationEntry(input: {
     })
     return true
   }, [devices, phones])
-  useEffect(() => installOwnedAgentEntry({ open, owns: id => id !== readAssistantShellBridge()?.getSnapshot()?.assistant?.id && isOwnedAgent(current.current.contacts.find(contact => contact.id === id), current.current.ownerId) }), [open, input.ownerId, input.contacts])
+  useEffect(() => installOwnedAgentEntry({ open, owns: id => id !== readAssistantShellBridge()?.getSnapshot()?.assistant?.id && isOwnedAgent(current.current.contacts.find(contact => contact.id === id) ?? current.current.identitiesById[id], current.current.ownerId) }), [open, input.ownerId, input.contacts, identitiesById])
   return open
 }
