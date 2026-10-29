@@ -53,8 +53,8 @@ const storedTurn: TranscriptTurn = {
 };
 Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [] } });
 Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-  invoke: async (channel: string) => channel === 'sessions.getStoredHistory'
-    ? { turns: [storedTurn], originTurnIds: [], nextCursor: null } : [],
+  invoke: async (channel: string, request?: { fromSeq?: number }) => channel === 'sessions.getStoredHistory'
+    ? { turns: [storedTurn].filter(turn => turn.seq >= (request?.fromSeq ?? 0)), originTurnIds: [], nextCursor: null } : [],
   eventSend: () => {}, eventOn: () => () => {}, getPathForFile: () => '',
 } });
 const { AcpChatStore } = await import('./acp-chat-store');
