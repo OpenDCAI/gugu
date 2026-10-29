@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,18 +49,24 @@ function collect(source: SessionRecordSource) {
 }
 
 describe('pi jsonl 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root, id } = await stage('pi-session-aborted.jsonl');
+    const { entries, started } = collect(createPiJsonlSource({ harness: 'pi', providerSessionId: id, roots: [root] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('ACP 腿记的是会话 id:在 sessions 根下按 `_<id>.jsonl` 找到文件', async () => {
     const { root, id } = await stage('pi-session-aborted.jsonl');
     const { entries, started } = collect(
       createPiJsonlSource({ harness: 'pi', providerSessionId: id, roots: [join(root, 'missing'), root] })
     );
     await started;
-    const kinds = contentEntries(entries).map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
-    expect(kinds).toContain('agent_thought_chunk');
+    const kinds = contentEntries(entries).map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('thinking');
     expect(kinds).toContain('tool_call');
-    expect(kinds).toContain('tool_call_update');
+    expect(kinds).toContain('tool_update');
     for (const entry of entries) expect(entry.key.startsWith('pi:')).toBe(true);
   });
 

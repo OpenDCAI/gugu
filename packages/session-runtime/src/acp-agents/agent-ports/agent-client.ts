@@ -1,5 +1,6 @@
+import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type {
-  Client,
   CreateTerminalRequest,
   CreateTerminalResponse,
   KillTerminalRequest,
@@ -8,9 +9,7 @@ import type {
   ReadTextFileResponse,
   ReleaseTerminalRequest,
   ReleaseTerminalResponse,
-  RequestPermissionRequest,
   RequestPermissionResponse,
-  SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
   WaitForTerminalExitRequest,
@@ -26,12 +25,12 @@ import type { TerminalPort } from './terminal-port';
 export interface InboundRouter {
   onSessionUpdate(
     connection: AcpConnectionContext,
-    params: SessionNotification,
+    params: { sessionId: string; trace?: unknown },
     event: NormalizedEvent
   ): void;
   onPermissionRequest(
     connection: AcpConnectionContext,
-    params: RequestPermissionRequest
+    params: AcpPermissionParams
   ): Promise<RequestPermissionResponse>;
   onCreateTerminal(
     connection: AcpConnectionContext,
@@ -48,13 +47,11 @@ export function buildAgentClient(
   connection: AcpConnectionContext,
   router: InboundRouter,
   ports: AgentPorts
-): Client {
+): AcpClient {
   return {
-    sessionUpdate: async (params: SessionNotification): Promise<void> => {
-      router.onSessionUpdate(connection, params, connection.normalize(params.update));
-    },
+    sessionEvent: params => router.onSessionUpdate(connection, params, params.event),
 
-    requestPermission: (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
+    requestPermission: (params: AcpPermissionParams): Promise<RequestPermissionResponse> => {
       return router.onPermissionRequest(connection, params);
     },
 
@@ -71,21 +68,21 @@ export function buildAgentClient(
     },
 
     terminalOutput: async (params: TerminalOutputRequest): Promise<TerminalOutputResponse> => {
-      return ports.terminals.terminalOutput(params);
+      return ports.terminals.terminalOutput(params, connection.key);
     },
 
     waitForTerminalExit: async (
       params: WaitForTerminalExitRequest
     ): Promise<WaitForTerminalExitResponse> => {
-      return ports.terminals.waitForTerminalExit(params);
+      return ports.terminals.waitForTerminalExit(params, connection.key);
     },
 
     killTerminal: async (params: KillTerminalRequest): Promise<KillTerminalResponse> => {
-      return ports.terminals.killTerminal(params);
+      return ports.terminals.killTerminal(params, connection.key);
     },
 
     releaseTerminal: async (params: ReleaseTerminalRequest): Promise<ReleaseTerminalResponse> => {
-      return ports.terminals.releaseTerminal(params);
+      return ports.terminals.releaseTerminal(params, connection.key);
     },
   };
 }

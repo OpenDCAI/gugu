@@ -1,9 +1,6 @@
 import { StringDecoder } from 'node:string_decoder';
-import type { TerminalState } from '@gugu/session-core/acp';
+import { TERMINAL_OUTPUT_BYTE_LIMIT, type TerminalState } from '@gugu/session-core/acp';
 import type { AcpTerminalExit, AcpTerminalProcess } from '@gugu/session-core/acp/node';
-
-/** Default per-terminal output byte cap (4 MB). */
-const DEFAULT_OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 
 /**
  * Owns the lifecycle of a single ACP-requested terminal command.
@@ -42,7 +39,7 @@ export class ManagedAgentTerminal {
     this.args = args;
     this.cwd = cwd;
     this.proc = proc;
-    this.byteLimit = byteLimit ?? DEFAULT_OUTPUT_BYTE_LIMIT;
+    this.byteLimit = byteLimit ?? TERMINAL_OUTPUT_BYTE_LIMIT;
 
     const handleData = (d: Buffer) => this.append(d);
     proc.stdout.on('data', handleData);
@@ -95,6 +92,8 @@ export class ManagedAgentTerminal {
   snapshot(): TerminalState {
     return {
       terminalId: this.terminalId,
+      owner: 'host',
+      canKill: this._exitStatus === null,
       command: this.command,
       args: this.args,
       cwd: this.cwd,

@@ -64,8 +64,7 @@ function ctxWith(extra: Partial<SegmentCtx>): SegmentCtx {
     plan: () => null,
     translate: defaultChatTranslator,
     pendingToolCallIds: () => new Set<string>(),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    terminalSnapshot: () => null,
     ...extra,
   } as unknown as SegmentCtx;
 }
@@ -934,7 +933,7 @@ describe('agent conversation segment process', () => {
   const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
     { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
   const conversation = (record: TranscriptTurn, active = false, open = false) => flattenTier([record], ctxWith({ active, foldTurnProcess: true, agentConversation: true,
-    isTurnProcessExpanded: () => open }), SEGMENTERS);
+    isTurnProcessExpanded: () => open }), SEGMENTERS).flatMap(unit => unit.children ?? [unit]);
   it('binds every completed segment to its stable process head, with only tools counted', () => {
     const units = conversation(completed());
     expect(ids(units).indexOf('footer:process:head')).toBe(ids(units).indexOf('answer') - 1);

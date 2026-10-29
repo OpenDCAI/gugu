@@ -58,10 +58,9 @@ function segCtx(pending: AcpPermissionRequest[] = []): SegmentCtx {
     active: true,
     plan: () => null,
     translate: defaultChatTranslator,
-    pendingToolCallIds: () => new Set(pending.map((request) => request.toolCall.toolCallId)),
-    permissionFor: (id) => pending.find((request) => request.toolCall.toolCallId === id),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    pendingToolCallIds: () => new Set(pending.flatMap((request) => request.toolCall ? [request.toolCall.toolCallId] : [])),
+    permissionFor: (id) => pending.find((request) => request.toolCall?.toolCallId === id),
+    terminalSnapshot: () => null,
   };
 }
 

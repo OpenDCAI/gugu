@@ -33,7 +33,7 @@ import {
   parseDeviceRpcReply,
 } from './deviceRpcProtocol'
 import { DeviceRpcChannelError, DeviceRpcRefused, type DeviceRpcPipe, type DeviceRpcPipeHandlers } from './deviceRpcRequester'
-import { REMOTE_PROTOCOL_VERSION } from './serverMachineHealth'
+import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from './serverMachineHealth'
 
 /** 订上一条私有 topic 之后手里的那一条:往上发,关掉(交回的 promise 在这条退完时落定)。 */
 export type DeviceTopic = { send(message: unknown): Promise<void>; close(): void | Promise<void> }
@@ -233,6 +233,10 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
             .catch(failSend)
         })
         if (reply?.error) throw new DeviceRpcRefused(reply.error)
+        const protocol = (reply?.result as { protocol?: unknown } | undefined)?.protocol
+        if (typeof protocol !== 'number' || protocol < MIN_SERVER_PROTOCOL) {
+          throw new DeviceRpcRefused({ code: 'server_outdated', message: '请更新那台机器上的咕咕' })
+        }
       })().then(
         () => {
           clearTimeout(timer)

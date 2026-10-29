@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
  * #5117 —— 子智能体**自己会话**上的事件要路由回主会话,并且不许冒充主会话。
  *
@@ -8,7 +9,6 @@
  * `SessionManager: sessionUpdate for unknown sessionId a0fc0cd9f50848202`)。
  */
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
-import { DRAFT_UPDATE_META_KEY } from '@gugu/session-core/acp';
 import { isOk } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
@@ -17,21 +17,9 @@ import { AcpRuntime } from './runtime';
 const ROOT = 'session-1';
 const KID = 'a0fc0cd9f50848202';
 
-function spawnedEnvelope(): SessionUpdate {
-  // 进门信封(见 acp-stdio.ts `rewriteDraftSessionUpdates`):草案 update 裹在 tool_call_update 里。
-  return {
-    sessionUpdate: 'tool_call_update',
-    toolCallId: KID,
-    _meta: {
-      [DRAFT_UPDATE_META_KEY]: {
-        sessionUpdate: 'subagent_spawned',
-        subagentSessionId: KID,
-        name: '回传口令',
-        task: '把口令原样回给我',
-        capabilities: {},
-      },
-    },
-  } as unknown as SessionUpdate;
+function spawned() {
+  return { sessionUpdate: 'subagent_update', sessionId: KID, title: '回传口令',
+    description: '把口令原样回给我', capabilities: {}, state: { state: 'running' } };
 }
 
 function chunk(text: string): SessionUpdate {
@@ -56,10 +44,9 @@ async function openTurn(sessionId: string) {
 describe('#5117 子会话路由', () => {
   it('an advertised native child cancellation targets that child, never the parent', async () => {
     const { rt, client, h, finish } = await openTurn('native-codex-stop');
-    const update = spawnedEnvelope();
-    const draft = update._meta![DRAFT_UPDATE_META_KEY] as { capabilities: { cancel?: boolean } };
-    draft.capabilities.cancel = true;
-    await client.sessionUpdate({ sessionId: ROOT, update });
+    const update = spawned();
+    update.capabilities = { cancel: {} };
+    await client.sessionEvent({ sessionId: ROOT, event: decodeSessionUpdate(update) });
     expect((await rt.stopBackgroundTask('native-codex-stop', KID)).success).toBe(true);
     expect(h.agent.cancel).toHaveBeenCalledExactlyOnceWith({ sessionId: KID });
     await finish();
@@ -67,8 +54,8 @@ describe('#5117 子会话路由', () => {
   it('派生之后,子会话号上的正文到得了:进登记册 `output`,主会话的会话号不变', async () => {
     const { h, rt, client, live, finish } = await openTurn('conv-kid');
 
-    await client.sessionUpdate({ sessionId: ROOT, update: spawnedEnvelope() });
-    await client.sessionUpdate({ sessionId: KID, update: chunk('ZIWEIXINIU-7788') });
+    await client.sessionEvent({ sessionId: ROOT, event: decodeSessionUpdate(spawned()) });
+    await client.sessionEvent({ sessionId: KID, event: decodeSessionUpdate(chunk('ZIWEIXINIU-7788')) });
 
     // 子会话的正文跟着显示节拍发出(publishOnTick):等这一拍过完。
     await vi.waitFor(() => {
@@ -87,7 +74,7 @@ describe('#5117 子会话路由', () => {
   it('阴控:没派生过的会话号照旧丢弃 —— ❌ 不凭空认亲', async () => {
     const { client, live, finish } = await openTurn('conv-stranger');
 
-    await client.sessionUpdate({ sessionId: 'nobody', update: chunk('我是谁') });
+    await client.sessionEvent({ sessionId: 'nobody', event: decodeSessionUpdate(chunk('我是谁')) });
 
     expect(live.states.agents.snapshot().data).toEqual([]);
     await finish();
@@ -95,7 +82,7 @@ describe('#5117 子会话路由', () => {
 
   it('单独停一个子智能体如实报「做不到」,❌ 不报成功', async () => {
     const { rt, client, h, finish } = await openTurn('conv-stop');
-    await client.sessionUpdate({ sessionId: ROOT, update: spawnedEnvelope() });
+    await client.sessionEvent({ sessionId: ROOT, event: decodeSessionUpdate(spawned()) });
 
     const result = await rt.stopBackgroundTask('conv-stop', KID);
 

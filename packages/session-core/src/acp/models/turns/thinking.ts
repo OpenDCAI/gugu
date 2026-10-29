@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { entityContentSchema } from '../entity-content';
 
 export const transcriptThinkingSchema = z.object({
   kind: z.literal('thinking'),
@@ -8,6 +9,8 @@ export const transcriptThinkingSchema = z.object({
   /** Provider or synthesized stream segment id for merging reasoning chunks. */
   segmentId: z.string(),
   text: z.string(),
+  content: z.array(entityContentSchema).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   status: z.enum(['thinking', 'done']),
   /** Epoch ms when the thinking row opened. */
   startedAt: z.number(),

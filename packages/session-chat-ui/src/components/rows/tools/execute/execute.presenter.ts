@@ -16,16 +16,10 @@ export function executeFromItem(
   item: Extract<ToolNode, { kind: 'execute-tool-call' }>,
   ctx: SegmentCtx
 ): ChatExecute {
-  const liveOutput = item.terminalId ? ctx.terminalOutputText(item.terminalId) : null;
-  const outputText = liveOutput ?? item.outputText;
-  // Two sources, and they are not equivalent. The client-owned terminal is the
-  // first-hand one — we spawned that process — but it only exists when the agent
-  // took ACP's `terminal/create` route, which neither shipped adapter does. Both
-  // of those instead report the exit themselves, and their provider hook promotes
-  // it onto the item. Prefer the reading we took ourselves; fall back to the one
-  // we were told.
-  const liveExit = item.terminalId ? ctx.terminalExitStatus(item.terminalId) : null;
-  const exitStatus = liveExit ?? item.exitStatus ?? null;
+  const terminal = item.terminalId ? ctx.terminalSnapshot(item.terminalId) : null;
+  const outputText = terminal ? (terminal.truncated
+    ? `${ctx.translate('transcript.terminalTruncated')}\n${terminal.output}` : terminal.output) : item.outputText;
+  const exitStatus = terminal?.exitStatus ?? item.exitStatus ?? null;
   return {
     kind: 'execute',
     id: item.id,

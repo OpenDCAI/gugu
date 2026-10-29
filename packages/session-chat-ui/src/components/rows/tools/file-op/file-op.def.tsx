@@ -43,25 +43,6 @@ export function readFileOpFromItem(
   };
 }
 
-export function deleteFileOpFromItem(
-  item: Extract<ToolNode, { kind: 'delete-file-tool-call' }>,
-  ctx: SegmentCtx
-): ChatFileOpToolCall {
-  return {
-    kind: 'file-op',
-    id: item.id,
-    ...(item.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: item.trimmedChars }) } : {}),
-    op: 'delete',
-    status: item.status,
-    ...(item.rawInput !== undefined ? { request: item.rawInput } : {}),
-    ...((item.outputText ?? item.rawOutput) !== undefined
-      ? { result: item.outputText ?? item.rawOutput } : {}),
-    awaitingPermission: ctx.pendingToolCallIds().has(item.toolCallId),
-    ops: [{ path: item.path }],
-    ...(toolFailureReason(item) !== undefined ? { error: toolFailureReason(item) } : {}),
-  };
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function measureFileOpH(item: ChatFileOpToolCall, ctx: MeasureCtx, vars: FileOpVars): number {

@@ -19,8 +19,13 @@ async function turnInFlight(sessionId: string) {
   expect(isOk(await rt.startSession(makeStartInput({ sessionId })))).toBe(true);
   let rejectPrompt!: (error: unknown) => void;
   h.agent.prompt = vi.fn(() => new Promise((_, reject) => { rejectPrompt = reject; }));
-  const turn = rt.sendPrompt(sessionId, { text: 'sleep 300' });
+  const sent = rt.promptDetached(sessionId, { text: 'sleep 300' });
+  if (!sent.success) throw new Error('Missing session');
   await h.agent.called('prompt');
+  // The provider has started on it: its first event admits the request.
+  h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'thinking', messageId: 'started', text: 'Starting.' } });
+  await sent.data.admission;
+  const turn = sent.data.completion;
   const summaries = () => rt.sessionsListLiveModel().states.list.snapshot().data;
   return { h, rt, turn, outcomes, summaries, rejectPrompt: (error: unknown) => rejectPrompt(error) };
 }
@@ -101,10 +106,13 @@ describe('stopSession with a turn in flight', () => {
   });
 
   it('关的同时 provider 自己回了错:那是它说的话,照旧是失败', async () => {
-    const { rt, turn, outcomes, rejectPrompt } = await turnInFlight('conv-provider-error');
-
+    const { h, rt, turn, outcomes, rejectPrompt } = await turnInFlight('conv-provider-error');
+    h.agent.closeSession.mockImplementationOnce(async () => {
+      rejectPrompt(Object.assign(new Error('upstream 429'), { name: 'RequestError', code: -32603 }));
+      await vi.waitFor(() => expect(outcomes.at(-1)?.kind).toBe('error'));
+      return {};
+    });
     expect(isOk(await rt.stopSession('conv-provider-error'))).toBe(true);
-    rejectPrompt(Object.assign(new Error('upstream 429'), { name: 'RequestError', code: -32603 }));
     await turn;
 
     expect(outcomes.at(-1)?.kind).toBe('error');

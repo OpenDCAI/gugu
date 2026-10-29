@@ -1,4 +1,4 @@
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 
 import type { SettlementOption, SettlementQuestion } from '../contract';
 import { asRecord } from './shared';
@@ -82,8 +82,7 @@ export function isQuestionToolName(name: string | null | undefined): name is Que
  * `"<问题>"="<label>"`。label 就是 provider 自己认得的那个字符串，序号才是读侧
  * 凭空造的、发回去 agent 认不得的东西（契约 SettlementOption 上写死了这条）。
  */
-export function readQuestion(update: SessionUpdate): RecordQuestion | null {
-  if (update.sessionUpdate !== 'tool_call') return null;
+export function readQuestion(update: Pick<Extract<NormalizedEvent, { kind: 'tool_call' }>, 'toolCallId' | 'title' | 'rawInput'>): RecordQuestion | null {
   const toolName = update.title;
   if (!isQuestionToolName(toolName)) return null;
 
@@ -134,43 +133,13 @@ export function readQuestion(update: SessionUpdate): RecordQuestion | null {
  *   咕咕适配器渲染不出来时如实回的 `{"answers":{}}`、选择器上 Esc 的「aborted by user」、「can only be used by the root
  *   thread」(mac1 真实 rollout 12 次里 11 次是这些)⇒ 只有输出里解析出非空的 answers 才是答了。
  */
-const ANSWERED_WHEN_COMPLETED: Record<QuestionToolName, (output: string | null) => boolean> = {
-  AskUserQuestion: () => true,
-  ExitPlanMode: () => true,
-  question: () => true,
-  request_user_input: codexAnswered,
-};
-
-/** `toolName` 认不出(不是提问工具)⇒ 不说它被答过。 */
+/** Completion and the unformatted native answer determine read-side settlement. */
 export function questionAnswered(
   toolName: string | null,
-  update: { status?: string | null; content?: readonly unknown[] | null; rawOutput?: unknown }
+  event: Extract<NormalizedEvent, { kind: 'tool_update' }>
 ): boolean {
-  if (update.status !== 'completed' || !isQuestionToolName(toolName)) return false;
-  return ANSWERED_WHEN_COMPLETED[toolName](outputText(update));
-}
-
-/** 真回答 `{"answers":{"<题 id>":{"answers":["<选中的 label>"]}}}`;其余(纯文本的几种、空的 `{"answers":{}}`)都不是。 */
-function codexAnswered(output: string | null): boolean {
-  if (output === null) return false;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    return false;
-  }
-  const answers = asRecord(asRecord(parsed)?.answers);
-  return answers !== null && Object.keys(answers).length > 0;
-}
-
-function outputText(update: { content?: readonly unknown[] | null; rawOutput?: unknown }): string | null {
-  const texts = (update.content ?? []).flatMap((block) => {
-    const inner = asRecord(asRecord(block)?.content);
-    return typeof inner?.text === 'string' ? [inner.text] : [];
-  });
-  if (texts.length > 0) return texts.join('\n');
-  if (typeof update.rawOutput === 'string') return update.rawOutput;
-  return update.rawOutput === undefined || update.rawOutput === null ? null : JSON.stringify(update.rawOutput);
+  if (event.status !== 'completed' || !isQuestionToolName(toolName)) return false;
+  return toolName !== 'request_user_input' || event.recordedAnswers === true;
 }
 
 function readOptions(question: Record<string, unknown> | null): SettlementOption[] {

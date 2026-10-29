@@ -48,13 +48,13 @@ describe('native admission through local message delivery', () => {
       .onRequest(v2.methods.agent.session.prompt, native)
       .connect(v2.ndJsonStream(Writable.toWeb(toClient) as WritableStream<Uint8Array>, nodeReadableToWeb(toAgent)));
     const transport = connectStdioAcpV2({ stdin: toAgent, stdout: toClient }, () => ({
-      sessionUpdate: async () => {}, requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+      sessionEvent: () => {}, requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
     }) as never);
     await transport.initialize({ protocolVersion: 1 });
-    const h = makeAcpHarness();
-    Object.assign(h.agent, { protocolVersion: 2 });
+    const h = makeAcpHarness({ nativeState: true });
     const accepted = vi.fn();
-    h.agent.prompt = vi.fn<AcpAgentApi['prompt']>((params, accept) => transport.prompt(params, () => { accepted(); accept?.(); }));
+    // The host's prompt goes through the real v2 transport; its receipt is the only admission.
+    h.agent.prompt = vi.fn<AcpAgentApi['prompt']>((params, dispatch) => transport.prompt(params, dispatch).then(receipt => { accepted(); return receipt; }));
     const runtime = new AcpRuntime(h.deps);
     const input = makeStartInput({ sessionId: 'cancelled-before-admission' });
     const wake = vi.fn(async () => {});
@@ -78,11 +78,15 @@ describe('native admission through local message delivery', () => {
   });
 
   it('resumes and redelivers the same message after native steering finds an ended executor', async () => {
-    const h = makeAcpHarness({ reportsState: true });
-    Object.assign(h.agent, { protocolVersion: 2 });
+    const h = makeAcpHarness({ nativeState: true });
     h.agent.initialize.mockResolvedValue({ protocolVersion: 2, agentCapabilities: { loadSession: true }, _meta: { steering: { supported: true } } });
     h.agent.extMethod.mockRejectedValue(Object.assign(new Error('native executor ended'), { code: -32603 }));
-    h.agent.prompt = vi.fn<AcpAgentApi['prompt']>(async (_params, accept) => { accept?.(); return { stopReason: 'end_turn' }; });
+    // After recovery the provider takes the redelivered message: it echoes it, then returns the native receipt.
+    h.agent.prompt = vi.fn<AcpAgentApi['prompt']>(async (_params, dispatch) => {
+      h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
+      h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'message', role: 'user', messageId: 'redelivered', text: dispatch!.message.text, contentMode: 'replace' } });
+      return { status: 'accepted', requestId: dispatch!.requestId, messageId: 'redelivered' };
+    });
     const runtime = new AcpRuntime(h.deps);
     const input = makeStartInput({ sessionId: 'ended-steering' });
     const wake = vi.fn(async () => {
@@ -91,7 +95,7 @@ describe('native admission through local message delivery', () => {
     });
     try {
       expect((await runtime.startSession(input)).success).toBe(true);
-      await h.client().sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } as never });
+      h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
       expect(runtime.getSessionState(input.sessionId).lifecycle).toBe('working');
       await expect(delivery(runtime, input.sessionId, wake)('same unaccepted message')).resolves.toMatchObject({ turnId: expect.any(String) });
       expect(h.agent.extMethod).toHaveBeenCalledExactlyOnceWith('_session/steering', expect.objectContaining({
@@ -103,7 +107,7 @@ describe('native admission through local message delivery', () => {
       expect(h.agent.loadSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'session-1' }));
       expect(h.agent.prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
         sessionId: 'session-1', prompt: [{ type: 'text', text: 'same unaccepted message' }],
-      }), expect.any(Function));
+      }), expect.objectContaining({ requestId: expect.any(String) }));
     } finally {
       await runtime.dispose();
     }
