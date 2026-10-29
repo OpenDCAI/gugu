@@ -9,6 +9,12 @@ const exchange = (id: string, fromSessionId: string, toSessionId: string, second
 const human = { id: 'human-message', chat_id: 'dm', sender_user_id: 'owner', content: 'please continue', created_at: '2026-10-16T12:00:02Z', seq: 1 } as MessageItem
 
 describe('one task chat with three real senders', () => {
+  it('groups full-history failures but leaves search hits separate when intervening context is absent', () => {
+    const failures = ['a', 'b'].map(id => ({ ...human, id, content_type: 'system' as const,
+      client_message_id: `turn-failure:${id}:network` }))
+    expect(taskChatRows(failures, [], null, '')).toHaveLength(1)
+    expect(taskChatRows(failures, [], null, 'network').map(row => row.message.id)).toEqual(['a', 'b'])
+  })
   it('does not duplicate a collaboration event already present as its original cloud message', () => {
     const event = { ...exchange('cloud-event','assistant-session','task-session',1),sourceMessageId: human.id }
     expect(taskChatRows([human],[event],task,'').map(row=>row.message.id)).toEqual([human.id])
