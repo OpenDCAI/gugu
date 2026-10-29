@@ -20,13 +20,8 @@ const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 
 /** 停一条会话等它的进程退出,一轮最多 10 s(`stop_pending` = 信号发了、还没退)。几轮都没退才报失败。 */
 const STOP_ATTEMPTS = 3;
 
-/**
- * 停掉它会不会丢掉手上的活。还在起、还在回放的不算:停掉不丢任何一轮,下一条消息照样接着原对话起。
- * 10-30 实例:重启后咕咕给 9 个欠着消息的 Codex 会话补投、同时冷启动卡了 7 分钟,这 7 分钟切换一律被拒。
- */
 function acpBusy(summary: SessionSummary): boolean {
-  return summary.lifecycle === 'working'
-    || summary.lifecycle === 'cancelling'
+  return summary.lifecycle !== 'ready'
     || summary.isGenerating
     || summary.pendingPermissionCount > 0
     || summary.queuedPromptCount > 0

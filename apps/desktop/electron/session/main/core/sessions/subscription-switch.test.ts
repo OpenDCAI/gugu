@@ -95,20 +95,15 @@ it('says which provider and how many sessions are working, so the UI can word it
   });
 });
 
-// 10-30:重启后 9 个欠着消息的 Codex 会话同时冷启动 7 分钟,这期间切换一律被拒。停掉起到一半的会话不丢任何一轮。
-it('does not count sessions that are only starting or replaying as working, and stops them with the rest', async () => {
+// 起到一半、回放中的也算在忙:正常几秒就起完;起不完是启动的毛病，靠「关掉并切换」出来,❌ 在这里假装它不忙。
+it('counts sessions that are starting or replaying as working', async () => {
   summary('starting', { lifecycle: 'starting' });
   summary('replaying', { lifecycle: 'replaying' });
   summary('idle');
-  await switchSubscription('codex', 'work', {});
-  expect(mocks.calls).toEqual(['stop:starting', 'stop:replaying', 'stop:idle', 'select:codex:work', 'reclaimed:starting', 'reclaimed:replaying', 'reclaimed:idle']);
-});
-
-it('still counts a turn that is running or being cancelled', async () => {
-  summary('working', { lifecycle: 'working' });
-  summary('cancelling', { lifecycle: 'cancelling' });
   await expect(switchSubscription('codex', 'work', {})).rejects.toMatchObject({ count: 2 });
   expect(mocks.calls).toEqual([]);
+  await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
+  expect(mocks.calls).toEqual(['stop:starting', 'stop:replaying', 'stop:idle', 'select:codex:work', 'reclaimed:starting', 'reclaimed:replaying', 'reclaimed:idle']);
 });
 
 // 用户看过「有会话正在工作」仍要切(额度用完时手上的回合本来也跑不下去):正在工作的也一起关掉，照切。
