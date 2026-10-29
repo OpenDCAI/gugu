@@ -116,22 +116,31 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 		return nil, err
 	}
 	e := &Encoder{input: input, output: encoded, cancel: cancel, length: config.Width * config.Height * 4, done: make(chan struct{}), closed: make(chan struct{}), reader: make(chan struct{})}
-	stopParent := context.AfterFunc(ctx, func() { e.stop(ctx.Err()) })
+	stopParent := context.AfterFunc(ctx, func() { e.stop(context.Cause(ctx)) })
 	go func() {
 		defer close(e.reader)
 		packetizer := rtp.NewPacketizer(1200, 96, binary.BigEndian.Uint32(ssrc[:]), &codecs.H264Payloader{}, rtp.NewRandomSequencer(), 90000)
+		var sendErr error
 		readErr := readEncodedFrames(encoded, func(annexB []byte) error {
 			for _, packet := range packetizer.Packetize(annexB, uint32(90000/config.FPS)) {
 				data, err := packet.Marshal()
 				if err != nil {
+					sendErr = err
 					return err
 				}
 				if err = output.RTP(data); err != nil {
+					sendErr = err
 					return err
 				}
 			}
 			return nil
 		})
+		// A child exit can close stdout before Wait has drained stderr. Let Wait
+		// report that process failure, including its status and diagnostic tail.
+		// An RTP writer's EOF is a transport failure, not the pipe's end.
+		if sendErr == nil && (errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) || errors.Is(readErr, io.ErrClosedPipe) || errors.Is(readErr, os.ErrClosed)) {
+			return
+		}
 		select {
 		case <-e.done:
 		default:
@@ -172,7 +181,7 @@ func (e *Encoder) WriteFrame(ctx context.Context, bgra []byte) error {
 	if len(bgra) != e.length {
 		return errors.New("projection frame does not match encoder dimensions")
 	}
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
 	if !e.write.TryLock() {
@@ -184,13 +193,35 @@ func (e *Encoder) WriteFrame(ctx context.Context, bgra []byte) error {
 		return e.closedError()
 	default:
 	}
-	stopWrite := context.AfterFunc(ctx, func() { e.stop(ctx.Err()) })
+	stopWrite := context.AfterFunc(ctx, func() { e.stop(context.Cause(ctx)) })
 	defer stopWrite()
 	if _, err := e.input.Write(bgra); err != nil {
-		e.stop(err)
-		return err
+		// Closing stdin wakes a blocked write after cancellation. Its OS pipe
+		// error must not replace the timeout/cancellation that closed it.
+		if cause := context.Cause(ctx); cause != nil {
+			e.stop(cause)
+			return cause
+		}
+		// EPIPE may precede Wait too. Give the child the same bounded cleanup
+		// window to report its exit rather than replacing it with a pipe error.
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-e.done:
+			if cause := context.Cause(ctx); cause != nil {
+				return cause
+			}
+			return e.closedError()
+		case <-ctx.Done():
+			cause := context.Cause(ctx)
+			e.stop(cause)
+			return cause
+		case <-timer.C:
+			e.stop(err)
+			return err
+		}
 	}
-	return ctx.Err()
+	return context.Cause(ctx)
 }
 
 func (e *Encoder) closedError() error {

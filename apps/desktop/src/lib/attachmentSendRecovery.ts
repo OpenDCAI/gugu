@@ -6,6 +6,7 @@ import { i18n } from '../i18n'
 import { commitPreparedChatAttachment, type PreparedChatAttachment } from './attachmentsEndpoint'
 import { AttachmentStageTimeout, linkedAttachmentSignal, type AttachmentSendTiming } from './attachmentSendTiming'
 import { readMessageCreatedRevision, type AccountRevisionListener } from './accountRevisionCoordinator'
+import { xhrAttachmentUpload } from './attachmentUploadTransport'
 
 export type ObserveAttachmentMessage = (id: string, receive: (row: MessageItem) => void) => () => void
 const MAX_ATTEMPTS = 3
@@ -17,7 +18,9 @@ export function retryableAttachmentError(error: unknown): boolean {
 export function attachmentAttemptEndpoint(endpoint: AttachmentsEndpoint, signal: AbortSignal): AttachmentsEndpoint {
   return { ...endpoint, fetch: (input, init) => (endpoint.fetch ?? fetch)(input, {
     ...init, signal: init?.signal ? linkedAttachmentSignal([signal, init.signal]) : signal,
-  }) }
+  }), upload: (url, init, progress) => (endpoint.upload ?? xhrAttachmentUpload)(url, {
+    ...init, signal: init.signal ? linkedAttachmentSignal([signal, init.signal]) : signal,
+  }, progress) }
 }
 export async function retryAttachmentUpload<T>(run: (attempt: number) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
