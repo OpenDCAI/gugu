@@ -218,6 +218,8 @@ export const enUSProjectMessages = {
   // ── projects: delete confirmation ──────────────────────────────────────
   'projects.delete.title': 'Delete project',
   'projects.delete.confirm': 'Delete',
+  'projects.delete.failed': 'Could not delete the project',
+  'projects.delete.checkTimeout': 'The device did not answer while checking the project. Try again once it is connected.',
   'projects.delete.description':
     '"{projectLabel}" will be deleted, together with all of its tasks (archived ones included) — they cannot be restored from Task history. The project folder and worktrees will stay on the filesystem.',
   'projects.delete.detachWarning_one':
@@ -438,6 +440,8 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   // ── projects: delete confirmation ──────────────────────────────────────
   'projects.delete.title': '删除项目',
   'projects.delete.confirm': '删除',
+  'projects.delete.failed': '未能删除项目',
+  'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将删除“{projectLabel}”。项目里的会话（包括已归档的）会一并永久删除，不能从会话历史里恢复。项目文件夹与 worktree 仍会保留在文件系统上。',
   'projects.delete.detachWarning_one': '该自动化将从项目分离，并在挂到其他项目之前不会运行：',
   'projects.delete.detachWarning_other': '这些自动化将从项目分离，并在挂到其他项目之前不会运行：',

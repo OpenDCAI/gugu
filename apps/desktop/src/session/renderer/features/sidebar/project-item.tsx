@@ -209,7 +209,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
 
   return (
     // 代位的是那台机器的任务工作区,移除它会让那些会话无处可挂:这一行没有「移除」菜单。
-    <ProjectRowContextMenu disabled={!!standInDevice || assistantHome} chatId={groupChatId}
+    <ProjectRowContextMenu disabled={!!standInDevice || assistantGroup} chatId={groupChatId}
       onRemove={() => {
         void confirmDeleteProject({
           projectId,
