@@ -49,4 +49,33 @@ describe('session quote navigation', () => {
       host.remove();
     }
   });
+  it('shares a pending top-edge page and leaves a disposed view untouched', async () => {
+    let finish!: (turns: TranscriptTurn[]) => void;
+    const pending = new Promise<TranscriptTurn[]>(resolve => { finish = resolve; });
+    const loadOlderHistory = vi.fn(() => pending);
+    const store = { chatState: { transcript: { state: { committedTurns: [turn('latest', 3)], activeTurnSnapshot: null } } }, canLoadOlderHistory: true, loadOlderHistory } as unknown as AcpChatStore;
+    const scrollToItem = vi.fn(), loadOlder = vi.fn(), missing = vi.fn();
+    const view = { scrollToItem, loadOlder } as unknown as ChatView;
+    let actions!: ReturnType<typeof useSessionSourceMessage>;
+    function Harness() {
+      actions = useSessionSourceMessage(store, useRef(view), missing);
+      return <button onClick={() => actions.reveal('source')}>Quote</button>;
+    }
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      root.render(<Harness />);
+      await until(() => !!host.querySelector('button'));
+      host.querySelector('button')!.click();
+      const shared = actions.loadOlder();
+      expect(loadOlderHistory).toHaveBeenCalledOnce();
+      root.unmount();
+      finish([turn('source', 1)]);
+      await shared;
+      expect(loadOlder).not.toHaveBeenCalled();
+      expect(scrollToItem).not.toHaveBeenCalled();
+      expect(missing).not.toHaveBeenCalled();
+    } finally { host.remove(); }
+  });
 });
