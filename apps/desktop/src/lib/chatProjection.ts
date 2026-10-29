@@ -203,8 +203,11 @@ export function createChatProjection(viewerId: string): ChatProjection {
       return indexExact(ids, byId)
     },
     unread: async (ids, signal) => {
-      // list_unread_locators 是服务端的未读投影:一发拿回全部,按 chat 落位。
-      const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null }).abortSignal(signal)
+      // list_unread_locators 是服务端的未读投影,按 chat 落位。一批里只脏了一条会话(忙群里几乎每一批都是)就只问它:
+      // 问全部要把每条会话的每个流重算一遍再整包拿回来。这条会话我已经不在了,服务端会拒 ⇒ 退回问全部,缺行即 tombstone。
+      const only = ids.length === 1 ? ids[0]! : null
+      let { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: only }).abortSignal(signal)
+      if (error && only) ({ data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null }).abortSignal(signal))
       if (error) throw new Error(error.message)
       const byChat = mergeUnreadRows((data ?? []) as Array<Record<string, unknown> & { chat_id: string }>)
       return indexExact(ids, byChat as Map<string, unknown>)

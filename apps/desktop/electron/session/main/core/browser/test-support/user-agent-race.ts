@@ -1,4 +1,5 @@
 import { app, BrowserWindow, WebContentsView, session } from 'electron';
+import '../../../../../page-navigation-bootstrap';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
