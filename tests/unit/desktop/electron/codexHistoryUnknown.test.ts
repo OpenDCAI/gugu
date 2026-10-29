@@ -66,7 +66,7 @@ describe('Codex history uncertainty is an explicit load result', () => {
     };
     // The native shim speaks ACP v2: a saved thread reopens with session/resume.
     await request('initialize', { protocolVersion: 2, capabilities: {} });
-    const reply = await request('session/resume', { sessionId: 'same-thread', cwd: dir, mcpServers: [] });
+    const reply = await request('session/resume', { sessionId: 'same-thread', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } });
     expect(reply).toMatchObject({ error: { data: { kind: 'history_unknown', sessionId: 'same-thread' } } });
     expect(reply).not.toHaveProperty('result');
     expect(updates).toEqual(expect.arrayContaining([expect.objectContaining({

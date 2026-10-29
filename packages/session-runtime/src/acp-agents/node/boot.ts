@@ -36,7 +36,7 @@ export type BootAcpRuntimeProcessOptions = {
    * (session-runtime 不依赖 `@gugu/core`,所以只能由宿主传进来)。
    */
   mergeEnvelopes: (texts: readonly string[]) => string;
-  recoverDelivery: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
+  recoverDelivery: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
 };
 
 export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): void {

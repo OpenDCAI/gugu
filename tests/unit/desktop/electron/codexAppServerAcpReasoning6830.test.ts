@@ -185,7 +185,8 @@ describe('#6830 codex ACP bridge: reasoning reaches the desktop', () => {
 
   it('reopen: history replays both reasoning shapes, summary first, raw text when there is no summary', async () => {
     const { call, thoughts } = await start()
-    await call('session/resume', { sessionId: 'th-6830', cwd: dir, mcpServers: [] })
+    // ACP v2: a resume replays only when asked (`replayFrom`); an omitted one resumes without replay (#980).
+    await call('session/resume', { sessionId: 'th-6830', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } })
     expect(thoughts).toEqual([
       { text: '**Timing the trip**\n\nMoving time is 202.', messageId: 'rs-terra' },
       { text: 'We need execute.', messageId: 'rs-glm' },

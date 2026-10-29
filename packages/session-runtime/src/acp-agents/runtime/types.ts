@@ -32,7 +32,7 @@ export interface AcpRuntimeDeps {
   resolveAttachment: ResolvePromptAttachment;
   /** 多条投递信封合成一条的唯一属主(core 的 mergeDeliveryEnvelopes),由宿主注入。 */
   mergeEnvelopes?: (texts: readonly string[]) => string;
-  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   attachmentStore?: AttachmentStore;
   logger: Logger;
   /** Notifies the privileged main process when an adapter-held platform token has no consumer. */

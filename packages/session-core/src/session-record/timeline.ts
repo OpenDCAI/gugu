@@ -3,7 +3,7 @@ import type { SessionLiveReply } from './live-reply';
 import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 
 import type { QueuedPrompt } from '../acp/models/prompt';
-import { toolCallName } from '../acp/models/turns/tool-calls';
+import { toolCallName, type ToolImage, type ToolImageLookup, type ToolImageRef } from '../acp/models/turns/tool-calls';
 import type { TranscriptItem, TranscriptTurn, TranscriptTurnOutcome } from '../acp/models/turns/turn';
 import { RECENT_ACTION_MAX_ENTRIES, RECENT_ACTION_WINDOW_MS, recentActionName } from '../acp/recent-actions';
 import { AcpTranscriptParser } from '../acp/reducer';
@@ -13,6 +13,7 @@ import type {
   RecordBoundary,
   RecordCursor,
   RecordEntry,
+  RecordImageRef,
   RecordResetReason,
   SessionRecordResume,
   SessionRecordSource,
@@ -25,7 +26,9 @@ import type {
   TimelineSnapshot,
   TurnPatch
 } from './contract';
+import { TOOL_IMAGE_FETCH_LIMIT } from './contract';
 import { questionAnswered, readQuestion } from './sources/question-tools';
+import { findToolImage, findToolItem } from './tool-image';
 
 /**
  * 一条已经折算好的时间线的存档。
@@ -38,7 +41,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 6;
+export const TIMELINE_ARCHIVE_VERSION = 7;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -57,6 +60,12 @@ export type TimelineArchive = {
   readonly recentActions: readonly RecentActionEntry[];
   /** Cached publication indexes avoid publishing unchanged items again after the initial snapshot. */
   readonly published: readonly TurnPublishArchive[];
+  /**
+   * 工具图只存位置(#980):条目 id → 它每一张图在记录里的原文位置,与那一条的 `imageRefs` 一一对齐。
+   * 这些条目在上面的 `parser` 里没有 `images`、只有 `imageRefs`(与传输投影同一个形状),图要看时按位置从记录里读回来
+   * (`toolImage`)。原先图随存档存原样:存档 72–96% 是 base64,一份 545MB 的 codex 记录折出 108MB 的存档,超上限存不下。
+   */
+  readonly images: readonly (readonly [string, readonly RecordImageRef[]])[];
 };
 
 export type TurnPublishArchive = {
@@ -203,6 +212,13 @@ class RecordTimeline implements SessionTimeline {
   private lastBoundaryMessageId: string | null = null;
   /** Per-tool timestamps collected from the same records that feed the transcript reducer. */
   private recentActionEntries = new Map<string, RecentActionEntry>();
+  /**
+   * 读进来的工具图在记录里的原文位置,按图的 base64 认 —— reducer 折条目时拷的是对象,这串字本身不复制,
+   * 存档时拿条目上的图就查得到。只给存档用。
+   */
+  private imageOrigins = new Map<string, RecordImageRef>();
+  /** 存档装回来、图只剩位置的那些工具条目:条目 id → 每一张图的位置(与条目的 `imageRefs` 对齐)。 */
+  private archivedImages = new Map<string, readonly RecordImageRef[]>();
   /** 这一代是被什么换掉的。拿旧 epoch 游标来续的人要看到真原因，不是笼统的 epoch_changed。 */
   private lastResetReason: RecordResetReason | null = null;
   private needsPublish = false;
@@ -259,6 +275,7 @@ class RecordTimeline implements SessionTimeline {
     this.settlementSeq = new Map(archive.settlementSeq.map(([id, at]) => [id, at]));
     this.removed = new Map(archive.removed.map(([id, at]) => [id, at]));
     this.recentActionEntries = new Map(archive.recentActions.map((one) => [one.id, one]));
+    this.archivedImages = new Map(archive.images.map(([id, refs]) => [id, refs]));
     // `published` 里那两串 JSON 是用来比对"这一轮变了没有"的，存下来纯属浪费（它就是整条会话）——
     // 装回来时按当前的轮重算一遍即可（一份 39MB 的记录实测 23ms）。seq 才是必须存的那一半。
     this.published = new Map();
@@ -300,6 +317,7 @@ class RecordTimeline implements SessionTimeline {
     if (this.disposed) return null;
     const resume = await this.source.resumePoint?.();
     if (!resume) return null;
+    const { parser, images } = this.parserForArchive();
     const published: TurnPublishArchive[] = [];
     for (const [turnId, entry] of this.published) {
       published.push({
@@ -317,14 +335,81 @@ class RecordTimeline implements SessionTimeline {
       seq: this.seq,
       lastAt: this.lastAt,
       lastBoundaryMessageId: this.lastBoundaryMessageId,
-      parser: this.parser.snapshotState(),
+      parser,
       seenKeys: [...this.seenKeys],
       settlements: [...this.settlements.values()],
       settlementSeq: [...this.settlementSeq].map(([id, at]) => [id, at] as const),
       removed: [...this.removed].map(([id, at]) => [id, at] as const),
       recentActions: [...this.recentActionEntries.values()],
-      published
+      published,
+      images
     };
+  }
+
+  /**
+   * 存档用的 reducer 状态:已收尾的轮里,每一张图都找得到原文位置的工具条目换成「只有 `imageRefs`」的形状,位置另记。
+   * 活着的那一轮图照原样存(它的条目还会被更新,而更新是在原图上折的,`patchToolEntity` 拿旧图当底),位置也记下:
+   * 装回来以后它收了尾,下一代存档才换得成位置。有一张找不到位置的条目整条照原样存 —— 只是省不下,不会错。
+   * ❌ 不改 reducer 手里那一份:这里只拷要换的那几层。
+   */
+  private parserForArchive(): { parser: ParserState; images: Array<[string, RecordImageRef[]]> } {
+    const state = this.parser.snapshotState();
+    const images: Array<[string, RecordImageRef[]]> = [];
+    const visit = (items: readonly TranscriptItem[], strip: boolean): TranscriptItem[] | null => {
+      let changed = false;
+      const next = items.map((item) => {
+        const node = item as unknown as { id: string; images?: ToolImage[]; imageRefs?: ToolImageRef[]; children?: TranscriptItem[] };
+        let out = item;
+        const shown = node.images;
+        if (shown?.length) {
+          // 装回来时还是活轮里的原图,位置随上一代存档带着(`archivedImages`),核对过正文才认。
+          const refs = shown.map((image, index) => [this.imageOrigins.get(image.data), this.archivedImages.get(node.id)?.[index]]
+            .find((ref) => ref !== undefined && sameImage(ref, image.data)));
+          if (refs.every((ref): ref is RecordImageRef => ref !== undefined)) {
+            images.push([node.id, refs]);
+            if (strip) {
+              const { images: _images, ...rest } = node;
+              out = { ...rest, imageRefs: shown.map(({ mimeType, data }) => ({ mimeType, chars: data.length })) } as unknown as TranscriptItem;
+            }
+          }
+        } else if (node.imageRefs?.length) {
+          const refs = this.archivedImages.get(node.id);
+          if (refs) images.push([node.id, [...refs]]);
+        }
+        const children = node.children ? visit(node.children, strip) : null;
+        if (children) out = { ...out, children } as TranscriptItem;
+        if (out !== item) changed = true;
+        return out;
+      });
+      return changed ? next : null;
+    };
+    const committed = state.transcript.committed.map((turn) => {
+      const items = visit(turn.items, true);
+      return items ? { ...turn, items } : turn;
+    });
+    if (state.transcript.active) visit(state.transcript.active.items, false);
+    return { parser: { ...state, transcript: { ...state.transcript, committed } }, images };
+  }
+
+  async toolImage(input: { itemId: string; index: number; maxChars?: number }): Promise<ToolImageLookup> {
+    const maxChars = input.maxChars ?? TOOL_IMAGE_FETCH_LIMIT;
+    const turns = this.currentTurns();
+    const found = findToolImage(turns, input.itemId, input.index, maxChars);
+    if (found.ok || found.code !== 'no_such_image') return found;
+    // 存档装回来的条目:图只剩类型和字数,位置在 `archivedImages` 里。
+    const node = findToolItem(turns, input.itemId)?.node;
+    const shown = node && node.kind !== 'tool-group' && !node.images ? node.imageRefs?.[input.index] : undefined;
+    const ref = shown ? this.archivedImages.get(input.itemId)?.[input.index] : undefined;
+    if (!shown || !ref) return found;
+    if (ref.chars > maxChars) {
+      return { ok: false, code: 'too_large', message: `picture #${input.index} is ${ref.chars} chars; over ${maxChars}` };
+    }
+    const data = (await this.source.readImage?.(ref)) ?? null;
+    // 读不回来(记录被改写、被删)与图不在了是同一种降级:端上画「取不到」,❌ 不交一张坏图。
+    if (data === null) {
+      return { ok: false, code: 'no_such_image', message: `picture #${input.index} of tool item ${input.itemId} could not be read back from its record` };
+    }
+    return { ok: true, image: { mimeType: shown.mimeType, data } };
   }
 
   get epoch(): string {
@@ -581,6 +666,13 @@ class RecordTimeline implements SessionTimeline {
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
+        const origins = entry.imageOrigins;
+        if (origins && entry.event.kind === 'tool_update' && entry.event.images) {
+          entry.event.images.forEach((image, index) => {
+            const origin = origins[index];
+            if (origin) this.imageOrigins.set(image.data, origin);
+          });
+        }
         this.parser.pushRecordEvent(entry.event, at, this.lastBoundaryMessageId);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
         this.trackSettlement(entry.event, at);
@@ -687,6 +779,8 @@ class RecordTimeline implements SessionTimeline {
     this.lastAt = null;
     this.lastBoundaryMessageId = null;
     this.recentActionEntries = new Map();
+    this.imageOrigins = new Map();
+    this.archivedImages = new Map();
     this.needsPublish = true;
     // 不当场发：源紧接着就会把重读的内容送进来，那时快照才是完整的。
     // 但也不能只等它 —— 一份被删掉的记录不会再有任何 onEntries，所以补一个兜底节拍。
@@ -916,6 +1010,11 @@ function toolNameIn(items: readonly TranscriptItem[], toolCallId: string): strin
     if (nested !== null) return nested;
   }
   return null;
+}
+
+/** 记下的位置说的就是这张图:字数、首尾都对得上。 */
+function sameImage(ref: RecordImageRef, data: string): boolean {
+  return ref.chars === data.length && data.startsWith(ref.head) && data.endsWith(ref.tail);
 }
 
 function outcomeOf(boundary: RecordBoundary): TranscriptTurnOutcome {
