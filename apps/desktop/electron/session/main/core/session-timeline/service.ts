@@ -975,19 +975,59 @@ export async function recordedDeliveryIds(conversationId: string): Promise<strin
  * 与手机、助理读的是同一份时间线(同一份存档,只读文件新长出来的那一截)。
  */
 export async function recordTurns(conversationId: string): Promise<TimelineSnapshot['turns'] | null> {
+  const picked = await pickRecordTurns(conversationId, async (turns) => turns, { images: false });
+  return picked.ok ? picked.turns : null;
+}
+
+type TranscriptTurns = TimelineSnapshot['turns'];
+
+/**
+ * #980 从记录的全部回合里挑出一些(`pick`),交回时**带着真图**。
+ *
+ * 存档装回来的轮里,工具截图只剩类型和字数(`imageRefs`),图要看时才按位置从记录里读回来。要把这几轮抄进库的人
+ * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
+ * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
+ */
+export async function pickRecordTurns(
+  conversationId: string,
+  pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
+  options: { images: boolean } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
   const acquired = await acquire(conversationId);
-  if (!acquired.ok) return null;
+  if (!acquired.ok) return { ok: false };
   try {
-    if (acquired.value.standIn) return null;
+    if (acquired.value.standIn) return { ok: false };
     const timeline = acquired.value.timeline;
     await timeline.catchUp();
-    return timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
+    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
+    if (!picked || !options.images) return { ok: true, turns: picked };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
   } catch (error) {
     log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
-    return null;
+    return { ok: false };
   } finally {
     release(acquired.value);
   }
+}
+
+type ImageNode = { id: string; images?: unknown[]; imageRefs?: unknown[]; children?: ImageNode[] };
+
+async function withImagesReadBack<T extends TranscriptTurns[number]>(timeline: SessionTimeline, turn: T): Promise<T> {
+  const readBack = async (node: ImageNode): Promise<ImageNode> => {
+    let next = node;
+    if (!node.images && node.imageRefs?.length && timeline.toolImage) {
+      const found = await Promise.all(node.imageRefs.map((_, index) =>
+        timeline.toolImage!({ itemId: node.id, index, maxChars: Number.POSITIVE_INFINITY })));
+      if (found.every((one) => one.ok)) {
+        const { imageRefs: _refs, ...rest } = node;
+        next = { ...rest, images: found.map((one) => (one as Extract<typeof one, { ok: true }>).image) };
+      }
+    }
+    if (next.children?.length) next = { ...next, children: await Promise.all(next.children.map(readBack)) };
+    return next;
+  };
+  const items = await Promise.all(turn.items.map((item) => readBack(item as unknown as ImageNode)));
+  return { ...turn, items: items as unknown as T['items'] };
 }
 
 /**

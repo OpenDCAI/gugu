@@ -15,29 +15,32 @@ import { appendRecordTurnNow, readStoredTailNow, withStoredTurns } from './sessi
  * 本次改动之前就漏在中间的那些轮(老会话里早年在终端跑过的)不补 —— 接在末尾会把次序打乱,比缺着更糟。
  */
 export async function syncStoredHistoryFromRecord(sessionId: string): Promise<{ inserted: number }> {
-  const { readSessionRow, recordTurns } = await import('@main/core/session-timeline/service');
+  const { readSessionRow, pickRecordTurns } = await import('@main/core/session-timeline/service');
   const row = readSessionRow(sessionId);
   if (!row?.providerSessionId || !sessionRecordHarnessForProvider(row.provider)) return { inserted: 0 };
   // 正在跑的会话,它自己的回合正由运行时一轮轮落库;此刻补,会把还没落库的那一轮从记录里先抄一份进来。
   const { acpSessionLive } = await import('@main/core/session-timeline/write-bridge');
   if (await acpSessionLive(sessionId).catch(() => true)) return { inserted: 0 };
   return withStoredTurns(sessionId, async () => {
-    const record = await recordTurns(sessionId);
-    if (!record?.length) return { inserted: 0 };
-    let missing: TranscriptTurn[] | null = null;
-    // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
-    for (const limit of TAIL_WINDOWS) {
-      const tail = await readStoredTailNow(sessionId, limit);
-      missing = recordTurnsAfterStore(record, tail);
-      if (missing !== null || tail.length < limit) break;
-    }
-    if (missing === null) {
+    const picked = await pickRecordTurns(sessionId, async (record) => {
+      if (record.length === 0) return [];
+      // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
+      let missing: TranscriptTurn[] | null = null;
+      for (const limit of TAIL_WINDOWS) {
+        const tail = await readStoredTailNow(sessionId, limit);
+        missing = recordTurnsAfterStore(record, tail);
+        if (missing !== null || tail.length < limit) break;
+      }
+      return missing;
+    });
+    if (!picked.ok) return { inserted: 0 };
+    if (picked.turns === null) {
       log.warn('[record-backfill] the record and the store diverged; nothing filled in', { sessionId });
       return { inserted: 0 };
     }
-    for (const turn of missing) await appendRecordTurnNow(sessionId, turn);
-    if (missing.length > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted: missing.length });
-    return { inserted: missing.length };
+    for (const turn of picked.turns) await appendRecordTurnNow(sessionId, turn);
+    if (picked.turns.length > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted: picked.turns.length });
+    return { inserted: picked.turns.length };
   });
 }
 

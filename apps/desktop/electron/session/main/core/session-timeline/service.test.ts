@@ -589,6 +589,31 @@ describe('session timeline service', () => {
     expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
   });
 
+  // #980:抄进库的那几轮要带真图 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数。
+  it('从记录挑出来要抄进库的轮,存档里只剩位置的图先读回来;读不回来的照旧只有字数', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    const ref = { mimeType: 'image/png', chars: 9 };
+    const tool = (id: string, extra: Record<string, unknown> = {}) => ({ kind: 'mcp-tool-call', id, seq: 1, toolCallId: id, title: 'shot', status: 'done', ...extra });
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({
+      ...snapshot,
+      turns: [{ id: 't1', seq: 1, initiator: 'user', items: [
+        tool('restored', { imageRefs: [ref] }),
+        tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+      ] }],
+    }) as unknown as TimelineSnapshot;
+    fake.timeline.toolImage = async ({ itemId }) => itemId === 'restored'
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: 'could not be read back' };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    const picked = await service.pickRecordTurns('conv-1', async (turns) => turns);
+    expect(picked.ok && picked.turns?.[0].items).toEqual([
+      tool('restored', { images: [shot] }),
+      tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+    ]);
+  });
+
   it('结算只成功一次：后答的一端拿到那条既有结算，provider 只被调一次', async () => {
     const { timeline } = makeTimeline();
     service.setSessionTimelineFactory(async () => timeline);
