@@ -6,6 +6,12 @@ type Row = Record<string, unknown>
 type Kind = '设备' | '项目' | '能力' | '设备资料' | '记忆' | '定时' | '连接应用'
 // The assistant has no shell: a connected CLI application is used through a delegated task.
 const INTEGRATION_READ = 'catalog_list；命令行应用派任务（session_spawn）'
+/** A connected CLI application's state includes how it is used, so a resumed session hears about a new or changed route. */
+function integrationState(use: unknown): string {
+  const route = use && typeof use === 'object' ? use as Row : undefined
+  const skills = Array.isArray(route?.task_skills) ? route.task_skills.map(text).filter(Boolean) : []
+  return route?.note ? [text(route.note), ...(skills.length ? [`任务技能：${skills.join('、')}`] : [])].join('；') : 'configured'
+}
 type Item = { name: string; state: string; scope: string; accounts?: string[] }
 type Group = { kind: Kind; read: string; items: Record<string, Item> }
 type Event = { version: number; kind: Kind; operation: '+' | '-' | '~'; name: string; scope: string; read: string; state: string; trusted?: true }
@@ -66,7 +72,7 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
       if (!id) continue
       group.items[id] = { name: safeName(item.name ?? item.title) || id, scope,
         ...(source === 'integrations' ? { accounts: [...new Set([...(group.items[id]?.accounts ?? []), account ?? 'default'])].sort() } : {}),
-        state: source === 'integrations' ? 'configured' : source === 'assistant_memory' ? text(item.modifiedAt)
+        state: source === 'integrations' ? integrationState(item.use) : source === 'assistant_memory' ? text(item.modifiedAt)
           : source === 'projects' ? text(item.path) : source === 'assistant_schedules'
             ? json([item.active, item.enabled, item.at, item.cron, item.tz, item.title]) : text(item.modifiedAt) }
     }
@@ -104,7 +110,8 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
   const initialize = (groups: Record<string, Group>): State => ({ owner, version: 0, delivered: 0, acknowledged: [], healthy: true, groups, events: [], notices: [], hints: [] })
   function append(group: Group, operation: Event['operation'], item: Item, previous?: Item, trusted = false) {
     let status = operation === '+' ? '新增' : operation === '-' ? '移除' : '已修改'
-    if (group.kind === '连接应用') status = operation === '-' ? '已断开' : '已保存'
+    // A route says how to use the application; the bare receipt only that it is saved.
+    if (group.kind === '连接应用') status = operation === '-' ? '已断开' : item.state !== 'configured' ? item.state : '已保存'
     if (group.kind === '设备' && operation === '~') {
       const online = (entry?: Item) => { const row = entry ? JSON.parse(entry.state) : null; return Array.isArray(row) ? row[0] === true ? '在线' : '离线' : '状态已变更' }
       status = online(previous) === online(item) ? '任务运行时已变更' : `${online(previous)}→${online(item)}`
@@ -164,7 +171,8 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
         ? account ? (previous?.accounts ?? []).filter(id => id !== account) : []
         : [...new Set([...(previous?.accounts ?? []), account ?? 'default'])].sort() : undefined
       const item: Item = { name: safeName(after.name ?? after.title ?? after.label ?? after.displayName) || previous?.name || itemId, scope,
-        state: type[0] === '连接应用' ? 'configured' : json(after), ...(accounts ? { accounts } : {}) }
+        // A panel receipt knows no route; keep the one the last index read reported.
+        state: type[0] === '连接应用' ? previous?.state ?? 'configured' : json(after), ...(accounts ? { accounts } : {}) }
       const removed = notice.operation === 'removed' && (!accounts || !accounts.length)
       if (removed) delete group.items[itemId]
       else group.items[itemId] = item
