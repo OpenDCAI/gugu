@@ -309,3 +309,9 @@ export function stampGroupRoles(units: RenderUnit[]): void {
 export function unitContainsItem(unit: RenderUnit | undefined, id: string): boolean {
   return !!unit && (unit.itemId === id || !!unit.children?.some(child => unitContainsItem(child, id)));
 }
+
+/** Include nested leaf ids in the committed tier's source-navigation index. */
+export function* unitItemIds(unit: RenderUnit): IterableIterator<string> {
+  yield unit.itemId;
+  for (const child of unit.children ?? []) yield* unitItemIds(child);
+}

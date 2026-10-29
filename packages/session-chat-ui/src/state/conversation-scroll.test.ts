@@ -34,4 +34,12 @@ describe('live conversation process viewport', () => {
     expect(rows.filter(row => row.folds?.some(fold => fold.id.endsWith(':earlier')))).toHaveLength(0);
     expect(rows.filter(row => /^say-/.test(row.itemId))).toHaveLength(10);
   });
+  it('uses the same scroll viewport when a completed process is expanded', () => {
+    const rows = flattenTier([{ ...record, outcome: { kind: 'done' } }], context({ active: false, isTurnProcessExpanded: () => true }), segmenters);
+    const block = rows.find(row => row.kind === 'conversation-process-steps');
+    expect(block).toBeDefined();
+    expect(block!.data).toMatchObject({ live: false });
+    expect(block!.children).toHaveLength(8);
+  });
+
 });

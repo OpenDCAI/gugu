@@ -401,15 +401,15 @@ export function flattenTier(
           const folds = [{ id: block.id, stored: !block.live }];
           const start = out.length;
           emitOps(ops, turn.id, folds);
-          if (block.live && !ctx.revealAllFolds && out.length > start) {
-            // One bounded viewport owns all live steps. Keep their existing renderers,
+          if (!ctx.revealAllFolds && out.length > start) {
+            // One bounded viewport owns all expanded process steps. Keep their existing renderers,
             // folding and measured seams inside it; the reply remains outside.
             const units = out.splice(start);
             const gapBefore = units[0].gapBefore;
             units[0] = { ...units[0], gapBefore: 0 };
             const id = `${block.id}:steps`;
             out.push({ id, itemId: id, groupId: id, groupRole: 'solo', gapBefore,
-              kind: 'conversation-process-steps', data: { id, units },
+              kind: 'conversation-process-steps', data: { id, live: block.live, units },
               children: units, conversationProcessOwner: conversationOwner });
             lastKind = 'conversation-process-steps';
           }

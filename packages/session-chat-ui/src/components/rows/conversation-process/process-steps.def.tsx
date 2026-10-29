@@ -7,7 +7,7 @@ import type { MeasureCtx } from '@session-chat/core/define';
 import { defineUnit, type RenderUnit, type UnitDef } from '@session-chat/core/units';
 import * as styles from './process-steps.css';
 
-type ProcessSteps = { id: string; units: readonly RenderUnit[] };
+type ProcessSteps = { id: string; live: boolean; units: readonly RenderUnit[] };
 type Registry = Record<string, UnitDef<unknown, Record<string, number>>>;
 const widthRatio = .86;
 const followThreshold = 24;
@@ -31,29 +31,31 @@ export function createProcessStepsUnitDef(registry: () => Registry) {
       let disposed = false;
       const [scrolled, setScrolled] = createSignal(false);
       const ctx = () => props.ctx.measureCtx!();
+      const memoryKey = () => `${props.data.id}:${props.data.live ? 'live' : 'done'}`;
       const total = createMemo(() => contentHeight(props.data, ctx()));
       const remember = () => {
         if (disposed || !viewport.isConnected) return;
         const memory = ctx().caches.processScrollPositions;
-        memory.set(props.data.id, { top: viewport.scrollTop,
+        memory.set(memoryKey(), { top: viewport.scrollTop,
           atEnd: viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < followThreshold });
         setScrolled(viewport.scrollTop > 0);
       };
       createEffect(() => {
-        const id = props.data.id;
+        const key = memoryKey();
+        const live = props.data.live;
         const memory = ctx().caches.processScrollPositions;
         total();
-        const previous = memory.get(id);
+        const previous = memory.get(key);
         // Child DOM and the capped height must update before writing scrollTop.
         queueMicrotask(() => {
-          if (disposed || !viewport?.isConnected || id !== props.data.id) return;
-          viewport.scrollTop = !previous || previous.atEnd ? viewport.scrollHeight : previous.top;
+          if (disposed || !viewport?.isConnected || key !== memoryKey()) return;
+          viewport.scrollTop = live && (!previous || previous.atEnd) ? viewport.scrollHeight : previous?.top ?? 0;
           remember();
         });
       });
       onCleanup(() => { disposed = true; });
       return <div class={styles.root}>
-        <div ref={viewport} class={styles.viewport} data-slot="conversation-process-steps" data-process-id={props.data.id}
+        <div ref={viewport} class={styles.viewport} data-slot="conversation-process-steps" data-process-id={props.data.id} data-live={props.data.live}
           style={{ height: `${Math.min(CONVERSATION_PREVIEW_MAX_H, total())}px` }} onScroll={remember}>
           <For each={props.data.units}>{unit => {
             const def = () => registry()[unit.kind];

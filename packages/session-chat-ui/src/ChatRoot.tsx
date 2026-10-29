@@ -65,7 +65,7 @@ import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
 import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
-import { unitContainsItem, unitReservedHeight } from './core/units';
+import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
@@ -591,8 +591,8 @@ export function ChatRoot(props: ChatRootProps) {
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
         const u = newUnits[j];
-        if (u && !committedIndexById.has(u.itemId)) {
-          committedIndexById.set(u.itemId, base + j);
+        if (u) for (const id of unitItemIds(u)) {
+          if (!committedIndexById.has(id)) committedIndexById.set(id, base + j);
         }
       }
       committedUnitsArr = [...committedUnitsArr, ...newUnits];
@@ -603,8 +603,8 @@ export function ChatRoot(props: ChatRootProps) {
       committedIndexById.clear();
       for (let i = 0; i < committedUnitsArr.length; i++) {
         const u = committedUnitsArr[i];
-        if (u && !committedIndexById.has(u.itemId)) {
-          committedIndexById.set(u.itemId, i);
+        if (u) for (const id of unitItemIds(u)) {
+          if (!committedIndexById.has(id)) committedIndexById.set(id, i);
         }
       }
     }

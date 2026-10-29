@@ -18,11 +18,22 @@ function mount() {
   document.body.append(host);
   let view = createChatView({ context, state, parent: host });
   dispose.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
-  const set = (parts: number, longReply = false) => state.transcript.activeTurn.set({ id: 'scroll', seq: 0, initiator: 'user',
+  const record = (parts: number, longReply = false) => ({ id: 'scroll', seq: 0, initiator: 'user',
     items: Array.from({ length: parts + 2 }, (_, i) => ({ kind: 'message', id: `say-${i}`, seq: i,
       role: i === 0 ? 'user' : 'assistant', text: longReply && i === parts + 1 ? 'Long reply paragraph for the shared preview cap.\n\n'.repeat(60) : `${i === 1 ? 'needle-first ' : ''}Visible process part ${i}` } as ChatMessage)),
   } as TranscriptTurn);
-  return { host, set, state, find: (text: string) => view.find(text), scrollTo: (id: string) => view.scrollToItem(id), remount: () => {
+  const set = (parts: number, longReply = false) => state.transcript.activeTurn.set(record(parts, longReply));
+  const complete = (parts: number, longReply = false, fillers = 0) => {
+    state.transcript.activeTurn.set(null);
+    state.transcript.history.seed([{ ...record(parts, longReply), outcome: { kind: 'done' } }, ...Array.from({ length: fillers }, (_, i) => ({
+      id: `filler-${i}`, seq: i + 1, initiator: 'user', outcome: { kind: 'done' }, items: [
+        { kind: 'message', id: `fq-${i}`, seq: 0, role: 'user', text: `Question ${i}` },
+        { kind: 'message', id: `fa-${i}`, seq: 1, role: 'assistant', text: `Answer ${i}` },
+      ],
+    } as TranscriptTurn))]);
+  };
+  const open = () => state.viewState.setCollapsed('scroll:process', true);
+  return { complete, open, bottom: () => view.scrollToBottom(), host, set, state, find: (text: string) => view.find(text), scrollTo: (id: string) => view.scrollToItem(id), remount: () => {
     view.dispose(); view = createChatView({ context, state, parent: host });
   } };
 }
@@ -74,9 +85,9 @@ describe('running process native scrolling', () => {
     await until('viewport is mounted at tail', () => !!viewport() && viewport()!.scrollTop > 0);
     viewport()!.scrollTop = 64;
     viewport()!.dispatchEvent(new Event('scroll'));
-    expect(state.parseCaches.processScrollPositions.get('scroll:process:steps')).toMatchObject({ top: 64, atEnd: false });
+    expect(state.parseCaches.processScrollPositions.get('scroll:process:steps:live')).toMatchObject({ top: 64, atEnd: false });
     remount();
-    expect(state.parseCaches.processScrollPositions.get('scroll:process:steps')).toMatchObject({ top: 64, atEnd: false });
+    expect(state.parseCaches.processScrollPositions.get('scroll:process:steps:live')).toMatchObject({ top: 64, atEnd: false });
     await until('remounted viewport appears', () => !!viewport());
     await untilStable('remounted reader position settles', () => viewport()?.scrollTop);
     expect(viewport()!.scrollTop).toBe(64);
@@ -131,6 +142,62 @@ describe('running process native scrolling', () => {
     const box = viewport()!.getBoundingClientRect();
     expect(hit.top).toBeGreaterThanOrEqual(box.top);
     expect(hit.bottom).toBeLessThanOrEqual(box.bottom);
+  });
+
+  it('opens a completed process at the top with the same bounded viewport and no tail following', async () => {
+    const { host, complete, open } = mount();
+    complete(14, true);
+    await until('the completed reply renders', () => !!host.querySelector('[data-expand-user-card]'));
+    expect(host.querySelector('[data-slot="conversation-process-steps"]')).toBeNull();
+    open();
+    await untilStable('completed process expands', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
+    const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
+    expect(viewport).not.toBeNull();
+    expect(viewport!.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
+    expect(viewport!.scrollTop).toBe(0);
+    expect(getComputedStyle(viewport!).scrollbarWidth).toBe('none');
+    const fade = () => host.querySelector<HTMLElement>('[data-slot="conversation-process-top-fade"]')!;
+    expect(getComputedStyle(fade()).opacity).toBe('0');
+    viewport!.scrollTop = viewport!.scrollHeight;
+    viewport!.dispatchEvent(new Event('scroll'));
+    const before = viewport!.scrollTop;
+    expect(getComputedStyle(fade()).opacity).toBe('1');
+    complete(20, true);
+    await until('completed replay updates all steps', () => !!viewport!.querySelector('[data-conversation-narration="say-20"]'));
+    await untilStable('completed reader offset settles', () => viewport!.scrollTop);
+    expect(viewport!.scrollTop).toBe(before);
+  });
+
+  it('starts completed viewing at the top after a live process was at its tail', async () => {
+    const { host, set, complete, open } = mount();
+    set(14);
+    const viewport = () => host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]');
+    await until('live viewport is following its tail', () => !!viewport() && viewport()!.scrollTop > 0);
+    complete(14);
+    await until('completed process defaults closed', () => viewport() === null);
+    open();
+    await untilStable('completed process opens', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
+    expect(viewport()).not.toBeNull();
+    expect(viewport()!.scrollTop).toBe(0);
+  });
+
+  it('find locates a completed process leaf outside the outer virtual viewport', async () => {
+    const { host, complete, find, bottom } = mount();
+    complete(20, false, 35);
+    await until('later history renders', () => !!host.querySelector('[data-agent-conversation-message="fa-34"]'));
+    bottom();
+    await untilStable('history is at its tail', () => host.querySelector<HTMLElement>('[data-chat-scroll]')?.scrollTop);
+    expect(host.querySelector('[data-item-id="say-1"]')).toBeNull();
+    expect(find('needle-first').total).toBe(1);
+    const highlighted = () => (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get('gugu-chat-find')?.values().next().value;
+    await until('completed nested match is highlighted', () => !!highlighted());
+    await untilStable('completed find scroll settles', () => highlighted()?.getBoundingClientRect().top);
+    const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]')!;
+    const hit = highlighted()!.getBoundingClientRect();
+    expect(hit.top).toBeGreaterThanOrEqual(viewport.getBoundingClientRect().top);
+    expect(hit.bottom).toBeLessThanOrEqual(viewport.getBoundingClientRect().bottom);
+    expect(hit.top).toBeGreaterThanOrEqual(host.getBoundingClientRect().top);
+    expect(hit.bottom).toBeLessThanOrEqual(host.getBoundingClientRect().bottom);
   });
 
 });
