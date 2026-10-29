@@ -6,6 +6,7 @@ import { sessionTurns } from '@main/db/schema';
 import { randomUUID } from 'node:crypto';
 import { activitySignal } from '../activity/signals';
 import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
+import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -37,8 +38,7 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 「库里那份是完整的」把重放回来的其余部分整段跳过。2026-09-10 隔离实例实撞：一条对照会话
  * 补完之后重开只剩 2 个渲染块，而补之前是 6 个。
  *
- * 用序号对齐同时也天然排除了「库里已有完整历史」那一侧：那时已存行数远大于 0，而重放的
- * 第一条序号是 0，对不上，整段跳过。
+ * 是否回填在重放第一条时固定。不能只逐条对齐数量：旧档案非空，重放尾部的编号仍可能追上它的条数。
  *
  * 新回合用 `INSERT OR IGNORE` 保持按到达序幂等；已提交回合的改口(结局或迟到的尾巴)整轮替换其最新投影行。
  * `backfill`(更早那一轮被后台命令的终态补了内容,#6582)落盘与 `revision` 同一条路:按 turn id 找行、整轮替换。
@@ -122,8 +122,8 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
   }
   if (input.source === 'replay') {
     const stored = await storedTurnCount(input.sessionId);
-    if (stored !== input.turn.seq) return;
-  }
+    if (!mayFillReplay(input.sessionId, input.turn.seq, stored)) return;
+  } else stopFillingReplay(input.sessionId);
 
   // 到达序由这里分配。❌ 不复用运行时那份回合序号：重开会话后它从 0 重数，而重放只含压缩边界
   // 之后的一段，直接拿来当键必然与库里已有的行撞号。
@@ -146,6 +146,7 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     return { rows: result, publish };
   });
   inserted.publish?.();
+  if (input.source === 'replay' && inserted.rows.length) didFillReplay(input.sessionId, input.turn.seq);
   // The activity index names a turn by this stored sequence, assigned here and nowhere else: the runtime's own turn
   // ids restart at 0 with every run, and the provider record numbers its turns from a different stream. A replayed
   // turn is history arriving late, not something that happened now.
@@ -247,9 +248,10 @@ export async function readStoredTurns(
         )
       )
       .orderBy(asc(sessionTurns.seq));
+    const readable = await readableStoredRows(sessionId, rows);
     return {
-      turns: rows.map((row) => JSON.parse(row.data) as TranscriptTurn),
-      originTurnIds: rows.map((row) => row.turnId),
+      turns: readable.map(row => row.turn),
+      originTurnIds: readable.map(row => row.turnId),
       nextCursor: null,
     };
   }
@@ -270,11 +272,14 @@ export async function readStoredTurns(
     .limit(limit);
 
   const ordered = rows.slice().reverse();
-  const turns = ordered.map((row) => JSON.parse(row.data) as TranscriptTurn);
+  const readable = await readableStoredRows(sessionId, ordered);
+  if (!readable.length && rows.length === limit && rows.length) {
+    return readStoredTurns(sessionId, { before: rows.at(-1)!.seq, limit });
+  }
 
   return {
-    turns,
-    originTurnIds: ordered.map((row) => row.turnId),
+    turns: readable.map(row => row.turn),
+    originTurnIds: readable.map(row => row.turnId),
     nextCursor: rows.length < limit ? null : (rows.at(-1)?.seq ?? null),
   };
 }
@@ -295,6 +300,7 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
   await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
+  stopFillingReplay(sessionId);
   const removed = db.transaction(tx => {
     const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
     return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };

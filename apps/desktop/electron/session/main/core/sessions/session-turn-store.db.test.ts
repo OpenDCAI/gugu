@@ -289,6 +289,40 @@ describe('conversation-turn-store', () => {
     expect(storedTexts(fixture)).toHaveLength(2);
   });
 
+  it('does not append a replay tail when its sequence catches up to an existing archive', async () => {
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('live:0', 'already archived') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('replay:0', 'earlier replay part', 0) });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('replay:1', 'already archived', 1) });
+    expect(storedTexts(fixture)).toHaveLength(1);
+  });
+
+  it('hides an old untimed replay twin by native identities, keeping the raw archive and later turns', async () => {
+    const userId = '00000000-0000-4000-8000-0000000000a1', answerId = '00000000-0000-4000-8000-0000000000a2';
+    const original: TranscriptTurn = { id: 'c1:turn:29', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 2000, outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: `c1:turn:29:message:${userId}`, seq: 0, role: 'user', text: 'file caption' },
+      { kind: 'message', id: `c1:turn:29:message:${answerId}`, seq: 1, role: 'assistant', text: 'received' },
+    ] };
+    const duplicate: TranscriptTurn = { id: 'c1:turn:30', seq: 1, initiator: 'user', items: original.items.map(item => ({ ...item, id: item.id.replace('turn:29:', 'turn:30:') })) };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: original });
+    // Simulate a row already written by the old producer; its original source marker was not stored.
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: duplicate });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('new-live', 'new input') });
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM session_turns').get()).toEqual({ n: 3 });
+    expect((await readStoredTurns('c1')).turns.map(row => row.seq)).toEqual([0, 2]);
+    expect((await readStoredTurns('c1', { fromSeq: 1 })).turns.map(row => row.seq)).toEqual([2]);
+    const older = await readStoredTurns('c1', { before: 2, limit: 1 });
+    expect(older.turns.map(row => row.seq)).toEqual([0]);
+    expect(older.originTurnIds).toEqual([original.id]);
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM session_turns').get()).toEqual({ n: 3 });
+    const differentIds = { ...duplicate, id: 'c1:turn:33', items: duplicate.items.map((item, index) => ({ ...item,
+      id: `c1:turn:33:message:${index ? '00000000-0000-4000-8000-000000000002' : '00000000-0000-4000-8000-000000000001'}`,
+    })) };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: differentIds });
+    // Identical words with new native identities, and genuinely live rows, must both remain.
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: { ...original, startedAt: 3000, endedAt: 4000 } });
+    expect((await readStoredTurns('c1')).turns.map(row => row.seq)).toEqual([0, 2, 3, 4]);
+  });
+
   it('重放吃进来之后,后续 live 接着往下长,不覆盖前面的', async () => {
     await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('c1:turn:0', '切换前的', 0) });
     await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:1', '切换后的', 1) });
