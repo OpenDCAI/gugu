@@ -273,6 +273,8 @@ jobs:
     name: Projection native media
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CGO_ENABLED: '1'
     # Same pinned browser image as PLAYWRIGHT_IMAGE. This module has no Node dependency tree.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
@@ -285,8 +287,8 @@ jobs:
         with:
           go-version: '1.26.0'
           cache-dependency-path: apps/desktop/native/projection-media/go.sum
-      - name: Install the actual video encoder and decoder
-        run: apt-get update && apt-get install --no-install-recommends -y ffmpeg
+      - name: Install the encoder, decoder and race detector toolchain
+        run: apt-get update && apt-get install --no-install-recommends -y ffmpeg gcc libc6-dev
       - name: Test native IPC, direct media and actual Chromium decoding
         shell: bash
         run: |
