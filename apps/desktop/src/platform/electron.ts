@@ -132,6 +132,13 @@ export const electronPlatform: AppPlatform = {
     if (!api?.getFeedbackLogTail) throw unavailable('Log tail')
     return (await api.getFeedbackLogTail()) as FeedbackLogTail
   },
+  async readDeviceFreeCreditsStatus() {
+    const api = electronApi()
+    if (!api?.invoke) throw unavailable('Device free credits status')
+    const status = await api.invoke('device:free-credits-status')
+    if (status === null || status === 'granted' || status === 'already_claimed' || status === 'device_full' || status === 'not_confirmed') return status
+    throw new Error('Unexpected device free credits status')
+  },
   async getAppVersion() {
     const api = electronApi()
     return api?.getAppVersion ? api.getAppVersion() : ''

@@ -40,9 +40,10 @@ vi.mock('../../../../apps/desktop/src/lib/billing/membership', async (importOrig
 }))
 import { getMembership, type Membership } from '../../../../apps/desktop/src/lib/billing/membership'
 
-vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({
-  desktopIpc: () => ({ invoke: async () => 'device_full', eventOn: () => () => {} }),
-}))
+vi.mock('../../../../apps/desktop/src/platform', async importOriginal => {
+  const original = await importOriginal<typeof import('../../../../apps/desktop/src/platform')>()
+  return { ...original, platform: { ...original.platform, readDeviceFreeCreditsStatus: async () => 'device_full' } }
+})
 
 const hour = 3_600_000
 

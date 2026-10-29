@@ -6,7 +6,7 @@ import { ArrowUpRight } from '@/lib/icons';
 import { useAuth } from '@/store/auth';
 import { formatCredits, getMembership, periodUsdFor, quotaWindowLabel, quotaWindowViews, useSpendingPower } from '@/lib/billing';
 import { formatDate, formatNumber } from '@/i18n';
-import { desktopIpc } from '@/platform/desktopIpc';
+import { platform } from '@/platform';
 import { GUGU_BILLING_URL } from '@/lib/appLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { Button } from '@/components/ui/Button';
@@ -25,7 +25,7 @@ export function GuguSubscriptionRow() {
   useEffect(() => {
     let alive = true;
     setDeviceFull(false);
-    void desktopIpc()?.invoke('device:free-credits-status')
+    void platform.readDeviceFreeCreditsStatus?.()
       .then(status => { if (alive) setDeviceFull(status === 'device_full'); }, () => undefined);
     return () => { alive = false; };
   }, [user?.id]);

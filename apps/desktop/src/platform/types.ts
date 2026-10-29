@@ -73,6 +73,8 @@ export interface FeedbackLogTail {
   truncated: boolean
 }
 
+export type DeviceFreeCreditsStatus = 'granted' | 'already_claimed' | 'device_full' | 'not_confirmed' | null
+
 export interface AppPlatform {
   kind: 'electron' | 'capacitor' | 'web'
   documentTitle: string
@@ -114,6 +116,8 @@ export interface AppPlatform {
    * ❌ 读不到就抛 —— 调用方必须当场告诉用户「这次带不上」,不许静默附一个空的。
    */
   readLogTail: () => Promise<FeedbackLogTail>
+  /** 本机设备的免费额度认领结果；没有桌面缓存的宿主不提供。 */
+  readDeviceFreeCreditsStatus?: () => Promise<DeviceFreeCreditsStatus>
   /**
    * 用系统应用打开一个附件。字节怎么拿由宿主挑:桌面要字节(交给主进程落盘再打开),安卓要签名链接(原生自己下),
    * 网页开新标签页。两样都按需取,宿主只调它要的那一样。
