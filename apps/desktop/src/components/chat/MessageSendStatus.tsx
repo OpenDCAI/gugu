@@ -11,6 +11,7 @@ import { useChatStore } from '../../store/chatContext'
 import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
 
 type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
 
@@ -30,6 +31,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)
+  const progress = useAttachmentUploadProgress(messageId)
   const failureReason = safeFailureLine(reason ?? '')
 
   if (state === 'unknown') return <span data-send-state="unknown" title={t('message.sendStatus.unknownHint')}
@@ -38,6 +40,11 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
   // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
   if (state === 'sending' || state === 'queued') {
     const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')
+    if (state === 'sending' && progress?.total) {
+      const percent = Math.max(0, Math.min(100, Math.floor(progress.loaded / progress.total * 100)))
+      return <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+        data-send-state="sending" className="text-[length:var(--font-caption)] text-[var(--text-secondary)] tabular-nums">{percent}%</span>
+    }
     return (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" className="gg-ring-march" aria-label={label} data-send-state={state}
         style={{ flexShrink: 0, display: 'block', opacity: 0.56 }}>
