@@ -3,7 +3,7 @@ import type { ImageViewerItem } from '@/lib/imageViewer'
 import { boundsOf, intersect, markersOf, type AnnotateColor, type AnnotateDocument, type Box, type Shape } from './annotateModel'
 import { mosaicPixels } from './annotatePixels'
 
-export type AnnotateColors = Record<AnnotateColor, string>
+export type AnnotateColors = Record<AnnotateColor | 'ink' | 'shadow', string>
 export async function loadAnnotationImage(item: ImageViewerItem): Promise<HTMLImageElement> {
   // A thumbnail is never silently substituted for the original.
   const blob = await fetchBlob(item.full ? await item.full() : item.url)
@@ -20,9 +20,11 @@ export function annotationColors(element: HTMLElement): AnnotateColors {
   element.append(probe)
   const result = {} as AnnotateColors
   for (const name of ['danger', 'warn', 'live', 'ok', 'white'] as const) {
-    probe.style.color = name === 'white' ? '#fff' : `var(--${name})`
+    probe.style.color = name === 'white' ? 'var(--color-white)' : `var(--${name})`
     result[name] = getComputedStyle(probe).color
   }
+  probe.style.color = 'var(--image-bg)'; result.ink = getComputedStyle(probe).color
+  probe.style.color = 'color-mix(in srgb, var(--image-bg) 25%, transparent)'; result.shadow = getComputedStyle(probe).color
   probe.remove()
   return result
 }
@@ -50,9 +52,9 @@ export function renderBackground(canvas: HTMLCanvasElement, image: HTMLImageElem
   contextOf(canvas).drawImage(working, doc.crop.x, doc.crop.y, doc.crop.width, doc.crop.height, 0, 0, doc.crop.width, doc.crop.height)
   working.width = 0; working.height = 0
 }
-function stroke(ctx: CanvasRenderingContext2D, color: string, width: number): void {
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = width + 3
-  ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 2
+function stroke(ctx: CanvasRenderingContext2D, color: string, width: number, colors: AnnotateColors): void {
+  ctx.strokeStyle = colors.white; ctx.lineWidth = width + 3
+  ctx.shadowColor = colors.shadow; ctx.shadowBlur = 2
   ctx.stroke()
   ctx.shadowBlur = 0; ctx.strokeStyle = color; ctx.lineWidth = width
   ctx.stroke()
@@ -62,20 +64,20 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, colors: Annotate
   const color = colors[shape.color]
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath()
   switch (shape.kind) {
-    case 'rect': ctx.roundRect(shape.box.x, shape.box.y, shape.box.width, shape.box.height, Math.min(6, shape.box.width / 2, shape.box.height / 2)); stroke(ctx, color, shape.lineWidth); break
+    case 'rect': ctx.roundRect(shape.box.x, shape.box.y, shape.box.width, shape.box.height, Math.min(6, shape.box.width / 2, shape.box.height / 2)); stroke(ctx, color, shape.lineWidth, colors); break
     case 'arrow': {
       const { from, to } = shape
       const angle = Math.atan2(to.y - from.y, to.x - from.x), head = Math.max(14, shape.lineWidth * 3)
-      ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); stroke(ctx, color, shape.lineWidth)
+      ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); stroke(ctx, color, shape.lineWidth, colors)
       ctx.beginPath(); ctx.moveTo(to.x, to.y)
       ctx.lineTo(to.x - head * Math.cos(angle - .5), to.y - head * Math.sin(angle - .5))
       ctx.lineTo(to.x - head * Math.cos(angle + .5), to.y - head * Math.sin(angle + .5)); ctx.closePath()
-      stroke(ctx, color, 2); ctx.fillStyle = color; ctx.fill(); break
+      stroke(ctx, color, 2, colors); ctx.fillStyle = color; ctx.fill(); break
     }
     case 'marker':
       ctx.arc(shape.at.x, shape.at.y, shape.radius, 0, Math.PI * 2)
-      stroke(ctx, color, 2); ctx.fillStyle = color; ctx.fill()
-      ctx.fillStyle = shape.color === 'white' ? '#111' : '#fff'
+      stroke(ctx, color, 2, colors); ctx.fillStyle = color; ctx.fill()
+      ctx.fillStyle = shape.color === 'white' ? colors.ink : colors.white
       ctx.font = `700 ${shape.radius * 1.2}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
       ctx.fillText(String(markerIndex + 1), shape.at.x, shape.at.y); break
     case 'pen': {
@@ -84,13 +86,13 @@ function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, colors: Annotate
       ctx.moveTo(points[0].x, points[0].y)
       for (let i = 1; i < points.length - 1; i++) ctx.quadraticCurveTo(points[i].x, points[i].y, (points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2)
       const last = points.at(-1)!
-      ctx.lineTo(last.x + (points.length === 1 ? .1 : 0), last.y); stroke(ctx, color, shape.lineWidth); break
+      ctx.lineTo(last.x + (points.length === 1 ? .1 : 0), last.y); stroke(ctx, color, shape.lineWidth, colors); break
     }
     case 'text':
       ctx.font = `600 ${shape.size}px system-ui`; ctx.textBaseline = 'top'; ctx.lineWidth = 3
       shape.text.split('\n').forEach((line, index) => {
         const y = shape.at.y + index * shape.size * 1.3
-        ctx.strokeStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 2; ctx.strokeText(line, shape.at.x, y); ctx.shadowBlur = 0
+        ctx.strokeStyle = colors.white; ctx.shadowColor = colors.shadow; ctx.shadowBlur = 2; ctx.strokeText(line, shape.at.x, y); ctx.shadowBlur = 0
         ctx.fillStyle = color; ctx.fillText(line, shape.at.x, y)
       }); break
   }
@@ -115,7 +117,7 @@ export function renderVectors(canvas: HTMLCanvasElement, doc: AnnotateDocument, 
   ctx.strokeStyle = colors.live; ctx.lineWidth = 1.5 / scale; ctx.setLineDash([5 / scale, 4 / scale])
   ctx.strokeRect(box.x, box.y, box.width, box.height); ctx.setLineDash([])
   for (const [x, y] of [[box.x, box.y], [box.x + box.width, box.y], [box.x, box.y + box.height], [box.x + box.width, box.y + box.height]]) {
-    ctx.fillStyle = '#fff'; ctx.fillRect(x - 4 / scale, y - 4 / scale, 8 / scale, 8 / scale)
+    ctx.fillStyle = colors.white; ctx.fillRect(x - 4 / scale, y - 4 / scale, 8 / scale, 8 / scale)
     ctx.strokeRect(x - 4 / scale, y - 4 / scale, 8 / scale, 8 / scale)
   }
   ctx.restore()
