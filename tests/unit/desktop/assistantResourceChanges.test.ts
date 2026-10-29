@@ -142,6 +142,27 @@ it('tells an already-running assistant once when a connected application gains i
   expect((await journal.prepare()).text).toBe('')
 })
 
+it('tells a resumed assistant once that a connection with session tools is used through a task', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['amap'] }))
+  await (await journal.prepare()).accepted()
+  // A session opened before the fix has a row without a route; the upgrade's first index read announces it once.
+  const routed = snapshot({ apps: ['amap'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'amap:default', name: 'amap', modifiedAt: stamp,
+      use: { note: '高德地图已连接，要用就派任务；任务会话里自带它的工具', delegate: { tool: 'session_spawn' }, task_skills: [] } }] })
+    : line)
+  await journal.observe(routed)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('高德地图已连接，要用就派任务；任务会话里自带它的工具')
+  expect(notice.text).not.toContain('任务技能')
+  // The group's read hint must not point back to the catalog or call it a command-line app.
+  expect(notice.text).not.toContain('catalog_list')
+  expect(notice.text).not.toContain('命令行应用')
+  await notice.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('still tells a resumed assistant the route of an application connected from the panel', async () => {
   const { journal } = await fixture()
   // The panel's receipt arrives first and knows only that Feishu is saved.
