@@ -1,14 +1,20 @@
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
+import { parseMessageQuoteLink, readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { withSentReplies } from './sent-replies';
 
 /** Match identities only; identical words in another message are never an anchor. */
-export function resolveConversationMessageReference(turns: readonly TranscriptTurn[], reference: string): string | null {
+export function resolveConversationMessageReference(turns: readonly TranscriptTurn[], reference: string, sessionId?: string): string | null {
+  const source = parseMessageQuoteLink(reference);
+  if (source?.kind === 'session' && source.sessionId !== sessionId) return null;
+  reference = source?.kind === 'session' ? source.itemId : source?.kind === 'chat' ? `msg:${source.messageId}` : reference;
   const id = reference.replace(/^msg:/, '');
   for (const turn of turns) for (const item of withSentReplies(turn, { allDestinations: true }).items) {
     if (item.kind !== 'message') continue;
-    if (item.id === reference || /:sent:([^:]+)$/.exec(item.id)?.[1] === id) return item.id;
+    if (item.id === reference) return item.id;
+    if (source?.kind === 'session') continue;
+    if (/:sent:([^:]+)$/.exec(item.id)?.[1] === id) return item.id;
     if (readDeliveryEnvelope(item.text)?.segments.some(segment => segment.facts?.messageId?.replace(/^msg:/, '') === id)) return item.id;
   }
   return null;
@@ -57,6 +63,10 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
   return turns.map(turn => ({ ...turn, items: turn.items.map(item => {
     if (item.kind !== 'message') return item;
     const data = item as ChatMessage;
+    const native = readMessageQuote(data.text);
+    if (native) return { ...item, text: native.body, conversationReply: {
+      itemId: native.link, text: native.excerpt, ...(native.sender ? { from: native.sender } : {}), unloaded: true,
+    } };
     const reply = readDeliveryEnvelope(item.text)?.segments[0]?.facts?.replyTo;
     const quoted = reply?.messageId.replace(/^msg:/, '') ?? data.sentReplyTo;
     const original = quoted ? messages.get(quoted) : undefined;

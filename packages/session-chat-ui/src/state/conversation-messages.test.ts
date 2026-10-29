@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { conversationMessages, resolveConversationMessageReference } from './conversation-messages';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import { messageQuoteLink, messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
 
 describe('conversation reply references', () => {
+  it('projects a persisted native quote and resolves only inside its original session', () => {
+    const source = { kind: 'session' as const, sessionId: 'session-a', itemId: 'original' };
+    const text = messageQuoteText(source, 'selected words', 'Agent') + 'my question';
+    const turns: TranscriptTurn[] = [{ id: 'turn', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'original', seq: 0, role: 'assistant', text: 'selected words and more' },
+      { kind: 'message', id: 'same-text', seq: 1, role: 'assistant', text: 'selected words and more' },
+      { kind: 'message', id: 'reply', seq: 2, role: 'user', text },
+    ] }];
+    const projected = conversationMessages(JSON.parse(JSON.stringify(turns)));
+    expect(projected[0]!.items[2]).toMatchObject({ text: 'my question', conversationReply: { itemId: messageQuoteLink(source), text: 'selected words', from: 'Agent' } });
+    expect(turns[0]!.items[2]).toHaveProperty('text', text);
+    expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-a')).toBe('original');
+    expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-b')).toBeNull();
+  });
   it('resolves a reply to the actual earlier sender across turns without mutating stored messages', () => {
     const turns: TranscriptTurn[] = [
       { id: 't1', seq: 0, initiator: 'user', items: [
