@@ -9,7 +9,7 @@ import { until, untilStable } from '../../../../tests/support/awaitCondition';
 const disposers: (() => void)[] = [];
 afterEach(() => disposers.splice(0).forEach(dispose => dispose()));
 const hook: TranscriptItem = { kind: 'session-notice', id: 'stop', seq: 4, code: 'provider-notice', title: 'Stop says: Check complete.', detail: 'Stop says: Check complete.', at: 4000 };
-const bash = (command: string, seq = 2): TranscriptItem => ({ kind: 'execute-tool-call', id: 'work', seq, toolCallId: 'work', toolName: 'Bash', command, title: command, status: 'done' });
+const bash = (command: string, seq = 2): Extract<TranscriptItem, { kind: 'execute-tool-call' }> => ({ kind: 'execute-tool-call', id: 'work', seq, toolCallId: 'work', toolName: 'Bash', command, title: command, status: 'done' });
 function mount(items: TranscriptItem[], timestamped = true) {
   const context = createChatContext();
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
@@ -24,7 +24,7 @@ function mount(items: TranscriptItem[], timestamped = true) {
   state.transcript.history.seed([turn]);
   return { host, state, settle: () => untilStable('review geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height) };
 }
-const reply = (text = 'Final reply.'): TranscriptItem => ({ kind: 'message', id: 'answer', seq: 3, role: 'assistant', text, at: 3000 });
+const reply = (text = 'Final reply.'): Extract<TranscriptItem, { kind: 'message' }> => ({ kind: 'message', id: 'answer', seq: 3, role: 'assistant', text, at: 3000 });
 
 describe('process review boundaries', () => {
   it('keeps the full action name ahead of a long command at narrow widths', async () => {
