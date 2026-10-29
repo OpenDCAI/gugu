@@ -88,6 +88,10 @@ type Snapshot = Map<string, Map<string, boolean>>;
 const MIGRATION_RETRY_MS = 5 * 60_000;
 /** 资源库、面板这类「看一眼」的读:这么久之内问过就不再问。开会话前总是现问。 */
 const DEFAULT_MAX_AGE_MS = 30_000;
+/** 没问到之后,「看一眼」的读这么久之内不再等平台(❌ 每次开资源库都卡一个超时)。 */
+const FAILURE_HOLD_MS = 30_000;
+/** 问「哪些连着」最多等这么久:开会话、开资源库都在等它。 */
+const LIST_TIMEOUT_MS = 5_000;
 
 function keptByPlatform(account: ProviderAccount): boolean {
   return account.meta?.credentialSource === PLATFORM_CREDENTIAL_SOURCE;
@@ -123,6 +127,11 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
       return { success: false, error: notOpen(name), errorType: 'not_open' };
     case 'unknown_provider':
       return { success: false, error: `The Gugu platform does not offer ${name} yet.`, errorType: 'generic' };
+    case 'request_timeout':
+      return { success: false, error: `${name} didn't answer in time; try again shortly.`, errorType: 'timed_out' };
+    case 'rate_limited':
+    case 'too_many_streams':
+      return { success: false, error: `Too many requests to ${name} right now; try again shortly.`, errorType: 'rate_limited' };
     default:
       return { success: false, error: `Could not save the ${name} credential on the Gugu platform: ${said}`, errorType: 'generic' };
   }
@@ -133,8 +142,12 @@ export class PlatformCredentialService {
   private availability: 'unknown' | 'present' | 'absent' = 'unknown';
   private snapshot: Snapshot | null = null;
   private fetchedAt = 0;
+  /** 上一次没问到的时刻:之后一阵子「看一眼」的读不再等平台(开会话的那一次照样现问)。 */
+  private failedAt = 0;
   private lastFailure: { code: string; message: string } | null = null;
-  private pending: Promise<boolean> | null = null;
+  /** 登录一变就换一代:上一代问到的答复 ❌ 算给这一代。 */
+  private generation = 0;
+  private pending: { generation: number; run: Promise<boolean> } | null = null;
   /** 改本机镜像的事(问平台、连接、断开)一件接一件:❌ 让一次晚到的「没连」答复抹掉刚连上的那一行。 */
   private queue: Promise<unknown> = Promise.resolve();
   private readonly migrationRetryAt = new Map<string, number>();
@@ -149,6 +162,15 @@ export class PlatformCredentialService {
     return this.deps.providers().find((provider) => provider.id === integrationId) ?? null;
   }
 
+  /** 平台的客户端;这个安装没配平台(或连库地址都没有)= null。 */
+  private client(): PlatformIntegrationsClient | null {
+    try {
+      return this.deps.client();
+    } catch {
+      return null;
+    }
+  }
+
   private serialize<T>(work: () => Promise<T>): Promise<T> {
     const run = this.queue.then(work, work);
     this.queue = run.then(() => undefined, () => undefined);
@@ -160,12 +182,12 @@ export class PlatformCredentialService {
   }
 
   /**
-   * 这一家的凭据此刻在哪保管:平台;只有这个安装确知没有这项服务时才是这台电脑(`local`)。还没问到过 = 平台 ——
-   * ❌ 因为一时问不到就改存本机。
+   * 这一家的凭据此刻在哪保管:平台;只有这个安装确知没有这项服务时(没配平台,或网关说没有这个函数)才是这台电脑
+   * (`local`)。还没问到过 = 平台 —— ❌ 因为一时问不到就改存本机。
    */
   custody(integrationId: string): 'platform' | 'local' | null {
     if (!this.isPlatformProvider(integrationId)) return null;
-    return this.availability === 'absent' ? 'local' : 'platform';
+    return this.availability === 'absent' || !this.client() ? 'local' : 'platform';
   }
 
   /** 还不知道这个安装有没有这项服务就先问一次(资源库要按它说「平台保管」还是「这台电脑上保管」)。 */
@@ -173,58 +195,75 @@ export class PlatformCredentialService {
     if (this.availability === 'unknown') await this.refresh();
   }
 
-  private serviceMissing(): void {
+  /** 这个安装没有这项服务:之前照抄下来的「平台保管」那几行也就不作数了,删掉(它们背后本来就没有密钥)。 */
+  private async serviceMissing(providers: readonly PlatformCustodyProvider[]): Promise<void> {
     if (this.availability !== 'absent') {
       this.deps.log.info('This installation has no platform service for typed-in credentials; they are kept on this computer');
     }
     this.availability = 'absent';
+    this.snapshot = null;
     this.fetchedAt = this.now();
+    this.failedAt = 0;
     this.lastFailure = null;
+    for (const provider of providers) {
+      for (const row of await this.deps.accounts.listAccounts(provider.id)) {
+        if (keptByPlatform(row)) await this.deps.accounts.removeAccount(provider.id, row.accountId);
+      }
+    }
   }
 
-  /** 登录变了 / 转发口说变了:下一次读必须现问。 */
+  /** 登录变了 / 转发口说变了:下一次读必须现问,正在问的那一次的答复也不作数了。 */
   invalidate(): void {
     this.fetchedAt = 0;
+    this.failedAt = 0;
+    this.generation += 1;
   }
 
   /**
-   * 问平台哪些连着,顺手把 #649 的本机 key 传上去,再把答复照抄进本机账号表。同一时刻只问一次(后来的跟着等)。
+   * 问平台哪些连着,顺手把 #649 的本机 key 传上去,再把答复照抄进本机账号表。同一时刻只问一次(同一代的跟着等)。
    * 问到了 = true;问不到(没登录、没网、这个环境没开放)= false,本机账号表不动、之前的答复照旧有效。❌ 抛错。
-   * `maxAgeMs: 0` = 一定现问。
+   * `maxAgeMs: 0` = 一定现问;别的读在刚问过、或刚没问到的一阵子里不再等平台。
    */
   refresh(options: { maxAgeMs?: number } = {}): Promise<boolean> {
-    if (this.pending) return this.pending;
+    if (this.pending && this.pending.generation === this.generation) return this.pending.run;
     const maxAge = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
-    if ((this.snapshot || this.availability === 'absent') && maxAge > 0 && this.fetchedAt > 0 && this.now() - this.fetchedAt < maxAge) {
-      return Promise.resolve(true);
+    if (maxAge > 0) {
+      const now = this.now();
+      if ((this.snapshot || this.availability === 'absent') && this.fetchedAt > 0 && now - this.fetchedAt < maxAge) return Promise.resolve(true);
+      if (this.failedAt > 0 && now - this.failedAt < FAILURE_HOLD_MS) return Promise.resolve(false);
     }
-    const run = this.serialize(() => this.refreshNow());
-    this.pending = run;
+    const generation = this.generation;
+    const run = this.serialize(() => this.refreshNow(generation).catch((error: unknown) => {
+      this.deps.log.warn('Could not refresh the platform-kept credentials', { code: failureOf(error).code });
+      return false;
+    }));
+    const entry = { generation, run };
+    this.pending = entry;
     void run.finally(() => {
-      if (this.pending === run) this.pending = null;
+      if (this.pending === entry) this.pending = null;
     });
     return run;
   }
 
-  private async refreshNow(): Promise<boolean> {
+  private async refreshNow(generation: number): Promise<boolean> {
     const providers = this.deps.providers();
     if (providers.length === 0) return true;
-    let client: PlatformIntegrationsClient | null;
+    const client = this.client();
+    if (!client) {
+      await this.serviceMissing(providers);
+      return true;
+    }
     let snapshot: Snapshot;
     try {
-      client = this.deps.client();
-      if (!client) {
-        this.serviceMissing();
-        return true;
-      }
-      const listed = await client.list();
+      const listed = await client.list(AbortSignal.timeout(LIST_TIMEOUT_MS));
       snapshot = new Map(providers.map((provider) => [
         provider.id,
         new Map((listed.find((row) => row.provider === provider.id)?.accounts ?? []).map((account) => [account.accountId, account.connected])),
       ]));
     } catch (error) {
+      if (generation !== this.generation) return false;
       if (isPlatformServiceMissing(error)) {
-        this.serviceMissing();
+        await this.serviceMissing(providers);
         return true;
       }
       const failure = failureOf(error);
@@ -236,8 +275,11 @@ export class PlatformCredentialService {
         });
       }
       this.lastFailure = { code: failure.code, message: failure.message };
+      this.failedAt = this.now();
       return false;
     }
+    // 问的时候登录已经换了:这是上一个人的答复,❌ 照抄、❌ 拿它的 key 去传。
+    if (generation !== this.generation) return false;
     for (const provider of providers) {
       try {
         await this.moveLocalKeys(client, provider, snapshot.get(provider.id)!);
@@ -252,6 +294,7 @@ export class PlatformCredentialService {
     this.availability = 'present';
     this.snapshot = snapshot;
     this.fetchedAt = this.now();
+    this.failedAt = 0;
     this.lastFailure = null;
     return true;
   }
@@ -271,7 +314,8 @@ export class PlatformCredentialService {
     known: Map<string, boolean>
   ): Promise<void> {
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
-      if (keptByPlatform(row)) continue;
+      // #649 只存过默认那一个账号;别的本机行不是它存的,原样不动。
+      if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
       const fields = await this.localFields(provider, row);
       if (!fields) continue;
       if ([...known.values()].some(Boolean)) {
@@ -385,6 +429,12 @@ export class PlatformCredentialService {
     return this.serialize(async () => {
       const provider = this.provider(integrationId);
       if (!provider) return { success: false, error: `Unknown integration: ${integrationId}` };
+      // 这个安装没有这项服务:整件事交回本机保管的老路(编辑时留空 = 沿用本机存着的那份,由老路判断)。
+      const client = this.availability === 'absent' ? null : this.client();
+      if (!client) {
+        await this.serviceMissing(this.deps.providers());
+        return { keepHere: true };
+      }
       const fields: Record<string, string> = {};
       for (const field of provider.fields) {
         const value = input[field.id];
@@ -400,17 +450,12 @@ export class PlatformCredentialService {
       }
       const secrets = provider.fields.flatMap((field) => (field.secret && fields[field.id] ? [fields[field.id]!] : []));
       try {
-        const client = this.deps.client();
-        if (!client) {
-          this.serviceMissing();
-          return { keepHere: true };
-        }
         await client.saveCredential(integrationId, fields);
         this.availability = 'present';
       } catch (error) {
-        // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open)照实说,❌ 改存本机。
+        // 这个安装没有这项服务:唯一留在本机的情况。别的「不成」(含 503 not_open、超时、限流)照实说,❌ 改存本机。
         if (isPlatformServiceMissing(error)) {
-          this.serviceMissing();
+          await this.serviceMissing(this.deps.providers());
           return { keepHere: true };
         }
         const failure = failureOf(error);
@@ -446,10 +491,11 @@ export class PlatformCredentialService {
       if (!provider) return { success: false, error: `Unknown integration: ${integrationId}` };
       try {
         // 这个安装根本没有平台:平台上也就没有,只剩本机那一行要删。
-        await this.deps.client()?.deleteCredential(integrationId);
+        await this.client()?.deleteCredential(integrationId);
       } catch (error) {
         const failure = failureOf(error);
-        if (failure.code !== 'not_connected' && !isPlatformServiceMissing(error)) {
+        // 平台上没存着 / 没有这项服务 / 还没对他开放(平台上也就不可能替他存着):只剩本机的要删。
+        if (failure.code !== 'not_connected' && failure.code !== 'not_open' && !isPlatformServiceMissing(error)) {
           this.deps.log.warn('The Gugu platform did not remove the credential', { provider: integrationId, code: failure.code, status: failure.status });
           return { success: false, error: `Could not disconnect ${provider.name} on the Gugu platform: ${failure.message}` };
         }
@@ -467,7 +513,7 @@ export class PlatformCredentialService {
    */
   async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<IntegrationEndpoint> {
     signal?.throwIfAborted();
-    const client = this.deps.client();
+    const client = this.client();
     if (!client) throw new Error(`${integrationId} is kept on this computer here; there is no platform forwarder.`);
     const endpoint = await client.mcpEndpoint(integrationId, {
       onNotConnected: () => this.heard(integrationId, false),

@@ -393,6 +393,8 @@ describe('credentials the platform keeps (#921)', () => {
     platform.state.holdGet = new Promise<void>((resolve) => (release = resolve));
 
     const before = d.service.refresh({ maxAgeMs: 0 });
+    // The first ask is on the wire (under the first sign-in) before the sign-in changes.
+    while (!platform.requests.some((request) => request.method === 'GET')) await new Promise((resolve) => setTimeout(resolve, 1));
     d.token.value = 'D-session-2';
     d.service.invalidate();
     const after = d.service.refresh({ maxAgeMs: 0 });

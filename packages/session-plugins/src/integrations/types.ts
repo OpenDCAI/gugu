@@ -33,4 +33,6 @@ export type IntegrationError =
    * configured): `503 not_open`. Not a reason to keep the credential on the device instead.
    */
   | { type: 'not_open'; message: string }
+  /** #921 The platform did not answer in time (`408 request_timeout`): temporary, try again shortly. */
+  | { type: 'timed_out'; message: string }
   | { type: 'generic'; message: string };

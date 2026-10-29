@@ -3,12 +3,14 @@
  * 人在一台设备上填一次,平台加密存着;他的每台设备(含云电脑)都经平台的 MCP 转发口用它,凭据 ❌ 回到任何设备。
  * 地址、鉴权与聊天渠道同一扇门(`cloudComputerBaseUrl`,用户自己的 JWT);这扇门说 503 not_open = 这个环境没开放。
  *
- *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, updatedAt, checkedAt }] }] }
+ *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt }] }] }
+ *           state:connected · reconnect(存着、但对方不认了 / 换钥后解不开,要重连) · not_connected(没存,时间为空)
  *  · PUT    /integrations/:provider/credential   { fields } → { connected: true, updatedAt, checkedAt }
  *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 not_open
  *  · DELETE /integrations/:provider/credential   → 204
  *  · POST|GET|DELETE /integrations/:provider/mcp  MCP Streamable HTTP 转发口,凭据由平台挂上;
- *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效)
+ *           没存 = 404 not_connected;对方拒了存着的凭据 = 409 credential_rejected(401 只留给本人的登录失效);
+ *           暂时的:408 request_timeout、429 too_many_streams(同一人同时开着的太多)/ rate_limited,带 retry-after
  *
  * 只有一种情况凭据留在设备上:这个安装压根没有这项服务(社区自托管,没部署云电脑管家)—— 网关回 404、体里没有
  * 平台的出错码(`isPlatformServiceMissing`)。平台在、但说 503 not_open(没对这个人开放 / 没配好)❌ 是退路:
@@ -20,8 +22,10 @@ import { CloudComputerError, cloudComputerErrorFromResponse } from './cloudCompu
 
 export type PlatformIntegrationAccount = {
   accountId: string
-  /** false = 平台存着,但对方上一次不认它(要重连)。 */
+  /** false = 平台存着,但用不了了(对方不认、换钥后解不开):要重连。 */
   connected: boolean
+  /** 平台没给 state(老一点的平台)时按 connected 推。「没存」的那种(not_connected)不在这里 —— 那就是没有这一行。 */
+  state: 'connected' | 'reconnect'
   updatedAt: string | null
   checkedAt: string | null
 }
@@ -39,6 +43,37 @@ export class PlatformIntegrationNotConnectedError extends Error {
     super(`${provider} is not connected in Gugu any more; reconnect it.`)
     this.name = 'PlatformIntegrationNotConnectedError'
   }
+}
+
+/**
+ * 转发口暂时转不了:同一人同时开着的调用太多(429 too_many_streams)、被限流(429 rate_limited)、超时(408 request_timeout)。
+ * 过一会儿再试就好 —— ❌ 说成「没连」「要重连」或登录问题。
+ */
+export class PlatformForwarderBusyError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly reason: 'too_many_streams' | 'rate_limited' | 'request_timeout',
+    readonly retryAfterSeconds: number | null,
+  ) {
+    const when = retryAfterSeconds ? `try again in ${retryAfterSeconds} s` : 'try again shortly'
+    super(
+      reason === 'too_many_streams'
+        ? `Too many ${provider} calls are open at once on the Gugu platform; ${when}.`
+        : reason === 'rate_limited'
+          ? `${provider} calls are being rate-limited by the Gugu platform; ${when}.`
+          : `The Gugu platform timed out forwarding this ${provider} call; ${when}.`,
+    )
+    this.name = 'PlatformForwarderBusyError'
+  }
+}
+
+/** `retry-after`:秒数,或一个 HTTP 日期;读不出来 = null。 */
+function retryAfterSeconds(header: string | null): number | null {
+  const value = header?.trim()
+  if (!value) return null
+  if (/^\d+$/.test(value)) return Number(value) > 0 ? Number(value) : null
+  const at = Date.parse(value)
+  return Number.isFinite(at) && at > Date.now() ? Math.ceil((at - Date.now()) / 1000) : null
 }
 
 /** 转发口说对方不认平台存着的那份凭据了(过期、被撤):要重连,❌ 不是登录问题。 */
@@ -91,11 +126,17 @@ export function parsePlatformIntegrations(value: unknown): PlatformIntegrationPr
     if (!provider || !Array.isArray(row?.accounts)) throw badResponse('/integrations')
     return {
       provider,
-      accounts: row.accounts.map((raw: unknown) => {
+      accounts: row.accounts.flatMap((raw: unknown): PlatformIntegrationAccount[] => {
         const account = raw as Record<string, unknown> | null
         const accountId = text(account?.accountId)
-        if (!accountId || typeof account?.connected !== 'boolean') throw badResponse('/integrations')
-        return { accountId, connected: account.connected, updatedAt: timestamp(account.updatedAt), checkedAt: timestamp(account.checkedAt) }
+        const state = text(account?.state)
+        if (!accountId || (state !== 'connected' && state !== 'reconnect' && state !== 'not_connected' && typeof account?.connected !== 'boolean')) {
+          throw badResponse('/integrations')
+        }
+        // 平台说这一行没存:就是没有这一行,❌ 当成「要重连」。
+        if (state === 'not_connected') return []
+        const connected = state === 'connected' || state === 'reconnect' ? state === 'connected' : account?.connected === true
+        return [{ accountId, connected, state: connected ? 'connected' : 'reconnect', updatedAt: timestamp(account?.updatedAt), checkedAt: timestamp(account?.checkedAt) }]
       }),
     }
   })
@@ -158,11 +199,16 @@ export function createPlatformIntegrationsClient(options: {
     mcpEndpoint: async (provider, hooks) => ({
       url: `${providerPath(provider)}/mcp`,
       headers: await headers(),
-      // 转发口的两句「不成」各说各的:没存 = 没连;存着的被对方拒了 = 要重连。别的应答原样交给 MCP 客户端。
+      // 转发口的几句「不成」各说各的:没存 = 没连;存着的被对方拒了 = 要重连;太多 / 限流 / 超时 = 过会儿再试。
+      // 别的应答原样交给 MCP 客户端。任何一次转发都可能遇上,不只是 initialize。
       fetch: async (input, init) => {
         const response = await doFetch(input, init)
-        if (response.status !== 404 && response.status !== 409) return response
+        if (response.status !== 404 && response.status !== 409 && response.status !== 408 && response.status !== 429) return response
         const code = cloudComputerErrorFromResponse(response.status, await response.clone().text().catch(() => '')).code
+        if (response.status === 429 || response.status === 408) {
+          const reason = response.status === 408 ? 'request_timeout' : code === 'too_many_streams' ? 'too_many_streams' : 'rate_limited'
+          throw new PlatformForwarderBusyError(provider, reason, retryAfterSeconds(response.headers.get('retry-after')))
+        }
         if (response.status === 404 && code === 'not_connected') {
           hooks?.onNotConnected?.()
           throw new PlatformIntegrationNotConnectedError(provider)

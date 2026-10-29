@@ -517,7 +517,11 @@ export class IntegrationConnectionService {
   async checkAccounts(integrationId: string): Promise<IntegrationAccountCheck[]> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) throw new Error(`Unknown integration: ${integrationId}`);
-    if (platformCredentials.custody(integrationId) === 'platform') return platformCredentials.checkAccounts(integrationId);
+    if (platformCredentials.custody(integrationId) === 'platform') {
+      const checked = await platformCredentials.checkAccounts(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return checked;
+    }
     const accounts = await integrationCredentialStore.listAccounts(integrationId);
     return Promise.all(
       accounts.map(async (account): Promise<IntegrationAccountCheck> => {
@@ -586,7 +590,9 @@ export class IntegrationConnectionService {
     }
     // #921 设备上没有凭据可验:问平台。存着但对方不认了 = 要重连(authorization_expired),❌ 说成登录问题。
     if (platformCredentials.custody(integrationId) === 'platform') {
-      return { ...(await platformCredentials.check(integrationId)), capabilities };
+      const checked = await platformCredentials.check(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return { ...checked, capabilities };
     }
 
     let account: IntegrationAccountRecord | null;
