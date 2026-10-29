@@ -64,17 +64,31 @@ export class MachineRegistry {
    * 别的机器上的会话没人订,那台机器把它当没人看停掉,#92)。只记实体 id(collectEntityIds),量是那台机器上的实体数。
    */
   private readonly owner = observable.map<string, string>({}, { deep: false });
+  /**
+   * #581 这台电脑自己的实体(本机项目表里读到的、本机新建的):别的机器 ❌ 认领它们。一条设备行的账号副本里可能写着
+   * 这台电脑的项目 id(同一个库换了设备 id:换 tier、重新登记,旧行还挂着),跨机器的调用与应答也会带上本机的 id ——
+   * 被记到那台名下,本机项目就被错路由到那台,那台被移除时它还会从项目表里被拿掉。
+   */
+  private readonly local = new Set<string>();
 
   /** 每台机器都有、id 写死的实体(见文件末尾的换名);它们本身永不登记。 */
   constructor(readonly fixedIds: readonly string[] = []) {
     // 一次登记 / 忘掉是一次变化:读的人在它做完之后才重算一遍,❌ 每个 id 一遍。
-    makeObservable(this, { register: action, forgetMachine: action });
+    makeObservable(this, { register: action, forgetMachine: action, claimLocal: action });
   }
 
-  /** 记下这些 id 属于那台机器。 */
+  /** 记下这些 id 属于那台机器(这台电脑自己的除外,见 claimLocal)。 */
   register(deviceId: string, ids: Iterable<string>): void {
     for (const id of ids) {
-      if (looksLikeEntityId(id) && !this.fixedIds.includes(id)) this.owner.set(id, deviceId);
+      if (looksLikeEntityId(id) && !this.fixedIds.includes(id) && !this.local.has(id)) this.owner.set(id, deviceId);
+    }
+  }
+
+  /** 这些 id 是这台电脑的:之后谁也认领不走,已经被记到别的机器名下的撤回来。 */
+  claimLocal(ids: Iterable<string>): void {
+    for (const id of ids) {
+      this.local.add(id);
+      this.owner.delete(id);
     }
   }
 

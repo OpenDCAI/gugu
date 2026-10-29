@@ -23,7 +23,6 @@ const project = (overrides: Partial<DeviceProject> = {}): DeviceProject => ({
   rootPath: '/srv/repo',
   createdAt: '2026-10-01T08:00:00.000Z',
   chatId: 'chat-1',
-  groupRepresentative: false,
   folders: [
     { workspaceId: 'ws-root', kind: 'root', path: '/srv/repo', attachedAt: null },
     { workspaceId: 'ws-wt', kind: 'attached', path: '/srv/repo-wt', attachedAt: '2026-10-02T00:00:00.000Z' },
@@ -58,7 +57,7 @@ describe('publishDeviceProjects', () => {
         root_path: '/srv/repo',
         created_at: '2026-10-01T08:00:00.000Z',
         chat_id: 'chat-1',
-        group_representative: false,
+        // group_representative 不再发:库里那一列缺省 false(阶段 B 删列)。
         folders: [
           { workspace_id: 'ws-root', kind: 'root', path: '/srv/repo', attached_at: null },
           { workspace_id: 'ws-wt', kind: 'attached', path: '/srv/repo-wt', attached_at: '2026-10-02T00:00:00.000Z' },
@@ -132,7 +131,7 @@ describe('listDeviceProjects', () => {
     expect(calls).toEqual([{ user: 'owner-1', order: ['device_id', 'local_project_id'], from: 0, to: DEVICE_PROJECT_PAGE_ROWS - 1 }])
     expect(Object.keys(listed).sort()).toEqual(['dev-1', 'dev-2'])
     expect(listed['dev-1']!.map((item) => item.localProjectId)).toEqual(['p2', 'p1'])
-    expect(listed['dev-1']![0]).toMatchObject({ chatId: null, groupRepresentative: true, folders: [], createdAt: '2026-10-05T00:00:00.000Z' })
+    expect(listed['dev-1']![0]).toMatchObject({ chatId: null, folders: [], createdAt: '2026-10-05T00:00:00.000Z' })
     expect(listed['dev-1']![1]).toEqual(project())
   })
 

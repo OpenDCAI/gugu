@@ -9,6 +9,7 @@ import type {
   SessionLiveReply,
   TurnPatch,
 } from '@gugu/session-core/session-record/contract'
+import { settlementFromWire } from '@gugu/session-core/session-record/contract'
 import type { ToolImage, ToolNode, TranscriptItem, TranscriptTurn } from '@gugu/session-core/acp/client'
 
 /**
@@ -69,7 +70,7 @@ function sortTurns(turns: TranscriptTurn[]): TranscriptTurn[] {
 
 function indexSettlements(settlements: readonly Settlement[]): Record<string, Settlement> {
   const next: Record<string, Settlement> = {}
-  for (const settlement of settlements) next[settlement.itemId] = settlement
+  for (const settlement of settlements) next[settlement.itemId] = settlementFromWire(settlement)
   return next
 }
 
@@ -92,7 +93,7 @@ function mergeSettlements(
   for (const settlement of incoming) {
     const existing = next[settlement.itemId]
     if (!reopen && existing && existing.state !== 'pending' && settlement.state === 'pending') continue
-    next[settlement.itemId] = settlement
+    next[settlement.itemId] = settlementFromWire(settlement)
   }
   return next
 }

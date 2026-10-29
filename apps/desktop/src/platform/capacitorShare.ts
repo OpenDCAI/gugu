@@ -39,6 +39,7 @@ const plugin = registerPlugin<GuguSharePlugin>('GuguShare')
 export async function shareToApps(payload: ShareToAppsPayload): Promise<void> {
   const files = []
   for (const { file, name, mimeType } of payload.files ?? []) files.push({ id: await stage(file, name), name, mimeType })
+  for (const { blob, name } of payload.blobs ?? []) files.push({ id: await stageBlob(blob, name), name, mimeType: blob.type })
   await plugin.share({ text: payload.text, title: payload.title, ...(files.length ? { files } : {}) })
 }
 
@@ -46,8 +47,8 @@ const sendStage = (command: FileStageCommand) => plugin.stage(command.op === 'ch
 const stage = (file: FileHandle, name: string) => stageFileHandle(file, name, sendStage)
 export const openInApps = async (file: FileHandle, name: string): Promise<void> => plugin.open({ id: await stage(file, name), name })
 
-/** A generated Blob uses the same bounded native staging, then the existing system save picker. */
-export async function saveToDevice(blob: Blob, name: string): Promise<{ saved: boolean }> {
+/** A generated Blob in the same bounded native staging a file takes. */
+async function stageBlob(blob: Blob, name: string): Promise<string> {
   const stream = async function* () {
     const reader = blob.stream().getReader()
     try { for (;;) { const part = await reader.read(); if (part.done) break; for (let i = 0; i < part.value.length; i += FILE_CHUNK_BYTES) yield part.value.subarray(i, i + FILE_CHUNK_BYTES) } }
@@ -55,8 +56,12 @@ export async function saveToDevice(blob: Blob, name: string): Promise<{ saved: b
   }
   const hash = fileSha256.create(); for await (const bytes of stream()) hash.update(bytes)
   const sha256 = Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('')
-  const id = await stageFileSource({ revision: { size_bytes: blob.size, sha256, content_type: blob.type }, stream, dispose: async () => {} }, name, sendStage)
-  return plugin.save({ id, name, mimeType: blob.type })
+  return stageFileSource({ revision: { size_bytes: blob.size, sha256, content_type: blob.type }, stream, dispose: async () => {} }, name, sendStage)
+}
+
+/** A generated Blob uses the same bounded native staging, then the existing system save picker. */
+export async function saveToDevice(blob: Blob, name: string): Promise<{ saved: boolean }> {
+  return plugin.save({ id: await stageBlob(blob, name), name, mimeType: blob.type })
 }
 
 /** 浏览器分享网页常给「标题 + 链接」两段(EXTRA_SUBJECT / EXTRA_TEXT);标题已在正文里就不重复。 */

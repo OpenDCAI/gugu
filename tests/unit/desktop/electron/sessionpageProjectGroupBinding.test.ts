@@ -220,8 +220,8 @@ describe('读绑定', () => {
     expect(result).toEqual({
       success: true,
       data: [
-        { projectId: 'proj-a', chatId: 'chat-a', representative: true },
-        { projectId: 'proj-legacy', chatId: 'chat-legacy', representative: false },
+        { projectId: 'proj-a', chatId: 'chat-a' },
+        { projectId: 'proj-legacy', chatId: 'chat-legacy' },
       ],
     })
   })
@@ -477,7 +477,7 @@ describe('撤销', () => {
     expect(target.members.has('agent-1'), '已经加进去的 agent 留在那个群里').toBe(true)
     expect(rpcCalls).toEqual([])
     // 名册回到原来的群之后,读绑定退回名册 —— 正是撤销想要的那个群。
-    expect(await host.listBindings(['proj-a'])).toEqual({ success: true, data: [{ projectId: 'proj-a', chatId: 'chat-old', representative: false }] })
+    expect(await host.listBindings(['proj-a'])).toEqual({ success: true, data: [{ projectId: 'proj-a', chatId: 'chat-old' }] })
   })
 
   it('没绑过 ⇒ 什么都不改', async () => {

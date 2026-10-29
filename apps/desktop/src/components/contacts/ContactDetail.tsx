@@ -81,7 +81,7 @@ function CommonGroups({
       {loading ? (
         <div className={detailNoticeClass}>{ct('commonGroups.loading')}</div>
       ) : error ? (
-        <div role="alert" className={cn(detailNoticeClass, 'text-[var(--danger)]')}>{error}</div>
+        <div role="alert" className={cn(detailNoticeClass, 'text-[var(--danger-fg)]')}>{error}</div>
       ) : groups.length === 0 ? (
         <div className={detailNoticeClass}>{ct('commonGroups.empty')}</div>
       ) : (

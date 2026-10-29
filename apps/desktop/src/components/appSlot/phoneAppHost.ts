@@ -3,12 +3,12 @@ import { showRendererContentMenu } from '../../lib/contentContextMenu'
 import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
 import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
-import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { guguLink, guguLinkScheme, linkTargetOf, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
 import { readCachedDevices } from '../../store/devicesCache'
-import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
+import { directoryRows, listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
@@ -694,7 +694,7 @@ export function hostAppFrame(
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
       case 'filesKeep':
-        return files.keep(surface(), { ref: chatRef(args.ref), how: args.how })
+        return files.keep(surface(), { refs: (Array.isArray(args.refs) ? args.refs : []).map(chatRef), how: args.how })
       case 'filesMkdir':
         return files.mkdir(chatPlace(args.place), { path: args.path })
       case 'filesMove':
@@ -727,12 +727,23 @@ export function hostAppFrame(
         const chatId = chatPlace(args.place)
         if (args.pick === true) {
           // Opened now, in this very turn: the picker needs the person's activation.
-          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder })))
+          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })))
         }
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
-        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder })
+        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
       case 'filesDownload':
+        // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
+        if (Array.isArray(args.refs)) {
+          if (args.refs.length === 0) refused('invalid', 'files.download(files): give one file or more')
+          if (!platform.capabilities.shareToApps) refused('invalid', 'Not available on this phone: sharing several files')
+          const sources = await Promise.all(args.refs.map((ref) => files.downloadSource(surface(), { ref: chatRef(ref) })))
+          await platform.shareToApps({
+            files: sources.flatMap((source) => (source.kind === 'file' ? [{ file: source.file, name: source.name }] : [])),
+            blobs: sources.flatMap((source) => (source.kind === 'text' ? [{ blob: new Blob([source.text], { type: 'text/plain;charset=utf-8' }), name: source.name }] : [])),
+          })
+          return sources.length
+        }
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.
@@ -879,7 +890,7 @@ declare const __GUGU_TIER__: string
 export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
-export async function openPhoneLink(target: string | GuguLinkTarget) {
+export async function openPhoneLink(target: string | OpenTarget) {
   if (platform.kind === 'capacitor') await phoneApps.ready()
   return openLinkWith({
     installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
@@ -887,6 +898,11 @@ export async function openPhoneLink(target: string | GuguLinkTarget) {
     locale: () => document.documentElement.lang,
     resourceChat: async (chatId) => { const { token, userId } = await sendPlatform.account(); return resourceChatIdOf(token, chatId, userId) },
     sessionProject: async (sessionId) => { const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId); return 'row' in listed ? listed.row.session.projectId : null },
+    // The phone's session directory carries each row's agent: the same lookup the DM header does (useAgentSessionRow).
+    agentSession: async (agentId) => {
+      const row = directoryRows(readCachedDevices(), liveDeviceSessions()).find(({ session }) => session.agent?.userId === agentId)
+      return row ? { sessionId: row.session.conversationId, deviceId: row.deviceId } : null
+    },
     reveal: async ({ sessionId, tabKind }) => {
       const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
       if (!('row' in listed)) throw new Error('Session is not in your task list')

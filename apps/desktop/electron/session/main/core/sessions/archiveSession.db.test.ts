@@ -264,6 +264,7 @@ describe('archiveSession', () => {
       deviceId,
       label: deviceId,
       session: { conversationId: id, projectId: `p-${deviceId}`, parentConversationId: parent } as SessionpageSessionSummary,
+      listsAgents: true,
     });
     const appMessage = vi.fn();
     const appReadFile = vi.fn();

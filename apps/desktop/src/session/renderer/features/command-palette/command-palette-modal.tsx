@@ -22,6 +22,7 @@ import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
 import { PaletteSessionItem } from './palette-session-item';
 import { rankPaletteMatches } from './palette-rank';
+import { followLink } from '@/lib/guguLinks';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -95,7 +96,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
             {tasks.length > 0 && (
               <Command.Group heading={translate(search ? 'palette.tasks' : 'palette.recentTasks')} className={GROUP_CLASS}>
                 {tasks.map((item) => {
-                  const open = () => { if (item.projectId) { onClose(); navigate('session', { projectId: item.projectId, sessionId: item.id }); } };
+                  const open = () => { if (item.projectId) { onClose(); followLink({ kind: 'session', sessionId: item.id, projectId: item.projectId }); } };
                   const store = item.projectId ? getSessionPageStore(item.projectId, item.id) : undefined;
                   return store ? <PaletteSessionItem key={item.id} value={`task:${item.id}`} sessionPageStore={store} onSelect={open} /> : (
                     <Command.Item key={item.id} value={`task:${item.id}`} onSelect={open} className={PALETTE_ITEM_CLASS}>

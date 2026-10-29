@@ -13,6 +13,17 @@ import type { DependencyStatus, ProbeResult } from './types';
 export const VERSION_RE = /(\d+\.\d+(?:\.\d+)*)/;
 
 /**
+ * `--version` 打出的哪一行是这一家自己的(`HostDependencyDescriptor.versionLine`):恰好一行匹配才算;没声明、
+ * 没有一行匹配、或不止一行匹配(包装器自己也打一行同样的标识)都是 null —— 读的人照旧读法,❌ 挑第一行。
+ * 读版本的三处(启动闸 `parseRuntimeVersion`、资源库 `extractVersion`、能不能跑 `defaultProbeStatus`)都经它。
+ */
+export function versionLineOf(output: string, versionLine: RegExp | undefined): string | null {
+  if (!versionLine) return null;
+  const lines = output.split('\n').map((line) => line.trim()).filter((line) => versionLine.test(line));
+  return lines.length === 1 ? lines[0] : null;
+}
+
+/**
  * 一次探测该读成什么状态。
  *
  * **这是唯一一份口径。** 曾经有两份:`resolveProbeStatus` 里一份、`descriptor-from-provider`
@@ -27,9 +38,10 @@ export const VERSION_RE = /(\d+\.\d+(?:\.\d+)*)/;
  * - 留了余地:非零退出**但仍然报出了版本号**的照旧算可用,有些 CLI 的 `--version` 本来就以
  *   非零退出。只有「跑挂了而且没报出版本」才判 error。
  */
-export function defaultProbeStatus(result: ProbeResult): DependencyStatus {
+export function defaultProbeStatus(result: ProbeResult, versionLine?: RegExp): DependencyStatus {
   const ranAndFailed = result.exitCode !== null && result.exitCode !== 0 && !result.timedOut;
-  const reportedAVersion = VERSION_RE.test((result.stdout || result.stderr).split('\n')[0] ?? '');
+  const printed = result.stdout || result.stderr;
+  const reportedAVersion = VERSION_RE.test(versionLineOf(printed, versionLine) ?? printed.split('\n')[0] ?? '');
   if (result.path !== null) return ranAndFailed && !reportedAVersion ? 'error' : 'available';
   if (result.timedOut && result.stdout) return 'available';
   if (result.exitCode !== null && (result.stdout || result.stderr)) return 'available';

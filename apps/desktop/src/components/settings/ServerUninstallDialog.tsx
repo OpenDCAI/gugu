@@ -185,7 +185,7 @@ export function ServerUninstallDialog({
         )}
 
         {phase === 'failed' && state?.failure && (
-          <div className={`${body} text-[var(--danger)]`}>
+          <div className={`${body} text-[var(--danger-fg)]`}>
             {state.failure.detail ? messageForUser(state.failure.detail) : t('devices.uninstall.failed', { reason: t(reasonKey(state.failure.reason)) })}
           </div>
         )}

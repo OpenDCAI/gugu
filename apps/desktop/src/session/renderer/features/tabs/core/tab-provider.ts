@@ -179,6 +179,12 @@ export interface TabProvider<
   placesPairItself?: boolean;
 
   /**
+   * 格里有这一枚,这一类的内容层就一直挂着(没上屏时照常藏起、不画)。对话那一类:群信息、群文件、话题的页和对话的名字、
+   * 右端按钮都由对话画进各自的格子 —— 启动时亮着的是别的页签,对话没挂上,它们就都是空的。
+   */
+  keepMounted?: boolean;
+
+  /**
    * How wide (px) this page wants to be beside another, as the narrow one of a pair (spec session-page「并排」: a group's
    * info, its folder, an App's page beside its chat). None: the two are peers, half each. The pair keeps it until the
    * divider is dragged; at most half the pane.

@@ -28,6 +28,8 @@ export interface ExtensionTabContributionEntry {
   extensionName: string;
   title: string;
   hostSettings?: boolean;
+  /** The host's page of a task's browser (`hostPage: 'browser'`, one per task): drawn by the host, no App HTML. */
+  hostBrowser?: boolean;
   /** Its width beside another page (manifest `sideWidth`; the host's settings page is a narrow form): none = half. */
   sideWidth?: number;
   /**
@@ -138,6 +140,7 @@ export class InstalledExtensionsStore {
         extensionName: name,
         title: tab.hostPage ? name : tab.title,
         hostSettings: tab.hostPage === 'settings',
+        hostBrowser: tab.hostPage === 'browser',
         sideWidth: tab.hostPage === 'settings' ? HOST_SETTINGS_SIDE_WIDTH : tab.sideWidth,
         iconDataUrl: this.icons[extensionTabKind(manifest.id, tab.name)] ?? null,
         enabled: this.isEnabled(manifest.id),

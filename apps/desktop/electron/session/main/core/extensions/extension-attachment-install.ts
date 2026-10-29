@@ -5,7 +5,7 @@ import { attachmentInstallPlan, couldUpdateUnasked, packageBytes, resolveAttachm
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { unpackExtensionArchive } from './extension-archive';
 import { windowNoteOf } from './extension-bridge-relay';
-import { installPrepared, type InstallDependencies } from './install-prepared';
+import { installPrepared, notGivenNoteOf, type InstallDependencies } from './install-prepared';
 import { extensionsService } from './extensions-root';
 import { appIdentityOf, publisherOf } from '@shared/extensions/app-identity';
 import type { HandedConsent } from '@shared/extensions/install-consent-flow';
@@ -101,6 +101,7 @@ export async function installExtensionFromAttachment(
       ...summary,
       ...(installed ? { updatedFrom: installed.manifest.version } : {}),
       ...(window ? { window: window.window, next: window.note } : {}),
+      ...notGivenNoteOf(done),
     };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

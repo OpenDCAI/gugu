@@ -241,7 +241,8 @@ export const plugin = definePlugin(
         + '(thread-open config 的 notify 键)与 index.ts 的 `-c notify=…`',
       supportedEvents: ['notification', 'stop', 'session'],
     },
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「codex-cli 0.145.0」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'codex',
       package: '@openai/codex',
       executables: {
@@ -252,7 +253,7 @@ export const plugin = definePlugin(
         'linux-x64': 'vendor/x86_64-unknown-linux-musl/bin/codex',
         'linux-arm64': 'vendor/aarch64-unknown-linux-musl/bin/codex',
       },
-    }),
+    }), versionLine: /^codex-cli / },
     mcp: {
       kind: 'supported',
       scope: 'global',

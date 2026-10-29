@@ -98,7 +98,7 @@ interface ChatAreaPanelProps {
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; composerHeader?: ReactNode; hideRunningStatus?: boolean;runtimeReady?:boolean }
   /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
-  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string) => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
+  onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
 // ── ChatAreaPanel ──────────────────────────────────────────────────────────────
@@ -950,7 +950,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             <button
               onClick={handleBatchDelete}
               disabled={selectedIds.size === 0}
-              style={{ height: mobile ? undefined : 30, minHeight: mobile ? 44 : undefined, flex: mobile ? '1 1 0' : undefined, minWidth: mobile ? 0 : undefined, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 'var(--radius-control)', background: 'var(--bg-elevated)', color: 'var(--danger)', fontSize: 'var(--font-body)', cursor: selectedIds.size > 0 ? 'pointer' : 'default', opacity: selectedIds.size > 0 ? 1 : 0.5 }}
+              style={{ height: mobile ? undefined : 30, minHeight: mobile ? 44 : undefined, flex: mobile ? '1 1 0' : undefined, minWidth: mobile ? 0 : undefined, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 'var(--radius-control)', background: 'var(--bg-elevated)', color: 'var(--danger-fg)', fontSize: 'var(--font-body)', cursor: selectedIds.size > 0 ? 'pointer' : 'default', opacity: selectedIds.size > 0 ? 1 : 0.5 }}
             >
               {t('message.actions.delete')}
             </button>

@@ -47,6 +47,8 @@ vi.mock('@main/core/extensions/extension-show-session', async (original) => ({
 // ipc-bridge's): its task list has another computer's s-far under p-far — or it cannot answer, with the channel's reason.
 const theWindow = vi.hoisted(() => ({ listed: new Map<string, string>(), cannot: null as Error | null }));
 vi.mock('@main/core/extensions/extension-bridge-relay', () => ({
+  // The window opens no session itself here (only the assistant's own task opens in its chat).
+  actInWindow: vi.fn(async () => undefined),
   listedSessionProject: vi.fn(async (sessionId: string) => {
     if (theWindow.cannot) throw theWindow.cannot;
     return theWindow.listed.get(sessionId) ?? null;

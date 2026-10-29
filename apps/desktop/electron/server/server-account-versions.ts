@@ -87,6 +87,8 @@ export function planAccountVersion(input: {
   now: number
   running: string | null
   switchRequested: boolean
+  /** 换版请求是人点「现在重启更新 / 重试」留的:有 agent 在跑也当场换。 */
+  switchConfirmed?: boolean
   installed: (version: string) => boolean
   busy: boolean
   /** 这一版刚在这台机器上失败过(下载 / 试跑失败、换过去起不来):冷却中不再试。 */
@@ -100,8 +102,11 @@ export function planAccountVersion(input: {
   if (!target || target === input.running) return { kind: 'none', clearSwitchRequest: true }
   const failed = input.failed(target)
   if (!input.installed(target)) return failed ? { kind: 'failed', version: target } : { kind: 'stage', version: target }
-  // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):当场换,冷却也不拦 —— 那是人那边在等。
-  if (input.switchRequested) return { kind: 'switch', version: target, urgent: true }
+  // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):冷却不拦 —— 那是人那边在等。
+  // 但有 agent 在跑就等它空闲,除非人点过「现在重启更新」:换版结束账号进程,在跑的那一轮跟着没了。
+  if (input.switchRequested) {
+    return input.busy && !input.switchConfirmed ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: true }
+  }
   if (failed) return { kind: 'failed', version: target }
   return input.busy ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: false }
 }

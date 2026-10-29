@@ -23,7 +23,7 @@ function projectRows(records: Record<string, DeviceProject[]>, devices: readonly
     machineOf: id => byId.get(id)!.deviceId,homeDir: id => byDevice.get(id)?.capabilities?.home_dir ?? null,
     isSessionHome: id => isImplicitSessionHomeProjectId(byId.get(id)?.localProjectId),foldAll: id => byDevice.get(id)?.capabilities?.assistant_home === true,
   })
-  const groups = projectGroupLayout(rows.map(row => ({ id: row.id,machine: row.deviceId,representative: row.groupRepresentative })),id => byId.get(id)?.chatId ?? undefined)
+  const groups = projectGroupLayout(rows.map(row => { const device = byDevice.get(row.deviceId); return { id: row.id,machine: device?.is_current_device ? null : row.deviceId,online: device?.is_online === true,createdAt: row.createdAt } }),id => byId.get(id)?.chatId ?? undefined)
   const layout = foldProjectGroups(homes,groups)
   return rows.filter(row => !layout.rowOf.has(row.id)).map(row => ({ ...row,
     label: layout.homeRows.has(row.id) ? byDevice.get(row.deviceId)?.label ?? row.name : row.name,

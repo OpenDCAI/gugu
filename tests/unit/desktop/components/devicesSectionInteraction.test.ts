@@ -124,6 +124,33 @@ describe('DevicesSection interaction', () => {
     expect(value.remove).toHaveBeenCalledWith('remote', { cascade: false })
     expect(document.body.querySelector('[data-testid="settings-device-remove-dialog"]')).toBeNull()
   })
+  // owner 10-28: a reinstall / a new data directory leaves the old row; it is said, with its removal (the usual confirmation).
+  it('an old row an online one of the same host name may have replaced: said, why on hover and on a press, removed only when confirmed', async () => {
+    const value = store({ devices: [
+      device({ device_id: 'new', label: 'GF server', hostname: 'di-host', machine_id: 'm-new', created_at: '2026-10-28T10:00:00Z', last_seen_at: '2026-10-28T12:00:00Z',
+        capabilities: { terminals: [], runtimes: [], host_runtime_capability: 0, host_kind: 'server' } }),
+      device({ device_id: 'old', label: 'GF server (old)', hostname: 'di-host', machine_id: 'm-old', status: 'offline', is_online: false,
+        created_at: '2026-09-01T00:00:00Z', last_seen_at: '2026-10-27T09:00:00Z', capabilities: { terminals: [], runtimes: [], host_runtime_capability: 0, host_kind: 'server' } }),
+    ] })
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
+    const row = (id: string) => container.querySelector(`[data-device-id="${id}"]`) as HTMLElement
+    expect(row('new').querySelector('[data-testid="settings-device-replaced"]'), 'the online one is not the one said of').toBeNull()
+    const hint = row('old').querySelector<HTMLButtonElement>('[data-testid="settings-device-replaced-hint"]')!
+    expect(hint.textContent).toBe('可能已被「GF server」顶替')
+    expect(hint.title).toContain('两台机器也可能本来就同名')
+    await act(async () => { hint.click() })
+    expect(row('old').querySelector('[data-testid="settings-device-replaced-why"]')!.textContent).toBe(hint.title)
+    await act(async () => { row('old').querySelector<HTMLElement>('[data-testid="settings-device-replaced-remove"]')!.click() })
+    await flush()
+    const dialog = document.body.querySelector('[data-testid="settings-device-remove-dialog"]') as HTMLElement
+    expect(dialog.querySelector('[data-testid="settings-device-remove-replaced"]')!.textContent).toBe('这台可能已被「GF server」顶替。')
+    expect(dialog.textContent).toContain('只存在它上面的文件记录')
+    expect(value.remove, 'nothing removed until confirmed').not.toHaveBeenCalled()
+    await act(async () => { buttonByText(dialog, '移除这台机器').click() })
+    await flush()
+    expect(value.remove).toHaveBeenCalledWith('old', { cascade: false })
+  })
+
   it('requires explicit cascade confirmation before removing a device with bound agents', async () => {
     const value = store({
       listBoundAgents: vi.fn(async () => [

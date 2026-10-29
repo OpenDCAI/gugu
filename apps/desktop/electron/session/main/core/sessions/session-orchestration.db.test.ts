@@ -2130,7 +2130,7 @@ describe('session_set_parent', () => {
     seed('visitor', null, null, { version: '1', type: 'acp', spawnedByRemote: { deviceId: 'dev-old', sessionId: 'old-parent', nested: true } });
     setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
       sessions: async () => ({
-        sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary }],
+        sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary, listsAgents: true }],
         unreached: [],
       }),
       archive: async () => undefined,

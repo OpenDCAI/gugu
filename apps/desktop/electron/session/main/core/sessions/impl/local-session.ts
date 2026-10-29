@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { diskWindowsShimReader } from '@gugu/session-core/exec';
 import { isAutoApproveIntent, resolveSessionPermissionMode } from '@gugu/session-core/acp';
-import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
+import { agentHookService, providerSupportsNativeStartHook } from '@main/core/agent-hooks/agent-hook-service';
+import { SCREEN_LINES, firstTurnNotTakenMessage, watchFirstTurnTaken } from './pty-first-turn-watch';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import type { HookSource } from '@main/core/agent-hooks/hook-server';
 import { ensureHooksInstalled } from '@main/core/agent-hooks/hook-config-service';
@@ -290,6 +291,7 @@ export class LocalSessionProvider implements SessionProvider {
     let admission: LocalSessionAdmission | undefined;
     let hookSource: HookSource | undefined;
     let stopPresence: (() => void) | undefined;
+    let stopFirstTurnWatch: (() => void) | undefined;
     const releaseHookSource = (): void => {
       if (!hookSource) return;
       const registered = this.hookSourcesByPtySession.get(ptySessionId);
@@ -382,6 +384,7 @@ export class LocalSessionProvider implements SessionProvider {
         surface: 'tui',
         descriptor: plugin.capabilities.sessionBundle,
         executable: executableCli,
+        versionLine: plugin.capabilities.hostDependency.versionLine,
         executionContext: this.ctx,
         runtimeExecutable: runContext.runtimeExecutable,
         // 经 node 起的家(pi)在 Windows 上要从 `.cmd` 壳读出 JS 入口再交给 node(#6390)。
@@ -795,6 +798,7 @@ export class LocalSessionProvider implements SessionProvider {
       const resumeProviderSessionId = session.providerSessionId;
       pty.onExit((info) => {
         stopPresence?.();
+        stopFirstTurnWatch?.();
         releaseHookSource();
         admission?.dispose();
         stopTrackingProviderSession?.();
@@ -960,6 +964,32 @@ export class LocalSessionProvider implements SessionProvider {
         projectId: session.projectId,
         providerId: session.providerId,
       });
+      // 带着首句起的、这一家报得出回合开始:首句一进去就该有 hook 回来。一条都没有 ⇒ 屏上最后几行进日志、在会话页说出来
+      // (owner 10-28 e4e174ec:没接住首句,事后只剩「找不到会话记录」)。
+      if (!agentSession.isResuming && effectiveInitialPrompt?.trim() && providerSupportsNativeStartHook(session.providerId)) {
+        const sourceId = hookSource.id;
+        stopFirstTurnWatch = watchFirstTurnTaken({
+          // 只认 harness 自己打回来的 hook:宿主替终端腿发的回合边沿也走 agent:event、带同一个 sourceId,那不算它接住了首句。
+          onHook: (heard) => agentHookService.on('agent:hook', (hook) => { if (hook.sourceId === sourceId) heard(); }),
+          // 退出时注册表先撤掉这一条(onExit):还挂着同一个 pty = 它还在。
+          alive: () => ptySessionRegistry.get(ptySessionId) === pty,
+          screenText: () => ptySessionRegistry.screenText(ptySessionId, SCREEN_LINES),
+          report: ({ lines, alive }) => {
+            log.error('LocalSessionProvider: the terminal harness did not take the first message', {
+              sessionId: session.id,
+              providerId: session.providerId,
+              harnessVersion: compatibleRuntime.harnessVersion,
+              alive,
+              screen: lines,
+            });
+            events.emit(sessionDeliveryFailedChannel, {
+              sessionId: session.id,
+              projectId: session.projectId,
+              message: firstTurnNotTakenMessage(plugin.metadata.name, lines),
+            });
+          },
+        });
+      }
       // Registered only now: a rejected spawn must not displace the live generation's entry, which
       // is the only handle stopSession has for revoking its credentials.
       this.hookSourcesByPtySession.set(ptySessionId, hookSource);

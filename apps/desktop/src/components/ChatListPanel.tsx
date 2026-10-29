@@ -42,8 +42,6 @@ import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
 import { chatActivityAt, chatDisplayName, compareChatsByActivityDesc, isChatListed, isRoomChat, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
 import { platform } from '../platform'
 import type { AgentDisplayStatus, ChatItem, NotificationLevel } from '@gugu/core/shared/types/chat'
-import { useDevicesStore } from '../store/devicesContext'
-import { chatRowTag } from '../lib/chatRowTag'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { rendererLogger } from '../lib/log'
 import { chatListShortcutFor, nextChatId } from './chat-list-keyboard-nav'
@@ -272,8 +270,6 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
   const peerName = isRoom ? '' : resolveOrLoud(peerIdentity?.display_name, `chat-list peer ${chat.peer_user_id ?? 'missing'} for chat ${chat.id}`)
   const displayName = chatDisplayName(chat, peerName)
   const preview = chatPreviewText(chat)
-  const { devices } = useDevicesStore() // @@@1759 解析 agent 会话行的真实设备归属标签
-  const tag = chatRowTag(chat, peerIdentity, devices)
   const hasBolt = isRoom || isAgentChat
 
   return (
@@ -349,11 +345,9 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
             </>
           ) : preview
         }
-        trailing={(!mobile || tag || chat.is_muted || chat.unread_count > 0) ? (
+        trailing={(!mobile || chat.is_muted || chat.unread_count > 0) ? (
           <>
-            {/* @@@ui-ruler 设备名 / 群聊 chip 放第二行右侧,不和名字抢标题行——名字优先保完整
-                (原来「论文助手」被 MacBook Pro chip 挤成一个字)。 */}
-            {tag && <Chip>{tag}</Chip>}
+            {/* owner 10-28:agent 行不再标它在哪台机器上(「本机」/ 设备名);机器只在悬停卡与对话标题栏里说。 */}
             {chat.is_muted && (
               <span aria-label={t('chatList.muted')} title={t('chatList.muted')} style={{ color: 'var(--text-tertiary)' }}>
                 <BellOff size={13} strokeWidth={1.8} aria-hidden="true" />

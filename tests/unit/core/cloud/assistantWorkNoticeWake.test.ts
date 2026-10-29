@@ -33,3 +33,12 @@ it('cancels a hanging home at the server lease budget and releases its notice cl
     pump.stop()
   } finally {vi.useRealTimers()}
 })
+
+it('reports when each claimed notice is claimable again: the backoff its claim set (30 s × 2^(attempts−1), at most 900 s)',async()=>{
+  const items=[1,3,7].map(attempts=>({anchor_message_id:`n${attempts}`,coordinator_device_id:'home',lease_token:`l${attempts}`,lease_remaining_ms:60000,wake_attempts:attempts}))
+  const retryIn=vi.fn()
+  const pump=createAssistantWorkNoticeWakePump({context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'phone'}),
+    rpc:async(name:string)=>({data:name==='assistant_work_notice_wake_claim'?{items}:{},error:null}),wake:async()=>{},request:async()=>{},warn:vi.fn(),retryIn})
+  await pump.kick();pump.stop()
+  expect(retryIn.mock.calls.map(([ms])=>ms)).toEqual([30_000,120_000,900_000])
+})

@@ -12,7 +12,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
       data-slot="input"
       ref={ref}
       className={cn(
-        'h-8 w-full min-w-0 hover:border-border-1 rounded-md border border-border bg-transparent px-2.5 py-1 text-sm transition-[color,box-shadow] outline-none [color-scheme:light] placeholder:text-foreground-passive focus-visible:border focus-visible:border-border-primary disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-border-destructive dark:[color-scheme:dark]',
+        'h-8 w-full min-w-0 hover:border-border-1 rounded-md border border-border bg-transparent px-2.5 py-1 text-sm transition-[color,box-shadow] outline-none [color-scheme:light] placeholder:text-foreground-muted focus-visible:border focus-visible:border-border-primary disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-border-destructive dark:[color-scheme:dark]',
         className
       )}
       onKeyDown={(e) => {

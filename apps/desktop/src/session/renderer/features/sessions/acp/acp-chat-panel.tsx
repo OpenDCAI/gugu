@@ -96,6 +96,7 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
+import { SessionHostBrowserAsk } from '@renderer/features/extensions/session-host-browser-ask';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -171,6 +172,7 @@ import { startupPlaceholderKey } from './startup-placeholder';
 import { FindBar } from '@renderer/lib/ui/find-bar';
 import { useFindBar, type FindBackend } from '@renderer/lib/ui/use-find-bar';
 import { enUSMessages, type SessionMessageKey } from '@renderer/localization/messages';
+import type { InterruptedBy } from '@shared/core/sessions/sessions';
 import {
   createLocalSessionMentionProvider,
 } from '@renderer/lib/chat/local-session-mention-provider';
@@ -1637,6 +1639,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
+      <SessionHostBrowserAsk sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -1762,6 +1765,12 @@ const ComposerForStore = observer(function ComposerForStore({
 import { electronApi } from '../../../lib/electron-api';
 
 
+const INTERRUPTED_LABEL = {
+  update: 'transcript.condition.turnInterruptedUpdate',
+  restart: 'transcript.condition.turnInterruptedRestart',
+  unclean: 'transcript.condition.turnInterruptedUnclean',
+} as const satisfies Record<InterruptedBy, SessionMessageKey>;
+
 export const AcpChatPanel = observer(function AcpChatPanel({
   tabKind = 'acp-chat',
 }: {
@@ -1885,6 +1894,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const { data: agents } = useAgents();
   const providerId = sessionStore?.data.providerId ?? null;
+  // 上一轮被宿主的退出打断(开机收残记下的):还是 `error` 时在消息列表末尾说是什么打断的;下一轮开工就不是了。
+  const interruptedBy = sessionStore?.status === 'error' ? (sessionStore.data.interruptedBy ?? null) : null;
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
@@ -1995,6 +2006,14 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         detail: 'membership-required',
         // 「我开好了」= 让下拉重取目录:开成了,这一格自然变回 null。
         actions: reasonActions('membership-required', { joinMembership: openMembershipPage, retry: refreshPlatformModelCatalogs }, translate),
+      });
+      return;
+    }
+    if (!error && interruptedBy && !signInExpired && !signInMissing) {
+      setCondition({
+        code: 'turn-interrupted',
+        label: translate(INTERRUPTED_LABEL[interruptedBy]),
+        detail: `interrupted-by-${interruptedBy}`,
       });
       return;
     }
@@ -2140,7 +2159,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       }
     })();
     setCondition(condition);
-  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock]);
+  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy]);
 
   /**
    * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。

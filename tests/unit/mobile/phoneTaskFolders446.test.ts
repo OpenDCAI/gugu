@@ -7,7 +7,7 @@ import { taskFoldersOfChat } from '../../../apps/desktop/src/mobile/chat/phoneTa
 
 const project = (over: Partial<DeviceProject>): DeviceProject => ({
   localProjectId: 'p', name: '登录改版', rootPath: '/r', createdAt: '2026-10-26T00:00:00.000Z', chatId: 'g1',
-  groupRepresentative: false, folders: [], ...over,
+ folders: [], ...over,
 })
 const device = (id: string, online: boolean, projects: DeviceProject[], hostKind: 'desktop' | 'server' = 'desktop'): Device => ({
   device_id: id, label: id === 'mac' ? 'MacBook' : '', hostname: `${id}.local`, platform: 'darwin', status: 'active' as Device['status'],
@@ -22,7 +22,7 @@ describe('taskFoldersOfChat', () => {
         { workspaceId: 'w1', kind: 'root', path: '/Users/a/login', attachedAt: null },
         { workspaceId: 'w2', kind: 'attached', path: '/Users/a/login-api', attachedAt: '2026-10-25T00:00:00.000Z' },
       ] })]),
-      device('box', false, [project({ localProjectId: 'p-box', groupRepresentative: true, folders: [
+      device('box', false, [project({ localProjectId: 'p-box', folders: [
         { workspaceId: 'w3', kind: 'root', path: '/srv/login', attachedAt: null },
       ] })], 'server'),
       device('other', true, [project({ localProjectId: 'p-x', chatId: 'g2', folders: [{ workspaceId: 'w9', kind: 'root', path: '/x', attachedAt: null }] })]),
@@ -31,7 +31,7 @@ describe('taskFoldersOfChat', () => {
       ['w1', 'p-mac', false], ['w2', 'p-mac', false], ['w3', 'p-box', true],
     ])
     expect(got.memberIds).toEqual(['p-mac', 'p-box'])
-    expect(got.rowId, 'the machine-marked representative names the card').toBe('p-box')
+    expect(got.rowId, 'the card is named after the copy on a connected machine, not the offline one (groupRowOrder)').toBe('p-mac')
     expect(got.homeOf('p-mac')).toEqual({ deviceId: 'mac', localProjectId: 'p-mac', machine: { id: 'mac', label: 'MacBook', online: true, kind: 'computer' } })
     expect(got.homeOf('p-box')?.machine, 'no label falls back to the hostname').toEqual({ id: 'box', label: 'box.local', online: false, kind: 'server' })
   })

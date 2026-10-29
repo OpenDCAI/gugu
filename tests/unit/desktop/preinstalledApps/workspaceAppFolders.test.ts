@@ -27,7 +27,8 @@ const reset = () => {
     entry('contracts', '合同', 'folder', null, '合同'),
     entry('y2026', '2026', 'folder', 'contracts', '合同/2026'),
     entry('deal', '甲方.pdf', 'binary', 'y2026', '合同/2026/甲方.pdf'),
-    entry('notes', 'notes.md', 'text', null, 'notes.md'),
+    // A change a little newer than shot.png's: the order between them is not left to the milliseconds the rig takes.
+    entry('notes', 'notes.md', 'text', null, 'notes.md', { updatedAt: ago(50) }),
     entry('shot', 'shot.png', 'binary', 'att', 'attachments-store/shot.png'))
   for (const item of ENTRIES) Object.assign(item, times)
 }

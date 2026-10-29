@@ -34,6 +34,14 @@ describe('claude session presence file', () => {
     expect(claudePresenceFile).toMatchObject({ configDirEnvVar: 'CLAUDE_CONFIG_DIR', defaultConfigDirName: '.claude', directory: 'sessions' });
   });
 
+  it('reads the config directory the process really uses from a hook transcript_path (a wrapper may set it in-process)', () => {
+    const of = claudePresenceFile.configRootOfHook!;
+    expect(of({ transcript_path: '/root/.rec/claude/accounts/53271/config/projects/-root-work/abc.jsonl' })).toBe('/root/.rec/claude/accounts/53271/config');
+    expect(of({ transcript_path: '/home/u/.claude/projects/-home-u-p/abc.jsonl' })).toBe('/home/u/.claude');
+    expect(of({ transcript_path: '/home/u/elsewhere/abc.jsonl' })).toBeNull();
+    expect(of({})).toBeNull();
+  });
+
   it('fails loud when the undocumented shape changes instead of guessing', () => {
     expect(() => claudePresenceFile.parse('{')).toThrow(/not JSON/);
     expect(() => claudePresenceFile.parse(JSON.stringify({ ...recorded, status: undefined }))).toThrow(/carries no status/);

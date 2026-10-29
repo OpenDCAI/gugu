@@ -3,6 +3,8 @@ import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-
 import { openLink } from '@/lib/guguLinks';
 import { GROUP_FILE_NOT_OPENED } from '@shared/extensions/app-runtime-protocol';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
+import { isScreenView, showSessionBeside } from './screen-layout-actions';
+import { appState } from '@renderer/lib/stores/app-state';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
 import {
   manageSessionTabsWhenReady,
@@ -80,7 +82,12 @@ export function AppMenuEvents() {
 
     const unlisten = events.on(
       notificationFocusSessionChannel,
-      ({ projectId, sessionId }) => {
+      ({ projectId, sessionId, beside }) => {
+        // A task card on the screen view: beside what is there, the layout kept.
+        if (beside && sessionId && isScreenView(appState.navigation.currentViewId)) {
+          disposers.add(openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) }));
+          return;
+        }
         navigate('session', { projectId, sessionId: sessionId });
         revealSessionpage(); // a banner's click, or a composer an App named: the session in front, from any page
         if (!sessionId) return;

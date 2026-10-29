@@ -4,6 +4,7 @@ import { app } from 'electron';
 import { getPlugin } from '@main/core/agents/plugin-registry';
 import { sessionEvents } from '@main/core/sessions/session-events';
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
+import { loadHarnessConfigRoots } from './harness-config-roots';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';
 import type { AgentEvent } from '@shared/core/agents/agentEvents';
@@ -42,6 +43,8 @@ function learnAuthExpiryFromEvent(event: AgentEvent): void {
 
 export type AgentHookServiceHooks = {
   'agent:event': (event: AgentEvent, appFocused: boolean) => void | Promise<void>;
+  /** The harness of this spawn called the hook server (any type) — never an event the host emits on its behalf. */
+  'agent:hook': (input: { sourceId: string }) => void | Promise<void>;
   'agent:session': (input: {
     sourceId: string;
     sessionId: string;
@@ -154,7 +157,11 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
       )
     );
 
+    // 各家在本机 hook 里报过的配置目录:读会话记录时要用,先读进内存(读侧是同步的)。
+    void loadHarnessConfigRoots();
     await this.server.start(async (raw) => {
+      // 这一发 spawn 的 harness 自己打回了一条 hook(❌ 宿主替它发的回合边沿):起没起来的诊断只认这一条(pty-first-turn-watch)。
+      this._hooks.callHookBackground('agent:hook', { sourceId: raw.sourceId });
       let parsed;
       try {
         parsed = await parseHookEvent(raw);

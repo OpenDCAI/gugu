@@ -20,8 +20,6 @@ export type DeviceProject = {
   createdAt: string
   /** 绑的项目群;还没绑 = null。 */
   chatId: string | null
-  /** 那台机器上有几个本地项目绑着同一个群时,代表这个群的那一个(侧栏合并那一行用它)。 */
-  groupRepresentative: boolean
   /** 根目录在前(摘除了根目录的项目没有这一项)。 */
   folders: DeviceProjectFolder[]
 }
