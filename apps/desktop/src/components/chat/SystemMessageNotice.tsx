@@ -1,23 +1,24 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { agentFailureNeedsModelChoice, type AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
-import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
+import { isPendingDelivery, parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { AlertTriangle } from '@/lib/icons'
+import type { TurnFailureGroup } from '@/lib/projectTurnFailureMessages'
 import { useContactsStore } from '@/store/contactsContext'
-import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
-import { Button } from '../ui/Button'
+import { TurnFailureCard } from './TurnFailureCard'
 import { InlineAction } from '../settings/addServer/InlineAction'
 import './system-message-notice.css'
 
-type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'sender_user_id' | 'client_message_id'>
+type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'sender_user_id' | 'client_message_id'> & {
+  created_at?: string
+  turnFailure?: TurnFailureGroup
+}
 
 export function SystemMessageNotice({ message, senderName, onOpenTopic }: { message: NoticeMessage; senderName?: string; onOpenTopic?: (topicChatId: string) => void }) {
   const notice = parseSystemNotice(message)
   const reason = notice?.kind === 'turn-failure' ? notice.reason : null
   // 额度/模型类失败由运行条那一排的 agent 状态位说（#7685），❌ 在消息流里再叠一行。
-  if (reason && agentFailureNeedsModelChoice(reason)) return null
-  if (reason) return <AgentReplyFailureNotice reason={reason} agentUserId={message.sender_user_id} senderName={senderName} />
+  if (reason && (agentFailureNeedsModelChoice(reason) || isPendingDelivery(message))) return null
+  if (reason) return <AgentReplyFailureNotice reason={reason} message={message} senderName={senderName} />
   // The server writes this one format; the marker supplies the identity even if the topic is renamed or deleted.
   const separator = ' 开了话题:'
   const split = message.content?.indexOf(separator) ?? -1
@@ -28,21 +29,13 @@ export function SystemMessageNotice({ message, senderName, onOpenTopic }: { mess
   return <div className="system-message-notice"><span>{message.content}</span></div>
 }
 
-function AgentReplyFailureNotice({ reason, agentUserId, senderName }: { reason: AgentFailureReason; agentUserId: string | null; senderName?: string }) {
+function AgentReplyFailureNotice({ reason, message, senderName }: { reason: AgentFailureReason; message: NoticeMessage; senderName?: string }) {
   const { t } = useTranslation('messaging')
   const { contacts } = useContactsStore()
-  const [modelOpen, setModelOpen] = useState(false)
-  const agent = contacts.find((contact) => contact.type === 'agent' && contact.id === agentUserId)
+  const agent = contacts.find((contact) => contact.type === 'agent' && contact.id === message.sender_user_id)
   return (
-    <>
-      <div className="agent-reply-system-notice" role="status" aria-live="polite">
-        <AlertTriangle size={16} className="shrink-0 text-[var(--warn)]" aria-hidden />
-        <span>{senderName ? `${senderName}: ` : ''}{t(`agent.turnFailure.${reason}`)}</span>
-        {agent && agentFailureNeedsModelChoice(reason) ? (
-          <Button variant="ghost" size="sm" onClick={() => setModelOpen(true)}>{t('agent.turnFailure.changeModel')}</Button>
-        ) : null}
-      </div>
-      {modelOpen && agent ? <AgentSettingsModal agent={agent} initialTab="aimodel" onClose={() => setModelOpen(false)} /> : null}
-    </>
+    <TurnFailureCard reason={reason} placement="stream" displayName={senderName ?? t('agent.fallbackName')}
+      agentId={message.sender_user_id} avatar={agent?.avatar} createdAt={message.created_at}
+      count={message.turnFailure?.count} recovered={message.turnFailure?.recovered} />
   )
 }

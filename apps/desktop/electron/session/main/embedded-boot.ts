@@ -825,10 +825,10 @@ export async function runEmdashExtensionAction(
   caller: { sessionId?: string; workspaceRoot?: () => Promise<string | null>; hasApp?: (extensionId: string) => Promise<boolean>; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const sessionId = caller.sessionId
-  return runExtensionAgentAction(action, {
+  const perform = (signal?: AbortSignal) => runExtensionAgentAction(action, {
     // D-31: an agent's install is asked as an approval in its session — wherever the person follows it — and here too.
     requestInstallConsent: sessionId
-      ? async (request) => askInstallInSession(sessionId, request, await requesterOf(sessionId), undefined, caller.signal)
+      ? async (request) => askInstallInSession(sessionId, request, await requesterOf(sessionId), undefined, signal)
       : requestExtensionInstallConsent,
     headless: HEADLESS_SERVER,
     // A Gugu server has no window to tell of an install (161 10-15: it installs Apps too): nothing to wait on there.
@@ -842,6 +842,9 @@ export async function runEmdashExtensionAction(
     ...(sessionId ? { callerAgent: async () => (await agentIdsBySession(process.env)).get(sessionId) ?? null } : {}),
     ...(caller.hasApp ? { callerHasApp: caller.hasApp } : {}),
   })
+  if (!sessionId) return perform(caller.signal)
+  const { runHumanTool, humanToolPending } = await import('./core/asks/human-tool-wait')
+  return runHumanTool<unknown>(sessionId, 'app_install', caller.signal, perform, humanToolPending)
 }
 
 /**

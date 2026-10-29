@@ -140,16 +140,6 @@ describe('IdleReclaimer', () => {
     expect((await h.reclaimer.tick()).map((t) => t.sessionId)).toEqual(['rest']);
   });
 
-  it('releases an idle browser page after its process is already gone, even without a resumable harness', async () => {
-    const h = harness({
-      live: [{ projectId: 'p', sessionId: 'a', runtime: 'browser' }],
-      facts: { a: { status: 'idle', resumable: false } },
-    });
-    await h.reclaimer.tick();
-    h.advance(IDLE_RECLAIM_AFTER_MS);
-    expect(await h.reclaimer.tick()).toEqual([{ projectId: 'p', sessionId: 'a' }]);
-  });
-
   it('drops the clock of a session whose process went away; it starts over when it comes back', async () => {
     const h = harness({ live: [pty('a')] });
     await h.reclaimer.tick();

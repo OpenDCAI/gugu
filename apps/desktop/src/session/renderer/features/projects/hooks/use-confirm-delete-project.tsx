@@ -1,12 +1,16 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
+import { withTimeout } from '@/lib/withTimeout';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { ProjectsTranslate } from '@renderer/localization/messages-projects';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { Automation } from '@shared/core/automations/automation';
 
-async function listProjectAutomations(projectId: string): Promise<Automation[]> {
-  return rpc.automations.listAutomations(projectId).catch(() => []);
+async function listProjectAutomations(projectId: string, timeoutMessage: string): Promise<Automation[]> {
+  return withTimeout(rpc.automations.listAutomations(projectId), 3000, timeoutMessage);
 }
 
 // The project label and the automation names are user data, interpolated or
@@ -41,6 +45,10 @@ function deleteProjectDescription(
 export function useConfirmDeleteProject() {
   const { translate } = useSessionMessages();
   const showConfirmDeleteProject = useShowModal('confirmActionModal');
+  const reportError = (error: unknown) => {
+    rendererLogger('actions/delete-project').error({ error }, 'action failed');
+    toast({ tier: 'error', title: translate('projects.delete.failed'), description: messageForUser(error) });
+  };
 
   return async ({
     projectId,
@@ -51,15 +59,25 @@ export function useConfirmDeleteProject() {
     projectLabel: string;
     onDeleted?: () => void;
   }) => {
-    const automations = await listProjectAutomations(projectId);
+    let automations: Automation[];
+    try {
+      automations = await listProjectAutomations(projectId, translate('projects.delete.checkTimeout'));
+    } catch (error) {
+      reportError(error);
+      return;
+    }
 
     showConfirmDeleteProject({
       title: translate('projects.delete.title'),
       description: deleteProjectDescription(projectLabel, automations, translate),
       confirmLabel: translate('projects.delete.confirm'),
-      onSuccess: () => {
-        void getProjectManagerStore().deleteProject(projectId);
-        onDeleted?.();
+      onSuccess: async () => {
+        try {
+          await getProjectManagerStore().deleteProject(projectId);
+          onDeleted?.();
+        } catch (error) {
+          reportError(error);
+        }
       },
     });
   };

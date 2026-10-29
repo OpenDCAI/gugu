@@ -1,4 +1,5 @@
 import { remoteWorkspaceDevices } from './remoteWorkspaceDevices'
+import { machineKeyOf } from '@gugu/core/shared/deviceMachines'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
 import type { SshSignInState } from '../lib/serverSshMachines'
@@ -44,6 +45,8 @@ export function useRemoteHostsBridge(
   openAddMachine?: () => void,
 ): void {
   const { devices, cloudComputer } = useDevicesStore()
+  const currentDevice = devices.find(device => device.is_current_device)
+  const currentMachineKey = currentDevice ? machineKeyOf(currentDevice) : null
   // #7199 个人助理住的那台:会话页里说到它,说的是它本人(名字由「助理」App 的壳认出来;还没认出 = 「个人助理」)。
   const homeId = cloudComputer?.snapshot?.deviceId ?? null
   const homeIdRef = useRef(homeId)
@@ -70,9 +73,11 @@ export function useRemoteHostsBridge(
   }, [devices, sshMachines])
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
-      remoteWorkspaceDevices(devices)
+      remoteWorkspaceDevices(devices, { includeConfigurations: true })
         .map((device) => ({
           id: device.device_id,
+          machineId: device.machine_id,
+          ...(machineKeyOf(device) === currentMachineKey ? { isCurrentMachine: true as const } : {}),
           label: isAssistantHome(device, homeId) ? homeName : device.label,
           ...sshLinkFacts(sshMachines.has(device.device_id), linkProblems.get(device.device_id) ?? null, device.is_online),
           platform: device.platform,
@@ -95,7 +100,7 @@ export function useRemoteHostsBridge(
           ...(device.projects ? { projects: device.projects } : {}),
           ...(device.capabilities?.home_dir ? { homeDir: device.capabilities.home_dir } : {}),
         })),
-    [devices, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
+    [devices, currentMachineKey, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
   )
   const remoteRef = useRef(remote)
   const pickFolderRef = useRef(pickFolder)

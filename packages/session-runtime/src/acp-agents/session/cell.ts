@@ -1850,7 +1850,9 @@ export class SessionCell {
     const nativeSteer = steered && this.supportsSteering;
     if (nativeSteer) this.nativeInputAfterStart = true;
     if (steered && !nativeSteer && this.deps.midTurnSteer === 'interrupt-at-tool-boundary') {
-      return this.steerByInterrupt(prompt, opts);
+      const held = this.steerByInterrupt(prompt, opts);
+      if (held.success) this.deps.callbacks?.onPromptSteered?.();
+      return held;
     }
     if (!started && !steered) {
       const queued = ok({ queued: true });
@@ -2025,6 +2027,8 @@ export class SessionCell {
         }
         recordUserMessage();
         this.pendingNativeSteers.push({ prompt, toolsAtAdmission: new Set(this.runningTools) });
+        // The adapter has the input before a released human tool creates its next boundary.
+        this.deps.callbacks?.onPromptSteered?.();
         // A stop can race the admission receipt; it must retain that accepted input too.
         if (this.closeRequested) this.returnPendingNativeSteers();
         confirmPreparation();
@@ -2038,6 +2042,7 @@ export class SessionCell {
       const nativePrompt = nativeRequest
         ? this.agent.prompt(promptRequest, () => { if (providerAdmission) providerAdmission.accept(); else admit(); })
         : this.agent.prompt(promptRequest);
+      if (steered) this.deps.callbacks?.onPromptSteered?.();
       // v1 providers may compact or reason silently for minutes. Only a provider that
       // declares native state/admission signals can be timed out for not admitting.
       const response = await (providerAdmission && this.reportsState ? Promise.race([

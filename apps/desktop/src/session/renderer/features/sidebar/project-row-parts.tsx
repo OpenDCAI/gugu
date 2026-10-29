@@ -20,12 +20,16 @@ export function ProjectNeedsYouDot({ count }: { count: number }) {
   );
 }
 
-/** 项目名 + 挨着它的次级信息(本机:同名歧义的路径 / 告警图标;别的机器:机器名 / 离线)。 */
-export function ProjectRowTitle({ name, children }: { name: ReactNode; children?: ReactNode }) {
+/**
+ * 项目名 + 挨着它的次级信息(本机:同名歧义的路径 / 告警图标;别的机器:机器名 / 离线)。
+ * 宽度不够时次级信息先让给名字。`keepChildren` 反过来:名字先截,后面那枚保持完整 —— 只给示例项目那一行(#709),
+ * 它的「示例」是这一行唯一说明「这是示例」的地方,截成两个字母等于没有。
+ */
+export function ProjectRowTitle({ name, children, keepChildren = false }: { name: ReactNode; children?: ReactNode; keepChildren?: boolean }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <span className="max-w-full shrink-0 truncate">{name}</span>
-      {children}
+      <span className={keepChildren ? 'min-w-0 truncate' : 'max-w-full shrink-0 truncate'}>{name}</span>
+      {keepChildren ? <span className="flex shrink-0">{children}</span> : children}
     </span>
   );
 }

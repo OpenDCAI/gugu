@@ -6,13 +6,8 @@ const state = vi.hoisted(() => ({
   ptys: [] as Array<{ ptySessionId: string; metadata?: { providerId: string } }>,
   tmux: new Set<string>(),
   listTmux: vi.fn(),
-  browserHost: false,
-  browserSessions: [] as string[],
   rows: new Map<string, { projectId: string; archivedAt?: string }>(),
   closeBrowser: vi.fn(),
-  browserBusy: vi.fn(() => false),
-  browserWatched: vi.fn(() => false),
-  shutdownBrowser: vi.fn(),
 }));
 
 vi.mock('./idle-reclaim', async (original) => {
@@ -43,12 +38,6 @@ vi.mock('./sessions-on-screen', () => ({ sessionOnScreen: () => false }));
 vi.mock('./tui-resume-exactness', () => ({ tuiResumesExactly: () => true }));
 vi.mock('./utils', () => ({ mapSessionRowToSession: (row: unknown) => row }));
 vi.mock('../../../../browser-agent-mcp', () => ({ closeSessionBrowserTools: (...args: unknown[]) => state.closeBrowser(...args) }));
-vi.mock('@main/core/browser/cloud/cloud-browser', () => ({
-  isCloudBrowserHost: () => state.browserHost,
-  cloudBrowser: () => ({ sessionIds: () => state.browserSessions, sessionInUse: state.browserBusy, shutdown: state.shutdownBrowser }),
-  cloudAgentBrowserBridge: () => ({ closeSession: state.closeBrowser }),
-}));
-vi.mock('@main/core/browser/cloud/live-server', () => ({ cloudBrowserLive: () => ({ watching: state.browserWatched }) }));
 
 import { makeTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { installIdleReclaim } from './install-idle-reclaim';
@@ -60,13 +49,8 @@ describe('idle reclaim resource enumeration', () => {
     state.ptys = [];
     state.tmux = new Set();
     state.listTmux.mockReset().mockImplementation(async () => state.tmux);
-    state.browserHost = false;
-    state.browserSessions = [];
     state.rows.clear();
     state.closeBrowser.mockReset();
-    state.shutdownBrowser.mockReset();
-    state.browserBusy.mockReturnValue(false);
-    state.browserWatched.mockReturnValue(false);
     dispose = installIdleReclaim({ agentStatus: { on: vi.fn() } });
   });
   afterEach(() => dispose?.());
@@ -85,36 +69,12 @@ describe('idle reclaim resource enumeration', () => {
     expect(state.deps!.sessionsWithLiveTerminals()).toEqual(new Set(['agent']));
   });
 
-  it('includes pages whose owning agent process has already stopped', async () => {
-    state.browserHost = true;
-    state.browserSessions = ['finished'];
-    state.rows.set('finished', { projectId: 'p' });
-    expect(await state.deps!.listLive()).toEqual([{ projectId: 'p', sessionId: 'finished', runtime: 'browser' }]);
-    state.browserBusy.mockReturnValue(true);
-    expect(state.deps!.watchedRemotely('finished')).toBe(true);
-    state.browserBusy.mockReturnValue(false);
-    state.browserWatched.mockReturnValue(true);
-    expect(state.deps!.watchedRemotely('finished')).toBe(true);
-  });
-
-  it('rechecks native idleness before stopping while browser-only reclamation leaves the engine alone', async () => {
+  it('rechecks native idleness before stopping and closes its local browser tools', async () => {
     const target = { projectId: 'p', sessionId: 'idle' };
     vi.mocked(stopExactSessionpageSession).mockClear();
     await state.deps!.stop(target, 'acp');
     expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, onlyIfIdle: true });
-    expect(state.closeBrowser).toHaveBeenCalledWith('idle', undefined);
-    vi.mocked(stopExactSessionpageSession).mockClear();
-    await state.deps!.stop(target, 'browser');
-    expect(stopExactSessionpageSession).not.toHaveBeenCalled();
-    expect(state.closeBrowser).toHaveBeenCalledTimes(2);
-  });
-
-  it('releases pages for deleted or archived owners instead of retaining an orphan', async () => {
-    state.browserHost = true;
-    state.browserSessions = ['deleted', 'archived'];
-    state.rows.set('archived', { projectId: 'p', archivedAt: 'now' });
-    expect(await state.deps!.listLive()).toEqual([]);
-    expect(state.closeBrowser.mock.calls.map(([id]) => id)).toEqual(['deleted', 'archived']);
+    expect(state.closeBrowser).toHaveBeenCalledWith('idle');
   });
 
   it('does not turn a failed tmux read into a false empty-process reading', async () => {
@@ -122,17 +82,4 @@ describe('idle reclaim resource enumeration', () => {
     await expect(state.deps!.listLive()).rejects.toThrow('tmux unreadable');
   });
 
-  it('releases an unowned browser through the same sweep, while retaining an active viewer or operation', async () => {
-    state.browserHost = true;
-    state.browserWatched.mockReturnValue(true);
-    await state.deps!.listLive();
-    expect(state.shutdownBrowser).not.toHaveBeenCalled();
-    state.browserWatched.mockReturnValue(false);
-    state.browserBusy.mockReturnValue(true);
-    await state.deps!.listLive();
-    expect(state.shutdownBrowser).not.toHaveBeenCalled();
-    state.browserBusy.mockReturnValue(false);
-    await state.deps!.listLive();
-    expect(state.shutdownBrowser).toHaveBeenCalledOnce();
-  });
 });

@@ -246,6 +246,14 @@ const acpWorker = lazyWorker(
   {
     onSpawned: async (handle) => {
       handle.scope.add(
+        await handle.client.promptSteered.subscribe(undefined, {
+          onEvent: ({ sessionId }) => {
+            void import('../../asks/human-tool-wait').then(({ yieldHumanToolWaits }) => yieldHumanToolWaits(sessionId))
+              .catch(error => log.error('Human tool steering notification failed', { sessionId, error: String(error) }));
+          },
+        })
+      );
+      handle.scope.add(
         await handle.client.platformSessionClosed.subscribe(undefined, {
           onEvent: ({ sessionId, platformAccessSessionId }) => {
             void releaseEmdashPlatformSession(sessionId, platformAccessSessionId);
@@ -702,6 +710,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     if (result.success) {
       // 运行时此刻登记了这条会话:ACP 腿真正可投递的边界(复用路径上身份更早就绪,那一脚被拒,靠这里补上)。
       notifySessionLive(injected.input.sessionId);
+      void import('../../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>
+        restoreHumanToolResults(injected.input.sessionId, injected.input.projectId, true))
+        .catch(error => log.error('Human tool results could not resume', { sessionId: injected.input.sessionId, error: String(error) }));
       // ⚠️ ❌ **不 await** —— 它是一份 best-effort 的记录,而这里是会话启动的**响应路径**。
       //    await 它等于把「面板下次显示得准不准」挡在「用户能不能开始说话」前面:
       //    里面那次 `listForAgent` 只要慢一下,RPC 的响应就被推迟,而渲染层等的正是它,
@@ -741,6 +752,8 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
   const conditionalStops = new Set<string>();
   async function closeBrowserToolsBestEffort(sessionId: string): Promise<void> {
+    const { stopHumanToolWaits } = await import('../../asks/human-tool-wait');
+    stopHumanToolWaits(sessionId);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
     try {
@@ -843,6 +856,8 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   return {
     ...client,
     cancelTurn: async (input, meta) => {
+      const { stopHumanToolWaits } = await import('../../asks/human-tool-wait');
+      stopHumanToolWaits(input.sessionId);
       // Harnesses do not all cancel their outstanding MCP requests when interrupted.
       // Stop this turn's browser work at the owning host as well; the person's page stays open.
       const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
