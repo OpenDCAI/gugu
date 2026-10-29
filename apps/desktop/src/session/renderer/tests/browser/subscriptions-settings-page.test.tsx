@@ -52,6 +52,7 @@ const control = vi.hoisted(() => ({
   selectBusy: null as { providerId: string; count: number } | null,
   stopBusySessions: [] as boolean[],
   oldHost: false,
+  closeHold: null as Promise<void> | null,
   usageByConnection: {} as Record<string, { windowMinutes: number; usedPercent: number }[]>,
   connectionsError: false,
 }));
@@ -89,6 +90,7 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
     },
     selectConnection: async ({ connectionId, stopBusySessions }: { connectionId: string; stopBusySessions?: boolean }) => {
       control.stopBusySessions.push(stopBusySessions === true);
+      if (stopBusySessions && control.closeHold) await control.closeHold;
       // 「关掉并切换」= 正在工作的也关掉:宿主不再拒。
       if (control.rejectSelect && !(stopBusySessions && control.selectBusy && !control.oldHost)) {
         return { success: false, error: { type: 'invalid-state', message: control.selectMessage, ...(control.selectBusy ? { sessionsBusy: control.selectBusy } : {}) } };
@@ -135,6 +137,7 @@ beforeEach(() => {
   control.selectBusy = null;
   control.stopBusySessions = [];
   control.oldHost = false;
+  control.closeHold = null;
   control.usageByConnection = {};
   control.connectionsError = false;
   control.connections = [{ id: 'native', kind: 'native', name: '', current: true }];
@@ -385,7 +388,14 @@ it('a refusal offers one click that closes the working sessions and switches to 
   expect(control.stopBusySessions).toEqual([false]);
   expect(control.connections.find(c => c.current)?.id).toBe('native');
 
+  // 关的这段时间(等进程退出)原地说正在做什么,按钮收起，不留一片空白。
+  let release!: () => void;
+  control.closeHold = new Promise<void>((resolve) => (release = resolve));
   closeAndSwitch.click();
+  await until('the row says it is closing', () => row.querySelector('.subscription-note')?.textContent === '正在关掉 Codex 会话，关完就切换…');
+  expect(row.querySelector('[data-testid="subscription-close-and-switch"]')).toBeNull();
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  release();
   await until('the switch goes through', () => control.selected === 'saved-api');
   expect(control.stopBusySessions).toEqual([false, true]);
   await until('the refusal is gone', () => row.querySelector('.subscription-note') === null && row.querySelector('[data-testid="subscription-close-and-switch"]') === null);

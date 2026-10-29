@@ -91,12 +91,16 @@ export function SubscriptionConnections({ agent, machine, onError }: {
   const busy = sessionsBusyOf(action.error);
   // 带着「关掉」还被拒 = 那台机器上的咕咕不认这一格(旧版本):说清楚去更新，❌ 再摆一个按了没反应的按钮。
   const closeUnsupported = !!busy && action.variables?.stopBusySessions === true;
-  const failure = closeUnsupported
-    ? translate('subscriptions.connections.closeUnsupported')
-    : busy
-      ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
-      : action.error ? errorText(action.error) : null;
-  const tone = busy && !closeUnsupported ? 'gentle' : 'error';
+  // 点了「关掉并切换」到切完之间(等进程退出，最多几十秒):原地说正在做什么,❌ 那一行先空掉、像没反应。
+  const closing = action.isPending && action.variables?.stopBusySessions === true;
+  const failure = closing
+    ? translate('subscriptions.connections.closing', { provider: agent.name })
+    : closeUnsupported
+      ? translate('subscriptions.connections.closeUnsupported')
+      : busy
+        ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
+        : action.error ? errorText(action.error) : null;
+  const tone = closing || (busy && !closeUnsupported) ? 'gentle' : 'error';
   // 被拒的那次切的是哪个连接:「关掉并切换」原样再切一次。
   const refusedId = busy && !closeUnsupported && action.variables?.kind === 'select' ? action.variables.id : null;
   const { mutate } = action;
