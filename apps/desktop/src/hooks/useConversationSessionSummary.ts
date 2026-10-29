@@ -5,6 +5,6 @@ export function useConversationSessionSummary(sessionId: string | undefined, dev
   const live = useLiveDeviceSessions()
   const devices = useDirectoryDevices()
   const current = Object.entries(live).flatMap(([id, value]) => value.sessions.map(session => ({ deviceId: id, session })))
-  return [...current, ...directoryRows(devices, live)]
+  return [...directoryRows(devices, live), ...current]
     .find(row => row.session.conversationId === sessionId && (!deviceId || row.deviceId === deviceId))?.session
 }

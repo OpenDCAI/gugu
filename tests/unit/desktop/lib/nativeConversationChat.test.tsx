@@ -30,3 +30,12 @@ it('does not select a personal DM for a foreign task workspace', async () => {
   await harness.render(<Fixture />)
   expect(harness.container.textContent).toBe('')
 })
+it('uses the canonical account digest instead of a stale cached live directory row', async () => {
+  release = installOwnedAgentEntry({ owns: () => true, open: () => true })
+  publishDirectoryDevices([{ device_id: 'host', is_online: true, capabilities: {}, projects: [], session_digest: [{ conversationId: 'task', projectId: 'p', title: 'Task', harness: 'claude', supported: true, agentUserId: 'agent' }] } as never])
+  updateDeviceSessions('host', { cached: true, sessions: [{ conversationId: 'task', agent: { userId: 'old-agent' } } as never] })
+  publishChatSummaries([{ id: 'dm', peer_user_id: 'agent', kind: 'ai', unread_count: 0 }, { id: 'old-dm', peer_user_id: 'old-agent', kind: 'ai', unread_count: 0 }])
+  function Fixture() { return <span>{useNativeConversationChat('task')}</span> }
+  await harness.render(<Fixture />)
+  expect(harness.container.textContent).toBe('dm')
+})
