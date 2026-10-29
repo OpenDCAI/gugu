@@ -3,12 +3,17 @@ package projection
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
 )
@@ -126,6 +131,26 @@ func TestEncodedFramesCrossSRTPAndDecodeInOrder(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	// The browser pipeline must not guess a platform-specific YUV matrix. Inspect
+	// the actual SPS/VUI that crossed SRTP, not the FFmpeg command arguments.
+	probePath := filepath.Join(filepath.Dir(config.Executable), "ffprobe")
+	probe := exec.CommandContext(ctx, probePath, "-v", "error", "-f", "h264", "-select_streams", "v:0", "-show_entries", "stream=color_range,color_space,color_transfer,color_primaries", "-of", "json", "pipe:0")
+	probe.Stdin = bytes.NewReader(stream)
+	metadata, probeErr := probe.Output()
+	if probeErr != nil {
+		t.Fatalf("inspect received SPS/VUI with ffprobe: %v", probeErr)
+	}
+	var colors struct {
+		Streams []map[string]string `json:"streams"`
+	}
+	if err = json.Unmarshal(metadata, &colors); err != nil || len(colors.Streams) != 1 {
+		t.Fatalf("invalid received video metadata: %s %v", metadata, err)
+	}
+	for key, want := range map[string]string{"color_range": "tv", "color_space": "bt709", "color_transfer": "bt709", "color_primaries": "bt709"} {
+		if colors.Streams[0][key] != want {
+			t.Fatalf("received video has ambiguous %s: %s", key, metadata)
+		}
+	}
 	decoder := exec.CommandContext(ctx, config.Executable, "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "3", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")
 	decoder.Stdin = bytes.NewReader(stream)
 	var diagnostics bytes.Buffer
@@ -211,7 +236,7 @@ func TestEncoderEnforcesTheAdvertisedH264Level(t *testing.T) {
 	for name, mutate := range map[string]func(*EncoderConfig){
 		"frame size":          func(c *EncoderConfig) { c.Width, c.Height = 1920, 1080 },
 		"macroblock rate":     func(c *EncoderConfig) { c.Width, c.Height, c.FPS = 1280, 720, 60 },
-		"rounded macroblocks": func(c *EncoderConfig) { c.Width, c.Height = 1282, 720 },
+		"rounded macroblocks": func(c *EncoderConfig) { c.Width, c.Height = 1282, 712 },
 		"bitrate":             func(c *EncoderConfig) { c.Bitrate = 14_000_001 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -234,5 +259,76 @@ func TestEncoderEnforcesTheAdvertisedH264Level(t *testing.T) {
 	config.Width, config.Height = 720, 1280
 	if !validEncoderConfig(config) {
 		t.Fatal("portrait level 3.1 boundary was rejected")
+	}
+}
+
+type capturedRTP struct {
+	mu      sync.Mutex
+	packets [][]byte
+}
+
+func (c *capturedRTP) RTP(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.packets = append(c.packets, bytes.Clone(data))
+	return nil
+}
+
+func TestOwnedEncoderPipePacketizesLargeAccessUnits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config := testEncoderConfig(t)
+	output := &capturedRTP{}
+	video, err := StartVideoEncoder(ctx, config, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer video.Close()
+	frame := make([]byte, config.Width*config.Height*4)
+	random := rand.New(rand.NewPCG(11, 42))
+	for index := range frame {
+		frame[index] = byte(random.Uint32())
+	}
+	receipt, err := video.WriteFrame(ctx, 77, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output.mu.Lock()
+	packets := append([][]byte(nil), output.packets...)
+	output.mu.Unlock()
+	depacketizer := &codecs.H264Packet{}
+	var encoded bytes.Buffer
+	markers, fragments := 0, 0
+	for _, data := range packets {
+		if len(data) > 1200 {
+			t.Fatal("host packetizer exceeded its MTU")
+		}
+		packet := &rtp.Packet{}
+		if err = packet.Unmarshal(data); err != nil {
+			t.Fatal(err)
+		}
+		if packet.Timestamp != receipt.Timestamp {
+			t.Fatal("one access unit used multiple timestamps")
+		}
+		if packet.Marker {
+			markers++
+		}
+		if packet.Payload[0]&31 == 28 {
+			fragments++
+		}
+		annexB, decodeErr := depacketizer.Unmarshal(packet.Payload)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		encoded.Write(annexB)
+	}
+	if markers != 1 || fragments < 2 {
+		t.Fatalf("expected one complete fragmented access unit, markers=%d fragments=%d", markers, fragments)
+	}
+	decoder := exec.CommandContext(ctx, config.Executable, "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")
+	decoder.Stdin = &encoded
+	decoded, err := decoder.Output()
+	if err != nil || len(decoded) != len(frame) {
+		t.Fatalf("reassembled owned-pipe access unit did not decode: %d %v", len(decoded), err)
 	}
 }

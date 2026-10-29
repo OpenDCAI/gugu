@@ -32,7 +32,7 @@ export function useChatAppPins(chatId: string | null) {
   }, [userId, chatId])
   const mutation = useMutation({
     networkMode: 'always',
-    scope: { id: `chat-app-pins:${userId}:${chatId}` },
+    scope: { id: `chat-settings:${userId}:${chatId}` },
     mutationFn: ({ userId, chatId, appId, pinned }: { userId: string | undefined; chatId: string | null; appId: string; pinned: boolean }) => {
       if (!userId || !chatId) throw new Error('A signed-in chat is required')
       return setChatAppPin(userId, chatId, appId, pinned)

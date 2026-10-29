@@ -29,18 +29,19 @@ type Config struct {
 }
 
 type Transport struct {
-	peer     *webrtc.PeerConnection
-	video    *webrtc.TrackLocalStaticRTP
-	control  *webrtc.DataChannel
-	done     chan struct{}
-	closed   chan struct{}
-	closeErr error
-	reason   error
-	open     chan struct{}
-	low      chan struct{}
-	incoming chan []byte
-	once     sync.Once
-	opened   sync.Once
+	peer         *webrtc.PeerConnection
+	video        *webrtc.TrackLocalStaticRTP
+	control      *webrtc.DataChannel
+	selectedPair func() (*webrtc.ICECandidatePair, error)
+	done         chan struct{}
+	closed       chan struct{}
+	closeErr     error
+	reason       error
+	open         chan struct{}
+	low          chan struct{}
+	incoming     chan []byte
+	once         sync.Once
+	opened       sync.Once
 }
 
 func New(config Config) (*Transport, error) {
@@ -71,6 +72,12 @@ func New(config Config) (*Transport, error) {
 		return nil, err
 	}
 	t := &Transport{peer: peer, done: make(chan struct{}), closed: make(chan struct{}), open: make(chan struct{}), low: make(chan struct{}, 1), incoming: make(chan []byte, 64)}
+	t.selectedPair = func() (*webrtc.ICECandidatePair, error) {
+		if peer.SCTP() == nil || peer.SCTP().Transport() == nil {
+			return nil, errors.New("projection transport is not connected")
+		}
+		return peer.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
+	}
 	fail := func(err error) (*Transport, error) { t.stop(err); return nil, err }
 	t.video, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "projection", "projection")
 	if err != nil {
@@ -142,12 +149,15 @@ func (t *Transport) direct() error {
 		return t.closedError()
 	default:
 	}
-	if t.peer.SCTP() == nil || t.peer.SCTP().Transport() == nil {
+	if t.selectedPair == nil {
 		return errors.New("projection transport is not connected")
 	}
-	pair, err := t.peer.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
+	pair, err := t.selectedPair()
 	if err != nil || pair == nil {
 		return errors.New("projection has no selected candidate pair")
+	}
+	if pair.Local == nil || pair.Remote == nil {
+		return errors.New("projection candidate pair is incomplete")
 	}
 	if pair.Local.Typ == webrtc.ICECandidateTypeRelay || pair.Remote.Typ == webrtc.ICECandidateTypeRelay {
 		return ErrRelay

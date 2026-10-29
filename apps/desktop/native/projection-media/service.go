@@ -81,8 +81,36 @@ func ServeMedia(parent context.Context, config Config, encoding EncoderConfig, i
 		_ = peer.Close()
 		workers.Wait()
 	}()
+	type incomingWire struct {
+		kind byte
+		data []byte
+		err  error
+	}
+	wires := make(chan incomingWire)
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		for {
+			kind, data, readErr := readWire(input, encoding.Width*encoding.Height*4)
+			select {
+			case wires <- incomingWire{kind, data, readErr}:
+			case <-ctx.Done():
+				return
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}()
+	defer func() { cancel(); _ = input.Close(); <-readDone }()
 	for {
-		kind, data, readErr := readWire(input, encoding.Width*encoding.Height*4)
+		var incoming incomingWire
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case incoming = <-wires:
+		}
+		kind, data, readErr := incoming.kind, incoming.data, incoming.err
 		if readErr != nil {
 			if parent.Err() != nil {
 				return parent.Err()

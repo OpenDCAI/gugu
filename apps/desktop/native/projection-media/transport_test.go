@@ -118,3 +118,80 @@ func TestRefuseRelayAndBoundMessages(t *testing.T) {
 		t.Fatal("unbounded control")
 	}
 }
+
+func TestSelectedPairPolicyChecksBothKnownRelayTypes(t *testing.T) {
+	source, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	for _, side := range []string{"local", "remote"} {
+		pair := &webrtc.ICECandidatePair{Local: &webrtc.ICECandidate{Typ: webrtc.ICECandidateTypeHost}, Remote: &webrtc.ICECandidate{Typ: webrtc.ICECandidateTypeHost}}
+		if side == "local" {
+			pair.Local.Typ = webrtc.ICECandidateTypeRelay
+		} else {
+			pair.Remote.Typ = webrtc.ICECandidateTypeRelay
+		}
+		source.selectedPair = func() (*webrtc.ICECandidatePair, error) { return pair, nil }
+		if err = source.direct(); !errors.Is(err, ErrRelay) {
+			t.Fatalf("%s selected relay was not refused: %v", side, err)
+		}
+	}
+	// A peer-reflexive candidate does not prove that the peer has no TURN hop.
+	// The viewer must also forbid TURN and receive no free-tier TURN credentials.
+	source.selectedPair = func() (*webrtc.ICECandidatePair, error) {
+		return &webrtc.ICECandidatePair{Local: &webrtc.ICECandidate{Typ: webrtc.ICECandidateTypeHost}, Remote: &webrtc.ICECandidate{Typ: webrtc.ICECandidateTypePrflx}}, nil
+	}
+	if err = source.direct(); err != nil {
+		t.Fatalf("prflx was incorrectly claimed to prove relay: %v", err)
+	}
+}
+
+func TestInboundControlRejectsBinaryAndOversizedText(t *testing.T) {
+	for _, binary := range []bool{true, false} {
+		t.Run(map[bool]string{true: "binary", false: "oversized text"}[binary], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			source, err := New(Config{Loopback: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+			viewer, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer viewer.Close()
+			opened := make(chan *webrtc.DataChannel, 1)
+			viewer.OnDataChannel(func(channel *webrtc.DataChannel) { channel.OnOpen(func() { opened <- channel }) })
+			answerProjection(t, ctx, source, viewer)
+			if err = source.Ready(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var channel *webrtc.DataChannel
+			select {
+			case channel = <-opened:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if err = channel.SendText("valid text"); err != nil {
+				t.Fatal(err)
+			}
+			good, err := source.Receive(ctx)
+			if err != nil || string(good) != "valid text" {
+				t.Fatalf("positive control: %s %v", good, err)
+			}
+			if binary {
+				err = channel.Send([]byte("binary input"))
+			} else {
+				err = channel.SendText(string(make([]byte, MaxControlBytes+1)))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if data, err := source.Receive(ctx); !errors.Is(err, ErrClosed) {
+				t.Fatalf("invalid inbound packet reached the host: %d bytes, %v", len(data), err)
+			}
+		})
+	}
+}

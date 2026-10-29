@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/pion/rtp"
 )
@@ -62,6 +63,9 @@ func (v *VideoEncoder) WriteFrame(ctx context.Context, sequence uint64, bgra []b
 		return EncodedFrame{}, ErrEncoderBusy
 	}
 	defer v.write.Unlock()
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	v.mu.Lock()
 	if sequence <= v.last {
 		v.mu.Unlock()
@@ -81,8 +85,14 @@ func (v *VideoEncoder) WriteFrame(ctx context.Context, sequence uint64, bgra []b
 	case <-ctx.Done():
 		// Its bytes may already be in the encoder. Never relabel a late packet as
 		// a subsequent source frame or retry an uncertain frame on this stream.
-		v.encoder.stop(ctx.Err())
-		return EncodedFrame{}, ctx.Err()
+		err := ctx.Err()
+		if parent.Err() != nil {
+			err = parent.Err()
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			err = errors.New("projection frame encoding timed out")
+		}
+		v.encoder.stop(err)
+		return EncodedFrame{}, err
 	}
 }
 
