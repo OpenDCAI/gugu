@@ -31,6 +31,10 @@ async function run() {
         <div id="drag" draggable="true" style="padding:30px;width:120px" ondragstart="event.dataTransfer.setData('text/plain','fixture')">Drag me</div>
         <div id="drop" style="padding:40px;width:160px" ondragover="event.preventDefault()" ondrop="event.preventDefault();document.body.dataset.dropped=event.dataTransfer.getData('text/plain')">Drop here</div>`);
   });
+  server.on('error', error => {
+    process.stderr.write(`page protocol fixture server failed: ${String(error)}\n`);
+    app.exit(1);
+  });
   await new Promise<void>(resolve => server.listen(0, resolve));
   port = (server.address() as { port: number }).port;
   const window = new BrowserWindow({ width: 1100, height: 800 });
