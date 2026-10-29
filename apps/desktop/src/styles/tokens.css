@@ -1751,6 +1751,77 @@ body.barcode-scanner-active #root {
 }
 .gg-list-row-trailing { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 
+/* ── theme batch B:用量页(components/usage)的图表色,原值搬来,❌ 改色 ────────────────────────────
+   --usage-heat-*:热力图四档暖色(owner 2026-09-23 看过设计稿拍的),随主题;第 0 档是 --fg 的淡色,留在 usage.css。
+   --usage-accent-*:用量页的强调色:徽章、余额渐变、存储色块;随主题。--usage-accent-mint 两主题同值。
+   --usage-series-*:图表的分类色,两主题同值;10 个以内的图取奇数位(1,3,…,19),超过 10 个用全部 20 个。
+   canvas 读不到 CSS 变量,图表经 tokenColor() 取值。
+   --usage-tag-*:模型标签旁的小圆点(名字哈希到 12 色之一),两主题同值。原值搬来;标签点是非文本标识,两套底色上
+   都要 ≥3:1(亮底 #ffffff、暗底 #181818,单测守着),9、10 两档原值不够,因此换成同色系的邻档
+   (#4f46e5 → #6366f1,#ca8a04 → #a16207)。
+   --ok-fg / --warn-fg:状态色写字用 *-fg(≥4.5);--ok / --warn 只给点和填充。值按所有能放字的底(bg / page / card /
+   muted,两套主题)算过,最低 5.85。 */
+:root {
+  --usage-heat-1: oklch(0.42 0.08 45);
+  --usage-heat-2: oklch(0.55 0.13 45);
+  --usage-heat-3: oklch(0.68 0.16 45);
+  --usage-heat-4: oklch(0.80 0.15 55);
+  --usage-accent-1: oklch(0.76 0.14 250);
+  --usage-accent-2: oklch(0.76 0.13 200);
+  --usage-accent-3: oklch(0.76 0.13 285);
+  --usage-accent-4: oklch(0.75 0.16 325);
+  --usage-accent-5: oklch(0.76 0.14 155);
+  --usage-accent-mint: oklch(0.82 0.04 155);
+  --ok-fg: #4ade80;
+  --warn-fg: #fbbf24;
+  --usage-series-1: #1664FF;
+  --usage-series-2: #B2CFFF;
+  --usage-series-3: #1AC6FF;
+  --usage-series-4: #94EFFF;
+  --usage-series-5: #FF8A00;
+  --usage-series-6: #FFCE7A;
+  --usage-series-7: #3CC780;
+  --usage-series-8: #B9EDCD;
+  --usage-series-9: #7442D4;
+  --usage-series-10: #DDC5FA;
+  --usage-series-11: #FFC400;
+  --usage-series-12: #FAE878;
+  --usage-series-13: #304D77;
+  --usage-series-14: #8B959E;
+  --usage-series-15: #B48DEB;
+  --usage-series-16: #EFE3FF;
+  --usage-series-17: #009488;
+  --usage-series-18: #59BAA8;
+  --usage-series-19: #FF7DDA;
+  --usage-series-20: #FFCFEE;
+  --usage-tag-1: #2f7de1;
+  --usage-tag-2: #16a34a;
+  --usage-tag-3: #d97706;
+  --usage-tag-4: #9333ea;
+  --usage-tag-5: #0891b2;
+  --usage-tag-6: #dc2626;
+  --usage-tag-7: #65a30d;
+  --usage-tag-8: #db2777;
+  --usage-tag-9: #6366f1;
+  --usage-tag-10: #a16207;
+  --usage-tag-11: #0d9488;
+  --usage-tag-12: #7c3aed;
+}
+[data-theme="light"] {
+  --usage-heat-1: oklch(0.90 0.05 50);
+  --usage-heat-2: oklch(0.80 0.10 48);
+  --usage-heat-3: oklch(0.69 0.15 45);
+  --usage-heat-4: oklch(0.56 0.15 40);
+  --usage-accent-1: oklch(0.72 0.18 250);
+  --usage-accent-2: oklch(0.65 0.15 200);
+  --usage-accent-3: oklch(0.7 0.12 280);
+  --usage-accent-4: oklch(0.68 0.19 325);
+  --usage-accent-5: oklch(0.68 0.16 155);
+  --ok-fg: #166534;
+  --warn-fg: #854d0e;
+}
+/* ── /theme batch B ── */
+
 /* 分区标签:「Agent / 个人 / 群组」「通用」……全 app 一种写法(#7333:12/18 medium,muted-fg,不加字距 —— 系统字体不需要)。 */
 .gg-section-label {
   display: flex;
