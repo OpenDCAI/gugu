@@ -83,6 +83,58 @@ describe('host-selected page protocol lease', () => {
     lease.close();
   });
 
+  it.each(['fi\nle:///private/fixture', 'chro\nme://gpu', 'devt\tools://devtools/bundled/inspector.html', '\0chrome://gpu', 'https://example.test/\rpath'])('rejects control characters in navigation URL %j before native dispatch', async url => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    await expect(lease.send('Page.navigate', { url })).rejects.toThrow('navigation');
+    expect(current.debuggerApi.attach).not.toHaveBeenCalled();
+    expect(current.debuggerApi.sendCommand).not.toHaveBeenCalled();
+    lease.close();
+  });
+
+  it.each(['chrome://gpu/', 'file:///private/fixture', 'devtools://devtools/bundled/inspector.html', 'chro\nme://gpu'])('refuses history navigation to %j after reading the target entry', async url => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    current.debuggerApi.sendCommand.mockResolvedValue({ entries: [{ id: 17, url }] });
+    await expect(lease.send('Page.navigateToHistoryEntry', { entryId: 17 })).rejects.toThrow('navigation');
+    expect(current.debuggerApi.sendCommand.mock.calls).toEqual([['Page.getNavigationHistory', {}, undefined]]);
+    lease.close();
+  });
+
+  it('checks the exact child history entry, permits supported history and refuses an unknown entry', async () => {
+    const current = page(), lease = createPageProtocol(current.contents);
+    await lease.send('Runtime.enable');
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    current.debuggerApi.sendCommand.mockClear();
+    current.debuggerApi.sendCommand.mockResolvedValue({ entries: [{ id: 18, url: 'https://example.test/history' }] });
+    await lease.send('Page.navigateToHistoryEntry', { entryId: 18 }, 'child');
+    expect(current.debuggerApi.sendCommand.mock.calls).toEqual([
+      ['Page.getNavigationHistory', {}, 'child'], ['Page.navigateToHistoryEntry', { entryId: 18 }, 'child'],
+    ]);
+    current.debuggerApi.sendCommand.mockClear();
+    await expect(lease.send('Page.navigateToHistoryEntry', { entryId: 19 }, 'child')).rejects.toThrow('navigation');
+    expect(current.debuggerApi.sendCommand.mock.calls).toEqual([['Page.getNavigationHistory', {}, 'child']]);
+    lease.close();
+  });
+
+  it.each(['cancel', 'close', 'detach'])('does not navigate after %s while history lookup is pending', async action => {
+    const current = page(), lease = createPageProtocol(current.contents), controller = new AbortController();
+    await lease.send('Runtime.enable');
+    current.debuggerApi.emit('message', {}, 'Target.attachedToTarget', { sessionId: 'child' });
+    current.debuggerApi.sendCommand.mockClear();
+    let finish!: (value: unknown) => void;
+    current.debuggerApi.sendCommand.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = lease.send('Page.navigateToHistoryEntry', { entryId: 18 }, 'child', controller.signal);
+    const rejected = expect(pending).rejects.toBeDefined();
+    await vi.waitFor(() => expect(current.debuggerApi.sendCommand).toHaveBeenCalledOnce());
+    expect(current.debuggerApi.sendCommand.mock.calls[0]![0]).toBe('Page.getNavigationHistory');
+    if (action === 'cancel') controller.abort();
+    else if (action === 'close') lease.close();
+    else current.debuggerApi.emit('message', {}, 'Target.detachedFromTarget', { sessionId: 'child' });
+    finish({ entries: [{ id: 18, url: 'https://example.test/history' }] });
+    await rejected;
+    expect(current.debuggerApi.sendCommand).toHaveBeenCalledOnce();
+    lease.close();
+  });
+
   it.each([{ data: { files: ['/private/fixture'] } }, { files: ['/private/fixture'] }])('rejects local files in drag payload %j before native dispatch', async params => {
     const current = page(), lease = createPageProtocol(current.contents);
     await expect(lease.send('Input.dispatchDragEvent', params)).rejects.toThrow('files');
@@ -129,9 +181,22 @@ describe('host-selected page protocol lease', () => {
     const delivered = heard.mock.calls[0]![1];
     expect(JSON.stringify(delivered)).not.toMatch(/secret|hidden|HttpOnly|cookie/i);
     expect(delivered).toMatchObject({ requestId: 'response', headers: { ETag: 'safe' }, response: { headers: { 'Content-Type': 'text/html' } } });
-    expect(delivered.headersText).toContain('HTTP/1.1 200 OK');
-    expect(delivered.headersText).toContain('X-Public: safe');
+    expect(delivered).not.toHaveProperty('headersText');
     expect(params.headers['Set-Cookie']).toContain('hidden');
+    lease.close();
+  });
+
+  it.each(['requestHeadersText', 'REQUESTHEADERSTEXT', 'responseHeadersText'])('removes nested WebSocket %s while preserving public structured headers', async key => {
+    const current = page(), lease = createPageProtocol(current.contents), heard = vi.fn();
+    lease.onMessage(heard);
+    await lease.send('Network.enable');
+    const params = { requestId: 'socket', response: { status: 101, headers: { Upgrade: 'websocket', 'Set-Cookie': 'private=hidden' },
+      requestHeaders: { Cookie: 'private=hidden', Connection: 'Upgrade' }, [key]: 'GET /socket HTTP/1.1\r\nCookie: private=hidden\r\n' } };
+    current.debuggerApi.emit('message', {}, 'Network.webSocketHandshakeResponseReceived', params);
+    expect(heard).toHaveBeenCalledWith('Network.webSocketHandshakeResponseReceived', {
+      requestId: 'socket', response: { status: 101, headers: { Upgrade: 'websocket' }, requestHeaders: { Connection: 'Upgrade' } },
+    }, undefined);
+    expect(params.response[key]).toContain('private=hidden');
     lease.close();
   });
 

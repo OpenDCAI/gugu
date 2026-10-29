@@ -1,5 +1,6 @@
 import { app, BrowserWindow, WebContentsView } from 'electron';
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
@@ -8,6 +9,7 @@ import { BrowserPageRuntime } from '../browser-page-runtime';
 import { createPaneTransport, agentCursorArrived, agentBrowserToolStarting, agentBrowserToolFinished } from '../agent-browser';
 import { createBrowserAppProgram } from '../../../../../browser-agent-mcp';
 import { createPageProtocol } from '../page-protocol';
+import { pageProtocolBoundaryChecks } from './page-protocol-boundary-checks';
 
 const cases: Record<string, { passed: boolean; error?: string }> = {};
 const commands: string[] = [];
@@ -40,9 +42,15 @@ async function run() {
     process.stderr.write(`page protocol fixture server failed: ${String(error)}\n`);
     app.exit(1);
   });
+  server.on('upgrade', (request, socket) => {
+    const accept = createHash('sha1').update(request.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    socket.on('error', () => socket.destroy());
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    socket.once('data', () => socket.end(Buffer.from([0x88, 0])));
+  });
   await new Promise<void>(resolve => server.listen(0, resolve));
   port = (server.address() as { port: number }).port;
-  const window = new BrowserWindow({ width: 1100, height: 800 });
+  const window = new BrowserWindow({ width: 1100, height: 800, show: false });
   const view = new WebContentsView({ webPreferences: { sandbox: true, partition: 'persist:page-protocol-probe' } });
   const runtime = new BrowserPageRuntime(view);
   runtime.moveTo(window); runtime.layout({ x: 0, y: 0, width: 1080, height: 760 }, true);
@@ -156,6 +164,7 @@ async function run() {
       assert.equal(commands.length, before, 'local file drag must never reach the native debugger');
     } finally { lease.close(); }
   });
+  await pageProtocolBoundaryChecks(`http://127.0.0.1:${port}/`, check);
   process.stdout.write('PAGE_PROTOCOL_RESULT=' + JSON.stringify({ cases, commands }) + '\n');
   runtime.close(); window.destroy(); server.closeAllConnections(); server.close();
 }

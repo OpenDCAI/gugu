@@ -150,6 +150,16 @@ export function createPageProtocol(contents: WebContents, options: PageProtocolO
       await ensureAttached();
       assertLive();
       signal?.throwIfAborted();
+      if (method === 'Page.navigateToHistoryEntry') {
+        const history = await bounded(debuggerApi.sendCommand('Page.getNavigationHistory', {}, sessionId), signal) as {
+          entries: Array<{ id: number; url: string }>;
+        };
+        const entry = history.entries.find(value => value.id === params.entryId);
+        if (!entry || !isSupportedBrowserNavigationUrl(entry.url)) throw new Error('page protocol: unsupported navigation history URL');
+        assertLive();
+        signal?.throwIfAborted();
+        if (sessionId && !children.has(sessionId)) throw new Error('unknown page session');
+      }
       return bounded(method === 'Page.captureScreenshot' && !sessionId && options.capture
         ? options.capture(params)
         : debuggerApi.sendCommand(method, params, sessionId), signal);

@@ -5,12 +5,9 @@ const COOKIE_FIELDS = new Set(['cookie', 'set-cookie', 'associatedcookies', 'blo
 function withoutCookies(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutCookies);
   if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !COOKIE_FIELDS.has(key.toLowerCase())).map(([key, item]) => [
-    key,
-    key.toLowerCase() === 'headerstext' && typeof item === 'string'
-      ? item.replace(/^(?:cookie|set-cookie)[ \t]*:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*(?:\r?\n|$)/gim, '')
-      : withoutCookies(item),
-  ]));
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !COOKIE_FIELDS.has(key.toLowerCase()) && !key.toLowerCase().endsWith('headerstext'))
+    .map(([key, item]) => [key, withoutCookies(item)]));
 }
 
 export function pageNetworkEvent(method: string, params: Record<string, unknown>): Record<string, unknown> {
