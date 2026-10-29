@@ -74,11 +74,11 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string | null;
         {view.kind === 'final' && (
           <>
             <h2 className="text-[length:var(--font-title)] font-semibold text-[var(--text-primary)]">{t(`devices.approveServer.final.${view.state}.title`)}</h2>
-            <p className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">
+            <div className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">
               {view.state === 'refused'
                 ? <MachineLimitNotice refusal={view.refusal} />
                 : t(`devices.approveServer.final.${view.state}.body`, { host: view.hostname ?? t('devices.approveServer.thisMachine') })}
-            </p>
+            </div>
             <Button variant="secondary" size="lg" onClick={onDone} data-testid="server-login-approve-close">{t('devices.approveServer.close')}</Button>
           </>
         )}
