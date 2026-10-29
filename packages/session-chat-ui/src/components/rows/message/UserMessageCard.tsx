@@ -11,7 +11,7 @@ import { blockPlainText } from '@session-chat/core/markdown/plain-text';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { vars as themeVars } from '@session-chat/styles/theme.css';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
-import { For, Show, createMemo, createResource } from 'solid-js';
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from 'solid-js';
 import type { ChatAttachment, ChatMessage } from '@session-chat/model';
 import {
   attachChipHeight,
@@ -49,10 +49,19 @@ import {
   userMessageExpandRow,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null }) {
   const translate = useChatTranslator();
   const chatName = useChatName();
   const commands = useCommands();
+  const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
+  const textMount = createMemo(() => commands().onMessageTextMount);
+  const textMessageId = createMemo(() => props.data.id);
+  createEffect(() => {
+    const root = textRoot(), mount = textMount(), itemId = textMessageId();
+    if (!props.conversation || !root || !mount) return;
+    const cleanup = mount({ root, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
+    if (cleanup) onCleanup(cleanup);
+  });
   const turn = useTurnState();
   /** 对话布局里发出去的那条:气泡下面那一行最前面常驻「发到 群名」(管家 10-28)。 */
   const sentTo = () => props.conversation && props.data.sentTo ? agentSendLabel(props.data.sentTo, translate, chatName) : undefined;
@@ -220,7 +229,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       }}
     >
       <div class={srOnly}>{plainText()}</div>
-      <div>
+      <div ref={setTextRoot} data-conversation-text={props.conversation ? props.data.id : undefined}>
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>
       </div>
       <Show when={!isExpanded() && isOverflowing()}>

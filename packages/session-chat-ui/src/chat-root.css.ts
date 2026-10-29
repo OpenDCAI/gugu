@@ -14,6 +14,7 @@ import {
   CHAT_CONTENT_MAX_WIDTH_REM,
   CHAT_CONTENT_MAX_WIDTH_WIDE_REM,
   CHAT_CONTENT_WIDE_BREAKPOINT_REM,
+  CHAT_PIN_FADE_HEIGHT_PX,
 } from './layout-geometry';
 
 /** Max-width of the centered content column — matches user message cards. */
@@ -130,7 +131,7 @@ export const pinFade = style([
     top: '100%',
     left: 0,
     right: 0,
-    height: '16px',
+    height: `${CHAT_PIN_FADE_HEIGHT_PX}px`,
     pointerEvents: 'none',
     opacity: 0,
     '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
