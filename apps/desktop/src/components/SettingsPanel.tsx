@@ -68,7 +68,7 @@ const sessionOverlayOpen = (): boolean =>
 
 // ─── SettingsPanel ────────────────────────────────────────────────────────────
 
-export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange, appDetail }: {
+export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange, appDetail, onOpenAssistantProfile }: {
   appDetail?: import('@gugu/core/shared/ui/guguLink').AppDetailLink
   mobile?: boolean
   // @@@1787 owner:「我的」是底部 tab 之一 → 移动端作 tab 页内联渲染(无 Sheet 壳),nav 层保留底部 tab 栏
@@ -82,6 +82,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   // inline 时 nav/detail 由 MainLayout 受控(tab 栏显隐 + 原生返回键都要读它)
   pane?: 'nav' | 'detail'
   onPaneChange?: (pane: 'nav' | 'detail') => void
+  onOpenAssistantProfile?: () => void
 }) {
   const { user, updateUser, logout } = useAuth()
   const { t } = useTranslation('main')
@@ -149,6 +150,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
     : undefined
 
   const selectSection = (section: ActiveSection) => {
+    if (mobile && section === 'assistant' && onOpenAssistantProfile) {
+      onOpenAssistantProfile()
+      return
+    }
     if (mobile && section === 'connectors') {
       window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors))
       return

@@ -180,8 +180,8 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/usePhoneAssistant', () =>
 vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    MobileAssistantTab: ({ visible, chatRequest, navigationTarget }: { visible: boolean; chatRequest: number; navigationTarget?: boolean }) =>
-      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest), 'data-navigation-target': String(navigationTarget) }),
+    MobileAssistantTab: ({ visible, chatRequest, initialRoute, navigationTarget }: { visible: boolean; chatRequest: number; initialRoute?: { tab: string }; navigationTarget?: boolean }) =>
+      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest), 'data-initial-tab': initialRoute?.tab, 'data-navigation-target': String(navigationTarget) }),
   }
 })
 // 看管订阅的根:挂载/卸载计数量「切 tab 会不会把它拆掉」。
@@ -239,7 +239,7 @@ vi.mock('../../../../apps/desktop/src/components/SettingsPanel', async () => {
   const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
     // 有状态的替身,与真 SettingsPanel 同一个口径:给了 section 就受控(弹窗),否则是本地 state、只在挂载时读 initialSection(「我的」)。
-    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange, mobile, pane, onPaneChange }: {
+    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange, mobile, pane, onPaneChange, onOpenAssistantProfile }: {
       onClose?: () => void
       initialSection?: string
       section?: string
@@ -247,12 +247,14 @@ vi.mock('../../../../apps/desktop/src/components/SettingsPanel', async () => {
       mobile?: boolean
       pane?: 'nav' | 'detail'
       onPaneChange?: (pane: 'nav' | 'detail') => void
+      onOpenAssistantProfile?: () => void
     }) => {
       useBackLayer(() => onPaneChange?.('nav'), mobile && pane === 'detail')
       const [local, setLocal] = React.useState(initialSection)
       const section = controlled ?? local
       const setSection = onSectionChange ?? setLocal
       return React.createElement('div', { role: 'dialog', 'data-testid': 'mock-settings-panel', 'data-section': section },
+        React.createElement('button', { type: 'button', 'data-testid': 'mock-settings-assistant-profile', onClick: onOpenAssistantProfile }, 'profile'),
         React.createElement('button', { type: 'button', 'data-testid': 'mock-settings-pick-about', onClick: () => setSection('about') }, 'about'),
         React.createElement('button', { type: 'button', 'data-testid': 'mock-close-settings', onClick: onClose }, 'close settings')
       )
@@ -869,6 +871,32 @@ describe('MainLayout', () => {
     expect(layerOpen('mobile-assistant-layer')).toBe(false)
     expect(harness.container.querySelector('nav')).not.toBeNull()
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['chats'])
+  })
+  it('pushes Me profile into the assistant profile, returns to Me, and opens chat normally afterwards', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    phoneAssistantMock.state.available = true
+    phoneAssistantMock.state.assistant = { id: 'agent-1', display_name: '小咕', avatar: null, created_at: null }
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    const q = (id: string) => harness.container.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
+    await clickElement(q(AUTOMATION_TEST_IDS.mobileProfileNav))
+    const settings = q('mock-settings-panel')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await clickElement(q('mock-settings-assistant-profile'))
+      expect(layerOpen('mobile-assistant-layer')).toBe(true)
+      expect(q('mock-assistant-tab').dataset.initialTab).toBe('profile')
+      expect(harness.container.querySelector('nav'), 'pushed profile has no bottom bar').toBeNull()
+      await nativeBack()
+      expect(layerOpen('mobile-settings-layer')).toBe(true)
+      expect(layerOpen('mobile-assistant-layer')).toBe(false)
+      expect(q('mock-settings-panel'), 'Me is retained').toBe(settings)
+    }
+    await nativeBack()
+    await clickElement(q(AUTOMATION_TEST_IDS.mobileAssistantNav))
+    expect(q('mock-assistant-tab').dataset.initialTab).toBeUndefined()
+    expect(Number(q('mock-assistant-tab').dataset.chatRequest)).toBeGreaterThan(0)
+    await nativeBack()
+    expect(harness.container.querySelector('nav')).not.toBeNull()
   })
   it('opens the assistant layer when global settings requests its phone connectors', async () => {
     platformMock.kind = 'capacitor'

@@ -24,15 +24,13 @@ export const sheetBackdropMotion = cn(
 
 export const sheetContentMotion = cn(
   'flex flex-col overflow-hidden outline-none pointer-events-auto',
-  'bg-[var(--modal-bg)] shadow-[var(--modal-shadow)]',
+  'data-[sheet-mobile=false]:bg-[var(--modal-bg)] data-[sheet-mobile=false]:shadow-[var(--modal-shadow)]',
   // 桌面:居中卡片,弹入。#7333 半像素轮廓画在 --shadow-dialog 里,❌ 再叠一条 border(边 + 环 + 影三层同一条边)。
   'data-[sheet-mobile=false]:animate-[gg-sheet-pop-in_var(--dur-med)_var(--ease-spring)]',
   'data-[sheet-mobile=false]:data-[ending-style]:scale-[0.98]',
   // 移动:贴底抽屉,上滑进场、下滑退场(底部安全区的 padding 见 mobileStyle)。
   'data-[sheet-mobile=true]:animate-[gg-sheet-slide-up_var(--dur-slow)_var(--ease-spring)]',
   'data-[sheet-mobile=true]:data-[ending-style]:translate-y-6',
-  'data-[sheet-mobile=true]:data-[sheet-fullscreen=false]:border-t',
-  'data-[sheet-mobile=true]:data-[sheet-fullscreen=false]:border-t-[var(--modal-border)]',
   // @@@sheet-scroll 移动抽屉放不下的部分由抽屉自己滚,手指在抽屉里哪儿都划得动。
   // 原来整张 overflow:hidden,哪块该滚由调用方各自指定(#6908 一个个补):指定成组内滚的,
   // 那一组被压成两行半的小窗、在半截处切开,其余部分划不动;没指定的,多出的直接裁掉、够不着(owner 10-07)。
