@@ -47,6 +47,7 @@ export const ALLOWED_FILES = [
   { re: /\/notionistsBlend\.ts$/, why: '头像插画的混色' },
   { re: /\/sharePosterCanvas\.ts$/, why: '分享海报/二维码画在 canvas 上,导出的图必须固定黑白' },
   { re: /\/ChannelBrandIcon\.tsx$/, why: '微信 / 飞书 / 钉钉的品牌色' },
+  { re: /\/lib\/vendor\/cua-cursor-motion\//, why: '@trycua/cursor-motion 原样拷贝(见其 README,改动会让升级失真);Cua 蓝是它的光标品牌色,画在 canvas 上、盖在被控页面的截图上,不跟宿主主题' },
 ]
 
 /** 单色但颜色就是品牌本身的 svg。每条写理由。 */

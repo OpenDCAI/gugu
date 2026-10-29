@@ -9,7 +9,7 @@ import type {
   AgentMemoryDescriptor,
   CommandContext,
 } from '@gugu/session-core/agents/plugins';
-import { buildStandardCommand, recognisedDependency } from '@gugu/session-core/agents/plugins/helpers';
+import { BARE_VERSION_LINE, buildStandardCommand, recognisedDependency } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import {
   kimiSessionBundleDescriptor,
@@ -183,10 +183,10 @@ export const plugin = definePlugin(
     // (bin `dist/main.mjs`,带 ws/qrcode 运行期依赖、没有平台包)⇒ 两条路都拿不到
     // 可直接执行的归档(核于 2026-09-21)。
     // ⇒ 这一家由用户自己按厂商文档装,咕咕认那一份(#6098)。
-    hostDependency: recognisedDependency({
+    hostDependency: { ...recognisedDependency({
       binaryNames: ['kimi'],
       installDocs: 'https://code.kimi.com',
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // agent memory —— kimi 读 AGENTS.md 系。
     // 出处:https://moonshotai.github.io/kimi-cli/en/customization/agents.html
     // (源文件 https://github.com/MoonshotAI/kimi-cli/blob/main/docs/en/customization/agents.md,

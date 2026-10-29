@@ -62,7 +62,7 @@ async function localSessions(options: ExtensionAgentScope): Promise<ListedSessio
 export async function sessionsElsewhere(): Promise<{ rows: ListedSession[]; unreached: UnreachedMachine[] }> {
   const { otherMachines } = await import('@main/core/sessions/session-family');
   const { sessions: listed, unreached } = await otherMachines().sessions(null);
-  const old = new Map(listed.filter(({ session }) => session.agent === undefined).map(({ deviceId, label }) => [deviceId, label]));
+  const old = new Map(listed.filter(({ listsAgents }) => !listsAgents).map(({ deviceId, label }) => [deviceId, label]));
   for (const [deviceId, label] of old) {
     unreached.push({ deviceId, label, detail: `"${label}" (device:${deviceId}) runs a gugu too old to list its agents; it updates itself when idle` });
   }

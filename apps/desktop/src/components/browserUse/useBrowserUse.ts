@@ -72,11 +72,13 @@ function isUnsupported(error: unknown): boolean {
  */
 export function useBrowserUse(deviceId: string | null, sessionId: string | null, live: boolean, need: BrowserUseNeed): BrowserUseView {
   const pending = useSessionHostAsk(deviceId ? sessionId : null, 'browser-assistance', { rereadMs: STATUS_POLL_MS })
-  const assistance = useMemo(
-    () => (pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : null),
-    [pending],
-  )
   const [status, setStatus] = useState<CloudBrowserStatus | null>(null)
+  // 协议 12 的 server 还把求助放在浏览器状态里(13 起是会话上的 Ask):新端照旧读得到(向下兼容一档)。
+  const legacyAssistance = status?.assistance ?? null
+  const assistance = useMemo(
+    () => pending ? { ...(pending.origin?.payload as Omit<CloudBrowserAssistance, 'requestId'>), requestId: pending.itemId } : legacyAssistance,
+    [pending, legacyAssistance],
+  )
   const [state, setState] = useState<CloudBrowserState | null>(null)
   const [linkState, setLinkState] = useState<CloudBrowserLinkState | null>(null)
   const [frame, setFrame] = useState<CloudBrowserFrame | null>(null)

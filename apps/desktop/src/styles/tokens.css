@@ -936,6 +936,33 @@
   --team-mint:  color-mix(in oklab, var(--fg) 4%, transparent);   --team-mint-ico:  color-mix(in oklab, var(--fg) 8%, transparent);
 }
 
+/* ── theme batch C2:会话页功能里的固定色(App 市场主推卡、项目文件夹卡、App 图标兜底底板) ─────────────
+   owner 10-28 批的 token 方案:颜色只在 tokens.css 里写。这几样都是**身份 / 压图**色,两套主题同值。 */
+:root {
+  /* 市场主推卡的底色(卡上压字、压截图;两套主题都是暗底白字,同 App Store)。 */
+  --mk-hero-ink: oklch(0.2 0.01 268);
+  /* 没有图标的 App 的兜底底板(白色图形压在上面)。 */
+  --app-icon-fallback-plate: #2b2a28;
+  /* 项目封面的六组柔色(a、b 两团 + 底色):按项目 id 固定挑一组,是项目的身份色。 */
+  --fc-cover-1-a: #9fc3cd; --fc-cover-1-b: #b9a9d6; --fc-cover-1-base: #c9dade;
+  --fc-cover-2-a: #e2b394; --fc-cover-2-b: #a2c4b2; --fc-cover-2-base: #e3d3c3;
+  --fc-cover-3-a: #b4a5d6; --fc-cover-3-b: #dcaebf; --fc-cover-3-base: #d8d0e6;
+  --fc-cover-4-a: #a2c4b2; --fc-cover-4-b: #9fc3cd; --fc-cover-4-base: #cfe0d6;
+  --fc-cover-5-a: #d4bf9f; --fc-cover-5-b: #b9a9d6; --fc-cover-5-base: #e2d9c8;
+  --fc-cover-6-a: #a5bde0; --fc-cover-6-b: #cdb1d6; --fc-cover-6-base: #d3dcec;
+}
+/* 项目文件夹卡的纸张投影、落地影子与正面高光:从 project-folder-card.css 原样搬来,选择器不变(浅色默认,深色挂在 :root[data-theme='dark'])。 */
+.gg-folder-card {
+  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 12%, transparent), 0 4px 12px -2px rgb(30 40 60 / 0.1);
+  --fc-floor-shadow: rgb(30 40 60 / 0.2);
+  --fc-front-glow: rgb(255 255 255 / 0.2);
+}
+:root[data-theme='dark'] .gg-folder-card {
+  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 16%, transparent), 0 6px 18px -4px rgb(0 0 0 / 0.5);
+  --fc-floor-shadow: rgb(0 0 0 / 0.55);
+  --fc-front-glow: rgb(255 255 255 / 0.06);
+}
+
 /* ── 侧栏渐进底色(设置 · 通用,默认关) ───────────────────────────────────────────
    @@@sidebar-tint owner 2026-09-10:「最左边菜单栏是这个色,消息列表是白色,会话列表要介于
    两者之间」。开关的真值是 `<html data-sidebar-tint="on">`(见 lib/sidebarTint.ts),这里只改写

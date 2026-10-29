@@ -623,6 +623,8 @@ export interface DependencyDescriptor {
   knownPaths?: Partial<Record<Platform, string[]>>;
   /** Args passed when probing for a version string. Defaults to ['--version']. */
   versionArgs?: string[];
+  /** The line of its `--version` output that is its own (`HostDependencyDescriptor.versionLine`). */
+  versionLine?: RegExp;
   /**
    * 跑这一家时**每一次**都必须带的会话级开关(#6186:关掉它自己的自更新)。版本探测也是一次「跑它」——
    * copilot 实测 `--version` 就会把新版下载进 `~/Library/Caches/copilot/pkg`。由 `HostDependencyManager`

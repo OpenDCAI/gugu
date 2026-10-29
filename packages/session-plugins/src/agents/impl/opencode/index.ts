@@ -9,6 +9,7 @@ import {
   buildStandardCommand,
   createFileDropPlugin,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { connectStdioAcp } from '../../helpers/acp-stdio';
 import { opencodeAuthStatus, opencodeModelCredential } from './auth';
@@ -166,7 +167,7 @@ export const plugin = definePlugin(
     },
     // 托管安装:`opencode-ai` 的 bin 是个启动器,程序体在 `opencode-<platform>-<arch>` 里
     // (六格齐全,归档内 `bin/opencode`;bun 编的那一族把 `win32` 叫 `windows`)。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'opencode',
       package: 'opencode-ai',
       platformPackages: {
@@ -179,7 +180,7 @@ export const plugin = definePlugin(
         'linux-x64': 'bin/opencode', 'linux-arm64': 'bin/opencode',
         'win32-x64': 'bin/opencode.exe', 'win32-arm64': 'bin/opencode.exe',
       },
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     mcp: {
       kind: 'supported',
       scope: 'global',

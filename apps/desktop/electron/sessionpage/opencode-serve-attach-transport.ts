@@ -105,6 +105,7 @@ async function runOpencodeVersion(
     surface: 'tui',
     descriptor: plugin.capabilities.sessionBundle,
     executable: command,
+    versionLine: plugin.capabilities.hostDependency.versionLine,
     executionContext: new NodeExecutionContext({ root: cwd, env: probeEnv }),
     env: probeEnv,
   })

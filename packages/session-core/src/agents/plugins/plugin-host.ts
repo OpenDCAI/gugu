@@ -623,6 +623,7 @@ export class AgentPluginHost {
         surface: 'tui',
         descriptor: plugin.capabilities.sessionBundle,
         executable: cli.data,
+        versionLine: plugin.capabilities.hostDependency.versionLine,
         executionContext: this.deps.exec,
         // 探的是将要跑的那份,环境也用将要带的那份(#5702)。
         env: composeAgentSpawnEnv(runContext),
@@ -677,6 +678,7 @@ export class AgentPluginHost {
         surface: 'acp',
         descriptor: plugin.capabilities.sessionBundle,
         executable: hostCli.data,
+        versionLine: plugin.capabilities.hostDependency.versionLine,
         executionContext: this.deps.exec,
         // 同上(#5702)。
         env: composeAgentSpawnEnv(ctx.runContext),
@@ -725,7 +727,9 @@ export class AgentPluginHost {
     const probe = await runVersionProbe(executable, realpath, ['--version'], this.deps.exec, {
       env: spawn.env,
     });
-    return makeHarnessRuntimeIdentity({ providerId, executable: realpath, probe });
+    return makeHarnessRuntimeIdentity({
+      providerId, executable: realpath, probe, versionLine: this.registry.get(providerId)?.capabilities.hostDependency.versionLine,
+    });
   }
 
   async materializeSessionBundle(

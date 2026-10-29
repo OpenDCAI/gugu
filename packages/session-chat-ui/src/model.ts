@@ -641,7 +641,9 @@ export type SessionConditionCode =
    * 这条会话用的咕咕模型要开会员才能用(会员中途到期,#7056)。下一轮之前就停下说清,给两条去路:
    * 换一个模型、去网页续费 —— ❌ 悄悄换模型接着跑。
    */
-  | 'membership-required';
+  | 'membership-required'
+  /** 上一轮被宿主的退出打断了(更新 / 重启 / 没正常退出):开机收残记下的,下一轮开工就没了。宿主总是给 label。 */
+  | 'turn-interrupted';
 
 export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
 

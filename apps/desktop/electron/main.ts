@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -200,6 +201,7 @@ import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unif
 import {createDesktopAssistantWorkHistory} from './assistant-work-history'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
 import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isSubscribeFailure, subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol'
 import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
 import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
@@ -1703,6 +1705,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if(response.error) throw response.error
     },
     warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
+    retryIn: ms => assistantWorkOutbox?.kickAfter(ms),
 
   })
   const host = createAssistantWorkOutboxHost({
@@ -1730,6 +1733,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         return data?.id === post.messageId
       },
     }),
+    active: async () => {
+      const current = await context()
+      return !current || !!(await resolveAssistant(current))
+    },
     afterDrain: async () => {
       void history.kick()
       await reconciler.kick()
@@ -1757,14 +1764,19 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
       return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
     },
-    subscribe: async (ownerId, changed) => {
+    subscribe: async (ownerId, changed, live) => {
       const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
         .on('broadcast', { event: 'assistant_work_changed' }, changed)
       const off = await subscribeAuthenticatedElectronRealtimeChannel({
         realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
       }, createChannel(), {
         label: `assistant-work:${ownerId}`, createChannel,
-        onStatus: status => { if (String(status).endsWith('SUBSCRIBED')) changed() },
+        onStatus: status => {
+          if (subscribeStatusName(status).endsWith('SUBSCRIBED')) { live(true); changed() }
+          else if (isSubscribeFailure(status)) live(false)
+        },
+        // Like the command wake: a dropped channel reconnects by itself; until then every heartbeat claims.
+        reconnectOnStatus: status => isSubscribeFailure(status),
       })
       return () => { void off() }
     },
@@ -2043,7 +2055,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
     // 续上租约 = 这一轮认出了设备 id、写上了心跳:开机时没起成的远程隧道(那时还没有设备 id)在这里起。
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick(); ensureServerTunnelEndpoint() },
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick(); ensureServerTunnelEndpoint() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -2058,7 +2070,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles() }, onSubscribed: () => drainProjectFiles(),
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
+      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2309,6 +2322,7 @@ const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider()
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
+function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
@@ -2526,6 +2540,10 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
 // 广播只挂在 INSERT 上 ⇒ 没有任何事件会叫醒宿主;由发起方在这里说一声。
 ipcMain.on('device-runtime:commands-changed', () => {
   deviceRuntimeHost?.notifyCommandsChanged()
+})
+// 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
+ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
+  deviceRuntimeHost?.notifyScheduledTasksChanged()
 })
 // #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
@@ -3168,6 +3186,8 @@ const reportShutdownPhase = (event: ShutdownPhaseEvent): void => {
   shutdownLogger.info(event, `[shutdown] phase=${event.phase} state=${event.state} elapsedMs=${event.elapsedMs}${error}`)
 }
 
+// 正常退出:留一句,下次开机收残据此说「重启打断了这一轮」,❌ 说成没正常退出。
+app.on('before-quit', () => noteExitReason(app.getPath('userData'), 'restart'))
 app.on('before-quit', createRuntimeBeforeQuitHandler({
   getHost: () => deviceRuntimeHost,
   setQuitting: (value) => {
@@ -3252,6 +3272,8 @@ const killEnginesOnCrash = (label: string): void => {
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
 const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
+  noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
     killEnginesOnCrash(label)
     process.exit(code)
@@ -4855,7 +4877,7 @@ app.whenReady().then(async () => {
       devices: () => crossMachine().devices(),
       isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
       appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
-      sessions: (since) => crossMachine().sessionsElsewhere(since),
+      sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
       archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),

@@ -565,6 +565,8 @@ function DeviceRow({
   const failedUpdate = model.update?.state === 'failed' ? model.update.version : null
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
+  // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
+  const [updateNow, setUpdateNow] = useState<'ask' | 'sent' | null>(null)
   const signedOutText = sshLink === 'notSignedIn'
     ? t('devices.loginState.signedOut')
     : device.is_online || !signIn
@@ -605,6 +607,9 @@ function DeviceRow({
                 {t(model.update.state === 'ready' ? 'devices.update.ready' : 'devices.update.downloading')}
               </Chip>
             )}
+            {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === null && (
+              <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
+            )}
             {model.notices
               // 远程 SSH 的机器太旧:状态那一行已说「正在更新 / 更新没成功」,❌ 再挂一颗说「空闲时会自动更新」的标签。
               .filter((notice) => !(notice.kind === 'server-too-old' && (link === 'updating' || link === 'outdated')))
@@ -614,6 +619,16 @@ function DeviceRow({
           </div>
         )}
 
+        {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
+        {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === 'ask' && (
+          <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
+            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('devices.update.updateNowConfirm', { name: device.label })}</span>
+            <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
+            <Button size="sm" variant="primary" onClick={() => { setUpdateNow('sent'); void onRetryVersionMatch().then((ok) => { if (!ok) setUpdateNow(null) }) }} data-testid="settings-device-update-now-yes">
+              {t('devices.update.confirmRestart')}
+            </Button>
+          </div>
+        )}
         <div className="mt-[3px] overflow-hidden">
         <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--muted-fg)]">
           <span className="inline-flex items-center gap-[5px] pl-4">

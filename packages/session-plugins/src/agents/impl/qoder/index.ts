@@ -14,6 +14,7 @@ import {
   buildStandardCommand,
   miseDependency,
   passthroughMcpAdapter,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import { QODER_LOGIN_METHOD_ID, qoderAuthStatus } from './auth';
@@ -139,7 +140,7 @@ export const plugin = definePlugin(
     // ⚠️ `id` 取 `qodercli`:`@qoder-ai/qodercli` 的 npm `bin` **同时**发 `qodercli` 与 `qoder`
     //    (实测 `npm view @qoder-ai/qodercli bin`),而咕咕发布的启动器只叫一个名字 ——
     //    取官方文档的 CLI 名 `qodercli` 那一个,用户自己用脚本装的 `qoder` 仍由自动探测认出来。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'qodercli',
       // `qoder` 是同一个包的另一个 bin 名,官方文档一律用它 —— 用户用官方脚本装的那一份
       // 就叫这个。只探 `qodercli` 会把他判成「没装」(这条曾经真的发生过)。
@@ -148,7 +149,7 @@ export const plugin = definePlugin(
       package: '@qoder-ai/qodercli',
       node: MANAGED_NODE_VERSION,
       installDocs: 'https://qoder.com/en/cli',
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // agent memory —— qoder 走 AGENTS.md 系(跨厂商约定),不是自己的专名文件。
     // 出处:官方文档 https://docs.qoder.com/en/cli/memory ——「Within a Trusted Workspace,
     // searches upwards from the current Workspace directory for `AGENTS.md`, `AGENTS.local.md`,

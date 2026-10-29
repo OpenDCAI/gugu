@@ -41,6 +41,7 @@ function toDescriptor(
     ...(hostDep.knownPaths ? { knownPaths: hostDep.knownPaths } : {}),
     skipVersionProbe: hostDep.skipVersionProbe,
     versionArgs: hostDep.versionArgs,
+    ...(hostDep.versionLine ? { versionLine: hostDep.versionLine } : {}),
     probeEnv,
     docUrl,
     updates: hostDep.updates,

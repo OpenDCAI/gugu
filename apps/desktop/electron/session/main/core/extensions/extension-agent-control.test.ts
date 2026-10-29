@@ -674,6 +674,7 @@ describe(':all-machines:别的机器上的 agent 来自那台机器的会话列�
     return {
       deviceId: 'dev-b',
       label: 'Studio',
+      listsAgents: true,
       session: {
         conversationId: id, projectId: 'pb', title: id, harness: 'codex', runtime: 'pty',
         status: { status: 'working', detail: null }, lastInteractedAt: '2026-10-09T03:00:00Z',
@@ -706,7 +707,7 @@ describe(':all-machines:别的机器上的 agent 来自那台机器的会话列�
 
   it('老宿主(行上没有 agent 这一格)那台:不列,记成没读到 —— ❌ 当成那台机器上没有 agent', async () => {
     const { agent: _drop, ...noAgentKey } = remote('old-there').session;
-    elsewhere = { sessions: [{ deviceId: 'dev-old', label: 'Old Mac', session: noAgentKey }, remote('there')], unreached: [] };
+    elsewhere = { sessions: [{ deviceId: 'dev-old', label: 'Old Mac', session: noAgentKey, listsAgents: false }, remote('there')], unreached: [] };
     const { agents, unreached } = await listAgentsForExtension(app);
     expect(agents.map((agent) => agent.agentId)).toEqual(['user:there']);
     expect(unreached).toEqual([{ deviceId: 'dev-old', label: 'Old Mac', detail: expect.stringContaining('too old to list its agents') }]);

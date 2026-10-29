@@ -27,7 +27,7 @@ export function SidebarUnreadCount({ count }: { count: number }) {
   return (
     <span
       aria-label={translate('sidebar.unreadCount', { count })}
-      className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--badge-red)] px-1 text-[length:var(--font-caption)] leading-none font-semibold text-white"
+      className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger-solid)] px-1 text-[length:var(--font-caption)] leading-none font-semibold text-[var(--danger-solid-fg)]"
     >
       {count > 99 ? '99+' : count}
     </span>
