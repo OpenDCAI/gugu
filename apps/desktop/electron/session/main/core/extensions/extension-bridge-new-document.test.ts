@@ -88,7 +88,19 @@ beforeEach(async () => {
   await bindExtensionSurface({ webContentsId: READER, extensionId: 'paper-club', tabId: 'slot-1', tabKind: 'paper-club.shelf', chatId: CHAT });
 });
 
+const { extensionProjections } = await import('./extension-projection-bridge');
 describe('what a page says about itself goes with its document', () => {
+  it('closes projection viewers on the real document and unbind paths', async () => {
+    const { unbindExtensionSurface } = await import('./extension-bridge');
+    const closed = vi.spyOn(extensionProjections, 'closePage');
+    try {
+      navigate(READER);
+      expect(closed).toHaveBeenLastCalledWith(READER);
+      unbindExtensionSurface(READER);
+      expect(closed).toHaveBeenCalledTimes(2);
+    } finally { closed.mockRestore(); }
+  });
+
   it('a watch waiting for its first binding cannot register in a later document', async () => {
     const args = { watchId: '1', place: { chat: CHAT }, on: true };
     const old = call(UNBOUND, 'filesWatch', args);

@@ -44,7 +44,8 @@ More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
 - \`apps-agents\` — app state and agents.
 - \`apps-sessions\` — external CLI history and context (API 17).
-- \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
+- \`apps-programs\` — agent tools and skills.
+- \`apps-projection\` — local picture/input.
 - \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
@@ -392,6 +393,46 @@ can tell any of the person's agents. A sheet pick needs no capability.
   person uninstalls you.
 `;
 
+export const EXTENSION_GUIDE_PROJECTION = `# Local App picture and input resources
+
+Needs \`agents:tools\`
+
+API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
+
+- In your Node program's task tool call, \`gugu.projection.create(driver)\` returns \`{ id, publish, close }\`.
+  Main stamps the App and calling task; arguments cannot choose a different task, window, or webContents.
+  \`driver\` supplies \`driver.refresh()\`, \`driver.input(event, { viewer, frame, signal })\`, \`driver.disconnect(viewer)\`, and \`driver.close()\`.
+  Your App owns capture, target selection, permissions, and native input code. The host supplies transport and lifetime.
+  \`resource.publish({ width, height, mime, data })\` takes a PNG/JPEG/WebP base64 picture, at most 512 KiB decoded;
+  dimensions describe the source's input coordinates. It resolves with the runtime-assigned sequence.
+  Keep that receipt mapped to the captured target. Before applying any input (including keys/text), check that
+  \`frame.sequence\` still names the active target; reject target changes even when dimensions are unchanged.
+  \`input\` receives normalized pointer/wheel coordinates, key down/up, or committed text (Chinese/clipboard once).
+  Text carries \`source: 'typing' | 'ime' | 'paste'\`; \`paste\` names the local event, not proof of a remote clipboard
+  or paste event. Your driver must distinguish plain text insertion from native paste and reject unsupported content.
+  Finish or clean up native work before resolving it, including on \`signal.abort\`. A resolved void means applied;
+  return \`{ status: 'rejected', reason }\` only if nothing was applied, or \`{ status: 'unknown', reason }\` when uncertain.
+  A thrown error after dispatch is uncertain. No input is automatically replayed.
+  \`driver.disconnect(viewer)\` releases that viewer's held keys/buttons before another viewer's input; \`driver.close()\` stops capture
+  and input, and resolves after cleanup. Only one viewer drives at a time; others can still watch. App revocation,
+  task archive/deletion, project deletion or withdrawn App access closes resources. An active task keeps its resources even without viewers.
+- In the same App's task page, \`gugu.projection.mount(element, id, { state?, error? })\` returns \`{ close, pendingText, discardPendingText }\`.
+  It draws the picture and accepts input there, with no extra text form. State is \`connecting\`, \`live\`, \`input-paused\`, or \`closed\`;
+  input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.
+  For the local preview feed, only one unacknowledged picture and the newest pending picture are retained.
+  Focus loss invalidates the old input generation and releases its held input before fresh input is admitted.
+  Rejection drops that operation and leaves the viewer usable. Unknown outcomes require a fresh generation.
+  \`view.pendingText()\` returns \`{ id, text, state: 'not-sent' | 'unconfirmed', reason? }\` records.
+  Read them before disposal if keeping a draft; explicitly discard one with \`view.discardPendingText(id)\`.
+  Move/wheel events coalesce within the same frame and generation; discrete operations remain ordered.
+  Your App decides where to mount a mirror; original local Browser pages already receive native input.
+  Pictures never travel through App-wide program notifications or replayable tool calls.
+  This bitmap feed is local only. A page on another computer requires the shared media transport; there is no
+  bitmap-over-network, tool-result, cloud-notification or relay fallback.
+
+Use \`resource.close()\` to release the source and \`view.close()\` to remove the mounted viewer.
+`;
+
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
 Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
@@ -470,6 +511,7 @@ export const follow = {
   (the person can switch it back). Withdrawing \`agents:tools\` refuses further calls; lifecycle: \`apps-settings\`.
 
 Free — your own programs and data folder:
+
 
 - \`callProgram(tool, args?, { server?, device? })\` → your MCP tool's \`{ content, structuredContent?, isError? }\`.
   \`_meta.ui.visibility\` must include \`"app"\` (absent: both); \`["model"]\` hides it from pages, \`["app"]\` from agents.
@@ -1059,6 +1101,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-programs',
     about: 'Giving agents your own tools (tools.js, MCP programs, skills) — also how agents subscribe to and follow what happens in your App, each call stamped with who made it — and calling your program from a tab.',
     text: EXTENSION_GUIDE_PROGRAMS,
+  },
+  {
+    topic: 'apps-projection',
+    about: 'Local picture and input resources: a program supplies capture and input, a task page mounts the shared viewer; authorization, painted frames and cleanup.',
+    text: EXTENSION_GUIDE_PROJECTION,
   },
   {
     topic: 'apps-files',

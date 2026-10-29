@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { APP_FRAME_MARKER } from '@shared/extensions/app-runtime-protocol';
 
 // Chats are named by their id (编号 18: placeOf refuses anything else).
@@ -41,6 +41,8 @@ describe('gugu in a program', () => {
     expect(gugu.codemirror).toBeUndefined();
     expect(gugu.bind).toBeUndefined();
     expect(gugu.program).toBeUndefined(); // a host flag, not part of the API
+    expect(gugu.onProjection).toBeUndefined();
+    expect(gugu.onProjectionSource).toBeUndefined();
   });
 
   it('asks main over its channel, and main’s answer settles the call', async () => {
@@ -50,6 +52,40 @@ describe('gugu in a program', () => {
     expect(call).toMatchObject({ m: APP_FRAME_MARKER, method: 'filesList', args: { place: { chat: CHAT } } });
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: call.id, ok: true, value: [{ id: 'item-1', name: 'a.md' }] });
     await expect(listing).resolves.toEqual([{ id: 'item-1', name: 'a.md' }]);
+  });
+
+  it('exposes projection sources and keeps later capture outside the finished calling agent scope', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const api = gugu.projection as { create(driver: { input(): Promise<void>; disconnect(): Promise<void>; refresh(): void; close(): void }): Promise<{
+      id: string; publish(frame: unknown): Promise<number>;
+    }> };
+    let published: Promise<number> | undefined;
+    const created = programCall.run('projection-tool-call', () => api.create({ input: async () => {}, disconnect: async () => {},
+      refresh: () => { published = source.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }); }, close() {},
+    }));
+    const creation = await nextCall(0);
+    expect(creation).toMatchObject({ method: 'projectionCreate', call: 'projection-tool-call' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: creation.id, ok: true, value: { id: 'projection-resource' } });
+    const source = await created;
+    const before = sent.length;
+    let control!: Promise<unknown>;
+    programCall.run('unrelated-active-call', () => {
+      deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
+      control = gugu.files.list({ chat: CHAT });
+    });
+    // Positive control: ordinary verbs still carry the surrounding call, but a
+    // host-owned capture callback must explicitly leave that caller's scope.
+    await vi.waitFor(() => expect(sent.slice(before).some(message => message.method === 'projectionPublish')).toBe(true));
+    const ordinary = sent.slice(before).find(message => message.method === 'filesList')!;
+    expect(ordinary).toMatchObject({ call: 'unrelated-active-call' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: ordinary.id, ok: true, value: [] });
+    await control;
+    const publication = sent.slice(before).find(message => message.method === 'projectionPublish')!;
+    expect(publication).toMatchObject({ method: 'projectionPublish', args: { id: 'projection-resource', frame: { sequence: 1 } } });
+    expect(publication).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: publication.id, ok: true });
+    await expect(published).resolves.toBe(1);
   });
 
   it('keeps file sync frames apart from calls: a sync frame is never taken for an answer', async () => {
