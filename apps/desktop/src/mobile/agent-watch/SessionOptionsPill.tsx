@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   SessionOptionDimension,
@@ -171,13 +171,23 @@ export function SessionOptionsPill({
   /** 等人确认的「换计费路」—— 与桌面会话菜单同一步:先问一句,再让宿主重开。 */
   const [reload, setReload] = useState<{ modelId: string; label: string; source: 'platform' | 'own' } | null>(null)
 
+  // #980 打开会话不叫醒 agent:没在跑的会话宿主只报得出记下的模型,权限档 / 推理档要等它跑起来。它跑完一轮
+  // (在跑 → 不在跑)时手里还只有那一份,就再读一次 —— ❌ 等人退出去再进来才看得到。
+  const [reread, setReread] = useState(0)
+  const wasBusy = useRef(busy)
+  const recordOnly = options !== null && !options.mode && !options.effort
+  useEffect(() => {
+    if (wasBusy.current && !busy && recordOnly) setReread((n) => n + 1)
+    wasBusy.current = busy
+  }, [busy, recordOnly])
+
   useEffect(() => {
     let cancelled = false
     fetchSessionOptions(deviceId, sessionId, phoneHost)
       .then((next) => { if (!cancelled) setOptions(next) })
       .catch((err) => { if (!cancelled) setError(describe(err)) })
     return () => { cancelled = true }
-  }, [deviceId, sessionId, phoneHost])
+  }, [deviceId, sessionId, phoneHost, reread])
 
   const groups = presentGroups(options)
   const root = groups[0]

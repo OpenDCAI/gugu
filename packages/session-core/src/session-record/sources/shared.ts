@@ -101,12 +101,12 @@ export function forEachJsonLine(
   lines: string[],
   name: string,
   warn: RecordSourceWarn,
-  visit: (record: Record<string, unknown>) => boolean
+  visit: (record: Record<string, unknown>, index: number) => boolean
 ): void {
   let bad = 0;
-  for (const line of lines) {
-    const record = parseJson(line);
-    if (!record || !visit(record)) bad += 1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const record = parseJson(lines[index]);
+    if (!record || !visit(record, index)) bad += 1;
   }
   if (bad > 0) warn(`${name} 记录里有无法解析的行，已跳过`, { count: bad });
 }
@@ -114,18 +114,23 @@ export function forEachJsonLine(
 /** 一批 onEntries 的大小。整份读一次几千条，一次性抛给上层会把 reducer 的一轮跑成一次长阻塞。 */
 const EMIT_CHUNK = 200;
 
-/** 一批 JSONL 行 → 条目，按 `EMIT_CHUNK` 分批交给 `sink`。`decode` 回 null = 坏行。 */
+/**
+ * 一批 JSONL 行 → 条目，按 `EMIT_CHUNK` 分批交给 `sink`。`decode` 回 null = 坏行。
+ * `annotate` 拿着这一行的下标看一眼解出来的条目(给工具图记原文位置,见 `locateImages`)。
+ */
 export function emitJsonLines(
   lines: string[],
   name: string,
   warn: RecordSourceWarn,
   sink: (entries: RecordEntry[]) => void,
-  decode: (record: Record<string, unknown>) => RecordEntry[] | null
+  decode: (record: Record<string, unknown>) => RecordEntry[] | null,
+  annotate?: (entries: RecordEntry[], index: number) => void
 ): void {
   let batch: RecordEntry[] = [];
-  forEachJsonLine(lines, name, warn, (record) => {
+  forEachJsonLine(lines, name, warn, (record, index) => {
     const entries = decode(record);
     if (!entries) return false;
+    annotate?.(entries, index);
     for (const entry of entries) {
       batch.push(entry);
       if (batch.length >= EMIT_CHUNK) {

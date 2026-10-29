@@ -8,7 +8,7 @@ import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { GUGU_MCP_CONFIG_KEY, normalizeGuguToolName } from '../mcp/gugu-mcp-name.mjs'
 import { joinPromptText, promptInputItems } from './codex-app-server-prompt.mjs'
-import { historyUnknownError, replayHistoryWithinBudget } from './codex-app-server-history.mjs'
+import { historyUnknownError, replayHistoryWithinBudget, resumeReplayRequest } from './codex-app-server-history.mjs'
 import { codexForkHandoffItems } from './codex-fork-handoff.mjs'
 import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mjs'
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
@@ -2339,6 +2339,12 @@ async function handleAcpRequest(message) {
     return
   }
   if (method === 'session/resume') {
+    // #980 先认请求要不要历史(ACP v2:不带 replayFrom = 不重放),认不了的游标当场拒,❌ 接回之后才报。
+    const replayRequest = resumeReplayRequest(params)
+    if (replayRequest.error) {
+      respond(id, undefined, replayRequest.error)
+      return
+    }
     const generation = ++loadGeneration
     const loadStartedAt = Date.now()
     await startApp(params.mcpServers)
@@ -2363,10 +2369,10 @@ async function handleAcpRequest(message) {
     }
     historyCanRevert = resumed?.thread?.historyMode === 'paginated' && !resumed?.thread?.ephemeral
     established = true
-    // 宿主可以明说不要历史。咕咕聊天那条路(acp-host)自己存消息,并且在 load 期间丢弃一切回放的
-    // session/update —— 给它拉历史是纯粹的浪费,还占着这次 load 的预算。默认仍然是重放:ACP 的
-    // 语义就是 load 要把对话流回去,不吭声的宿主按契约办。
-    const wantsReplay = params?._meta?.history?.replay !== false
+    // 宿主可以明说不要历史:会话页的历史由宿主直接读记录文件补齐(#980),给它拉历史是纯粹的浪费,
+    // 还占着这次 load 的预算。说法有两种,都认 —— ACP v2 的「不带 replayFrom」,以及老宿主的
+    // `_meta.history.replay === false`。
+    const wantsReplay = replayRequest.replay
     // 必须赶在 respond 之前:宿主拿到 load 的回包就退出 replaying 相位,之后到的历史不再算历史。
     // 截止时刻从 load 起点算 —— thread/resume 花掉的时间已经在里面了,不能当它免费。
     const replayDeadline = Math.min(

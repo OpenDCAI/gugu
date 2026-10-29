@@ -5,6 +5,7 @@ import type {
   SessionRecordSource,
   SessionRecordSourceEvents
 } from '../contract';
+import { locateImages, readRecordImage } from './record-images';
 import { emitJsonLines, pollInterval, warnOf, type SessionRecordSourceOptions } from './shared';
 import { TailReader, type TailResume } from './tail-reader';
 
@@ -40,10 +41,12 @@ export function createJsonlTailSource<S>(
   let sink: SessionRecordSourceEvents | null = null;
   let stopped = false;
 
-  const emit = (lines: string[]) => {
+  const emit = (lines: string[], offsets: number[]) => {
     if (stopped || !sink) return;
     const events = sink;
-    emitJsonLines(lines, format.name, warn, (entries) => events.onEntries(entries), (record) => format.decode(record, state));
+    const file = path;
+    emitJsonLines(lines, format.name, warn, (entries) => events.onEntries(entries), (record) => format.decode(record, state),
+      file ? (entries, index) => locateImages(entries, lines[index], offsets[index], file) : undefined);
   };
 
   return {
@@ -81,6 +84,7 @@ export function createJsonlTailSource<S>(
       reader.start();
     },
     catchUp: async () => reader?.catchUp(),
+    readImage: readRecordImage,
     async resumePoint() {
       if (!reader || !path) return null;
       const tail = await reader.resumePoint();
