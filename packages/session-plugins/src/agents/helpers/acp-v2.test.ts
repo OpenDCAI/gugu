@@ -18,6 +18,7 @@ function agentPair(opts: {
   const configRequests: v2.SetSessionConfigOptionRequest[] = [];
   const initializeRequests: v2.InitializeRequest[] = [];
   const cancels: unknown[] = [];
+  const resumeRequests: v2.ResumeSessionRequest[] = [];
   const toClient = new PassThrough();
   let context!: v2.AgentContext;
   v2.agent({ name: 'test-agent' })
@@ -46,6 +47,7 @@ function agentPair(opts: {
       ],
       availableCommands: [{ name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } }],
     }))
+    .onRequest(v2.methods.agent.session.resume, async ({ params }) => (resumeRequests.push(params), {}))
     .onRequest(v2.methods.agent.session.prompt, async ({ params }) => opts.prompt!(params))
     .onNotification(v2.methods.agent.session.cancel, async ({ params }) => { cancels.push(params); })
     .onRequest(v2.methods.agent.session.setConfigOption, async ({ params }) => {
@@ -65,7 +67,7 @@ function agentPair(opts: {
   const send = (u: unknown) =>
     context.notify(v2.methods.client.session.update, { sessionId: 's1', update: u as v2.SessionUpdate });
   const kinds = () => updates.map(({ event }) => event.kind);
-  return { api, updates, permissions, configRequests, initializeRequests, cancels, kinds, send, agent: () => context };
+  return { api, updates, permissions, configRequests, initializeRequests, cancels, resumeRequests, kinds, send, agent: () => context };
 }
 
 const initialize = (api: ReturnType<typeof agentPair>['api']) =>
@@ -119,6 +121,16 @@ describe('connectStdioAcpV2', () => {
     ]);
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(updates).toEqual([]);
+  });
+
+  it('resumes without replayFrom when the host turned history replay off, and from the start otherwise (#980)', async () => {
+    const pair = agentPair();
+    await initialize(pair.api);
+    await pair.api.loadSession!({ sessionId: 's1', cwd: '/w', mcpServers: [] });
+    await pair.api.loadSession!({ sessionId: 's1', cwd: '/w', mcpServers: [], _meta: { history: { replay: false } } });
+    expect(pair.resumeRequests[0]?.replayFrom).toEqual({ type: 'start' });
+    expect(pair.resumeRequests[1]).not.toHaveProperty('replayFrom');
+    expect(pair.resumeRequests[1]?._meta).toEqual({ history: { replay: false } });
   });
 
   it('sets a config option with the v2 tag of its value, which the agent validates', async () => {

@@ -54,6 +54,7 @@ import {
   type SessionSchedule,
 } from '@shared/core/automations/session-schedule';
 import { log } from '@main/lib/logger';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import {
   legacyAgentStatusWord,
   parseAgentStatus,
@@ -782,33 +783,37 @@ async function modelNames(provider: string | null): Promise<Map<string, string>>
   }
 }
 
+/** 会话记录里那一档模型(建会话 / 上次换模型时记下的),没有运行时也报得出来。 */
+async function recordedSessionOptions(row: SessionRow) {
+  const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
+  const platform = await sessionPlatformModel(row.id).catch(() => undefined);
+  return notStartedSessionOptions({
+    model: row.config?.model,
+    platformModelId: platform?.modelId,
+    names: await modelNames(row.provider),
+  });
+}
+
+/** 聊天腿的 agent 此刻在不在跑;问不到(运行时连不上)按不在跑算 —— 只读,❌ 为了问一句把它拉起来。 */
+async function acpRunning(row: SessionRow): Promise<boolean> {
+  try {
+    return await acpSessionLive(row.id);
+  } catch {
+    return false;
+  }
+}
+
 export async function sessionOptions(input: {
   conversationId: string;
 }): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
-  if (await neverStarted(row)) {
-    const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
-    const platform = await sessionPlatformModel(row.id).catch(() => undefined);
-    return {
-      ok: true,
-      value: notStartedSessionOptions({
-        model: row.config?.model,
-        platformModelId: platform?.modelId,
-        names: await modelNames(row.provider),
-      }),
-    };
-  }
-  // 参数(权限档 / 模型 / 推理档)住在活运行时里。聊天腿的老会话在 app 重启后引擎早没了 ——
-  // 桌面点进会话时会先把它拉起来再读,手机端不能少这一步,否则老会话的胶囊整条不画
-  // (owner 2026-09-15 真机:「找了个老对话,没法改会话参数」)。活着的会话这一步是空操作。
-  if (row.runtime === 'acp') {
-    try {
-      await ensureAcpSessionLive(row.id);
-    } catch (error) {
-      if (error instanceof SessionWriteError) return fail(error.code, error.message);
-      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
-    }
+  if (await neverStarted(row)) return { ok: true, value: await recordedSessionOptions(row) };
+  // #980 打开会话不叫醒 agent,手机上也一样(behavior session-page;owner 2026-10-30 取代 09-15「读选项先唤醒」):
+  // 手机打开会话就来读这一份,而参数(权限档 / 推理档)住在活运行时里。没在跑就报记录里那一档模型(带模型菜单,换得了),
+  // 权限档 / 推理档等它跑起来再报 —— 它们的 id 是各家运行时自己的。改一档是人点的,那一刻再起(`setSessionOptionValue`)。
+  if (row.runtime === 'acp' && !(await acpRunning(row))) {
+    return { ok: true, value: await withModelMenu(row, await recordedSessionOptions(row)) };
   }
   try {
     return { ok: true, value: await withModelMenu(row, await readSessionOptions(input.conversationId)) };
@@ -823,6 +828,16 @@ export async function setSessionOptionValue(
 ): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
+  // #980 打开时没叫醒它;改一档是人点的,参数又只有活运行时收得下 ⇒ 这一刻按桌面同一条「唤醒」拉起来。
+  // 从没开起来的 ❌:唤醒不带第一句话(见 not-started-options),它只报记下的那一档,本来就没有可改的。
+  if (row.runtime === 'acp' && !(await neverStarted(row))) {
+    try {
+      await ensureAcpSessionLive(row.id);
+    } catch (error) {
+      if (error instanceof SessionWriteError) return fail(error.code, error.message);
+      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
+    }
+  }
   try {
     return { ok: true, value: await withModelMenu(row, await setSessionOption(input)) };
   } catch (error) {
@@ -902,8 +917,11 @@ export function older(input: {
  * 走的是和 `older` 同一条路(设备 RPC → 会话时间线的口),server 宿主上也是这一份。
  */
 export async function toolImage(input: SessionpageSessionToolImageRequest): Promise<SessionTimelineResult<ToolImage>> {
+  // 存档装回来的轮里图只剩位置,要由时间线从记录里读回来(#980);没有这个口的(代读时间线)照旧在快照里找。
   const found = await withTimeline(input.conversationId, (timeline) =>
-    findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
+    timeline.toolImage
+      ? timeline.toolImage({ itemId: input.itemId, index: input.index })
+      : findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
   );
   if (!found.ok) return found;
   return found.value.ok ? { ok: true, value: found.value.image } : fail(found.value.code, found.value.message);
@@ -944,6 +962,86 @@ export async function recordHistoryPage(input: {
   } finally {
     release(acquired.value);
   }
+}
+
+/**
+ * #980 agent 自己的记录里,它收到过的每一条投递的消息编号。接回会话不再让 agent 重放之后,重启补投之前的去重
+ * 靠它(从前那份事实来自重放)。`null` = 这里读不出来(没有记录、读失败):调用方照「历史未知」处理,
+ * 补投照旧、标「可能已收到」—— ❌ 当成「一条都没收到」。
+ */
+export async function recordedDeliveryIds(conversationId: string): Promise<string[] | null> {
+  const turns = await recordTurns(conversationId);
+  if (!turns) return null;
+  const ids = new Set<string>();
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.kind !== 'message' || item.role !== 'user') continue;
+      for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
+        if (segment.facts?.messageId) ids.add(segment.facts.messageId);
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * #980 这条会话在 agent 自己的记录里的全部回合,读到此刻的文件尾。`null` = 这里读不出来(没有记录、读失败)。
+ * 与手机、助理读的是同一份时间线(同一份存档,只读文件新长出来的那一截)。
+ */
+export async function recordTurns(conversationId: string): Promise<TimelineSnapshot['turns'] | null> {
+  const picked = await pickRecordTurns(conversationId, async (turns) => turns, { images: false });
+  return picked.ok ? picked.turns : null;
+}
+
+type TranscriptTurns = TimelineSnapshot['turns'];
+
+/**
+ * #980 从记录的全部回合里挑出一些(`pick`),交回时**带着真图**。
+ *
+ * 存档装回来的轮里,工具截图只剩类型和字数(`imageRefs`),图要看时才按位置从记录里读回来。要把这几轮抄进库的人
+ * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
+ * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
+ */
+export async function pickRecordTurns(
+  conversationId: string,
+  pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
+  options: { images: boolean } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
+  const acquired = await acquire(conversationId);
+  if (!acquired.ok) return { ok: false };
+  try {
+    if (acquired.value.standIn) return { ok: false };
+    const timeline = acquired.value.timeline;
+    await timeline.catchUp();
+    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
+    if (!picked || !options.images) return { ok: true, turns: picked };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
+  } catch (error) {
+    log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
+    return { ok: false };
+  } finally {
+    release(acquired.value);
+  }
+}
+
+type ImageNode = { id: string; images?: unknown[]; imageRefs?: unknown[]; children?: ImageNode[] };
+
+async function withImagesReadBack<T extends TranscriptTurns[number]>(timeline: SessionTimeline, turn: T): Promise<T> {
+  const readBack = async (node: ImageNode): Promise<ImageNode> => {
+    let next = node;
+    if (!node.images && node.imageRefs?.length && timeline.toolImage) {
+      const found = await Promise.all(node.imageRefs.map((_, index) =>
+        timeline.toolImage!({ itemId: node.id, index, maxChars: Number.POSITIVE_INFINITY })));
+      if (found.every((one) => one.ok)) {
+        const { imageRefs: _refs, ...rest } = node;
+        next = { ...rest, images: found.map((one) => (one as Extract<typeof one, { ok: true }>).image) };
+      }
+    }
+    if (next.children?.length) next = { ...next, children: await Promise.all(next.children.map(readBack)) };
+    return next;
+  };
+  const items = await Promise.all(turn.items.map((item) => readBack(item as unknown as ImageNode)));
+  return { ...turn, items: items as unknown as T['items'] };
 }
 
 /**
