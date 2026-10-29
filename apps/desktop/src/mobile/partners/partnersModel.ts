@@ -2,6 +2,7 @@ import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { displayName, groupContacts } from '@/lib/contactsListSort'
+import { contactAgents, peopleContacts } from '@/components/contacts/contactSelectors'
 import { safePathSegment } from '@/session/shared/path-name'
 import { groupRowOrder, type GroupLayoutProject } from '@/session/renderer/features/projects/stores/project-group-layout'
 
@@ -45,12 +46,16 @@ export function partnerProjects(devices: readonly (Pick<Device, 'device_id' | 'p
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key))
 }
 
-/** 朋友 = 加过的人 + 群里遇到的别人的 agent(owner 10-26「别人那 agent 就是朋友」);我自己的 agent 不是朋友。按读音排。 */
-export function partnerFriends(contacts: readonly ContactUser[], sharedGroupAgents: readonly ContactUser[], myId: string | null): ContactUser[] {
-  const byId = new Map<string, ContactUser>()
-  for (const contact of contacts) if (contact.type !== 'agent') byId.set(contact.id, contact)
-  for (const agent of sharedGroupAgents) if (agent.owner_user_id && agent.owner_user_id !== myId) byId.set(agent.id, agent)
+/** 朋友只列加过的人,与桌面通讯录同一个 people-only selector;群里的 Agent 另列。按读音排。 */
+export function partnerFriends(contacts: readonly ContactUser[]): ContactUser[] {
+  const byId = new Map(peopleContacts(contacts).map(contact => [contact.id, contact]))
   return groupContacts([...byId.values()]).flatMap((section) => section.items)
+}
+
+/** 群里遇到的 Agent:同桌面 Agent 库的数据来源,只列别人的 Agent,按读音排。 */
+export function partnerGroupAgents(contacts: readonly ContactUser[], sharedGroupAgents: readonly ContactUser[], myId: string): ContactUser[] {
+  return groupContacts(contactAgents(contacts, sharedGroupAgents).filter(agent => agent.owner_user_id && agent.owner_user_id !== myId))
+    .flatMap(section => section.items)
 }
 
 export function matchesQuery(text: string, query: string): boolean {

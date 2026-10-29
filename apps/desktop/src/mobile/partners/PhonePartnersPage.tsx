@@ -5,6 +5,8 @@ import { AddFriendSearch } from '@/components/AddFriendSearch'
 import { Avatar } from '@/components/Avatar'
 import { NewFriendsPanel } from '@/components/NewFriendsPanel'
 import { ContactDetail } from '@/components/contacts/ContactDetail'
+import { AgentContactRow } from '@/components/contacts/AgentContactRow'
+import { peopleContacts } from '@/components/contacts/contactSelectors'
 import { GroupInviteJoinModal } from '@/components/contacts/GroupInvite'
 import { rowKeyActivate } from '@/components/contacts/contactsPanelStyles'
 import { Button } from '@/components/ui/Button'
@@ -28,7 +30,7 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { useToast } from '@/components/toastContext'
 import { messageForUser } from '@/lib/userFacingError'
 import { projectRpcOn } from './projectRpc'
-import { matchesQuery, partnerFriends, partnerProjects, projectSessions, runningCount, type PartnerProject } from './partnersModel'
+import { matchesQuery, partnerFriends, partnerGroupAgents, partnerProjects, projectSessions, runningCount, type PartnerProject } from './partnersModel'
 import { PhoneNewProjectPage, type CreatedProject } from './PhoneNewProjectPage'
 import { PhoneProjectContacts } from './PhoneProjectContacts'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
@@ -56,7 +58,8 @@ function NavRow({ icon, label, badge, testId, onClick }: { icon: ReactNode; labe
 
 /**
  * 手机「伙伴」一格(OpenDCAI/gugu#446,v7.12 稿;桌面仍是 ContactsPanel):新的请求、添加联系人两行入口,下面是项目(文件夹)
- * 和朋友。项目按建的先后、一行只有名字;朋友 = 人 + 别人的 agent。没有状态、没有提醒(那归「消息」),普通群也不在这里。
+ * 和朋友(只列人),群里遇到的别人的 Agent 单独列,复用桌面 Agent 库的行。项目按建的先后、一行只有名字;
+ * 项目和朋友没有状态、没有提醒(那归「消息」),普通群也不在这里。
  * 点进去的几页整屏推进来(没有底栏),由 onPushedChange 告诉外壳收起底栏。
  */
 export function PhonePartnersPage({
@@ -129,9 +132,10 @@ export function PhonePartnersPage({
     const device = machines.find((row) => row.device_id === deviceId)
     return device ? deviceSessionsOf(device, liveSessions).sessions : []
   }, [machines, liveSessions])
-  const friends = useMemo(() => partnerFriends(contacts, sharedGroupAgents, user.id), [contacts, sharedGroupAgents, user.id])
+  const friends = useMemo(() => partnerFriends(contacts), [contacts])
+  const groupAgents = useMemo(() => partnerGroupAgents(contacts, sharedGroupAgents, user.id), [contacts, sharedGroupAgents, user.id])
   const sentRequestIds = useMemo(() => new Set(sentRequests.map((request) => request.receiver_id)), [sentRequests])
-  const humanContacts = useMemo(() => contacts.filter((contact) => contact.type !== 'agent'), [contacts])
+  const humanContacts = useMemo(() => peopleContacts(contacts), [contacts])
   const requestAgent = useCallback(async (agent: ContactUser) => {
     if (requestingAgentId) return
     setRequestingAgentId(agent.id)
@@ -165,6 +169,7 @@ export function PhonePartnersPage({
 
   const shownProjects = projects.filter((project) => matchesQuery(project.name, query))
   const shownFriends = friends.filter((friend) => matchesQuery(displayName(friend), query))
+  const shownGroupAgents = groupAgents.filter(agent => matchesQuery(displayName(agent), query))
   const searching = query.trim() !== ''
 
   const projectPage = (page: Extract<PartnersPage, { kind: 'project' }>) => {
@@ -259,11 +264,16 @@ export function PhonePartnersPage({
                 const open = () => push({ kind: 'friend', contactId: friend.id })
                 return (
                   <ListRow key={friend.id} mobile role="button" tabIndex={0} data-testid="phone-partners-friend"
-                    leading={<Avatar name={displayName(friend)} avatarUrl={friend.avatar} seed={friend.id} size="md" isAgent={friend.type === 'agent'} harnessBadge={false} />}
+                    leading={<Avatar name={displayName(friend)} avatarUrl={friend.avatar} seed={friend.id} size="md" harnessBadge={false} />}
                     title={displayName(friend)} onClick={open} onKeyDown={rowKeyActivate(open)} />
                 )
               })}
-              {searching && !shownProjects.length && !shownFriends.length ? <div className="gg-partners-empty">{t('partners.noResults')}</div> : null}
+              {shownGroupAgents.length ? <SectionLabel>{t('partners.groupAgents', { count: shownGroupAgents.length })}</SectionLabel> : null}
+              {shownGroupAgents.map(agent => (
+                <AgentContactRow key={agent.id} contact={agent} mobile selected={false} testId="phone-partners-group-agent"
+                  onSelect={() => push({ kind: 'friend', contactId: agent.id })} />
+              ))}
+              {searching && !shownProjects.length && !shownFriends.length && !shownGroupAgents.length ? <div className="gg-partners-empty">{t('partners.noResults')}</div> : null}
             </div>
           </div>
         </Pane>
