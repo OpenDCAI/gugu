@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import './page-navigation-bootstrap'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
