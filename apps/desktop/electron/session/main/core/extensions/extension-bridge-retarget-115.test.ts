@@ -32,6 +32,7 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 // A page in a group hears its context only with its chat (「在本群打开」): the chat is read before the first push.
 vi.mock('@main/core/extensions/app-files', () => ({
   resourceChatOf: resourceChat,
+  localRootOf: async () => ({ workspaceRoot: '/projection-fixture' }),
   chatMembersOf: async () => [],
   surfaceChatOf: async () => ({ id: '0b000000-0000-4000-8000-000000000001', name: 'G', kind: 'group', groupId: '0b000000-0000-4000-8000-000000000001' }),
 }));
@@ -54,6 +55,43 @@ beforeEach(async () => {
 });
 
 describe('a resident page moved to another file (摩擦单 F115)', () => {
+  it('restores the old task when resolving the target file fails, including the rebind path', async () => {
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    const binding = extensionSurfaceBindingForTests(PAGE)!; binding.sessionId = 'task-a';
+    await expect(retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', filePath: '/projection-fixture/absent-file' })).rejects.toThrow(/ENOENT/);
+    expect(binding.sessionId).toBe('task-a');
+    await expect(bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-2', sessionId: 'task-b', filePath: '/projection-fixture/absent-file' })).rejects.toThrow(/ENOENT/);
+    expect(extensionSurfaceBindingForTests(PAGE)?.sessionId).toBe('task-a');
+  });
+
+  it('restores the last committed task when asynchronous retarget fails', async () => {
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    const binding = extensionSurfaceBindingForTests(PAGE)!;
+    binding.sessionId = 'task-a';
+    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    resourceChat.mockRejectedValueOnce(new Error('Membership lookup failed'));
+    await expect(retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT })).rejects.toThrow('Membership lookup failed');
+    expect(binding.sessionId).toBe('task-a');
+    // The renderer still remembers task-a, so it may not issue another retarget.
+    await retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-3', sessionId: 'task-c', chatId: CHAT });
+    expect(binding.sessionId).toBe('task-c');
+  });
+
+  it('does not let an older failed retarget overwrite a newer successful task', async () => {
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    const binding = extensionSurfaceBindingForTests(PAGE)!;
+    binding.sessionId = 'task-a';
+    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    const lookup = Promise.withResolvers<string>();
+    resourceChat.mockImplementationOnce(() => lookup.promise);
+    const old = retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT });
+    const rejected = expect(old).rejects.toThrow('Old lookup failed');
+    await vi.waitFor(() => expect(resourceChat).toHaveBeenCalledOnce());
+    await retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-3', sessionId: 'task-c', chatId: CHAT });
+    lookup.reject(new Error('Old lookup failed')); await rejected;
+    expect(binding.sessionId).toBe('task-c');
+  });
+
   it('in the same slot: it hears the new context once, with the size it has', async () => {
     await retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-1', chatId: CHAT, itemId: CFG });
     // The slot says its size again after every move (extension-view-layer `aimAt`).
@@ -86,4 +124,24 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
       [CFG, 360],
     ]);
   });
+  it('invalidates a task binding before asynchronous retarget work and closes viewers on rebind', async () => {
+    const { extensionProjections } = await import('./extension-projection-bridge');
+    const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
+    const closed = vi.spyOn(extensionProjections, 'closePage');
+    const binding = extensionSurfaceBindingForTests(PAGE)!;
+    binding.sessionId = 'task-a';
+    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    let finish!: () => void;
+    resourceChat.mockImplementationOnce(async id => { await new Promise<void>(resolve => { finish = resolve; }); return id; });
+    try {
+      const moving = retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT });
+      expect(binding.sessionId).toBeNull();
+      expect(closed).toHaveBeenLastCalledWith(PAGE);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function')); finish(); await moving;
+      expect(binding.sessionId).toBe('task-b');
+      await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-3' });
+      expect(closed).toHaveBeenCalledTimes(2);
+    } finally { closed.mockRestore(); }
+  });
+
 });

@@ -168,22 +168,26 @@ export class AcpLiveSession {
   }
 
   uploadAttachment(input: {
+    uploadId?: string;
     data?: Uint8Array;
     source?: BlobSource;
     size?: number;
     mimeType: AttachmentMimeType;
     name?: string;
     originalPath?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: { sent: number; total?: number }) => void;
   }): Promise<Result<AttachmentRef, unknown>> {
     return this.client.uploadAttachment(
-      { originalPath: input.originalPath },
+      { originalPath: input.originalPath, uploadId: input.uploadId },
       {
         name: input.name ?? 'attachment',
         mimeType: input.mimeType,
         size: input.size ?? input.data?.byteLength,
         source:
           input.source ?? (input.data ? singleChunk(input.data) : singleChunk(new Uint8Array())),
-      }
+      },
+      { signal: input.signal, onProgress: input.onProgress }
     );
   }
 
