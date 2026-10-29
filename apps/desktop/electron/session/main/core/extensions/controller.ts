@@ -28,7 +28,7 @@ import type { ExtensionDisclosure } from '@main/core/extensions/extensions-servi
 import type { AppVariants } from '@shared/extensions/variants';
 import { placeFor, placeLink } from '@shared/extensions/file-openers';
 import { removeUninstalledLeftovers } from '@main/core/extensions/extension-session-snapshot';
-import { extensionPrograms, extensionProgramStatus, retireExtensionPrograms, toolVisibleTo } from '@main/core/extensions/extension-programs';
+import { extensionPrograms, extensionProgramStatus, retireExtensionPrograms, revokeExtensionPrograms, toolVisibleTo } from '@main/core/extensions/extension-programs';
 import { firstSentence } from '../../../../mcp/first-sentence';
 import {
   extensionOpened,
@@ -799,6 +799,9 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       service.setPermissionGranted(args.extensionId, args.permission, args.granted);
+      if (args.permission === 'agents:tools' && !args.granted) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission withdrawal:', error));
+      }
       const installed = service.get(args.extensionId);
       configureExtensionSession({
         extensionId: installed.manifest.id,
@@ -840,6 +843,9 @@ export const extensionsController = createRPCController({
     try {
       const service = extensionsService();
       service.setEnabled(args.extensionId, args.enabled);
+      if (!args.enabled) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after being disabled:', error));
+      }
       if (!args.enabled) reloadExtensionSurfaces(args.extensionId);
       if (forgetQuit(args.extensionId)) events.emit(extensionsQuitChangedChannel, { quit: quitExtensions() });
       // 后台与**启用状态**同生死,不与 tab 同生死:停用即销毁,启用即拉起。
@@ -1005,7 +1011,7 @@ export const extensionsController = createRPCController({
     try {
       const identity = args.lastAnywhere ? extensionsService().identityOf(args.extensionId) : null;
       extensionsService().uninstall(args.extensionId);
-      if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
+      const stopped = revokeExtensionPrograms(args.extensionId);
       // F87: open group pages list again with the removed App's file claims withdrawn; device capability follows too,
       // before asynchronous storage cleanup can yield to a heartbeat.
       void notifyInstalledAppsChanged();
@@ -1015,15 +1021,14 @@ export const extensionsController = createRPCController({
       closeCheckPages({ extensionId: args.extensionId });
       // The bundle is gone; its storage must go with it, or a reinstall would
       // silently inherit state the user believed they had removed.
-      await clearExtensionSessionData(args.extensionId);
-      // #6387 其数据文件夹(页面与它的 MCP 程序共用的那份)和程序跑的冻结副本同理,随扩展一起走:程序像升级时的
-      // 旧版一样退出池子(在途的调用先跑完),退干净了当场删。10-06 实撞:卸载后程序还开着聊天文件,下一帧把咕咕整个
-      // 带走了。删之前再看一眼:这期间又装上了,就不删新装的那份。
+      // Uninstall cancels now, unlike an upgrade's drain. Do not clear data while its old process can still write it.
       const { extensionId } = args;
-      void retireExtensionPrograms(extensionId).then(() => {
-        if (extensionsService().isInstalled(extensionId)) return;
+      await stopped;
+      if (identity) void (await import('@main/core/extensions/app-given')).forgetAccountGrants(identity);
+      if (!extensionsService().isInstalled(extensionId)) {
+        await clearExtensionSessionData(extensionId);
         removeUninstalledLeftovers(app.getPath('userData'), extensionDataRoot(extensionId), extensionId);
-      }).catch((error: unknown) => log.error('extensions: the files of an uninstalled App could not be removed', { extensionId, error }));
+      }
       if (forgetQuit(extensionId)) events.emit(extensionsQuitChangedChannel, { quit: quitExtensions() });
       syncExtensionBackgrounds();
       // #6264 卸载也可能来自另一台桌面(设备 RPC):这台的窗口据此撤下 provider,开着的 tab 退回占位。

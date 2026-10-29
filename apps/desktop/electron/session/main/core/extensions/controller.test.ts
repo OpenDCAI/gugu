@@ -145,7 +145,7 @@ import { EXTENSION_BRIDGE_CHANNEL } from '@shared/extensions/bridge-protocol';
 import { packExtensionArchive } from './extension-archive';
 import { extensionsService } from './extensions-root';
 import { cloudExtensionMarket } from './market-catalog-root';
-import { extensionPrograms, type ExtensionProgram } from './extension-programs';
+import { extensionPrograms, onExtensionProgramNotification, stopAllExtensionPrograms, type ExtensionProgram } from './extension-programs';
 import { installedComputerUseApps } from '../../../../computer-use-program';
 import { syncDeviceHeartbeat } from '@gugu/core/cloud/deviceRuntime';
 import { MemoryHeartbeatClient } from '../../../../../../../tests/support/deviceRuntimeHarness';
@@ -198,6 +198,65 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it.each(['disable', 'permission', 'uninstall'] as const)('%s interrupts an already running App program', async (action) => {
+    const root = mkdtempSync(join(tmpdir(), 'gugu-app-revoke-'));
+    const release = join(root, 'release');
+    const script = join(root, 'server.mjs');
+    writeFileSync(script, String.raw`
+import { existsSync } from 'node:fs';
+let buffer = '';
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+    const message = JSON.parse(buffer.slice(0, end));
+    buffer = buffer.slice(end + 1);
+    if (message.id === undefined) continue;
+    const reply = result => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\n');
+    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'revoke', version: '1' } });
+    if (message.method === 'tools/call') {
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/revoke/started' }) + '\n');
+      const finish = () => existsSync(process.argv[2]) ? reply({ content: [{ type: 'text', text: 'completed' }] }) : setTimeout(finish, 10);
+      finish();
+    }
+  }
+});
+process.stdin.on('end', () => process.exit(0));
+`);
+    const source = writeBundle([], undefined, ['agents:tools']);
+    const manifestPath = join(source, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.contributes.mcpServers = [{ name: 'revocation-test', command: 'node', args: ['server.mjs'] }];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(join(source, 'server.mjs'), readFileSync(script));
+    const inspected = await folderAsk(source);
+    expect((await folderGiven(source, inspected.ask.manifestDigest)).success).toBe(true);
+    const target: ExtensionProgram = { extensionId: EXTENSION_ID, server: 'revocation-test', digest: action,
+      command: process.execPath, args: [script, release], cwd: root, env: {}, dataDir: join(root, 'data') };
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id, server, notification) => {
+      if (id === EXTENSION_ID && server === target.server && notification.method === 'notifications/revoke/started') started();
+    });
+    let outcome = 'pending';
+    const call = extensionPrograms.call(target, { name: 'hold' }, { signal: new AbortController().signal })
+      .then(() => { outcome = 'completed'; }, () => { outcome = 'interrupted'; });
+    try {
+      await entered;
+      const result = action === 'disable' ? await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false })
+        : action === 'permission' ? await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'agents:tools', granted: false })
+          : await extensionsController.uninstall({ extensionId: EXTENSION_ID });
+      expect(result.success).toBe(true);
+      await expect.poll(() => outcome, { timeout: 1_000 }).toBe('interrupted');
+      await expect(extensionPrograms.call(target, { name: 'hold' }, { signal: new AbortController().signal }))
+        .rejects.toMatchObject({ code: 'denied' });
+    } finally {
+      off();
+      writeFileSync(release, '');
+      await call;
+      await stopAllExtensionPrograms();
+    }
+  });
+
   it('lists variant metadata with the inventory and isolates an unreadable App', async () => {
     await installViaController([]);
     const other = writeBundle([]);

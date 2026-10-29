@@ -2,7 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import {
   callerMeta,
@@ -10,6 +11,7 @@ import {
   extensionProgramStatus,
   onExtensionProgramNotification,
   retireExtensionPrograms,
+  revokeExtensionPrograms,
   stopAllExtensionPrograms,
   toolVisibleTo,
   type ExtensionProgram,
@@ -136,6 +138,102 @@ afterEach(async () => {
 });
 
 describe('extension programs run by gugu (#6615)', () => {
+  it.each(['person', 'agent'] as const)('revokes an in-flight %s page call without stopping another App', async (caller) => {
+    const release = path.join(dir, `page-${caller}-release`);
+    const own = program(`page-${caller}`, 'v1', 'held', release);
+    const first = await whoami(own, 'user:a');
+    const otherRelease = path.join(dir, `other-${caller}-release`);
+    const other = program(`other-${caller}`, 'v1', 'held', otherRelease);
+    const unaffected = await whoami(other, 'user:b');
+    let otherOutcome = 'pending';
+    const otherCall = whoami(other, 'user:c').then(value => { otherOutcome = 'completed'; return value; }, () => { otherOutcome = 'interrupted'; return undefined; });
+    extensionPrograms.setSource(() => [own]);
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id) => { if (id === own.extensionId) started(); });
+    const inFlight = extensionPrograms.callFromPage(own.extensionId, { name: 'whoami', from: caller === 'person'
+      ? { sessionId: 'task-f' } : { agent: 'user:11111111-1111-4111-8111-111111111111', agentSession: 'task-f' } });
+    const ended = inFlight.then(() => 'completed', () => 'interrupted');
+    try {
+      await holding;
+      await revokeExtensionPrograms(own.extensionId);
+      expect(await ended).toBe('interrupted');
+      await exited('revoked page program exits', first.pid);
+      expect(otherOutcome).toBe('pending');
+      fs.writeFileSync(otherRelease, '');
+      expect((await otherCall)?.pid).toBe(unaffected.pid);
+    } finally {
+      off();
+      fs.writeFileSync(release, '');
+      fs.writeFileSync(otherRelease, '');
+      await ended;
+      await otherCall;
+      extensionPrograms.setSource(() => []);
+    }
+  });
+
+  it('a revoked startup cannot return to the pool or delete the replacement startup', async () => {
+    const realConnect = Client.prototype.connect;
+    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    let connections = 0;
+    const connect = vi.spyOn(Client.prototype, 'connect').mockImplementation(async function (this: Client, ...args) {
+      await realConnect.apply(this, args);
+      const index = connections++;
+      if (index < 2) {
+        entered[index].resolve();
+        await gates[index].promise;
+      }
+    });
+    const target = program('early-revoke', 'v1');
+    const old = whoami(target, 'user:a').then(() => 'completed', () => 'interrupted');
+    try {
+      await entered[0].promise;
+      await revokeExtensionPrograms(target.extensionId);
+      const replacement = whoami(target, 'user:b');
+      await entered[1].promise;
+      gates[0].resolve();
+      expect(await old).toBe('interrupted');
+      await new Promise((resolve) => setImmediate(resolve));
+      // The old finally has run; this call must share the replacement still initializing.
+      const shared = whoami(target, 'user:c');
+      gates[1].resolve();
+      const [b, c] = await Promise.all([replacement, shared]);
+      expect(c.pid).toBe(b.pid);
+      expect(connections).toBe(2);
+      expect(extensionProgramStatus(target.extensionId).running).toBe(1);
+    } finally {
+      for (const gate of gates) gate.resolve();
+      connect.mockRestore();
+      await old;
+    }
+  });
+
+  it('cancelling one call preserves another task sharing the same program', async () => {
+    const release = path.join(dir, 'one-call-release');
+    const target = program('one-call', 'v1', 'held', release);
+    const first = await whoami(target, 'user:a');
+    let started!: () => void;
+    const holding = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id) => { if (id === target.extensionId) started(); });
+    const controller = new AbortController();
+    const cancelled = extensionPrograms.call(target, { name: 'whoami' }, { signal: controller.signal })
+      .then(() => 'completed', () => 'interrupted');
+    try {
+      await holding;
+      const other = whoami(target, 'user:b');
+      controller.abort(new Error('stop this task'));
+      expect(await cancelled).toBe('interrupted');
+      expect(alive(first.pid)).toBe(true);
+      fs.writeFileSync(release, '');
+      expect((await other).pid).toBe(first.pid);
+    } finally {
+      off();
+      fs.writeFileSync(release, '');
+      await cancelled;
+    }
+  });
+
   it('shows a real MCP tool failure even while the native client process is running, and clears it after a successful call', async () => {
     const target = program('desktop-client', 'v1', 'tool-error');
     const call = () => extensionPrograms.call(target, { name: 'whoami' }, { signal: new AbortController().signal });
@@ -370,7 +468,7 @@ describe('extension programs run by gugu (#6615)', () => {
 
 describe("an extension's own pages call its programs (#6635)", () => {
   const page = program('page-ext', 'v1', 'visibility');
-  extensionPrograms.setSource(() => [page]);
+  beforeEach(() => extensionPrograms.setSource(() => [page]));
   const fromPage = (name: string, args: Record<string, unknown> = {}) =>
     extensionPrograms.callFromPage('page-ext', { name, arguments: args, from: { sessionId: 'task-1' } });
 
