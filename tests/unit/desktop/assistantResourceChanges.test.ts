@@ -95,6 +95,25 @@ it('summarizes more than twenty changes and oversized names under 1500 character
   expect((await journal.prepare()).text.length).toBeLessThanOrEqual(1500)
 })
 
+it('tells an already-running assistant once when a connected application gains its delegation route', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['feishu'] }))
+  await (await journal.prepare()).accepted()
+  // After a server upgrade the same connection carries how to use it; a resumed session only learns it from this notice.
+  const routed = snapshot({ apps: ['feishu'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'feishu:default', name: 'feishu', modifiedAt: stamp,
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] } }] })
+    : line)
+  await journal.observe(routed)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('飞书已连接，要用就派任务')
+  expect(notice.text).toContain('lark-calendar')
+  expect(notice.text).toContain('session_spawn')
+  await notice.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('includes a configured application on the next message and disconnects it once', async () => {
   const { journal } = await fixture()
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })
