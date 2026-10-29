@@ -231,7 +231,7 @@ describe('DevicesSection interaction', () => {
       expect(server.dataset.kind).toBe('server')
       expect(server.textContent).toContain('Ubuntu 22.04.5 LTS · arm64')
       expect(server.textContent).toContain('咕咕 server 0.2.99')
-      expect(server.textContent).toContain('有新版本')
+      expect(server.textContent).toContain('新版本已就绪，等待空闲')
       expect(server.textContent).toContain('上次在线 3 小时前')
       expect(server.textContent).toContain('远程 SSH：alice@box:2222')
       const me = Array.from(rows).find((row) => row.dataset.deviceId === 'me')!

@@ -387,7 +387,7 @@ export default {
       "updating": "Gugu server on {{name}} is too old. Updating…",
       "retryUpdate": "Retry",
       "waitingIdle": "Agents are running on {{name}}. It updates once they're idle.",
-      "updateNow": "Restart now",
+      "updateNow": "Restart and update now",
       "later": "Later",
       "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
       "confirmRestart": "Restart",
@@ -783,9 +783,9 @@ export default {
     "update": {
       "downloading": "Updating",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
-      "ready": "Update ready",
+      "ready": "New version ready, waiting for idle",
       "readyHint": "{{version}} downloaded; switches when idle.",
-      "updateNow": "Restart now",
+      "updateNow": "Restart and update now",
       "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
       "confirmRestart": "Restart"
     },

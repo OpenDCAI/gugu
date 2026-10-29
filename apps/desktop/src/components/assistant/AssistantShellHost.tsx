@@ -268,7 +268,7 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       case 'chat': return contact ? <AssistantChatSlot dm={dm} assistantId={contact.id} assistantName={contact.display_name} visible={visible} {...chatHandlers} /> : null
       case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} panelNavigation />
       case 'connectors': return <ConnectorsSection panelNavigation />
-      case 'settings': return <AssistantSettingsPage />
+      case 'settings': return <AssistantSettingsPage panelNavigation />
     }
   }
   return (

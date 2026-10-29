@@ -31,3 +31,24 @@ it('keeps standalone settings out of the panel toolbar', async () => {
   await harness.render(<Settings />)
   expect(harness.container.textContent).toBe('standalone')
 })
+
+it('returns through a nested detail before restoring its parent section across roots', async () => {
+  const toolbar = createReactHarness(), content = createReactHarness()
+  harnesses.push(toolbar, content)
+  function Toolbar() { const page = useAssistantPanelPage(); return page ? <button onClick={page.back}>{page.key}</button> : null }
+  function Detail({ close }: { close: () => void }) { useAssistantPanelBack('connector:feishu', close); return <span>Feishu detail</span> }
+  function Content() {
+    const [section, setSection] = useState(true), [detail, setDetail] = useState(true)
+    useAssistantPanelBack(section ? 'settings:connectors' : null, () => setSection(false), 0)
+    return section ? detail ? <Detail close={() => setDetail(false)} /> : <span>App list</span> : <span>Settings</span>
+  }
+  await toolbar.render(<Toolbar />)
+  await content.render(<Content />)
+  expect(toolbar.container.textContent).toBe('connector:feishu')
+  await clickElement(toolbar.container.querySelector('button')!)
+  expect(content.container.textContent).toBe('App list')
+  expect(toolbar.container.textContent).toBe('settings:connectors')
+  await clickElement(toolbar.container.querySelector('button')!)
+  expect(content.container.textContent).toBe('Settings')
+  expect(toolbar.container.querySelector('button')).toBeNull()
+})
