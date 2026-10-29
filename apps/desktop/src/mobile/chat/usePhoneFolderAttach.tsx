@@ -51,7 +51,7 @@ export function usePhoneFolderAttach(project: ChatTaskFolders | null, devices: D
       })
       if (result) {
         setAdded((current) => [...current.filter((item) => item.folder.workspaceId !== result.folder.workspaceId), {
-          folder: { ...result.folder, attachedAt: result.folder.attachedAt ?? new Date().toISOString(), offline: false },
+          folder: { ...result.folder, attachedAt: result.folder.attachedAt ?? new Date().toISOString(), offline: false, deviceId: device.device_id },
           home: { deviceId: device.device_id, localProjectId: result.folder.projectId, machine: { id: device.device_id, label: device.label || device.hostname, online: true, kind: device.capabilities.host_kind === 'desktop' ? 'computer' : 'server' } },
         }])
         notify({ title: st('projects.folders.attachedOn', { machine: device.label || device.hostname, path: shortHome(result.folder.path), projectName: project.name }), duration: 8000,

@@ -1,6 +1,7 @@
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { FolderCardMachine } from '@renderer/features/projects/components/main-panel/project-folder-card'
 import type { ShownFolder } from '@renderer/features/projects/components/main-panel/project-folders'
+import { groupRowOrder, type GroupLayoutProject } from '@renderer/features/projects/stores/project-group-layout'
 
 /** 一张文件夹从哪台机器、哪个本地项目开工(手机派新任务时带给那台机器)。 */
 export type TaskFolderHome = { deviceId: string; localProjectId: string; machine: FolderCardMachine }
@@ -23,7 +24,7 @@ export type ChatTaskFolders = {
 export function taskFoldersOfChat(devices: readonly Device[], chatId: string): ChatTaskFolders | null {
   const homes = new Map<string, TaskFolderHome>()
   const folders: ShownFolder[] = []
-  let representative: { id: string; name: string; chosen: boolean } | null = null
+  const candidates: (GroupLayoutProject & { name: string })[] = []
   for (const device of devices) {
     for (const project of device.projects ?? []) {
       if (project.chatId !== chatId) continue
@@ -34,10 +35,10 @@ export function taskFoldersOfChat(devices: readonly Device[], chatId: string): C
         kind: device.capabilities.host_kind === 'desktop' ? 'computer' : 'server',
       }
       homes.set(project.localProjectId, { deviceId: device.device_id, localProjectId: project.localProjectId, machine })
-      // 机器自己标的「代表这个群的那一个」优先;都没标就取先读到的。
-      if (!representative || (project.groupRepresentative && !representative.chosen)) {
-        representative = { id: project.localProjectId, name: project.name, chosen: project.groupRepresentative }
-      }
+      candidates.push({
+        id: project.localProjectId, name: project.name, createdAt: project.createdAt,
+        machine: device.is_current_device ? null : device.device_id, online: device.is_online,
+      })
       for (const folder of project.folders) {
         folders.push({
           workspaceId: folder.workspaceId,
@@ -48,10 +49,13 @@ export function taskFoldersOfChat(devices: readonly Device[], chatId: string): C
           sessionIds: [],
           attachedAt: folder.attachedAt,
           offline: !device.is_online,
+          deviceId: device.device_id,
         })
       }
     }
   }
-  if (!representative) return null
-  return { rowId: representative.id, name: representative.name, memberIds: [...homes.keys()], folders, homeOf: (id) => homes.get(id) }
+  // 卡片的代表 = 桌面侧栏合并那一行的同一个(groupRowOrder:这台 → 连着的 → 最早建的 → id)。
+  const [row] = candidates.sort(groupRowOrder)
+  if (!row) return null
+  return { rowId: row.id, name: row.name, memberIds: [...homes.keys()], folders, homeOf: (id) => homes.get(id) }
 }

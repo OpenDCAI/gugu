@@ -36,19 +36,6 @@
 .ta-onb-choice-actions > button,
 .ta-onb-chips > button { min-height: var(--control-h-touch); }
 .ta-onb-list { width: 100%; max-height: 46vh; overflow: auto; text-align: left; }
-.ta-onb-swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.ta-onb-swatch {
-  appearance: none;
-  margin: 0;
-  height: var(--control-h-touch);
-  width: var(--control-h-touch);
-  border-radius: 999px;
-  border: 0;
-  cursor: pointer;
-  background: oklch(0.74 0.1 var(--swatch-h));
-  box-shadow: none;
-}
-.ta-onb-swatch:checked { outline: 2px solid var(--fg); outline-offset: 3px; }
 .ta-onb-choices { display: flex; width: 100%; flex-direction: column; gap: 12px; }
 .ta-onb-choice {
   display: flex;
@@ -71,7 +58,6 @@
 .ta-onb .ta-input,
 .ta-onb .ta-pill-btn { border: 1px solid var(--border); border-radius: var(--radius-control); box-shadow: none; }
 .ta-onb .ta-input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.ta-onb-swatches { width: min(300px, 100%); align-self: center; }
 
 /* 助理单独在上,下面两项对应这台设备的入口。 */
 .ta-onb-intro-gugu { display: flex; width: 100%; flex-direction: column; gap: 4px; text-align: left; }

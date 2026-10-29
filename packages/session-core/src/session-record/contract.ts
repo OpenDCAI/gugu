@@ -587,7 +587,8 @@ export type SessionpageSessionReloadModelRequest = {
   modelSource: 'platform' | 'own';
 };
 
-export type SessionpageProjectSummary = { id: string; name: string; path: string };
+/** `kind: 'workspace'`(#609):咕咕自己要用的目录(任务工作区、替人登记的 ~),不是项目 —— 它的会话列在「任务」里。 */
+export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
   conversationId: string;

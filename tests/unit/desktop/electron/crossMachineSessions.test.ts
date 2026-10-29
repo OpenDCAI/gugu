@@ -618,3 +618,16 @@ it('prepares a dormant work seat only through the dedicated capability and never
   expect(call).toHaveBeenCalledOnce()
   expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
 })
+
+describe('an agent\'s session on another machine, for opening it', () => {
+  const rows = [{ conversationId: 's-b', projectId: 'pb', agent: { userId: 'agent-b' } }]
+  it('finds the machine from the roster and the session in that machine\'s list; an agent here is not looked for there', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { projects: [], sessions: rows } }), {
+      lookupAgents: async ({ userIds }) => userIds.map((userId) => ({ userId, deviceId: userId === 'agent-a' ? 'dev-a' : 'dev-b', guguNumber: null })),
+    })
+    expect(await xm.sessionOfAgent('agent-b')).toEqual({ sessionId: 's-b', deviceId: 'dev-b' })
+    expect(await xm.sessionOfAgent('agent-a')).toBeNull()
+    expect(await xm.sessionOfAgent('agent-x', 'dev-b')).toBeNull()
+    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([['dev-b', 'sessionTimeline.sessionsList'], ['dev-b', 'sessionTimeline.sessionsList']])
+  })
+})

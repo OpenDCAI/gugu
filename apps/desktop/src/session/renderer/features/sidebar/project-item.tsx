@@ -29,7 +29,6 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { HOME_PROJECT_LABEL } from '@renderer/features/remote-hosts/machine-home';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { ProjectNeedsYouDot, ProjectRowTitle } from './project-row-parts';
-import { RemoteHostChip } from './remote-host-chip';
 import { SidebarUnreadCount } from './sidebar-list-switch';
 import { useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
@@ -268,8 +267,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               className={cn(
                 'truncate font-medium transition-colors select-none',
                 (projectViewKind(getProjectStore(projectId)) === 'bootstrapping' || machineDown) &&
-                  'text-foreground-tertiary-passive',
-                isHomeRow && machine && 'flex-initial'
+                  'text-foreground-tertiary-passive'
               )}
             >
               <ProjectRowTitle name={isHomeRow ? projectLabel : project.name}>
@@ -296,7 +294,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                 )}
               </ProjectRowTitle>
             </SidebarMenuAction>
-            {isHomeRow && machine && !assistantGroup ? <RemoteHostChip deviceId={machine.id} /> : null}
             {!isHomeRow && deviceIds.length > 1 ? (
               <span className="shrink-0 text-xs font-normal text-foreground-passive" title={deviceLabels.join(' · ')} data-testid="project-device-count">
                 {translate('projects.folders.deviceCount', { count: deviceIds.length })}

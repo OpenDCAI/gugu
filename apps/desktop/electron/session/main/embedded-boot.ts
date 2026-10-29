@@ -67,7 +67,6 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
-import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
@@ -101,6 +100,7 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
@@ -514,6 +514,13 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
+  try {
+    const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
+    if (demoted.length > 0) log.info('project-kind: app-kept directories are workspaces now', { demoted })
+  } catch (error) {
+    log.error('project-kind: migration failed; retrying next start', { error: String(error) })
+  }
   await tmuxBackendStartupSweepSettled()
   await runTaskToSessionOnce({ db: sqlite, userData: app.getPath('userData') }).then(
     (summary) => { if (summary) log.info('task-to-session: segment 2 done', { summary }) },
@@ -935,6 +942,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
+export { setSessionOpening } from '@main/core/extensions/gugu-links'
+
 export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
   return await openLink(url)
 }
@@ -2386,12 +2395,13 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   lastInteractedAt: string | null
 }>> {
   const [rows, projectRows] = await Promise.all([getSessions(), getProjects()])
-  const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
+  // #609 workspace 不是项目,不带名字(与心跳摘要同一条,见 sessionpageSessionDigest)。
+  const projectName = new Map(projectRows.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
     projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
-    projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
+    projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus
       ? { status: session.agentStatus, detail: session.agentStatusDetail ?? null }
@@ -2447,13 +2457,14 @@ export function sessionpageSessionDigest(): Array<{
   refreshDigestAgents()
   const agents = digestAgents
   const { projects, sessions } = listSessionStates()
-  const projectName = new Map(projects.map((project) => [project.id, project.name]))
+  // #609 workspace(任务工作区、替人登记的 ~)不是项目:摘要里不带它的名字,读方据此把它的会话列进「任务」。
+  const projectName = new Map(projects.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return [...sessions]
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
       conversationId: session.conversationId,
       projectId: session.projectId,
-      projectName: isImplicitSessionHomeProjectId(session.projectId) ? '' : projectName.get(session.projectId) ?? '',
+      projectName: projectName.get(session.projectId) ?? '',
       title: session.title,
       harness: session.harness,
       agentStatus: session.agentStatus,

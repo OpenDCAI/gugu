@@ -177,6 +177,13 @@ function inheritTwinProvenance(
   }
 }
 
+type PendingInstall = {
+  method: InstallMethod | undefined;
+  registry: string | null;
+  target?: InstallTarget;
+  targetRealpaths?: string[];
+};
+
 function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult, versionLine?: RegExp): DependencyStatus {
   // 口径只有一份,在 probe.ts。`resolvedPath` 与 `probe.path` 是同一个值(runVersionProbe
   // 就是把它写进 path 的),所以这里直接把探测结果交过去。
@@ -299,15 +306,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
    * which is the only place where the resulting realpath and version are both known.
    * A null value means the command pinned nothing, so any earlier record must be dropped.
    */
-  private pendingInstall = new Map<
-    DependencyId,
-    {
-      method: InstallMethod | undefined;
-      registry: string | null;
-      target?: InstallTarget;
-      targetRealpaths?: string[];
-    }
-  >();
+  private pendingInstall = new Map<DependencyId, PendingInstall>();
   private lastInstallRecords = new Map<DependencyId, InstallRecord | null>();
   /** 上一次报出去的读数,用来判「变了没有」。见 `logReading`。 */
   private lastReadings = new Map<DependencyId, InstallationReading>();
@@ -1191,16 +1190,28 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     await this.ctx.refreshShellEnv?.();
     this.detector.invalidate();
 
-    this.pendingInstall.set(id, {
+    const pending: PendingInstall = {
       method: option?.method,
       registry: option?.target?.kind === 'mise' ? option.registry ?? 'official' : pinnedRegistryIn(command, option?.registry),
       target: option?.target,
-    });
+    };
+    this.pendingInstall.set(id, pending);
     this.lastInstallRecords.delete(id);
 
     const state = await this.probe(id);
     if (state.status !== 'available' || (option?.target && !this.lastInstallRecords.get(id))) {
-      this.logOperation('install', 'failed', id, { error: 'not-detected-after-install' });
+      // 说清「没找到」是哪一种:装的那份在哪儿找过、找到了什么、每一份探出来是什么。
+      this.logOperation('install', 'failed', id, {
+        error: 'not-detected-after-install',
+        status: state.status,
+        path: state.path,
+        target: option?.target ?? null,
+        searched: option?.target ? this.detector.targetSearchDirs?.(option.target) ?? null : null,
+        found: pending.targetRealpaths ?? [],
+        installations: (this.getHostDependency(id)?.installations ?? []).map((i) => ({
+          realpath: i.realpath, status: i.status, version: i.version,
+        })),
+      });
       return err({ type: 'not-detected-after-install', id });
     }
 

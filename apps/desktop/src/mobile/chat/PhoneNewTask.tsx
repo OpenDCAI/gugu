@@ -145,7 +145,8 @@ export function usePhoneNewTask({ chatId, enabled, clear }: {
         projectName={project.name}
         folders={folderState}
         memberIds={project.memberIds}
-        machineOf={(id) => project.homeOf(id)?.machine ?? { label: '', online: false, kind: 'computer' }}
+        machines={[...new Set(project.memberIds.map((id) => project.homeOf(id)?.deviceId ?? null))]}
+        machineOf={(deviceId) => project.memberIds.map((id) => project.homeOf(id)).find((home) => home?.deviceId === deviceId)?.machine ?? { label: '', online: false, kind: 'computer' }}
         attachMachines={attach.attachMachines}
         onAttach={attach.onAttach}
         onDropFolder={() => undefined}

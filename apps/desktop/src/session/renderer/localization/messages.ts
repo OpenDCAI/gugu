@@ -310,6 +310,8 @@ const enUSCoreMessages = {
   'extensions.detailPermissions': 'Permissions',
   // State changes (#5265): what a row or card says between the click and the result.
   'extensions.retry': 'Retry',
+  'extensions.notGivenAt': '{app} is installed, but {chat} was not given it',
+  'extensions.notGivenAtAction': 'Add it on the App page',
   'extensions.inspecting': 'Reading…',
   'extensions.installing': 'Installing…',
   'extensions.uninstalling': 'Uninstalling…',
@@ -1268,6 +1270,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.noDescription': '作者没写简介。',
   'extensions.detailPermissions': '权限',
   'extensions.retry': '重试',
+  'extensions.notGivenAt': '{app} 装好了，但没加上群 {chat}',
+  'extensions.notGivenAtAction': '去 App 页加',
   'extensions.inspecting': '读取中…',
   'extensions.installing': '安装中…',
   'extensions.uninstalling': '卸载中…',

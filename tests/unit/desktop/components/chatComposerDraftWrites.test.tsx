@@ -111,7 +111,7 @@ describe('chat editor draft writes', () => {
     function Host() {
       const base = useDevicesStore()
       return <DevicesContext.Provider value={{ ...base, devices: [device('machine', [], { projects: [{
-        localProjectId: 'project', name: 'Project', rootPath: '/project', createdAt: '2026-10-26T00:00:00Z', chatId: 'chat', groupRepresentative: true,
+        localProjectId: 'project', name: 'Project', rootPath: '/project', createdAt: '2026-10-26T00:00:00Z', chatId: 'chat',
         folders: [{ workspaceId: 'workspace', kind: 'root', path: '/project', attachedAt: null }],
       }] })] }}><ChatMessageComposer chatId="chat" isGroupChat onSend={async () => {}} /></DevicesContext.Provider>
     }

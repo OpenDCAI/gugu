@@ -23,6 +23,8 @@ import { useAuth } from '../../store/auth'
 import { agentQuestionDraftKey } from '../../lib/agentQuestion'
 import { useToast } from '../toastContext'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
+import { useDevicesStore } from '../../store/devicesContext'
+import { followLink } from '../../lib/guguLinks'
 
 const sessionpageLog = rendererLogger('chat/sessionpage-presentation')
 
@@ -52,8 +54,6 @@ export function useAgentSessionpagePresentation(
   identity: { display_name: string; avatar: string | null } | null,
   legacy: Pick<AgentRunningStatus, 'status' | 'presentation' | 'runningActivity' | 'local'>,
   mobile: boolean,
-  /** 打开这个 Agent 的任务。 */
-  onOpen: ((agentUserId: string) => Promise<void>) | undefined,
   onOpenFile?: (agentUserId: string, path: string) => Promise<void>,
 ): AgentSessionpagePresentation {
   const projection = useSessionpageAgentProjection(agentChat?.peer_user_id ?? null)
@@ -64,7 +64,6 @@ export function useAgentSessionpagePresentation(
   const { user } = useAuth()
   // #4602 —— hydrate 以具名错误停住时,任务 renderer 的账本里有这条会话;这里是它在聊天面的出口。
   const startupFailure = useSessionpageSessionStartupFailure(projection.context?.sessionId ?? null)
-  const [opening, setOpening] = useState(false)
   const [recoveryRetrying, setRecoveryRetrying] = useState(false)
   const shown = useShownAgentStatus()
   const { toast } = useToast()
@@ -76,24 +75,22 @@ export function useAgentSessionpagePresentation(
     }
   }, [projection, t, toast])
 
-  useEffect(() => setOpening(false), [agentChat?.peer_user_id])
 
   // @@@5426 这里**不**写任何状态。写入者挂在会话面上,就等于「谁在看决定谁被记录」:用户切走之后那条
   // running 没有人来收尾。状态、审阅门、阻塞都是宿主按 agent 的流里的那一条(agentStatusFeedBridge →
   // presence 表的 `local`),本 hook 只把它们在会话面显形:会话入口、review 门、阻塞条、启动失败条。
 
-  const handleOpen = useCallback(async () => {
-    const agentUserId = agentChat?.peer_user_id
-    if (!agentUserId || !onOpen || opening) return
-    setOpening(true)
-    try {
-      await onOpen(agentUserId)
-    } catch (error) {
-      toast(t('agent.taskpage.openFailed', { reason: error instanceof Error ? error.message : String(error) }), 'error')
-    } finally {
-      setOpening(false)
-    }
-  }, [agentChat?.peer_user_id, onOpen, opening, t, toast])
+  // 「在任务中打开」打开的是哪条会话:本机的 agent 是本机映射到的那条;别的机器上的,是会话目录里找到的那条,
+  // 且那台此刻在线(离线机器的会话只剩心跳摘要,打不开)。打开一律走 gugu 链接(本机先找、再找连着的别的机器),
+  // 与资料卡「打开会话」同一条路(#682),❌ 本机一条、远端一条。
+  const { devices } = useDevicesStore()
+  const openSessionId = projection.context?.sessionId
+    ?? (mobileSessionRow && devices.some((device) => device.device_id === mobileSessionRow.deviceId && device.is_online)
+      ? mobileSessionRow.session.conversationId
+      : null)
+  const handleOpen = useCallback(() => {
+    if (openSessionId) followLink({ kind: 'session', sessionId: openSessionId })
+  }, [openSessionId])
 
   const handleOpenFileLink = useCallback((path: string) => {
     const agentUserId = agentChat?.peer_user_id
@@ -153,13 +150,12 @@ export function useAgentSessionpagePresentation(
   // 手机上没有会话页可开(#7197):那一颗从手机的会话目录里找这个 agent 的会话,去处是任务 tab 里它那一页。
   const openAction = mobile
     ? (mobileSessionRow ? <MobileAgentOpenTask row={mobileSessionRow} /> : null)
-    : agentChat && projection.context && onOpen ? (
+    : agentChat && openSessionId ? (
       <Button
         variant="ghost"
-        disabled={opening}
         data-testid="agent-open-task"
-        data-sessionpage-open-target={projection.context.sessionId}
-        onClick={() => { void handleOpen() }}
+        data-sessionpage-open-target={openSessionId}
+        onClick={handleOpen}
         className="window-no-drag-region shrink-0 gap-2"
       >
         <ExternalLink size={16} />
@@ -169,18 +165,18 @@ export function useAgentSessionpagePresentation(
 
   // 会话页会话事实在当前 DM 的两种显形共用一条通知条(composer 上方的槽位):review 门(status)与启动失败(alert)。
   // 移动壳里触控目标 ≥44px、正文 ≥14px、按压反馈走 .gg-pressable —— 规范在 CLAUDE.md「移动端」,两条一起遵守。
-  const openButton = (testId: string) => projection.context && onOpen ? (
+  const openButton = (testId: string) => openSessionId ? (
     <NoticeButton
       testId={testId}
-      busy={opening}
-      extra={{ 'data-sessionpage-open-target': projection.context.sessionId }}
-      onClick={() => { void handleOpen() }}
+      busy={false}
+      extra={{ 'data-sessionpage-open-target': openSessionId }}
+      onClick={handleOpen}
     >
       <ExternalLink size={14} />
       {t('agent.taskpage.open')}
     </NoticeButton>
   ) : null
-  const reviewNotice = waitingForReview && agentChat && projection.context && onOpen ? (
+  const reviewNotice = waitingForReview && agentChat && openSessionId ? (
     <SessionpageNoticeBar
       testId="agent-sessionpage-review-notice"
       role="status"

@@ -112,13 +112,9 @@ export function readRendererPlatform(
 
 /**
  * 内容区右上角要给窗口按钮**让出**的宽度 —— 只有按钮压在内容上时才非 0(Linux)。
- * Windows 的按钮在标题栏行里,不压内容,所以是 0:下面两个预留函数与 main.tsx 写的
- * `--titlebar-controls-width` 都从这里取,一处改全处跟。
+ * Windows 的按钮在标题栏行里,不压内容,所以是 0:main.tsx 写的 `--titlebar-controls-width` 从这里取,
+ * 页签条右端那格留白(titlebar-actions.tsx)读的就是那个变量,一处改全处跟。
  */
 export function windowControlsWidth(platform: string | undefined): number {
   return hasCustomWindowControls(platform) && !hasWindowTitlebarRow(platform) ? WINDOW_CONTROLS_WIDTH_PX : 0
-}
-
-export function titlebarActionsRight(platform: string | undefined): number {
-  return windowControlsWidth(platform) + TITLEBAR_ACTION_EDGE_GAP_PX
 }

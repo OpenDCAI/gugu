@@ -3,6 +3,7 @@ import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/cont
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { displayName, groupContacts } from '@/lib/contactsListSort'
 import { safePathSegment } from '@/session/shared/path-name'
+import { groupRowOrder, type GroupLayoutProject } from '@/session/renderer/features/projects/stores/project-group-layout'
 
 /**
  * 「伙伴」里的一个项目(OpenDCAI/gugu#446):项目记在账号上、不归哪台机器(spec「项目」)。各台机器上绑着同一个群的
@@ -20,30 +21,27 @@ export type PartnerProject = {
   members: { deviceId: string; localProjectId: string }[]
 }
 
-export function partnerProjects(devices: readonly Pick<Device, 'device_id' | 'projects'>[]): PartnerProject[] {
-  const byKey = new Map<string, PartnerProject & { representative: boolean }>()
+export function partnerProjects(devices: readonly (Pick<Device, 'device_id' | 'projects'> & Partial<Pick<Device, 'is_online' | 'is_current_device'>>)[]): PartnerProject[] {
+  const byKey = new Map<string, { key: string; chatId: string | null; rows: (GroupLayoutProject & { name: string; createdAt: string })[]; members: PartnerProject['members'] }>()
   for (const device of devices) {
     for (const project of device.projects ?? []) {
       const key = project.chatId ?? `${device.device_id}:${project.localProjectId}`
-      const member = { deviceId: device.device_id, localProjectId: project.localProjectId }
-      const current = byKey.get(key)
-      if (!current) {
-        byKey.set(key, { key, chatId: project.chatId, name: project.name, createdAt: project.createdAt, coverId: project.localProjectId, members: [member], representative: project.groupRepresentative })
-        continue
-      }
-      current.members.push(member)
-      // 名字与封面跟代表的那一个;都不是代表就跟最早建的那个。
-      const earlier = project.createdAt < current.createdAt
-      if ((project.groupRepresentative && !current.representative) || (earlier && project.groupRepresentative === current.representative)) {
-        current.name = project.name
-        current.coverId = project.localProjectId
-        current.representative = project.groupRepresentative
-      }
-      if (earlier) current.createdAt = project.createdAt
+      const entry = byKey.get(key) ?? { key, chatId: project.chatId, rows: [], members: [] }
+      entry.members.push({ deviceId: device.device_id, localProjectId: project.localProjectId })
+      entry.rows.push({
+        id: project.localProjectId, name: project.name, createdAt: project.createdAt,
+        machine: device.is_current_device ? null : device.device_id, online: device.is_online === true,
+      })
+      byKey.set(key, entry)
     }
   }
   return [...byKey.values()]
-    .map(({ representative: _representative, ...project }) => project)
+    .map(({ key, chatId, rows, members }) => {
+      // 名字与封面跟桌面侧栏合并那一行的同一个(groupRowOrder);排序按最早那台建它的时间,位置固定。
+      const [row] = [...rows].sort(groupRowOrder)
+      const createdAt = rows.reduce((earliest, r) => (r.createdAt < earliest ? r.createdAt : earliest), row!.createdAt)
+      return { key, chatId, name: row!.name, createdAt, coverId: row!.id, members }
+    })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key))
 }
 

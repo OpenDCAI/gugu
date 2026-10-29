@@ -123,7 +123,7 @@ async function click(element: HTMLElement | null) {
 }
 
 describe('gugu-dev#181 我的 agent 收成一组', () => {
-  it('我自己的 agent 默认收着,一行「我的 agent · N」;点开才列出来;别人的 agent 照常列着', async () => {
+  it('「我的 agent · N」与「其他人的 agent · N」是两组同级的:我的默认展开,收起后别人的 agent 仍在自己那一组里', async () => {
     revisionListeners = []
     await renderWithAppProviders(
       harness,
@@ -134,13 +134,25 @@ describe('gugu-dev#181 我的 agent 收成一组', () => {
       }, contacts: { contacts: [] } },
     )
     await waitForCondition(() => rowIds().length > 0, 'member rows rendered')
-    const mine = q('[data-member-group="mine"]')
-    expect(mine?.getAttribute('aria-expanded')).toBe('false')
-    expect(mine?.textContent).toContain('1')
-    expect(rowIds()).not.toContain('claude')
-    expect(rowIds()).toContain('codex')
-    await click(mine)
+    const toggle = q('[data-member-group="mine"] [aria-expanded]')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle?.textContent).toContain('1')
     expect(rowIds()).toContain('claude')
+    const others = q('[data-member-group="others"]')
+    expect(others?.textContent).toContain('其他人的 agent · 1')
+    expect(others?.querySelector('[data-member-row="codex"]')).not.toBeNull()
+    await click(toggle)
+    expect(rowIds()).not.toContain('claude')
+    expect(q('[data-member-group="others"] [data-member-row="codex"]')).not.toBeNull()
+  })
+
+  it('普通成员不标角色,自己的 agent 不写主人;档位是一行淡字', async () => {
+    await renderPanel()
+    expect(q('[data-member-role="member-1"]')).toBeNull()
+    expect(q('[data-member-role="owner-1"]')?.textContent).toBeTruthy()
+    expect(q('[data-member-row="claude"] [data-agent-meta="owner"]')).toBeNull()
+    expect(q('[data-member-row="codex"] [data-agent-meta="owner"]')).not.toBeNull()
+    expect(q('[data-member-row="codex"] [data-listen-mode-toggle]')?.textContent).toMatch(/收听全部消息|只收点名/)
   })
 })
 

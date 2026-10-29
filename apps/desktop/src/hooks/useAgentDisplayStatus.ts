@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { chatService } from '../lib/chat'
+import { openLink } from '../lib/guguLinks'
 import { useToast } from '../components/toastContext'
 import {
   getAgentPresenceSnapshot,
@@ -50,7 +50,8 @@ export function useAgentDisplayStatus(agentUserId: string | null | undefined) {
     if (!agentUserId || opening) return
     setOpening(true)
     try {
-      await chatService.openAgentRuntime(agentUserId)
+      // 打开 agent 的会话只有一条路(本机的、别的机器上的都一样)。
+      await openLink({ kind: 'session', agentId: agentUserId })
       toast(i18n.t('chatService.runtimeOpen.opened', { ns: 'messaging' }), 'info')
     } catch (err) {
       toast(String((err as Error)?.message ?? err), 'error')

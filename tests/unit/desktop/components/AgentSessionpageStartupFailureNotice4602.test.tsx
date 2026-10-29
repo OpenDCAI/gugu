@@ -45,7 +45,8 @@ const chat = {
   last_message_at: null, last_message_preview: null, unread_count: 0, pinned_message_id: null,
   last_read_seq: 0, next_message_seq: 1,
 } satisfies ChatItem
-const openInSessions = vi.fn(async () => {})
+const followLink = vi.hoisted(() => vi.fn(() => true))
+vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ followLink }))
 function fakeBridge(rows: readonly SessionpageSessionStartupFailure[]) {
   const listeners = new Set<() => void>()
   let current = rows
@@ -85,7 +86,6 @@ function Probe() {
         : null,
     },
     false,
-    openInSessions,
     undefined,
   )
   return <div data-testid="agent-taskpage-probe" data-status={status ?? 'null'} data-failure-explained={String(failureExplained)}>{sessionpageNotices}</div>
@@ -97,7 +97,7 @@ beforeEach(() => {
   projection.providerBlocker = null
   projection.status = 'idle'
   projection.platformRecovery = null
-  openInSessions.mockClear()
+  followLink.mockClear()
   install(undefined)
 })
 afterEach(() => {
@@ -161,7 +161,7 @@ describe('#4602 会话启动失败在当前 DM 显形', () => {
     const open = notice!.querySelector<HTMLButtonElement>('[data-testid="agent-sessionpage-startup-failure-open"]')
     expect(open).not.toBeNull()
     await act(async () => { open!.click() })
-    expect(openInSessions).toHaveBeenCalledOnce()
+    expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'task-conversation-1' })
     expect(bridge.retried).toEqual([])
   })
   it('[阴性对照] 账本里没有这条会话(或失败已清)时不渲染失败条', async () => {
@@ -207,7 +207,7 @@ describe('#4602 会话启动失败在当前 DM 显形', () => {
     expect(harness.container.querySelector('[data-testid="agent-taskpage-probe"]')?.getAttribute('data-status'))
       .toBe('error')
     await act(async () => { open!.click() })
-    expect(openInSessions).toHaveBeenCalledOnce()
+    expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'task-conversation-1' })
   })
   it('工作区信任这类「批一下就继续」的阻塞按宿主给的 needs_user 显示,聊天面不再二次归类成 error', async () => {
     projection.providerBlocker = { kind: 'provider', reason: 'workspace-trust', message: 'Accessing workspace' }

@@ -16,7 +16,6 @@ import { publishProjectGroupChats } from './project-group-chats-bridge';
  */
 export class ProjectGroupsStore {
   private readonly byProject = observable.map<string, string>();
-  private readonly representativeProjects = observable.set<string>();
   /** 这次打开以来答过一次的机器(读到了或读失败了都算;这台电脑记作 'local')。 */
   private readonly answeredMachines = observable.set<string>();
   private stop: (() => void) | null = null;
@@ -43,10 +42,6 @@ export class ProjectGroupsStore {
   projectOfChat(chatId: string): string | undefined {
     for (const [projectId, bound] of this.byProject) if (bound === chatId) return projectId;
     return undefined;
-  }
-
-  isRepresentative(projectId: string): boolean {
-    return this.representativeProjects.has(projectId);
   }
 
   /** 会话页挂上时由远程主机那边调一次(它知道哪些机器连着)。重复调用无害。 */
@@ -101,15 +96,11 @@ export class ProjectGroupsStore {
   applyBindings(machine: string | null, bindings: readonly ProjectGroupBinding[]): void {
     runInAction(() => {
       for (const projectId of [...this.byProject.keys()]) {
-        if ((machineRegistry.machineOf(projectId) ?? null) === machine) {
-          this.byProject.delete(projectId);
-          this.representativeProjects.delete(projectId);
-        }
+        if ((machineRegistry.machineOf(projectId) ?? null) === machine) this.byProject.delete(projectId);
       }
       for (const binding of bindings) {
         if (machine) machineRegistry.register(machine, [binding.projectId]);
         this.byProject.set(binding.projectId, binding.chatId);
-        if (binding.representative) this.representativeProjects.add(binding.projectId);
       }
     });
   }

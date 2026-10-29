@@ -1,10 +1,11 @@
-import { useState, type ComponentProps, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { PreviewCard } from '@base-ui/react/preview-card'
 import { useTranslation } from 'react-i18next'
 import { Ellipsis, Reply, Smile } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { popupMotion } from '../ui/variants'
 import { TOOLTIP_OPEN_DELAY_MS } from '@/styles/motion'
+import { claimHoverOwner, readHoverOwner, releaseHoverOwner, setHoverOwner, subscribeHoverOwner } from './hover-owner'
 
 const barStyle: CSSProperties = {
   display: 'flex', gap: 2, padding: 3,
@@ -20,10 +21,24 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
   style: CSSProperties
   children: (visible: boolean) => ReactNode
 }) {
+  const [id] = useState(() => Symbol('message-hover'))
   const [hovered, setHovered] = useState(false)
-  const visible = enabled && (hovered || forceOpen)
+  const owner = useSyncExternalStore(subscribeHoverOwner, readHoverOwner)
+  // 菜单 / 表情面板开着 = 锁住这一行;关上就放开(鼠标还在这一行的话照样是它的)。
+  // 跟着 owner 重跑:另一行的菜单还锁着时这一行拿不到,等它放开再拿。
+  useEffect(() => {
+    if (enabled && forceOpen) claimHoverOwner(id, true)
+    else if (owner?.id === id && (owner.locked || !hovered)) setHoverOwner(hovered ? { id, locked: false } : null)
+  }, [enabled, forceOpen, hovered, id, owner])
+  useEffect(() => () => releaseHoverOwner(id), [id])
+  const onOpenChange = (open: boolean) => {
+    if (open && !claimHoverOwner(id)) return
+    setHovered(open)
+    if (!open && !forceOpen) releaseHoverOwner(id)
+  }
+  const visible = enabled && owner?.id === id && (hovered || forceOpen)
   return (
-    <PreviewCard.Root open={visible} onOpenChange={setHovered}>
+    <PreviewCard.Root open={visible} onOpenChange={onOpenChange}>
       <div style={style}>
         {children(visible)}
       </div>
