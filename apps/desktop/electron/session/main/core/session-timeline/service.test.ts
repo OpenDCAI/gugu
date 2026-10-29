@@ -1296,18 +1296,14 @@ describe('session timeline service', () => {
       } finally { vi.useRealTimers(); }
     });
 
-    it('a browser source publishes dialog attention and settles through the same CAS', async () => {
-      state.rows = [row()];
-      const fake = makeTimeline();
-      service.setSessionTimelineFactory(async () => fake.timeline);
-      const answer = asks.ask('conv-1', { ...ask('browser-1'), origin: { source: 'browser-assistance', payload: { kind: 'takeover', text: 'Finish the visible step' } } }, {});
-      await service.snapshot({ conversationId: 'conv-1' });
-      await Promise.resolve();
-      expect(state.hostWaits).toContainEqual(expect.objectContaining({ open: true, waitKind: 'dialog' }));
-      const input = { conversationId: 'conv-1', itemId: 'browser-1', kind: 'permission' as const, optionId: 'install', by: 'mobile' };
-      expect(await asks.respond(input)).toMatchObject({ ok: true, value: { accepted: true } });
-      expect(await asks.respond({ ...input, by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
-      await expect(answer).resolves.toMatchObject({ by: 'mobile' });
+    it.each(['browser-assistance', 'retired-host-feature', 'toString'])('cancels an unknown archived Ask source %s without making the session unreadable', async source => {
+      const { timeline } = makeTimeline();
+      timeline.syncPendingRequests([{ ...ask('removed-host-request'), origin: { source } } as unknown as Parameters<typeof timeline.syncPendingRequests>[0][number]]);
+      service.setSessionTimelineFactory(async () => timeline);
+      expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: {
+        settlements: [expect.objectContaining({ itemId: 'removed-host-request', state: 'cancelled' })],
+      } });
+      expect(await service.respond({ conversationId: 'conv-1', itemId: 'removed-host-request', kind: 'permission', optionId: 'install', by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
     });
 
     it('one the archive brings back pending, asked by a process that is gone: over, never shown as still asked', async () => {

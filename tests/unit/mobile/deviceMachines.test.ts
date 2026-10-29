@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { deviceMachineFor, deviceMachines, partitionDeviceMachines } from '@/lib/deviceMachines'
+import { deviceMachineFor, deviceMachines, partitionDeviceMachines } from '@gugu/core/shared/deviceMachines'
 
 const endpoint = (id: string, extra: Partial<Device> = {}): Device => ({ device_id: id, label: 'Mac', hostname: 'mac', platform: 'darwin',
   machine_id: 'mac-hardware', tier: id, status: 'offline', is_online: false, last_seen_at: '2026-10-26T00:00:00Z',
@@ -56,4 +56,12 @@ it('keeps exactly seven days and unreadable timestamps in the main list', () => 
     expect(partitionDeviceMachines(deviceMachines([endpoint('a', { last_seen_at })]), now).archived).toHaveLength(0)
   }
   expect(partitionDeviceMachines(deviceMachines([endpoint('a', { last_seen_at: '2026-10-19T23:59:59.999Z' })]), now).archived).toHaveLength(1)
+})
+
+it.each(['1969-12-31T23:59:59Z', '1970-01-01T00:00:00Z'])('archives using a valid %s timestamp even alongside unknown dates', last_seen_at => {
+  const known = endpoint('known', { last_seen_at })
+  const unknown = endpoint('unknown', { last_seen_at: 'unreadable' })
+  const machines = deviceMachines([unknown, known])
+  expect(machines[0]!.device).toBe(known)
+  expect(partitionDeviceMachines(machines, Date.parse('2026-10-27T00:00:00Z')).archived).toHaveLength(1)
 })

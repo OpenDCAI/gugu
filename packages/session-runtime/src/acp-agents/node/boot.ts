@@ -55,6 +55,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       );
       // #5381 会话历史落盘:回合提交推给主进程,由它决定落不落(只有它知道库里有没有)。
       const turnCommitted = createEventStreamHost(acpRuntimeApiContract.turnCommitted);
+      const promptSteered = createEventStreamHost(acpRuntimeApiContract.promptSteered);
       const attachmentStore = new LocalAttachmentStore(attachmentsDir);
       const promptQueueStore = new LocalPromptQueueStore(join(attachmentsDir, 'prompt-queues'));
       const homeDir = os.homedir();
@@ -99,14 +100,16 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
             ...(platformAccessSessionId ? { platformAccessSessionId } : {}),
           }),
         onTurnCommitted: (event) => turnCommitted.emit(undefined, event),
+        onPromptSteered: (sessionId) => promptSteered.emit(undefined, { sessionId }),
       } satisfies AcpRuntimeDeps);
 
       scope.add(() => platformSessionClosed.dispose());
       scope.add(() => turnCommitted.dispose());
+      scope.add(() => promptSteered.dispose());
       scope.add(() => acp.dispose());
       return withValidation(
         acpRuntimeApiContract,
-        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted),
+        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted, promptSteered),
         workerValidatePolicy(env)
       );
     },

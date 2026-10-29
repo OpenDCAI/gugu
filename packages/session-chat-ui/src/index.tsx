@@ -46,6 +46,7 @@ export type {
 } from './state/chat-state';
 
 export { createChatView } from './chat-view';
+export { resolveConversationMessageReference } from './state/conversation-messages';
 export type {
   ChatView,
   ChatViewOptions,

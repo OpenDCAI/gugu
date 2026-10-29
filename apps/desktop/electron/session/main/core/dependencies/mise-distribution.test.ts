@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { acpRegistryExecutable, resolveMiseDistribution } from './mise-distribution';
+import { acpRegistryExecutable, resolveMiseDistribution, vendorPlatformLookupKey } from './mise-distribution';
 import { miseProgress } from './mise-process';
 
 const target = {
@@ -16,7 +16,7 @@ const npmTarget = {
   backend: { kind: 'npm' as const, node: '24.21.0' },
 };
 const integrity = 'sha512-' + Buffer.alloc(64, 7).toString('base64');
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function registry(tarball = '/@vendor/agent/-/agent.tgz', digest = integrity) {
   const fetcher = vi.fn(async (url: string) => Response.json(url.endsWith('/latest')
@@ -282,6 +282,23 @@ describe('厂商按平台版本清单(vendor-manifest,#6335 的 agy)', () => {
     vi.stubGlobal('fetch', fetcher);
     return fetcher;
   }
+
+  it.each([false, true])('excludes report DNS only during libc detection (original setting: %s)', (excludeNetwork) => {
+    const report = { excludeNetwork, getReport: vi.fn(() => {
+      expect(report.excludeNetwork).toBe(true);
+      return { header: { glibcVersionRuntime: '2.39' } };
+    }) };
+    vi.spyOn(process, 'report', 'get').mockReturnValue(report as unknown as NodeJS.ProcessReport);
+    expect(vendorPlatformLookupKey('linux', 'x64')).toBe('linux-x64');
+    expect(report.excludeNetwork).toBe(excludeNetwork);
+  });
+
+  it('restores the report setting when libc detection throws', () => {
+    const report = { excludeNetwork: false, getReport: vi.fn(() => { throw new Error('report failed'); }) };
+    vi.spyOn(process, 'report', 'get').mockReturnValue(report as unknown as NodeJS.ProcessReport);
+    expect(() => vendorPlatformLookupKey('linux', 'x64')).toThrow('report failed');
+    expect(report.excludeNetwork).toBe(false);
+  });
 
   it('归档载荷:问本机那一格,sha512 交给 mise,原样解压、不剥层,可执行文件是包里那个', async () => {
     const fetcher = manifest({ version: '1.2.10', url: 'https://cdn.example/cli_mac_arm64.tar.gz', sha512 });

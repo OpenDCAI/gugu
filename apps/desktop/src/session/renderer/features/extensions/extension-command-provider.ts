@@ -41,7 +41,7 @@ export function createExtensionCommandProvider(): CommandProvider {
     scopeId: 'app',
     getCommands: () => installedExtensionsStore.allTabContributions
       // A file opener needs the file selected by its own menu, not a blank global App page.
-      .filter((tab) => tab.enabled && !tab.forFiles && !tab.hostSettings && !tab.hostBrowser)
+      .filter((tab) => tab.enabled && !tab.forFiles && !tab.hostSettings)
       .flatMap((tab) => [...new Map([...declaredMenuCommands(tab.kind), ...declaredToolbarCommands(tab.kind)]
         .map((command) => [command.id, command])).values()].map((command) => ({
         id: `extension:${tab.kind}:${command.id}` as const,

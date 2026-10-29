@@ -17,7 +17,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { Server, utils, type Connection, type ServerChannel } from 'ssh2'
 import {
-  isQuietTunnelPort,
   noteTunnelActivity,
   parseTunnelOpenRequest,
   setTunnelRelayUp,
@@ -152,11 +151,8 @@ function handleConnection(client: Connection, deps: {
       socket.once('connect', () => {
         const channel = accept()
         // 浏览器 / 端口:任何一个字节都算「在用」(云电脑的管家据此判闲置;只是开着转发、没人访问 = 没有字节)。
-        // 登记成安静的端口除外(云浏览器的实时画面:它自己只在接管后的输入上记),见 core/cloud/remoteTunnel.ts。
-        if (!isQuietTunnelPort(info.destPort)) {
-          socket.on('data', () => noteTunnelActivity())
-          channel.on('data', () => noteTunnelActivity())
-        }
+        socket.on('data', () => noteTunnelActivity())
+        channel.on('data', () => noteTunnelActivity())
         socket.pipe(channel).pipe(socket)
         channel.on('close', () => socket.destroy())
         socket.on('close', () => channel.close())

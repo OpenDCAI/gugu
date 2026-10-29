@@ -15,7 +15,7 @@ globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '
 export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', padding: '6px 0 6px 20px', minWidth: 0,
   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: 14, lineHeight: '20px' });
 /** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
-export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', minWidth: 0, maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
+export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', minWidth: 0, maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px', background: 'transparent', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
 globalStyle(`${conversationQuote} > span:last-of-type`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });
 export const conversationQuoteFrom = style({ fontWeight: 600, flexShrink: 0, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' });

@@ -32,11 +32,8 @@ export const ADAPTER_BRIDGE_ENTRIES = [
 /** 这些桥所在的包 —— 与桌面同版本(取仓库装好的那份)。 */
 export const ADAPTER_PACKAGES = ADAPTER_BRIDGE_ENTRIES.map((entry) => packageNameOf(entry))
 
-/**
- * #7199 云浏览器:agent 的浏览器工具是 `@playwright/mcp` 原样那一套(browser-agent-mcp.ts 运行时 `require` 它,
- * playwright-core 从它的位置解析)。桌面包里它是根依赖;server 包以前不带 —— 云电脑上的 agent 一调浏览器就找不到模块。
- */
-export const BROWSER_PACKAGES = ['@playwright/mcp']
+/** Playwright runs installed Apps' background HTML on the server (server/extension-background.ts). */
+export const APP_PAGE_PACKAGES = ['@playwright/mcp']
 
 /**
  * 宿主同样从应用根取、但不是桥的两个包,按 CLI 版本配 Claude 桥(#6394)靠它们,server 包以前都不带:
@@ -52,7 +49,7 @@ export const RUNTIME_PACKAGES = [
   ...NATIVE_EXTERNAL_PACKAGES,
   ...ADAPTER_PACKAGES,
   ...APP_ROOT_PACKAGE_FILES.map((file) => packageNameOf(file)),
-  ...BROWSER_PACKAGES,
+  ...APP_PAGE_PACKAGES,
 ]
 
 /**

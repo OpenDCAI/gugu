@@ -3,7 +3,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useDeviceRemoval } from '@/components/settings/useDeviceRemoval'
-import { deviceMachines } from '@/lib/deviceMachines'
+import { deviceMachines } from '@gugu/core/shared/deviceMachines'
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 
