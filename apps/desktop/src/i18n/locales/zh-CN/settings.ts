@@ -434,6 +434,10 @@ export default {
       },
       "switchToTunnel": "改用远程隧道",
       "machineLimit": {
+        "occupants": "当前占用名额的机器",
+        "available": "已有可用名额，请重新添加这台机器。",
+        "continue": "继续等待",
+
         "total": "咕咕 server 已达上限（{{used}}/{{max}}），未添加。",
         "tunnel": "远程隧道已达上限（{{used}}/{{max}}），未添加。远程 SSH 不占名额。",
         "unknown": "咕咕 server 已达上限，未添加。",

@@ -34,6 +34,12 @@ function api(row = revision, body = new Uint8Array(plain), extra: Record<string,
 }
 
 describe('one cloud provider and verified raw chunk cache', () => {
+  it('keeps the object response HTTP status in the download failure reason', async () => {
+    const a = api(), c = cache()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(),
+      fetch: vi.fn(async () => new Response('unavailable', { status: 503 })) as typeof fetch })
+    await expect(cloud.managed(revision, context)).rejects.toThrow('HTTP 503')
+  })
   it('uses and caches only the existing CDN thumbnail for managed previews; full downloads still verify the original', async () => {
     const thumbnail = 'https://objects.invalid/file?auth_key=lease&x-oss-process=image/resize,w_560/format,webp'
     const imageRevision = { ...revision, content_type: 'image/png' }

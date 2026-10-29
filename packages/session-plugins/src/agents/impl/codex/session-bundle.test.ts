@@ -59,6 +59,11 @@ describe('#7199 a session with the Browser Use App turns off codex\'s own browse
     expect(result.argsAppend.join(' ')).toContain(off.join(' '));
   });
 
+  it.each(['acp', 'app-server'] as const)('%s server leg disables both native plugins without advertising a Browser Use App', surface => {
+    const result = materializeCodexSessionBundle({ ...ctx, surface }, bundle({ disableNativeBrowser: true }));
+    expect(result.argsAppend.join(' ')).toContain(off.join(' '));
+  });
+
   it('no Browser Use, codex\'s plugins stay as the person has them — a server named gugu-browser no longer counts', () => {
     const result = materializeCodexSessionBundle(ctx, bundle({ mcpServers: [
       { name: 'gugu', url: 'http://127.0.0.1:1/mcp' },

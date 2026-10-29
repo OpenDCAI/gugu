@@ -34,7 +34,7 @@ describe('human tools do not hold admitted steering behind a tool boundary', () 
     const turn = h.cell.prompt({ text: 'delegated work', origin: 'typed' });
     await Promise.resolve();
     h.cell.push({ kind: 'tool_call', toolKind: 'execute', parentToolCallId: null, diffs: [], locations: [],
-      toolCallId: 'human-tool', title: 'browser_request_takeover', status: 'in_progress' });
+      toolCallId: 'human-tool', title: 'app_install', status: 'in_progress' });
 
     await h.cell.queueBehindTurn({ text: 'answer this now', origin: 'manual' });
 

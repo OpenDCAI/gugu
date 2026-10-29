@@ -44,6 +44,8 @@ export type ChatCommands = {
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
   onConversationReply?: (itemId: string) => void;
+  /** Exact source row receiving the shared chat source-message flash. */
+  flashMessageId?: string | null;
   onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;

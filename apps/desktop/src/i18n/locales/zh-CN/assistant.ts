@@ -145,6 +145,8 @@ export default {
     "stillStarting": "{{name}}还在这台电脑上启动，稍等一会儿再试。",
     "failed": "安家没成功，请重试。",
     "retry": "重试",
+    "ended": "上次开通已结束，可以重新开通。",
+    "startNew": "重新开通",
     "resuming": "上次没装完，接着装{{name}}…",
     "connectTitle": "连几个常用应用",
     "connectBody": "连上之后{{name}}才能替你读日历、发消息。不连也行，以后在「连接应用」里连。",

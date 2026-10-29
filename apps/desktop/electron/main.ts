@@ -242,6 +242,7 @@ import {
   SESSION_CACHE_KEY,
   PROJECT_CACHE_KEY,
   provisionSessionpageAgentForSession,
+  sessionpageAgentSessionForStart,
   registerExistingSessionpageAgents,
   unregisterForeignSessionpageAgents,
   refreshAgentNamingFacts,
@@ -925,8 +926,10 @@ function createDeviceSessionpageBridge() {
       const emdash = loadEmdashBridge()
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
+      const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
+        existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,
@@ -5187,7 +5190,7 @@ app.whenReady().then(async () => {
         disposeSession: async (sessionId) => {
           await teardownSessionpageSessionRuntimes(sessionId)
           await primaryGuguMcpHost?.revoke(sessionpageSurfaceKey(sessionId))
-          await closeSessionBrowserTools(sessionId, emdash.emdashAgentBrowser())
+          await closeSessionBrowserTools(sessionId)
           forgetSessionAppScope(sessionpageSurfaceKey(sessionId))
         },
         env: process.env,
@@ -6145,9 +6148,8 @@ app.whenReady().then(async () => {
         // #6387 扩展服务就绪之后,会话开场才读得到扩展带来的 MCP 程序与 skill;程序经扩展网关给会话(#6615)。
         const onProblem = (message: string) => createLogger('extension-session').error({ message }, 'extension contribution left out of the session')
         const programHost = { nodeExecutable: process.execPath, toolsRuntime: toolsRuntimePath(), linkPrefix: `${GUGU_LINK_SCHEME}://ext`, onProblem }
-        // 桌面是会话页的页签,server 是云浏览器(emdashAgentBrowser 在 server 上就是 cloudAgentBrowserBridge);装了 Browser Use 两边一样走 App。
-        emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
         if (!SERVER_MODE) {
+          emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
           // #7317 Computer Use 的「电脑」页签:看的是 agent 经设备动作做的每一步电脑控制;App 的程序只给它的页面 preview_state。
           const programs = emdash.emdashExtensionPrograms()
           const computerUseApps = installedComputerUseApps(programs, emdash.emdashOnInstalledAppsChanged)

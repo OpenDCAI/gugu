@@ -1,5 +1,2 @@
 .system-message-notice { display: flex; justify-content: center; padding: 6px 12px; }
 .system-message-notice > span { max-width: 70%; padding: 2px 13px; color: var(--faint-fg); font-size: var(--font-caption); line-height: var(--lh-caption); text-align: center; }
-.agent-reply-system-notice { display: flex; align-items: center; gap: var(--spacing-sm); margin: 6px 14px; padding: var(--spacing-sm) var(--spacing-md); border: 1px solid var(--border-subtle); border-radius: var(--radius-document); background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-body); line-height: var(--lh-body); }
-.agent-reply-system-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.agent-reply-system-notice > button { flex-shrink: 0; }

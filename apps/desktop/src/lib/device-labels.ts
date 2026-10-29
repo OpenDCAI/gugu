@@ -7,7 +7,8 @@ import {
   type MachineLimitRefusalRpcClient,
 } from '@gugu/core/cloud/devices'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { identityDb } from './supabase'
+import { getCurrentAuthUserId, identityDb } from './supabase'
+import { checkMachineLimitRefusal, type MachineLimitCheckRpcClient, type MachineLimitRequest } from '@gugu/core/cloud/machineLimit'
 import { LocalDeviceUnidentifiedError } from './localDeviceIdentity'
 
 /**
@@ -64,4 +65,9 @@ async function correctIpLikeDeviceLabel(deviceId: string, label: string): Promis
 /** 远程隧道那一段:since 之后有没有哪台 server 因为机器上限没登上。 */
 export async function recentMachineLimitRefusal(sinceIso: string) {
   return await recentCoreMachineLimitRefusal(identityDb as unknown as MachineLimitRefusalRpcClient, sinceIso)
+}
+
+/** Fresh quota facts for the same attempted machine, after another endpoint changes. */
+export async function currentMachineLimitRefusal(request: MachineLimitRequest) {
+  return checkMachineLimitRefusal(identityDb as unknown as MachineLimitCheckRpcClient, await getCurrentAuthUserId(), request)
 }

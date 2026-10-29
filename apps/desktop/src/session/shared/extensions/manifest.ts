@@ -224,10 +224,8 @@ const tabContributionSchema = z.strictObject({
   /**
    * A host-owned page; no HTML is loaded from the App for this tab.
    * `settings`: the App's configuration / status page, one per App.
-   * `browser`: the browser a `host:"browser-use"` program drives for the page's task (watch, take over, log in) —
-   * one per task, so it must be `perSession`.
    */
-  hostPage: z.enum(['settings', 'browser']).optional(),
+  hostPage: z.enum(['settings']).optional(),
   /**
    * One page of this tab in each task, belonging to that task for its whole life — the way a group's page belongs to
    * its group (behavior tab-extensions「每个任务一份的页签」, #7317). For a page that shows what happens in one task, like
@@ -625,13 +623,6 @@ export const extensionManifestSchema = z
         if (tab.entry || tab.opensFiles || tab.menu?.length || tab.toolbar?.length) ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index], message: `a host ${tab.hostPage} page cannot have entry, opensFiles or page commands` });
       } else if (!tab.entry && !manifest.entry) {
         ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'entry'], message: 'an HTML tab needs its entry or the App entry' });
-      }
-      // 宿主浏览器页画的是「这个任务」的浏览器:每个任务一份,且只给开着 browser-use 宿主程序的 App。
-      if (tab.hostPage === 'browser') {
-        if (!tab.perSession) ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'perSession'], message: 'a host browser page shows one task\'s browser: it needs "perSession": true' });
-        if (!(manifest.contributes.mcpServers ?? []).some((server) => 'host' in server && server.host === 'browser-use')) {
-          ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'hostPage'], message: 'a host browser page needs a "browser-use" host program in contributes.mcpServers' });
-        }
       }
       // A file's tab is already one page per file, and the settings page is one per App: neither has a task of its own.
       if (tab.perSession && (tab.hostPage === 'settings' || tab.opensFiles)) {

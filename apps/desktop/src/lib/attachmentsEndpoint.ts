@@ -1,5 +1,5 @@
 // 渲染层调 attachments 函数(core 的那一份客户端,packages/core/src/cloud/attachmentsApi.ts):这个构建的服务器,登录的人现在的令牌。
-import { commitAttachment, configuredEndpoint, uploadAttachmentBytes, type AttachmentsEndpoint, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import { commitAttachment, configuredEndpoint, uploadAttachmentBytes, type AttachmentsEndpoint, type CommitArgs, type AttachmentUploadPlan } from '@gugu/core/cloud/attachmentsApi'
 import { resolveFileMimeType } from '@gugu/core/shared/ui/attachmentModels'
 import { getRendererAccessToken } from './sessionPublication'
 import { i18n } from '../i18n'
@@ -18,14 +18,14 @@ async function publishNative(args: Record<string, unknown>) {
   try { return await window.electronAPI!.invoke('files:publish', args) }
   catch { throw new Error(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' })) }
 }
-const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string): Promise<PreparedChatAttachment> => ({
-  staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor }),
+const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string, requestId?: string, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false): Promise<PreparedChatAttachment> => ({
+  staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor, ...(requestId ? { request_id: requestId } : {}) }, { onPlan, retry }),
 })
 /** An image is uploaded when sent, also in a project chat that keeps its other files on the machine (file storage policy). */
-export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean }): Promise<PreparedChatAttachment> {
+export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean; request_id?: string }, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false): Promise<PreparedChatAttachment> {
   const native = globalThis.window?.electronAPI
   if (native && !scope.is_whisper && !resolveFileMimeType(file).startsWith('image/') && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
-  return cloudChatAttachment(endpoint, file, scope.chat_id, scope.as)
+  return cloudChatAttachment(endpoint, file, scope.chat_id, scope.as, scope.request_id, onPlan, retry)
 }
 export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint, prepared: PreparedChatAttachment, args: Omit<CommitArgs, 'staging_key'>): Promise<Record<string, unknown>> {
   if ('staging_key' in prepared) return commitAttachment(endpoint, { ...args, staging_key: prepared.staging_key })

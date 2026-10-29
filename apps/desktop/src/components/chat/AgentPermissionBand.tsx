@@ -13,7 +13,6 @@ import { answerAppInstall, answeredTooLate, appInstallWords } from '@/session/re
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { machineRegistry } from '@/session/renderer/lib/machine-routing'
 import { remoteHostsStore } from '@/session/renderer/features/remote-hosts/remote-hosts-store'
-import { BrowserAssistanceAction } from '../browserUse/BrowserAssistanceAction'
 
 const permissionLog = rendererLogger('chat/agent-permission-band')
 const KEYS: Record<string, string> = { 'composer.allow': 'agent.taskpage.permission.allow', 'composer.queuePosition': 'agent.taskpage.permission.queuePosition' }
@@ -55,8 +54,6 @@ export function AgentPermissionBand({ sessionId, pending, respond }: {
     <SessionUiThemeProvider theme={theme} target="documentElement">
       <MessageProvider locale={resolvedLocale} translate={translate}>
         <div data-testid="agent-sessionpage-permission">
-          {/* agent 请人替它登录 / 接手浏览器:先给去看那个浏览器的路(Browser Use 页签),「完成 / 取消」仍是下面这一排。 */}
-          {sessionId ? <BrowserAssistanceAction sessionId={sessionId} settlement={pending} /> : null}
           <PermissionBand request={{ requestId: pending.itemId, title: words?.title ?? pending.title, options }} queueCount={pending.queueCount} onResolve={onResolve} />
         </div>
       </MessageProvider>

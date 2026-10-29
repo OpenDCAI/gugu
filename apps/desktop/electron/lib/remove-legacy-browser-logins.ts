@@ -8,9 +8,8 @@ type MigrationLog = {
 
 /**
  * #846: startup migration for the removed saved-website-login feature. No credentials are read.
- * Retire this migration and the protocol-13 rejection in removed-vault-request.ts once every
- * server/cloud computer has upgraded to the first release containing #846, rollback to earlier
- * releases is retired, and protocol 13 has left the supported window. Record that release version
+ * Retire this migration once every server/cloud computer has upgraded to the first release
+ * containing #846 and rollback to earlier releases is retired. Record that release version
  * in the release checklist; do not guess the next release number here.
  * The shared task-host-secret.key also protects server-session.enc and must be preserved.
  */
