@@ -171,7 +171,10 @@ describe('extension programs run by gugu (#6615)', () => {
     }
   });
 
-  it('revocation closes authority and awaits surface cleanup before stopping the transport', async () => {
+  it.each([
+    ['revocation', revokeExtensionPrograms, false], ['retirement/upgrade', retireExtensionPrograms, false],
+    ['retirement after the last running call', retireExtensionPrograms, true],
+  ] as const)('%s awaits surface cleanup before stopping the transport', async (_name, terminate, busy) => {
     const cleanup = Promise.withResolvers<void>();
     const closeSurface = vi.fn(() => cleanup.promise);
     const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockReturnValue({
@@ -183,10 +186,22 @@ describe('extension programs run by gugu (#6615)', () => {
       await resume.promise;
       await realClose.call(this);
     });
-    const target = { ...program('authority-close', 'v1'), onGuguNode: true as const };
+    const release = path.join(fs.mkdtempSync(path.join(dir, 'retire-')), 'release');
+    const target = { ...program('authority-close', 'v1', busy ? 'held' : '', release), onGuguNode: true as const };
     try {
       await whoami(target, 'user:a');
-      const stopped = revokeExtensionPrograms(target.extensionId);
+      let inFlight: Promise<unknown> | undefined;
+      if (busy) {
+        const holding = new Promise<void>(resolve => {
+          const off = onExtensionProgramNotification(id => { if (id === target.extensionId) { off(); resolve(); } });
+        });
+        inFlight = whoami(target, 'user:b'); await holding;
+      }
+      const stopped = terminate(target.extensionId);
+      if (busy) {
+        expect(closeSurface).not.toHaveBeenCalled();
+        fs.writeFileSync(release, ''); await inFlight;
+      }
       expect(closeSurface).toHaveBeenCalledOnce();
       expect(close).not.toHaveBeenCalled();
       cleanup.resolve();

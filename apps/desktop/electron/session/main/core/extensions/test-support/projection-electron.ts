@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { ExtensionProjectionBridge } from '../extension-projection-bridge';
+import { extensionProjections as bridge } from '../extension-projection-bridge';
+import { extensionsService } from '../extensions-root';
+import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { revokeExtensionProgramAccess } from '../extension-program-access';
 import { projectionSources, type ProjectionHost, type ProjectionDriver } from '../../../../../../src/session/app-runtime/projection-source';
 import type { BridgeCaller } from '../extension-bridge';
@@ -23,7 +26,18 @@ async function until(work: () => Promise<boolean>) {
 }
 
 void app.whenReady().then(async () => {
-  const bridge = new ExtensionProjectionBridge(() => {}, async () => 'fixture-project');
+  const service = extensionsService();
+  for (const id of ['native-projection-a', 'native-projection-b']) {
+    const bundle = path.join(app.getPath('userData'), 'fixture-sources', id);
+    fs.mkdirSync(bundle, { recursive: true });
+    fs.writeFileSync(path.join(bundle, 'index.html'), '<body>Projection fixture</body>');
+    fs.writeFileSync(path.join(bundle, 'fixture.mjs'), 'process.stdin.resume();');
+    fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'], entry: 'index.html', permissions: { capabilities: ['agents:tools'], network: [] },
+      contributes: { tabs: [{ name: 'main', title: 'Projection' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
+    }));
+    service.installFromDirectory(bundle, service.inspectDirectory(bundle).manifestDigest, 'folder');
+  }
   const windows: BrowserWindow[] = [];
   const source = new BrowserWindow({ show: false, width: 640, height: 480, webPreferences: { backgroundThrottling: false } });
   const other = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
@@ -79,6 +93,14 @@ void app.whenReady().then(async () => {
       }
       signal.throwIfAborted();
     },
+  });
+  await check('native-installed-app-grants', async () => {
+    service.setPermissionGranted('native-projection-a', 'agents:tools', false);
+    await assert.rejects(a.runtime.create(driver(source, async () => {})), /revoked/);
+    service.setPermissionGranted('native-projection-a', 'agents:tools', true);
+    service.setEnabled('native-projection-b', false);
+    await assert.rejects(b.runtime.create(driver(other, async () => {})), /revoked/);
+    service.setEnabled('native-projection-b', true);
   });
   const publisher = await a.runtime.create(driver(source, async () => {
     const image = await source.webContents.capturePage();
@@ -140,10 +162,12 @@ void app.whenReady().then(async () => {
     await bridge.call(page, 'projectionSend', { watchId: (await viewer.webContents.executeJavaScript('window.fixtureWatchId')) as string,
       packet: { type: 'input', generation, frame: 1, sequence: 101, input: { kind: 'pointer', action: 'down', button: 'left', x: 0.5, y: 0.5 } } });
     await until(() => source.webContents.executeJavaScript('held.key && held.mouse'));
+    service.setPermissionGranted(a.caller.extensionId, 'agents:tools', false);
+    await assert.rejects(publisher.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }), /revoked/);
     revokeExtensionProgramAccess(a.caller.extensionId);
     await until(() => viewer.webContents.executeJavaScript('document.querySelector("textarea").disabled'));
     await until(async () => stopped);
-    await assert.rejects(publisher.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }), /closed/i);
+    await assert.rejects(publisher.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' }), /closed|revoked/i);
     assert.equal(await value(source), snapshot);
     assert.deepEqual(await source.webContents.executeJavaScript('held'), { key: false, mouse: false });
     assert.equal(bridge.count(b.caller.pageId), 1);

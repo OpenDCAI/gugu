@@ -17,6 +17,27 @@ const frame = { sequence: 1, width: 1, height: 1, mime: 'image/png' as const, da
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
 describe('painted frame and reconnect input routing', () => {
+  it.each(['key', 'pointer'] as const)('keeps a %s release barrier when ordinary queued input is full', async kind => {
+    const h = host(); const blocked = Promise.withResolvers<void>();
+    vi.mocked(h.projection.send).mockImplementation(async ({ packet }) => {
+      if (packet.type === 'input' && packet.sequence === 1) await blocked.promise;
+    });
+    const client = await projectionClient(h, 'source', { paint: async () => {} });
+    h.emit({ type: 'state', generation: 'a', state: 'connecting' });
+    h.emit({ type: 'frame', generation: 'a', frame }); await flush();
+    const control = kind === 'key' ? { kind: 'key' as const, key: 'Shift' } : { kind: 'pointer' as const, button: 'left' as const, x: 0.5, y: 0.5 };
+    const down = client.input({ ...control, action: 'down' });
+    const queued = Array.from({ length: 64 }, () => client.input({ kind: 'text', text: 'not yet dispatched' }));
+    const up = client.input({ ...control, action: 'up' });
+    blocked.resolve();
+    const released = await up;
+    await Promise.all([down, ...queued]);
+    expect(released).toEqual({ status: 'applied' });
+    const inputs = vi.mocked(h.projection.send).mock.calls.map(([args]) => args.packet).filter(packet => packet.type === 'input');
+    expect(inputs.map(packet => packet.input)).toEqual([{ ...control, action: 'down' }, { ...control, action: 'up' }]);
+    await client.close();
+  });
+
   it('ACKs only after paint and accepts one committed text event after that ACK', async () => {
     const h = host();
     let painted!: () => void;

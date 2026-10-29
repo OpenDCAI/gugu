@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  projectionFrame, projectionViewerPacket,
+  projectionFrame, projectionViewerPacket, isProjectionRelease,
   type ProjectionFrame, type ProjectionInput, type ProjectionInputOutcome,
 } from '@shared/extensions/projection-protocol';
 import { openExtensionProgramAccess } from './extension-program-access';
@@ -35,7 +35,6 @@ type Resource = {
   queued: number;
   disconnected: Set<string>;
   driver: string | null;
-  idle?: ReturnType<typeof setTimeout>;
   closing?: Promise<void>;
 };
 const same = (a: ProjectionPrincipal, b: ProjectionPrincipal) => a.extensionId === b.extensionId && a.sessionId === b.sessionId;
@@ -63,7 +62,6 @@ export class ExtensionProjections {
     access.signal.addEventListener('abort', abort, { once: true });
     resource.off = () => access.signal.removeEventListener('abort', abort);
     this.resources.set(id, resource);
-    this.armIdle(id, resource);
     if (access.signal.aborted) {
       abort();
       access.signal.throwIfAborted();
@@ -105,11 +103,9 @@ export class ExtensionProjections {
     const viewer = new ProjectionViewer(randomUUID(), resource.sequence, connection, (gone) => {
       resource.viewers.delete(gone);
       resource.disconnected.add(gone.generation);
-      if (!resource.viewers.size && !resource.controller.signal.aborted) this.armIdle(id, resource);
       resource.queue = resource.queue.then(drain).catch(() => { void this.close(id, resource).catch(() => undefined); });
     });
     if (!viewer.abort.signal.aborted) {
-      clearTimeout(resource.idle);
       resource.viewers.add(viewer);
     }
     try { resource.source.refresh(); }
@@ -120,7 +116,16 @@ export class ExtensionProjections {
         resource.controller.signal.throwIfAborted();
         const packet = projectionViewerPacket(raw);
         if (packet.type === 'ack') return viewer.ack(packet);
-        if (resource.queued >= 64) throw new Error('Projection input queue is full');
+        if (resource.queued >= 64) {
+          if (isProjectionRelease(packet.input) && packet.generation === viewer.generation) {
+            // No extra queue capacity: cancel the old generation and await its
+            // disconnect barrier, which releases all native keys and buttons.
+            viewer.close('Projection input queue release barrier');
+            await resource.queue;
+            throw new ProjectionInputFailure('Projection input generation reset after release barrier', true);
+          }
+          throw new Error('Projection input queue is full');
+        }
         const frame = viewer.admit(packet);
         const signal = AbortSignal.any([viewer.abort.signal, resource.controller.signal]);
         let started = false;
@@ -167,12 +172,6 @@ export class ExtensionProjections {
     }
   }
 
-  private armIdle(id: string, resource: Resource): void {
-    clearTimeout(resource.idle);
-    resource.idle = setTimeout(() => { void this.close(id, resource).catch(() => undefined); }, 60_000);
-    resource.idle.unref?.();
-  }
-
   private close(id: string, resource: Resource | undefined = this.resources.get(id)): Promise<void> {
     if (!resource) return Promise.resolve();
     if (resource.closing) return resource.closing;
@@ -183,7 +182,6 @@ export class ExtensionProjections {
     resource.off();
     resource.controller.abort(new Error('Projection closed'));
     for (const viewer of resource.viewers) viewer.close('Projection closed');
-    clearTimeout(resource.idle);
     // Cancellation is immediate. Cleanup is ordered behind the in-flight callback, before the producer can exit.
     void resource.queue.then(async () => {
       for (const generation of resource.disconnected) {

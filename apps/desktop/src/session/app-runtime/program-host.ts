@@ -38,7 +38,11 @@ export function startProgramGugu(channel: ProgramChannel): Readonly<Record<strin
             syncPort.onmessage?.({ data: frame.data });
             return;
           }
-          handler(message);
+          // A host-owned projection callback can arrive while a different tool
+          // call is running. It never inherits that call's agent authority.
+          const event = message as { t?: string; event?: { type?: string } } | null;
+          if (frame?.m === APP_FRAME_MARKER && event?.t === 'event' && event.event?.type === 'projectionSource') programCall.exit(() => handler(message));
+          else handler(message);
         });
         // Listening does not keep the program alive: it lives as long as its own work does (its MCP server reading stdin).
         // A program that failed and stopped working exits instead of hanging until gugu's initialize times out.

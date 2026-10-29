@@ -16,7 +16,7 @@ export async function projectionClient(host: ProjectionHost, id: string, options
   let closed = false;
   let ready = false;
   let resetting: Promise<void> | null = null;
-  const inputs = new ProjectionInputQueue(packet => bridge.send({ watchId, packet }));
+  const inputs = new ProjectionInputQueue(packet => bridge.send({ watchId, packet }), () => reset());
   const state = (value: 'connecting' | 'live' | 'closed', reason?: string) => {
     ready = value === 'live';
     options.state?.(value, reason);
@@ -55,8 +55,7 @@ export async function projectionClient(host: ProjectionHost, id: string, options
   state('connecting');
   try { await bridge.watch({ id, watchId }); }
   catch (error) { closed = true; off(); state('closed'); throw error; }
-  return Object.freeze({
-    reset() {
+  function reset() {
       if (closed) return Promise.reject(new Error('Projection is closed'));
       if (resetting) return resetting;
       inputs.clear();
@@ -68,7 +67,9 @@ export async function projectionClient(host: ProjectionHost, id: string, options
         throw error;
       }).finally(() => { resetting = null; });
       return resetting;
-    },
+  }
+  return Object.freeze({
+    reset,
     input(raw: ProjectionInput, sent?: () => void) {
       if (closed || !ready || !painted) return Promise.reject(new ProjectionInputNotSent('Projection is not ready for input'));
       let input: ProjectionInput;

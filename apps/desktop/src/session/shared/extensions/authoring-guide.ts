@@ -415,7 +415,7 @@ API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
   A thrown error after dispatch is uncertain. No input is automatically replayed.
   \`driver.disconnect(viewer)\` releases that viewer's held keys/buttons before another viewer's input; \`driver.close()\` stops capture
   and input, and resolves after cleanup. Only one viewer drives at a time; others can still watch. App revocation,
-  task archive/deletion, or project deletion closes resources; without a viewer they expire after 60 seconds.
+  task archive/deletion, project deletion or withdrawn App access closes resources. An active task keeps its resources even without viewers.
 - In the same App's task page, \`gugu.projection.mount(element, id, { state?, error? })\` returns \`{ close, pendingText, discardPendingText }\`.
   It draws the picture and accepts input there, with no extra text form. State is \`connecting\`, \`live\`, \`input-paused\`, or \`closed\`;
   input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.

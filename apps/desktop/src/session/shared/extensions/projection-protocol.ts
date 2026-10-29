@@ -24,6 +24,9 @@ export type ProjectionInput =
   | { kind: 'key'; action: 'down' | 'up'; key: string; modifiers?: Modifiers }
   | { kind: 'text'; text: string; source?: 'typing' | 'ime' | 'paste' };
 
+export const isProjectionRelease = (input: ProjectionInput): boolean =>
+  (input.kind === 'key' || input.kind === 'pointer') && input.action === 'up';
+
 /** Pointer coordinates are normalized in the frame's input space, independent of view size and pixel density. */
 export type ProjectionViewerPacket =
   | { type: 'ack'; generation: string; frame: number }

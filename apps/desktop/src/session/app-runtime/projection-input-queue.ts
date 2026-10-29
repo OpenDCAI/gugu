@@ -1,4 +1,4 @@
-import { PROJECTION_UNCONFIRMED, type ProjectionInputOutcome, type ProjectionViewerPacket } from '@shared/extensions/projection-protocol';
+import { PROJECTION_UNCONFIRMED, isProjectionRelease, type ProjectionInputOutcome, type ProjectionViewerPacket } from '@shared/extensions/projection-protocol';
 type Packet = Extract<ProjectionViewerPacket, { type: 'input' }>;
 type Entry = { packet: Packet; sent?: () => void; promise: Promise<ProjectionInputOutcome>; resolve(value: ProjectionInputOutcome): void };
 export class ProjectionInputNotSent extends Error {}
@@ -7,11 +7,31 @@ export class ProjectionInputNotSent extends Error {}
 export class ProjectionInputQueue {
   private readonly queued: Entry[] = [];
   private busy = false;
-  constructor(private readonly send: (packet: Packet) => Promise<ProjectionInputOutcome | void>) {}
+  constructor(private readonly send: (packet: Packet) => Promise<ProjectionInputOutcome | void>, private readonly release: () => Promise<void>) {}
   push(packet: Packet, sent?: () => void): Promise<ProjectionInputOutcome> {
     const previous = this.queued.at(-1);
     if (previous && this.merge(previous.packet, packet)) return previous.promise;
-    if (this.queued.length >= 64) return Promise.resolve({ status: 'rejected', reason: 'Projection input queue is full' });
+    if (this.queued.length >= 64) {
+      if (!isProjectionRelease(packet.input)) return Promise.resolve({ status: 'rejected', reason: 'Projection input queue is full' });
+      // A release is a barrier. Reject ordinary, undispatched work explicitly
+      // rather than leaving a previously delivered down held on the target.
+      for (let index = this.queued.length - 1; index >= 0; index--) {
+        const entry = this.queued[index]!;
+        if (!isProjectionRelease(entry.packet.input)) {
+          this.queued.splice(index, 1);
+          entry.resolve({ status: 'rejected', reason: 'Projection queue cleared to release held input' });
+        }
+      }
+      const sameRelease = this.queued.find(entry => entry.packet.generation === packet.generation && entry.packet.frame === packet.frame
+        && JSON.stringify(entry.packet.input) === JSON.stringify(packet.input));
+      if (sameRelease) return sameRelease.promise;
+      // Even a flood consisting entirely of different releases stays bounded.
+      // Disconnecting this generation releases every held control in the driver.
+      if (this.queued.length >= 64) {
+        this.clear();
+        return this.release().then(() => ({ status: 'rejected' as const, reason: 'Projection input generation reset to release held input' }));
+      }
+    }
     const { promise, resolve } = Promise.withResolvers<ProjectionInputOutcome>();
     this.queued.push({ packet, sent, promise, resolve });
     void this.drain();

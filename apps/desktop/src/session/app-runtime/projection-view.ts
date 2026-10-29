@@ -31,13 +31,14 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
   let committed: string | null = null;
   let button: 'left' | 'middle' | 'right' = 'left';
   let client: Awaited<ReturnType<typeof projectionClient>> | undefined;
+  let recoveryAttempts = 0;
   const lifetime = new AbortController();
   const pause = (error: unknown) => {
     ready = false;
     input.disabled = true;
     options.state?.('input-paused');
     options.error?.(error);
-    void client?.reset().catch(options.error);
+    if (recoveryAttempts++ < 3) void client?.reset().catch(options.error);
   };
   const reset = () => { if (ready) void client?.reset().catch(pause); };
   input.addEventListener('blur', reset);
@@ -143,6 +144,7 @@ export async function mountProjection(host: ProjectionHost, root: HTMLElement, i
         await image.decode();
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         frame = next;
+        recoveryAttempts = 0;
       },
       state: (state, reason) => {
         ready = state === 'live';

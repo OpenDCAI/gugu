@@ -22,7 +22,6 @@ describe.skipIf(!electron)('shared local projection with real Electron', () => {
       bundle: true, platform: 'browser', format: 'iife', plugins: [shared] });
     const stubs: Record<string, string> = {
       '@main/lib/logger': 'export const log={warn(){}}',
-      './extensions-root': 'export function extensionsService(){return {get(){},isEnabled(){return true},hasCapability(){return true}}}',
       '../sessions/session-events': 'export const sessionEvents={on(){}}',
       '../projects/project-events': 'export const projectEvents={on(){}}',
       './projection-task': 'export async function projectionTaskProject(){return "fixture-project"}',
@@ -57,7 +56,7 @@ hear:callback=>{const handler=(_event,watch,packet)=>callback(watch,packet);ipcR
     cases = JSON.parse(line!.slice('PROJECTION_RESULT='.length)).cases;
   }, 35_000);
   afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
-  it.each(['native-capture-and-render', 'native-unicode-once-and-fixture-routing', 'native-app-revocation'])('%s', name => {
+  it.each(['native-installed-app-grants', 'native-capture-and-render', 'native-unicode-once-and-fixture-routing', 'native-app-revocation'])('%s', name => {
     expect(cases[name], JSON.stringify(cases[name])).toEqual({ passed: true });
   });
 });

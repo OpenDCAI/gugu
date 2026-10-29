@@ -393,8 +393,19 @@ function stop(instance: Instance): Promise<void> {
   instance.stopping = true;
   if (instance.idleTimer) clearTimeout(instance.idleTimer);
   if (live.get(instance.key) === instance) live.delete(instance.key);
-  instance.stopped = instance.client.close().catch((error: unknown) =>
-    log.warn('extension program did not stop cleanly', { key: instance.key, error: String(error) })).finally(() => {
+  const stopTransport = () => instance.client.close().catch((error: unknown) =>
+    log.warn('extension program did not stop cleanly', { key: instance.key, error: String(error) }));
+  const surface = instance.transport.surface;
+  // Every exit path, including a drained upgrade, releases native held input
+  // before the process carrying its driver can disappear.
+  let stopping: Promise<void>;
+  if (surface) {
+    let cleanup: Promise<void>;
+    try { cleanup = Promise.resolve(surface.close()); }
+    catch (error) { cleanup = Promise.reject(error); }
+    stopping = cleanup.finally(() => { instance.transport.surface = null; return stopTransport(); });
+  } else stopping = stopTransport();
+  instance.stopped = stopping.finally(() => {
     // Stopping takes the whole tree (OwnedStdioTransport.close), whether or not the client heard the close.
     instances.delete(instance);
     instance.exited();
@@ -460,7 +471,7 @@ async function start(program: ExtensionProgram): Promise<Instance> {
 /** Out of the pool: no new calls reach it; it stops now if idle, else when its last call finishes. */
 function retire(instance: Instance): void {
   if (live.get(instance.key) === instance) live.delete(instance.key);
-  if (instance.calls === 0 && !instance.stopping) void stop(instance);
+  if (instance.calls === 0 && !instance.stopping) void stop(instance).catch(reportStopFailure);
 }
 
 /**
@@ -473,7 +484,7 @@ export async function retireExtensionPrograms(extensionId: string): Promise<void
   const native = [...nativePrograms.values()].map((provider) => provider.retire(extensionId));
   const own = [...instances].filter((instance) => instance.key.startsWith(`${extensionId}/`));
   for (const instance of own) retire(instance);
-  await Promise.all([...native, ...own.map((instance) => instance.gone)]);
+  await Promise.all([...native, ...own.map(async (instance) => { await instance.gone; await instance.stopped; })]);
 }
 
 /** Off, agents:tools withdrawn, or uninstalled: no old call or starting process may outlive that authorization. */
@@ -483,18 +494,7 @@ export async function revokeExtensionPrograms(extensionId: string): Promise<void
   for (const key of [...instructionsOf.keys()]) if (key.startsWith(`${extensionId}/`)) instructionsOf.delete(key);
   for (const key of [...starting.keys()]) if (key.startsWith(`${extensionId}/`)) starting.delete(key);
   const own = [...instances].filter((instance) => instance.key.startsWith(`${extensionId}/`));
-  const stopped = own.map((instance) => {
-    const surface = instance.transport.surface;
-    if (!surface) return stop(instance);
-    // New calls/notifications lose authority now; only owned cleanup ACKs remain until held input is released.
-    instance.stopping = true;
-    if (instance.idleTimer) clearTimeout(instance.idleTimer);
-    if (live.get(instance.key) === instance) live.delete(instance.key);
-    return (async () => {
-      try { await surface.close(); }
-      finally { instance.transport.surface = null; await stop(instance); }
-    })();
-  });
+  const stopped = own.map(stop);
   const settled = await Promise.allSettled([...stopped, ...[...nativePrograms.values()].map((provider) => provider.retire(extensionId))]);
   const failed = settled.find((result) => result.status === 'rejected');
   if (failed?.status === 'rejected') throw failed.reason;
@@ -508,7 +508,7 @@ function armIdle(instance: Instance): void {
   instance.idleTimer = setTimeout(() => {
     if (instance.calls > 0 || instance.stopping) return;
     if ((instance.transport.surface?.openFiles() ?? 0) > 0) armIdle(instance);
-    else void stop(instance);
+    else void stop(instance).catch(reportStopFailure);
   }, IDLE_MS);
   instance.idleTimer.unref?.();
 }
@@ -538,7 +538,7 @@ async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (cli
     await release?.();
     instance.calls -= 1;
     if (instance.calls === 0 && !instance.stopping) {
-      if (live.get(instance.key) !== instance) void stop(instance);
+      if (live.get(instance.key) !== instance) void stop(instance).catch(reportStopFailure);
       else armIdle(instance);
     }
   }
@@ -667,5 +667,9 @@ export function extensionProgramStatus(extensionId: string): ExtensionAgentStatu
 /** At quit: every program tree goes with gugu. */
 export async function stopAllExtensionPrograms(): Promise<void> {
   await Promise.allSettled(starting.values());
-  await Promise.allSettled([...live.values()].map(stop));
+  await Promise.allSettled([...instances].map(stop));
+}
+
+function reportStopFailure(error: unknown): void {
+  log.warn('App program resource cleanup failed', { error: String(error) });
 }

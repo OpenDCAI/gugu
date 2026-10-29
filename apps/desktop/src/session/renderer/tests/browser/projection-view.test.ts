@@ -5,7 +5,7 @@ import type { ProjectionHostPacket, ProjectionViewerPacket } from '@shared/exten
 import { mountProjection } from '../../../app-runtime/projection-view';
 
 let close: (() => Promise<void>) | undefined;
-afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); });
+afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
 async function setup() {
   let hear: (watchId: string, packet: ProjectionHostPacket) => void = () => {};
   let watchId = '';
@@ -51,6 +51,31 @@ async function setup() {
 }
 
 describe('shared projection surface in Chromium', () => {
+  it('stops automatic recapture after a bounded number of consecutive decoding failures', async () => {
+    vi.spyOn(HTMLImageElement.prototype, 'decode').mockRejectedValue(new Error('Corrupt captured image'));
+    let hear: (watch: string, packet: ProjectionHostPacket) => void = () => {};
+    let watches = 0;
+    const errors = vi.fn();
+    const host: ProjectionHost = {
+      projection: { create: vi.fn(), publish: vi.fn(), close: vi.fn(), closed: vi.fn(), inputResult: vi.fn(), send: vi.fn(), unwatch: vi.fn(),
+        watch: async ({ watchId }) => {
+          const generation = String(++watches);
+          // Keep the old broken implementation finite so the assertion, not a timeout, fails.
+          if (watches <= 10) setTimeout(() => {
+            hear(watchId, { type: 'state', state: 'connecting', generation });
+            hear(watchId, { type: 'frame', generation, frame: { sequence: 1, width: 1, height: 1, mime: 'image/png', data: 'YQ==' } });
+          }, 0);
+        },
+      }, onProjection: callback => { hear = callback; return () => {}; },
+    };
+    const root = document.createElement('div'); document.body.append(root);
+    const view = await mountProjection(host, root, 'broken', { error: errors }); close = view.close;
+    await vi.waitFor(() => expect(errors.mock.calls.length).toBeGreaterThanOrEqual(4));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(watches).toBeLessThanOrEqual(4);
+    expect(root.querySelector('textarea')!.disabled).toBe(true);
+  });
+
   it('paints before ACK, maps the real letterboxed image, and disables input on disconnect', async () => {
     const s = await setup();
     expect(s.input.disabled).toBe(true);

@@ -122,8 +122,16 @@ interface SurfaceBinding {
   themeMode: 'light' | 'dark' | null;
 }
 
-const bindingChanges = new Map<number, symbol>();
+type BindingChange = { previousSession: string | null };
+const bindingChanges = new Map<number, BindingChange>();
 const bindings = new Map<number, SurfaceBinding>();
+function restoreBindingChange(id: number, prior: SurfaceBinding | undefined, change: BindingChange, error: unknown): never {
+  if (bindingChanges.get(id) === change) {
+    bindingChanges.delete(id);
+    if (prior && bindings.get(id) === prior) { prior.sessionId = change.previousSession; pushContext(id); }
+  }
+  throw error;
+}
 const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
   await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
     log.warn('An App modal closed after its window went away', { reason: String(reason) });
@@ -559,17 +567,18 @@ export async function bindExtensionSurface(input: {
     throw new Error(`Tab kind "${input.tabKind}" does not belong to "${sessionExtensionId}"`);
   }
   const projectId = input.filePath && !input.sessionId ? (input.projectId ?? null) : null;
-  const change = Symbol();
-  bindingChanges.set(input.webContentsId, change);
   const prior = bindings.get(input.webContentsId);
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? prior?.sessionId ?? null };
+  bindingChanges.set(input.webContentsId, change);
   if (prior && prior.sessionId !== (input.sessionId ?? null)) {
     prior.sessionId = null;
     extensionProjections.closePage(input.webContentsId);
   }
-  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, prior, change, error);
+  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath).catch(recover);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
-  const chatId = await surfaceResourceChat(input.chatId, input.operator);
+  const chatId = await surfaceResourceChat(input.chatId, input.operator).catch(recover);
   if (bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   const previous = bindings.get(input.webContentsId);
   if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
@@ -602,6 +611,7 @@ export async function bindExtensionSurface(input: {
       log.warn('[extensions] a page\'s session was found on no machine; it hears no machine\'s program', { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
+  bindingChanges.delete(input.webContentsId);
   observeDocument(contents);
   // 在这条线上等着的那些调用,现在可以往下走了。
   resolveBindingWaiters(input.webContentsId);
@@ -769,15 +779,16 @@ export async function retargetExtensionSurface(input: {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   const sessionId = input.sessionId ?? null;
-  const change = Symbol();
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? binding.sessionId };
   bindingChanges.set(input.webContentsId, change);
-  const previousSession = binding.sessionId;
+  const previousSession = change.previousSession;
   if (previousSession !== sessionId) {
     binding.sessionId = null;
     extensionProjections.closePage(input.webContentsId);
   }
-  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath);
-  const chatId = await surfaceResourceChat(input.chatId, binding.operator);
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, binding, change, error);
+  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath).catch(recover);
+  const chatId = await surfaceResourceChat(input.chatId, binding.operator).catch(recover);
   if (bindings.get(input.webContentsId) !== binding || bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   // Another handed-over file: the one it could open without a capability was the old one, so its open files go (it is
   // told, and reopens what it may). Its other files were never the place's to give.
@@ -792,6 +803,7 @@ export async function retargetExtensionSurface(input: {
   binding.chatId = chatId;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
+  bindingChanges.delete(input.webContentsId);
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
   if (fileOf(binding) !== null && fileOf(binding) !== was) flushQueuedSurfaceEvents(input.webContentsId, binding, true);

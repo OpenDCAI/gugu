@@ -43,6 +43,22 @@ afterEach(() => {
 });
 
 describe('App/session scoped picture and input', () => {
+  it.each(['key', 'pointer'] as const)('releases held %s input even when the host queue is full', async kind => {
+    const blocked = deferred(); let held = false;
+    const disconnect = vi.fn(async () => { held = false; });
+    const s = setup({ input: async () => { held = true; await blocked.promise; }, disconnect });
+    const v = s.attach(); s.publish(1); await v.ack(1);
+    const pending = Array.from({ length: 64 }, (_, index) => v.input(index + 1).catch(() => undefined));
+    await vi.waitFor(() => expect(held).toBe(true));
+    const input = kind === 'key' ? { kind: 'key', action: 'up', key: 'Shift' } : { kind: 'pointer', action: 'up', button: 'left', x: 0.5, y: 0.5 };
+    const release = v.viewer.receive({ type: 'input', generation: v.connection.generation(), frame: 1, sequence: 65, input }).catch(() => undefined);
+    blocked.resolve(); await Promise.all([...pending, release]);
+    expect(held).toBe(false);
+    expect(s.source.disconnect).toHaveBeenCalled();
+    // The resource survives; a fresh viewer can continue after releasing the old one.
+    expect(() => s.attach()).not.toThrow(); await s.resource.close();
+  });
+
   it('rejects another App or task, even when it knows the resource id', async () => {
     const s = setup();
     for (const principal of [{ ...owner, sessionId: 'task-b' }, { ...owner, extensionId: 'other-app' }]) {
@@ -261,7 +277,7 @@ describe('App/session scoped picture and input', () => {
     expect(order).toEqual(['released', 'released', 'closed']);
   });
 
-  it('ends only the named task/project and bounds resources with no viewer', async () => {
+  it('keeps an active task resource without a viewer and ends only the named task/project', async () => {
     vi.useFakeTimers();
     try {
       const s = setup();
@@ -273,8 +289,9 @@ describe('App/session scoped picture and input', () => {
       s.resources.closeScope({ projectId: 'project-b' }); await other.close();
       expect(otherClose).toHaveBeenCalledOnce();
       const idle = setup();
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(idle.source.close).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(idle.source.close).not.toHaveBeenCalled();
+      expect(() => idle.attach()).not.toThrow();
       await idle.resource.close();
     } finally { vi.useRealTimers(); }
   });

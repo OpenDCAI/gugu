@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { APP_FRAME_MARKER } from '@shared/extensions/app-runtime-protocol';
 
 // Chats are named by their id (编号 18: placeOf refuses anything else).
@@ -69,8 +69,19 @@ describe('gugu in a program', () => {
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: creation.id, ok: true, value: { id: 'projection-resource' } });
     const source = await created;
     const before = sent.length;
-    deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
-    const publication = await nextCall(before);
+    let control!: Promise<unknown>;
+    programCall.run('unrelated-active-call', () => {
+      deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
+      control = gugu.files.list({ chat: CHAT });
+    });
+    // Positive control: ordinary verbs still carry the surrounding call, but a
+    // host-owned capture callback must explicitly leave that caller's scope.
+    await vi.waitFor(() => expect(sent.slice(before).some(message => message.method === 'projectionPublish')).toBe(true));
+    const ordinary = sent.slice(before).find(message => message.method === 'filesList')!;
+    expect(ordinary).toMatchObject({ call: 'unrelated-active-call' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: ordinary.id, ok: true, value: [] });
+    await control;
+    const publication = sent.slice(before).find(message => message.method === 'projectionPublish')!;
     expect(publication).toMatchObject({ method: 'projectionPublish', args: { id: 'projection-resource', frame: { sequence: 1 } } });
     expect(publication).not.toHaveProperty('call');
     deliver({ m: APP_FRAME_MARKER, t: 'result', id: publication.id, ok: true });
