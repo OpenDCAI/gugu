@@ -9,6 +9,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import type { AcpChatStore } from './acp-chat-store';
 import { selectedMessageText, sessionMessageQuoteSource } from './session-message-quote';
 import { restoreSessionQuote, setSessionQuote } from './session-quote-draft';
+import { bindMessageQuoteTouchMenu } from './message-quote-touch-menu';
 
 type Target = Parameters<NonNullable<ChatCommands['onMessageTextMount']>>[0];
 const log = rendererLogger('session/message-quotes');
@@ -63,8 +64,12 @@ export function useSessionMessageQuotes(store: AcpChatStore | null | undefined, 
         toast({ title: t('task.copyFailed'), tier: 'error' });
       });
     };
-    target.root.addEventListener('contextmenu', open);
-    return () => target.root.removeEventListener('contextmenu', open);
+    const menuRoot = target.menuRoot ?? target.root;
+    menuRoot.addEventListener('contextmenu', open);
+    const unbindTouch = bindMessageQuoteTouchMenu(menuRoot, target.root, ({ x, y }) => {
+      open(new MouseEvent('contextmenu', { clientX: x, clientY: y }));
+    });
+    return () => { menuRoot.removeEventListener('contextmenu', open); unbindTouch(); };
   }, [editor]);
   return { onMessageTextMount, restorePrompt };
 }
