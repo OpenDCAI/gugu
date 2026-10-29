@@ -108,6 +108,21 @@ it('summarizes more than twenty changes and oversized names under 1500 character
   expect((await journal.prepare()).text.length).toBeLessThanOrEqual(1500)
 })
 
+it('tells an already-running assistant once that a connection is only for linking issues', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['github'] }))
+  await (await journal.prepare()).accepted()
+  const marked = snapshot({ apps: ['github'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'github:default', name: 'github', modifiedAt: stamp, note: '只用来关联 issue，助理不能直接用' }] })
+    : line)
+  await journal.observe(marked)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('只用来关联 issue，助理不能直接用')
+  await notice.accepted()
+  await journal.observe(marked)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('tells an already-running assistant once when a connected application gains its delegation route', async () => {
   const { journal } = await fixture()
   await journal.observe(snapshot({ apps: ['feishu'] }))

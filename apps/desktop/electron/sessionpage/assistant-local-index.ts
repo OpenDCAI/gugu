@@ -9,7 +9,7 @@ export type AssistantIntegrationUse = { note: string; delegate: { tool: string }
 export type AssistantLocalSource = {
   source: 'assistant_memory' | 'assistant_personality' | 'assistant_files' | 'integrations'
   status: 'read' | 'unavailable'
-  items?: Array<{ id: string; name: string; path?: string; modifiedAt: string; size?: number; isDefault?: boolean; use?: AssistantIntegrationUse }>
+  items?: Array<{ id: string; name: string; path?: string; modifiedAt: string; size?: number; isDefault?: boolean; use?: AssistantIntegrationUse; note?: string }>
   read: string
 }
 
@@ -45,6 +45,6 @@ export async function assistantLocalIndex(
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error }
     }),
     source('assistant_files', `Read/Glob: ${paths.resourcesDir}; 此处只索引顶层条目，子目录按需读取。`, () => directory(paths.resourcesDir, false)),
-    source('integrations', '已保存的集成账号配置；带 use 的按 use 派任务，其余经 catalog_list。不等于已通过实时连通或授权验证，使用前按相应工具核实。', integrations),
+    source('integrations', '已保存的集成账号配置；带 use 的按 use 派任务，带 note 的照 note，其余经 catalog_list。不等于已通过实时连通或授权验证，使用前按相应工具核实。', integrations),
   ])
 }
