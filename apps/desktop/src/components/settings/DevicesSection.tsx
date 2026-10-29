@@ -604,7 +604,11 @@ function DeviceRow({
                       setRetriedFor(failedUpdate)
                       // 一分钟后还报同一次失败(又没成)= 重新给「重试」;心跳 30 秒一次,够它报回「正在下载」。
                       const reset = () => setRetriedFor((current) => (current === failedUpdate ? null : current))
-                      void onRetryVersionMatch().then((ok) => (ok ? void setTimeout(reset, 60_000) : reset()))
+                      const failed = (error?: unknown) => {
+                        reset()
+                        toast(t('devices.loginState.matchFailed'), 'error', error ? messageForUser(error) : undefined)
+                      }
+                      void onRetryVersionMatch().then((ok) => (ok ? void setTimeout(reset, 60_000) : failed()), failed)
                     }}
                     testId="settings-device-match-retry"
                   >{t('devices.loginState.retryUpdate')}</InlineAction></>
