@@ -698,7 +698,7 @@ describe('the Apps as app_search reads them (10-19)', () => {
     const group = { manifest: manifestOf('dinner-vote', 'Dinner vote', { contributes: { tabs: [{ name: 'main', title: 'Vote', opensFiles: { chat: ['.dinner-vote.json'] } }] } } as Partial<ExtensionManifest>), enabled: true, givesAgents: false }
     const catalog = createExtensionCatalog({ programs: () => ({ ...programs, agentToolsRefusal: () => null }), onProblem: () => {}, apps: () => [group], market: async () => [] })
     const [row] = (await catalog.apps('s1', false)).apps
-    expect(row!.next).toContain(`It is on your owner's computer, in no chat by itself: app_install { app: "dinner-vote", chat_id, data } puts it into a chat`)
+    expect(row!.next).toContain(`It is on your owner's computer only, in no chat yet. Asked for in a chat, call app_install { app: "dinner-vote", chat_id: <that chat>, data } now, without asking first`)
   })
 
   it('the market: Apps not installed here, how to install each, who confirms; one this computer cannot install says why; deprecated ones are not offered; installed ones take its dates', async () => {

@@ -119,9 +119,10 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
     next: (app.givesAgents
       ? `catalog_list { name: "${id}" } lists its tools and skill`
       : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }') +
-      // 5-minute game rounds 2-3 (10-29): 「on」 was read as 「in this chat」 for a chat App made in another chat.
+      // 5-minute game rounds 2-3 (10-29): 「on」 was read as 「in this chat」 for a chat App made in another chat; A/B r02: told
+      // only what the call does, the agent asked first — a person asking for it in a chat is the go-ahead.
       (contributes.tabs.some((tab) => claimedSuffixes(tab, 'chat').length > 0)
-        ? `. It is on your owner's computer, in no chat by itself: app_install { app: "${id}", chat_id, data } puts it into a chat (its data file, a check, the card)`
+        ? `. It is on your owner's computer only, in no chat yet. Asked for in a chat, call app_install { app: "${id}", chat_id: <that chat>, data } now, without asking first — the request is the go-ahead; it adds the data file, checks it and posts the card`
         : '') +
       '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
