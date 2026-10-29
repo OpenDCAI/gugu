@@ -17,6 +17,14 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  'projection.create': { verb: 'projectionCreate' },
+  'projection.publish': { verb: 'projectionPublish' },
+  'projection.close': { verb: 'projectionClose' },
+  'projection.closed': { verb: 'projectionClosed' },
+  'projection.inputResult': { verb: 'projectionInputResult' },
+  'projection.watch': { verb: 'projectionWatch' },
+  'projection.unwatch': { verb: 'projectionUnwatch' },
+  'projection.send': { verb: 'projectionSend' },
   'modal.open': { verb: 'modalOpen' },
   'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
   'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
@@ -107,13 +115,15 @@ type Event<T extends ExtensionHostEvent['type']> = Extract<ExtensionHostEvent, {
 interface HostEvent {
   event: ExtensionHostEvent['type'];
   /** Who hears it, when not every caller does — as a verb's `only`. */
-  only?: 'page' | 'background';
+  only?: 'page' | 'background' | 'program';
   /** What the handler is called with. */
   pick: (event: never) => unknown[];
 }
 
 /** The events a host hands on, one row per `on…` member: which event, and what the handler gets of it. */
 export const HOST_EVENTS = {
+  onProjection: { event: 'projection', only: 'page', pick: (event: Event<'projection'>) => [event.watchId, event.packet] },
+  onProjectionSource: { event: 'projectionSource', only: 'program', pick: (event: Event<'projectionSource'>) => [event.event] },
   onModalFocus: { event: 'modalFocus', only: 'page', pick: (event: Event<'modalFocus'>) => [event.edge] },
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
@@ -186,7 +196,7 @@ export function hostMembers(
     if (tail === undefined) members[head] = value;
     else members[head] = { ...(members[head] as Record<string, unknown> | undefined), [tail]: value };
   };
-  const has = (only: 'page' | 'background' | undefined) => only === undefined || only === caller;
+  const has = (only: HostCaller | undefined) => only === undefined || only === caller;
   for (const [member, row] of Object.entries(HOST_CALLS) as [HostMember, HostCall][]) {
     if (!offers(member) || !has(verbFacts(row.verb)?.only)) continue;
     const pack = (row.pack ?? same) as (...args: unknown[]) => unknown;

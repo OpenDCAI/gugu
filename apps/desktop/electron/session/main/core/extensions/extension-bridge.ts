@@ -9,6 +9,7 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { AppModalSessions } from '@shared/extensions/app-modal';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
+import { extensionProjections } from './extension-projection-bridge';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -121,7 +122,16 @@ interface SurfaceBinding {
   themeMode: 'light' | 'dark' | null;
 }
 
+type BindingChange = { previousSession: string | null };
+const bindingChanges = new Map<number, BindingChange>();
 const bindings = new Map<number, SurfaceBinding>();
+function restoreBindingChange(id: number, prior: SurfaceBinding | undefined, change: BindingChange, error: unknown): never {
+  if (bindingChanges.get(id) === change) {
+    bindingChanges.delete(id);
+    if (prior && bindings.get(id) === prior) { prior.sessionId = change.previousSession; pushContext(id); }
+  }
+  throw error;
+}
 const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
   await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
     log.warn('An App modal closed after its window went away', { reason: String(reason) });
@@ -161,6 +171,8 @@ export interface BridgeCaller {
    * gugu does not know which — and it works on chats only as that agent (`asCallingAgent`). Absent: in no agent's call.
    */
   callingAgent?: string | null;
+  /** The task stamped by main for this exact program call; never read from the tool arguments. */
+  callingSession?: string;
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
@@ -315,6 +327,8 @@ async function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  bindingChanges.delete(webContentsId);
+  extensionProjections.closePage(webContentsId);
   void appModals.pageGone(webContentsId);
   stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
@@ -553,10 +567,19 @@ export async function bindExtensionSurface(input: {
     throw new Error(`Tab kind "${input.tabKind}" does not belong to "${sessionExtensionId}"`);
   }
   const projectId = input.filePath && !input.sessionId ? (input.projectId ?? null) : null;
-  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
+  const prior = bindings.get(input.webContentsId);
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? prior?.sessionId ?? null };
+  bindingChanges.set(input.webContentsId, change);
+  if (prior && prior.sessionId !== (input.sessionId ?? null)) {
+    prior.sessionId = null;
+    extensionProjections.closePage(input.webContentsId);
+  }
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, prior, change, error);
+  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath).catch(recover);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
-  const chatId = await surfaceResourceChat(input.chatId, input.operator);
+  const chatId = await surfaceResourceChat(input.chatId, input.operator).catch(recover);
+  if (bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   const previous = bindings.get(input.webContentsId);
   if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
     fileSync.revoke(input.webContentsId, 'unbound');
@@ -588,6 +611,7 @@ export async function bindExtensionSurface(input: {
       log.warn('[extensions] a page\'s session was found on no machine; it hears no machine\'s program', { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
+  bindingChanges.delete(input.webContentsId);
   observeDocument(contents);
   // 在这条线上等着的那些调用,现在可以往下走了。
   resolveBindingWaiters(input.webContentsId);
@@ -755,10 +779,20 @@ export async function retargetExtensionSurface(input: {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   const sessionId = input.sessionId ?? null;
-  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath);
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? binding.sessionId };
+  bindingChanges.set(input.webContentsId, change);
+  const previousSession = change.previousSession;
+  if (previousSession !== sessionId) {
+    binding.sessionId = null;
+    extensionProjections.closePage(input.webContentsId);
+  }
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, binding, change, error);
+  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath).catch(recover);
+  const chatId = await surfaceResourceChat(input.chatId, binding.operator).catch(recover);
+  if (bindings.get(input.webContentsId) !== binding || bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   // Another handed-over file: the one it could open without a capability was the old one, so its open files go (it is
   // told, and reopens what it may). Its other files were never the place's to give.
-  if (sessionId !== binding.sessionId || filePath !== binding.filePath || (input.itemId ?? null) !== binding.itemId) {
+  if (sessionId !== previousSession || filePath !== binding.filePath || (input.itemId ?? null) !== binding.itemId) {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   const was = fileOf(binding);
@@ -766,15 +800,18 @@ export async function retargetExtensionSurface(input: {
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.projectId = null;
-  binding.chatId = await surfaceResourceChat(input.chatId, binding.operator);
+  binding.chatId = chatId;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
+  bindingChanges.delete(input.webContentsId);
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
   if (fileOf(binding) !== null && fileOf(binding) !== was) flushQueuedSurfaceEvents(input.webContentsId, binding, true);
 }
 
 export function unbindExtensionSurface(webContentsId: number): void {
+  bindingChanges.delete(webContentsId);
+  extensionProjections.closePage(webContentsId);
   void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
   agentPages.delete(webContentsId);
@@ -1383,6 +1420,10 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
  * holds and in the few verbs about a page itself.
  */
 export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
+  if (extensionProjections.isCleanup(caller, method, args)) {
+    try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
+    catch (error) { return failure(caller.extensionId, method, error); }
+  }
   // The gesture was read in the preload's world (and a program has none): not here.
   const refusal = callRefusal(method, args, { kind: caller.kind, has: (capability) => extensionsService().hasCapability(caller.extensionId, capability) });
   if (refusal) return { ok: false, ...refusal };
@@ -1453,6 +1494,7 @@ async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Reco
 }
 
 async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, args: Record<string, unknown>): Promise<unknown> {
+  if (method.startsWith('projection')) return await extensionProjections.call(caller, method, args);
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
