@@ -16,6 +16,7 @@ vi.mock('@renderer/features/sessions/stores/open-file-in-file-editor', () => ({
 }));
 
 const archiveSession = vi.hoisted(() => vi.fn());
+const restartSession = vi.hoisted(() => vi.fn());
 /** 记下每个频道的 handler —— 不记就测不到「事件到达之后发生了什么」。 */
 const eventHandlers = vi.hoisted(() => new Map<unknown, ((payload: unknown) => void)[]>());
 
@@ -32,6 +33,7 @@ vi.mock('@renderer/lib/ipc', () => {
   rpc: {
     sessions: {
       archiveSession,
+      restartSession,
       dehydrateSession,
       getUnarchivedSession: vi.fn(),
       hydrateSession,
@@ -335,6 +337,53 @@ describe('PageSessionsStore 上下文读数跟着记录走 (#7342)', () => {
     const store = new PageSessionsStore('project-1', 'a', [{ ...row, contextUsage: reading }]);
     deliverOverJson({ title: 'renamed' });
     expect(store.sessions.get('a')?.data.contextUsage).toEqual(reading);
+    store.dispose();
+  });
+});
+
+
+describe('confirmed Start fresh record updates', () => {
+  beforeEach(() => { eventHandlers.clear(); restartSession.mockReset(); });
+  const makeStore = () => new PageSessionsStore('project-1', 'a', [{
+    id: 'a', projectId: 'project-1', providerId: 'codex', title: 'Saved task',
+    lastInteractedAt: null, providerSessionId: 'old-id', providerSessionState: 'missing',
+  }]);
+
+  it('finishes from the host reply without waiting for a session:changed event', async () => {
+    const reply = Promise.withResolvers<void>();
+    restartSession.mockReturnValueOnce(reply.promise);
+    const store = makeStore();
+    const pending = store.restartSession('a');
+    expect(store.sessions.get('a')?.data.providerSessionId).toBe('old-id');
+    reply.resolve(); await pending;
+    expect(restartSession).toHaveBeenLastCalledWith('project-1', 'a');
+    expect(store.sessions.get('a')?.data.providerSessionId).toBeUndefined();
+    expect(store.sessions.get('a')?.data.providerSessionState).toBeUndefined();
+    store.dispose();
+  });
+
+  it('keeps the old reference and missing state when the host refuses', async () => {
+    restartSession.mockRejectedValueOnce(new Error('reset refused'));
+    const store = makeStore();
+    await expect(store.restartSession('a')).rejects.toThrow('reset refused');
+    expect(store.sessions.get('a')?.data.providerSessionId).toBe('old-id');
+    expect(store.sessions.get('a')?.data.providerSessionState).toBe('missing');
+    store.dispose();
+  });
+
+  it('does not erase a new provider ID already delivered while awaiting the reply', async () => {
+    const reply = Promise.withResolvers<void>();
+    restartSession.mockReturnValueOnce(reply.promise);
+    const store = makeStore();
+    const pending = store.restartSession('a');
+    for (const handler of eventHandlers.get(sessionChangedChannel) ?? []) {
+      handler({ sessionId: 'a', projectId: 'project-1', changes: {
+        providerSessionId: 'new-id', providerSessionState: null,
+      } });
+    }
+    reply.resolve(); await pending;
+    expect(store.sessions.get('a')?.data.providerSessionId).toBe('new-id');
+    expect(store.sessions.get('a')?.data.providerSessionState).toBeUndefined();
     store.dispose();
   });
 });

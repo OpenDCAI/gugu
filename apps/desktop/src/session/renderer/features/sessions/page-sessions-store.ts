@@ -243,7 +243,17 @@ export class PageSessionsStore implements IDisposable {
    * ❌ 不是新建一条顶上 —— 会话 id、标题、在任务里的位置原样保留。
    */
   async restartSession(sessionId: string): Promise<void> {
+    const providerSessionId = this.sessions.get(sessionId)?.data.providerSessionId;
     await rpc.sessions.restartSession(this.projectId, sessionId);
+    // Like switchSessionRuntime, finish the confirmed host update here rather
+    // than waiting for session:changed. Do not erase a new ID already delivered.
+    runInAction(() => {
+      const data = this.sessions.get(sessionId)?.data;
+      if (data && data.providerSessionId === providerSessionId) {
+        data.providerSessionId = undefined;
+        data.providerSessionState = undefined;
+      }
+    });
   }
 
   /**
