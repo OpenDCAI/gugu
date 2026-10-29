@@ -30,6 +30,8 @@ export type SessionPhase =
   | { kind: 'closed'; exitCode: number | null };
 
 export interface SessionMachineContext {
+  /** A dispatched input is awaiting its first foreground event; it reserves admission only. */
+  dispatchPending?: boolean;
   modeIds?: readonly string[];
   configOptionIds?: readonly string[];
 }
@@ -127,13 +129,13 @@ export type DomainEvent =
   | { type: 'WorkStarted' }
   /** agent 停下了(working/cancelling → ready):记下怎么停的,抽干队列。 */
   | { type: 'WorkEnded'; outcome: TurnOutcome; dequeueQueuedPrompt?: boolean }
-  | { type: 'AgentsChanged'; runningCount: number }
+  | { type: 'AgentsChanged'; runningCount: number; dequeueQueuedPrompt?: boolean }
   | { type: 'BackgroundCommandsChanged'; taskIds: readonly string[] }
   | { type: 'CancellationRequested' }
   | { type: 'PermissionRequested'; request: AcpPermissionRequest }
   | { type: 'PermissionResolved'; requestId: string }
   /** A live setting was confirmed; release prompts held at the next-turn barrier. */
-  | { type: 'SettingsReady' }
+  | { type: 'AdmissionReady' }
   | { type: 'ProcessClosed'; exit: AdapterExit; abnormal?: boolean };
 
 export type TurnOutcome = { kind: 'stopped'; stopReason: StopReason } | { kind: 'errored' };
@@ -159,7 +161,7 @@ export function decide(
   switch (cmd.type) {
     case 'Prompt':
       // 「忙」只看 agent 在不在干活;只剩后台是 park,新来的一句直接发,不排到后台跑完。
-      if (isBusy(s)) {
+      if (isBusy(s) || (s.phase.kind === 'ready' && ctx.dispatchPending)) {
         // spec session-injection(next-tool-call 档的 mid-turn 支):忙时把同一条标准 session/prompt
         // **立即**发进当前 turn,❌ 不落 PromptQueued(那正是曾把 opencode 挡成 idle-only 的那道闸)。
         // 单线程 decide 里判定 = 原子;只有会话上那家 harness 声明了 next-tool-call 的调用方才会带这个旗。
@@ -387,10 +389,16 @@ export function evolve(
     }
 
     case 'WorkEnded': {
+      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
+      // A prompt can end before its provider ever reported running (refused, cancelled before insertion):
+      // the ending is still the last turn's outcome. Nothing started, so nothing stops and nothing drains.
+      if (s.phase.kind === 'ready') {
+        return { state: { ...s, lastStopReason: stopReason,
+          lastTurnOutcome: ev.outcome.kind === 'errored' ? 'errored' : 'stopped' }, effects: [{ type: 'state' }] };
+      }
       if (s.phase.kind !== 'working' && s.phase.kind !== 'cancelling') {
         return warn(s, `WorkEnded in phase '${s.phase.kind}'`);
       }
-      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
       // agent 停下就抽干队列:后台子代理不是在干的活,不挡下一句。
       const { queuedPrompts, effects: queueEffects } =
         ev.dequeueQueuedPrompt !== false
@@ -420,7 +428,7 @@ export function evolve(
 
     case 'AgentsChanged': {
       const { queuedPrompts, effects: queueEffects } =
-        ev.runningCount === 0 && s.phase.kind === 'ready'
+        ev.runningCount === 0 && s.phase.kind === 'ready' && ev.dequeueQueuedPrompt !== false
           ? dequeuePromptEffects(s.queuedPrompts)
           : { queuedPrompts: s.queuedPrompts, effects: [] as Effect[] };
       return {
@@ -476,8 +484,8 @@ export function evolve(
         effects: [{ type: 'permissionResolved', requestId: ev.requestId, cancelled: false }],
       };
 
-    case 'SettingsReady': {
-      if (s.phase.kind !== 'ready') return warn(s, `SettingsReady in phase '${s.phase.kind}'`);
+    case 'AdmissionReady': {
+      if (s.phase.kind !== 'ready') return warn(s, `AdmissionReady in phase '${s.phase.kind}'`);
       const { queuedPrompts, effects: queueEffects } = dequeuePromptEffects(s.queuedPrompts);
       return {
         state: { ...s, queuedPrompts },

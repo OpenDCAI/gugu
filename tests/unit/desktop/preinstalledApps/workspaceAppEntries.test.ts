@@ -71,7 +71,7 @@ const app = () => ({
 const banner = () => ['banner', 'list-banner'].map((id) => $(id)).filter((node) => !node.hidden).map((node) => node.textContent).join('')
 const clickFile = (id: string) => (document.querySelector(`[data-id="${id}"] .file-open`) as HTMLButtonElement).click()
 // A row's ⋯, and the page's one menu it opens: what it says, an item by what it says.
-const rowMore = (id: string) => document.querySelector(`[data-id="${id}"] .row-more`) as HTMLButtonElement
+const rowMore = (id: string) => ({ click: () => document.querySelector(`[data-id="${id}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
 const menuItems = () => [...$('menu').querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
 const offered = () => menuItems().map((item) => item.textContent)
 const menuItem = (text: string) => menuItems().find((item) => item.textContent === text)!
@@ -100,9 +100,9 @@ describe('workspace App: what the old workspace panel did', () => {
     // owner 10-28: one line — who made it, when it last changed, how big — and who made and who edited it, when, on hover.
     const meta = (id: string) => document.querySelector<HTMLElement>(`[data-id="${id}"] .file-meta`)!
     const cells = (id: string) => [...meta(id).children].map((cell) => cell.textContent)
-    expect(cells('plan')).toEqual(['张三', `改于 ${clock(ago(60))}`, '10 B'])
+    expect(cells('plan')).toEqual([clock(ago(60)), '10 B'])
     expect(meta('plan').title).toBe('张三 创建 · 1小时前 · 已编辑 · 1分钟前')
-    expect(cells('photo')).toEqual(['写手 (Agent)', clock(ago(120)), '100 B'])
+    expect(cells('photo')).toEqual([clock(ago(120)), '100 B'])
     expect(cells('cfg'), 'the system is no one to name on the row').toEqual([clock(ago(7200)), '2 B'])
     expect(meta('cfg').title).toBe('系统 创建 · 2小时前')
     expect(cells('old'), 'no creation metadata: no invented attribution').toEqual([clock(ago(10)), '1 B'])
@@ -171,7 +171,8 @@ describe('workspace App: what the old workspace panel did', () => {
     // Who edited it is said on hover of the row's line (owner 10-28: the line itself is who made it, when, how big).
     const meta = () => document.querySelector<HTMLElement>('[data-id="plan"] .file-meta')!
     expect(meta().title).toContain(expected)
-    expect(meta().textContent).toContain('张三')
+    expect(meta().textContent).not.toContain('张三')
+    expect(document.querySelector<HTMLElement>('[data-id="plan"] .file-open')!.title).toContain(expected)
     gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
     contextChanged({ ...context, locale, file: { chat: 'chat-1', id: entry.id! } })
     await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
@@ -213,17 +214,17 @@ describe('workspace App: what the old workspace panel did', () => {
     for (const li of app().entries) {
       const id = li.getAttribute('data-id')!
       rowMore(id).click()
-      expect(offered()).toEqual(['下载', ...(id === 'photo' ? ['在聊天中定位'] : []), '复制链接', '详情', '用别的 App 打开'])
+      expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', ...(id === 'photo' ? ['在聊天中定位'] : []), '选择', '详情'])
     }
     pressEscape()
     contextChanged({ ...context })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
     rowMore('cfg').click()
-    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情', '删除'])
     pressEscape()
     // owner 10-18: delete is offered only where the folder says this person may (entry.canDelete) — 'old' does not say so.
     rowMore('old').click()
-    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…'])
+    expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情'])
     pressEscape()
   })
 })
@@ -254,17 +255,41 @@ describe('workspace App as a file manager: the host picks the App', () => {
   test('every file offers "Open with" in its ⋯: the host\'s picker, asked for; choosing it closes the menu', async () => {
     gugu.files.openWith.mockClear()
     const more = rowMore('cfg')
-    expect(more.getAttribute('aria-label')).toBe('更多')
+    const target = document.querySelector<HTMLButtonElement>('[data-id="cfg"] .file-open')!
+    expect(document.querySelector('.row-more')).toBe(null)
     more.click()
     expect($('menu').hidden).toBe(false)
-    expect(more.getAttribute('aria-expanded'), 'its ⋯ stays drawn while the menu is open').toBe('true')
-    expect(document.activeElement, 'the keyboard is on the first item').toBe(menuItem('下载'))
+    expect(target.getAttribute('aria-expanded'), 'its ⋯ stays drawn while the menu is open').toBe('true')
+    expect(document.activeElement, 'the keyboard is on the first item').toBe(menuItem('打开'))
     menuItem('用别的 App 打开').click()
     expect($('menu').hidden).toBe(true)
-    expect(more.getAttribute('aria-expanded')).toBe('false')
-    expect(document.activeElement, 'and back on the ⋯').toBe(more)
+    expect(target.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement, 'and back on the ⋯').toBe(target)
     await vi.waitFor(() => expect(gugu.files.openWith).toHaveBeenCalledTimes(1))
     expect(gugu.files.openWith.mock.calls[0]).toEqual([expect.objectContaining({ id: 'cfg' }), { ask: true }])
+  })
+
+  test('F2 edits the focused row and Delete still asks, while read-only keyboard actions do not write', async () => {
+    const key = (name: string) => document.querySelector('[data-id="plan"] .file-open')!.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }))
+    key('F2')
+    const input = document.querySelector<HTMLInputElement>('[data-id="plan"] .rename-input')!
+    expect(input.value).toBe('plan.md')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await vi.waitFor(() => expect(document.querySelector('.rename-input')).toBe(null))
+    gugu.files.remove.mockClear()
+    key('Delete')
+    expect(offered()).toEqual(['确认删除'])
+    expect(gugu.files.remove).not.toHaveBeenCalled()
+    pressEscape()
+    contextChanged({ ...context, capabilities: ['files:read'] })
+    await vi.waitFor(() => expect($('new-doc').hidden).toBe(true))
+    key('F2')
+    key('Delete')
+    expect(document.querySelector('.rename-input')).toBe(null)
+    expect($('menu').hidden).toBe(true)
+    expect(gugu.files.remove).not.toHaveBeenCalled()
+    contextChanged({ ...context })
+    await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
   })
 
   test('rename from the ⋯ turns the row into its full name to edit; delete asks once more, and closing the menu takes that back', async () => {
@@ -286,12 +311,12 @@ describe('workspace App as a file manager: the host picks the App', () => {
     rowMore('cfg').click()
     menuItem('删除').click()
     expect($('menu').hidden, 'the menu stays open for the question').toBe(false)
-    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '确认删除'])
+    expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情', '确认删除'])
     $('filter').dispatchEvent(new Event('pointerdown', { bubbles: true })) // a press elsewhere
     expect($('menu').hidden).toBe(true)
     expect(gugu.files.remove).not.toHaveBeenCalled()
     rowMore('cfg').click()
-    expect(offered(), 'the question is taken back').toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered(), 'the question is taken back').toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情', '删除'])
     menuItem('删除').click()
     menuItem('确认删除').click()
     expect($('menu').hidden).toBe(true)
@@ -344,7 +369,8 @@ describe('workspace App as a file manager: the host picks the App', () => {
     expect(mark.src).toBe('data:image/png;base64,dm90ZQ==')
     expect(mark.alt).toBe('Dinner vote')
     expect(mark.title).toBe('Dinner vote')
-    expect(row.title).toBe('周五聚餐吃什么.dinner-vote.json')
+    expect(row.title).toContain('周五聚餐吃什么.dinner-vote.json')
+    expect(row.title).toContain('2 B')
     // 对照:没有认领的文件(旧宿主没有这两个字段)照原名显示,画它的后缀,按种类上色(owner 10-28)。
     const plain = document.querySelector('[data-id="plan"] .file-open') as HTMLButtonElement
     expect(plain.querySelector('.file-name')!.textContent).toBe('plan.md')

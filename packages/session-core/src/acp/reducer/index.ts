@@ -1,10 +1,8 @@
 export type {
-  CreateFileToolCall,
+  PatchToolCall,
   CreatePlanToolCall,
-  DeleteFileToolCall,
   ExecuteToolCall,
   McpToolCall,
-  ModifyFileToolCall,
   ReadToolCall,
   SearchToolCall,
   SpawnSubagentToolCall,
@@ -29,17 +27,15 @@ export type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
 } from '../models/plan';
 
 export type {
-  EnrichHook,
-  NormalizedDiff,
   NormalizedEvent,
   NormalizedToolStatus,
 } from './normalized-event';
 
 export {
-  makeDiffId,
   makeMessageId,
   makeParentId,
   makePlanId,

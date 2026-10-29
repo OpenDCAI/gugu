@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 
 import type { RecordBoundary, RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
-import { asRecord, boundaryEntry, type SessionRecordSourceOptions, toolCallStart, toolKindTable } from './shared';
+import { asRecord, boundaryEntry, type SessionRecordSourceOptions, toolCallStart, toolCallResult, toolKindTable } from './shared';
 import { SqlitePollSource, openSessionDb } from './sqlite-db';
 
 
@@ -110,26 +110,21 @@ class HermesSqliteSource extends SqlitePollSource<SessionRecordLocator> {
     const at = row.timestamp * 1000;
     const key = (index: number) => `hermes:${row.id}#${index}`;
     const out: RecordEntry[] = [];
-    const push = (update: SessionUpdate) => out.push({ key: key(out.length), at, update });
+    const push = (event: NormalizedEvent) => out.push({ key: key(out.length), at, event });
     const text = contentText(row.content);
 
     if (row.role === 'user') {
       if (isSyntheticUser(row, text)) return [];
       // 上一轮没收尾就来了下一句用户话 ⇒ 上一轮停在了它最后一行的形状上。
       if (this.openTurn) out.push(this.close(this.openTurn, at));
-      if (text) push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text }, messageId: key(0) });
+      if (text) push({ kind: 'message', role: 'user', messageId: key(0), text });
       this.openTurn = { rowId: row.id, kind: 'user' };
       return out;
     }
 
     if (row.role === 'tool') {
       if (row.tool_call_id) {
-        push({
-          sessionUpdate: 'tool_call_update',
-          toolCallId: row.tool_call_id,
-          status: 'completed',
-          ...(text ? { content: [{ type: 'content' as const, content: { type: 'text' as const, text } }] } : {})
-        });
+        push(toolCallResult(row.tool_call_id, 'completed', text ? { text } : {}));
       }
       this.openTurn = { rowId: row.id, kind: 'tool' };
       return out;
@@ -137,8 +132,8 @@ class HermesSqliteSource extends SqlitePollSource<SessionRecordLocator> {
 
     if (row.role !== 'assistant') return [];
     const thought = row.reasoning_content || row.reasoning;
-    if (thought) push({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: thought }, messageId: key(0) });
-    if (text) push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text }, messageId: key(0) });
+    if (thought) push({ kind: 'thinking', messageId: key(0), text: thought });
+    if (text) push({ kind: 'message', role: 'assistant', messageId: key(0), text });
     const calls = toolCallsOf(row.tool_calls);
     for (const call of calls) push(call);
     if (calls.length > 0) {
@@ -190,7 +185,7 @@ function contentText(content: string | null): string {
 }
 
 /** OpenAI 形状的 `tool_calls`(`[{id, function:{name, arguments}}]`,arguments 是 JSON 字符串)。 */
-function toolCallsOf(raw: string | null): SessionUpdate[] {
+function toolCallsOf(raw: string | null): NormalizedEvent[] {
   if (!raw) return [];
   let calls: unknown;
   try {
@@ -199,7 +194,7 @@ function toolCallsOf(raw: string | null): SessionUpdate[] {
     return [];
   }
   if (!Array.isArray(calls)) return [];
-  return calls.flatMap((value): SessionUpdate[] => {
+  return calls.flatMap((value): NormalizedEvent[] => {
     const call = asRecord(value);
     const fn = asRecord(call?.function);
     if (typeof call?.id !== 'string') return [];

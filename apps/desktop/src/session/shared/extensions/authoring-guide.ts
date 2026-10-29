@@ -394,7 +394,7 @@ can tell any of the person's agents. A sheet pick needs no capability.
 
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Programs and skills for this computer's agents. Configuration/behavior: \`apps-settings\`; page calls: \`apps-page\`.
+Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -417,16 +417,14 @@ export const follow = {
 
   — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
   agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\` and \`model\` come stamped the same way: its session (a \`{ session }\` place; keep it, and a
-  click takes the person there with \`showSession\`), that working copy's absolute path, and the model gugu runs it on,
-  as \`listAgents\` gives it (not one switched in its own terminal); each absent when there is none.
-  What run returns is the answer (a string as it is, anything else as JSON); what it throws, the
-  error the agent reads. An export that is not a tool stops the file with an error naming it: keep
-  helpers unexported, or in another module \`tools.js\` imports. It may import your bundle's files
-  and Node's built-ins (no \`node_modules\`).
-- Your tools run only on the computers the App is installed on, with that person's full rights.
-  Another person's agent has them once its owner installs the card too —
-  ask them to; never have agents write their ids into your data.
+  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
+  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
+  Return human steps immediately; the agent asks via existing questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
+  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
+- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
+  these tools; never have agents write their ids into your data.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
@@ -469,8 +467,7 @@ export const follow = {
 - Agents reach your tools through the catalog (\`catalog_list\` / \`catalog_call\`), named
   \`<App id>__<tool>\` whichever program gives it, in every session the moment you are installed; the person can have them
   listed natively instead, from the next session on. \`contributes.toolsListed: true\` asks for that at the first install
-  (the person can switch it back). The person can switch \`agents:tools\` off without uninstalling you; running
-  sessions' calls are refused from then on.
+  (the person can switch it back). Withdrawing \`agents:tools\` refuses further calls; lifecycle: \`apps-settings\`.
 
 Free — your own programs and data folder:
 
@@ -919,8 +916,12 @@ may also declare \`{ "name":"settings", "title":"Settings", "hostPage":"settings
 Optional top-level \`settings\` declares up to 32 fields: \`{ "key":"mode", "title":"Mode",
 "type":"string", "default":"local" }\`. Types: \`string\`, \`boolean\`, or \`select\` with
 \`options:[{"value":"local","title":"Local"}]\`; \`description\` and a typed \`default\` are optional.
-Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; saving retires
-the old program after in-flight calls finish, and new calls start with the new values. Uninstall clears them.
+Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; after a change,
+new calls start with the new values. Uninstall clears them.
+Switching the App off, withdrawing \`agents:tools\`, or uninstalling cancels pending calls (agent/page,
+including startup), closes program IPC authority and stops its process tree. Other Apps are unaffected.
+Single-call cancellation does not stop other sessions sharing the program. Upgrades/settings drain already-running
+stdio calls; calls still starting may be interrupted.
 A program's real failures reach the agent in its tool result and the person on the App's page; installed does not mean running.
 Native host resources use \`contributes.mcpServers:[{"name":"browser-use","host":"browser-use"}]\`
 (API 5, desktop GUI). They use the same App permissions, Agent scope, catalog and disclosure as stdio

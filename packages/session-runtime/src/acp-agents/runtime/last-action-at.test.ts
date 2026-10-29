@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
  * `lastActionAt` on the runtime summary is the newest tool action, kept past the five-minute window that
  * `recentActions` uses — the same contract as the session record's timeline (contract.ts). Before, the window
@@ -28,17 +29,17 @@ describe('runtime summary lastActionAt', () => {
     const summary = () => rt.sessionsListLiveModel().states.list.snapshot().data['conv-last-action'];
 
     const toolAt = now;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: SESSION,
-      update: { sessionUpdate: 'tool_call', toolCallId: 'call_sleep', title: 'sleep 600', kind: 'execute', status: 'in_progress' } as SessionUpdate,
+      event: decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call_sleep', title: 'sleep 600', kind: 'execute', status: 'in_progress' } as SessionUpdate),
     });
     await until('the tool action is in the summary', () => summary()?.lastActionAt, (at) => at === toolAt);
     expect(summary()?.recentActions?.length).toBe(1);
 
     now += 6 * 60_000;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: SESSION,
-      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'still waiting' } } as SessionUpdate,
+      event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'still waiting' } } as SessionUpdate),
     });
     await until('the window has emptied', () => summary()?.recentActions?.length, (n) => n === 0);
     expect(summary()?.lastActionAt, 'the fact stays: its last tool action was six minutes ago').toBe(toolAt);

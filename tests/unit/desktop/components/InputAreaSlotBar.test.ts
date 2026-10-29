@@ -53,7 +53,7 @@ describe('ChatMessageComposer uses the shared composer bar', () => {
     expect(composer.getAttribute('data-mobile')).toBe('true')
     expect(input.getAttribute('enterkeyhint')).toBe('enter')
     expect(send).not.toBeNull()
-    expect(placeholder).toBe('Write a message… Type / for commands')
+    expect(placeholder).toBe('Write a message…')
   })
   it('applies the shared docked width only inside a slot', async () => {
     expect((await render(true)).composer.className.includes(sessionComposerDockedWidthClassName)).toBe(true)
@@ -61,7 +61,7 @@ describe('ChatMessageComposer uses the shared composer bar', () => {
   })
   it('names the project in a project group box', async () => {
     expect((await render(true, 'website')).placeholder).toBe('Message website… @ an agent to call it')
-    expect((await render(true)).placeholder).toBe('Write a message… Type / for commands')
+    expect((await render(true)).placeholder).toBe('Write a message…')
   })
 })
 

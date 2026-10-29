@@ -18,6 +18,7 @@ import type { CloudMarketEntry } from '../../../../apps/desktop/src/session/shar
 import { parseExtensionTabKind, type ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import type { CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { ExtensionProgram, ExtensionPrograms } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
+import { revokeExtensionProgramAccess } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-program-access'
 
 const notes: ExtensionProgram = {
   extensionId: 'agent-notes', server: 'agent-notes', digest: 'v1', command: 'node', args: [], env: {}, cwd: '/x', dataDir: '/data/agent-notes',
@@ -123,6 +124,30 @@ async function connect(entry: AcpMcpServer): Promise<Client> {
 }
 
 describe('the extension gateway (#6615)', () => {
+  it('revocation during caller preparation rejects the old call while a fresh call can proceed', async () => {
+    const gate = Promise.withResolvers<void>()
+    const preparing = Promise.withResolvers<void>()
+    const catalog = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps,
+      sessionContext: async () => { preparing.resolve(); await gate.promise; return null } })
+    const tool = (await catalog.tools('old-session', 'conv-a'))[0]!
+    let outcome = 'pending'
+    const extra = { signal: new AbortController().signal, sendNotification: async () => {} } as unknown as Parameters<CatalogTool['run']>[1]
+    const old = tool.run({}, extra).then(() => { outcome = 'completed' }, () => { outcome = 'interrupted' })
+    try {
+      await preparing.promise
+      revokeExtensionProgramAccess(notes.extensionId)
+      await expect.poll(() => outcome, { timeout: 1_000 }).toBe('interrupted')
+    } finally {
+      gate.resolve()
+      await old
+    }
+    await new Promise(resolve => setImmediate(resolve))
+    expect(calls).toHaveLength(0)
+    const fresh = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps })
+    await (await fresh.tools('new-session', 'conv-b'))[0]!.run({}, extra)
+    expect(calls).toHaveLength(1)
+  })
+
   it('gives each session its own entry per program, under the name the program always had', async () => {
     const host = hostOf()
     hosts.push(host)

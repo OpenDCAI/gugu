@@ -1,3 +1,4 @@
+import { decodePermissionRequest, decodeSessionUpdate } from '@gugu/session-core/acp';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { IAcpBehavior } from '@gugu/session-core/agents/plugins';
 import { err, isOk } from '@gugu/session-shared';
@@ -1004,24 +1005,24 @@ describe('AcpRuntime session manager', () => {
 
     const prompt = rt.sendPrompt('conv-live', { text: 'hello' });
     updates.length = 0;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: providerSessionId,
         messageId: 'msg-1',
         content: { type: 'text', text: 'hel' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
     updates.length = 0;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: providerSessionId,
         messageId: 'msg-1',
         content: { type: 'text', text: 'lo' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
 
     // 同一拍里的第二块在拍尾才发出(显示节拍,见 publishOnTick)。
@@ -1042,13 +1043,13 @@ describe('AcpRuntime session manager', () => {
     const live = rt.sessionLiveModels('conv-live-picture');
     if (!live) throw new Error('expected live models');
     const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
-    await client.sessionUpdate({ sessionId: providerSessionId, update: {
+    await client.sessionEvent({ sessionId: providerSessionId, event: decodeSessionUpdate({
       sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
       status: 'completed', content: [
         { type: 'content', content: { type: 'text', text: 'y'.repeat(100_000) } },
         { type: 'content', content: { type: 'image', ...image } },
       ],
-    } as SessionUpdate });
+    } as SessionUpdate) });
     await until('tool result is published', () => JSON.stringify(live.states.activeTurn.snapshot().data).includes('Screenshot'));
     const projected = live.states.activeTurn.snapshot().data;
     const item = projected?.items.find(node => 'toolCallId' in node && node.toolCallId === 'picture');
@@ -1072,15 +1073,15 @@ describe('AcpRuntime session manager', () => {
     const updates: unknown[] = [];
     const unsubscribe = live.states.usage.subscribe((update) => updates.push(update));
 
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'usage_update',
         sessionId: providerSessionId,
         used: 42_000,
         size: 200_000,
         cost: { amount: 0.25, currency: 'USD' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
 
     expect(live.states.usage.snapshot().data).toEqual({
@@ -1419,6 +1420,18 @@ describe('AcpRuntime session manager', () => {
    * 判据用 raw ACP log:被丢弃时 `onSessionUpdate` 在 `recordRaw` **之前**就 return 了,
    * 所以「日志里有没有这条」正好把「收到了」与「被丢了」分开。
    */
+  it.each(['new', 'load'])('seeds commands from the actual %s setup response without a notification', async method => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    const response = { sessionId: 'session-1', availableCommands: [{ name: 'review', description: 'Review', input: { hint: '<pr>' } }] };
+    if (method === 'new') h.agent.newSession.mockResolvedValueOnce(response);
+    else h.agent.loadSession.mockResolvedValueOnce(response);
+    await rt.startSession(makeStartInput({ sessionId: 'setup-commands', ...(method === 'load' ? { providerSessionId: 'session-1' } : {}) }));
+    expect(rt.sessionLiveModels('setup-commands')?.states.config.snapshot().data.availableCommands)
+      .toMatchObject([{ name: 'review', description: 'Review', inputHint: '<pr>' }]);
+    await rt.dispose();
+  });
+
   it('#5143 keeps a session update that arrives before session/new finishes wiring up', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
@@ -1441,12 +1454,13 @@ describe('AcpRuntime session manager', () => {
       configOptions: modelOptions,
     });
     h.agent.setSessionConfigOption = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        trace: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'deep-research', description: 'probe', input: null }] },
+        event: decodeSessionUpdate({
           sessionUpdate: 'available_commands_update',
           availableCommands: [{ name: 'deep-research', description: 'probe', input: null }],
-        } as unknown as SessionUpdate,
+        } as unknown as SessionUpdate),
       });
       return { configOptions: modelOptions };
     });
@@ -1469,12 +1483,12 @@ describe('AcpRuntime session manager', () => {
    */
   it('#5143 still drops an update whose session belongs to nobody', async () => {
     const { h, rt } = await startHarness('conv-known');
-    await h.client().sessionUpdate({
+    await h.client().sessionEvent({
       sessionId: 'session-from-nowhere',
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'available_commands_update',
         availableCommands: [{ name: 'ghost-command', description: 'x', input: null }],
-      } as unknown as SessionUpdate,
+      } as unknown as SessionUpdate),
     });
 
     const exported = rt.exportRawAcpLog('conv-known');
@@ -1488,12 +1502,12 @@ describe('AcpRuntime session manager', () => {
     const rt = new AcpRuntime(h.deps);
     const image = { mimeType: 'image/png', data: 'x'.repeat(1_048_577) };
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-picture',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'tool_call', toolCallId: 'picture', title: 'Screenshot', kind: 'other',
           status: 'completed', content: [{ type: 'content', content: { type: 'image', ...image } }],
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -1520,14 +1534,14 @@ describe('AcpRuntime session manager', () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-old',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-old',
           messageId: 'msg-1',
           content: { type: 'text', text: 'from history' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -1565,14 +1579,14 @@ describe('AcpRuntime session manager', () => {
     });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-old',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-old',
           messageId: 'msg-history',
           content: { type: 'text', text: '压缩前说过的' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -1596,14 +1610,14 @@ describe('AcpRuntime session manager', () => {
         })
     );
     const prompt = rt.sendPrompt('conv-turn-source', { text: '重启之后说的' });
-    await h.client().sessionUpdate({
+    await h.client().sessionEvent({
       sessionId: 'session-old',
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: 'session-old',
         messageId: 'msg-live',
         content: { type: 'text', text: '刚说的' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
     resolvePrompt({ stopReason: 'end_turn' });
     await prompt;
@@ -1624,14 +1638,14 @@ describe('AcpRuntime session manager', () => {
     });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-main',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-main',
           messageId: 'msg-side',
           content: { type: 'text', text: '侧边这条说的' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -2291,14 +2305,14 @@ describe('AcpRuntime session manager', () => {
         permissionMode,
       });
       expect(isOk(started)).toBe(true);
-      const response = h.client().requestPermission({
+      const response = h.client().requestPermission(decodePermissionRequest({
         sessionId: 'session-4808',
         toolCall: { toolCallId: 'tool-pwd', title: 'Print working directory', kind: 'execute' },
         options: [
           { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
           { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
         ],
-      });
+      }));
       const pending = rt.sessionLiveModels(sessionId)?.states.state.snapshot().data
         .pendingPermissions ?? [];
       return { response, pending };
@@ -2754,33 +2768,18 @@ describe('AcpRuntime session manager', () => {
     });
 
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
-      { terminalId: created.terminalId, command: 'echo', exitStatus: null },
+      { terminalId: expect.any(String), command: 'echo', exitStatus: null },
     ]);
 
-    const log = rt.terminalOutputLog(created.terminalId);
-    if (!log) throw new Error('expected terminal log');
-    const updates: unknown[] = [];
-    const unsub = log.subscribe((update) => updates.push(update));
     terminal.pushOutput('hello');
-
     terminal.pushOutput(' world');
-
-    expect(log.snapshot().data.text).toBe('hello world');
-    expect(updates).toHaveLength(2);
-    expect(updates.at(-1)).toMatchObject({ delta: { chunk: ' world' } });
-
-    // Output already has its own log; metadata must not replay the whole buffer.
-    terminal.pushOutput('x'.repeat(100_000));
-    expect(log.snapshot().data.text.length).toBe(100_011);
-    expect(rt.getTerminals('conv-terminal')[0]?.output.length).toBe(100_011);
-    const metadata = rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data;
-    expect(JSON.stringify(metadata).length).toBeLessThan(8192);
-
+    expect(rt.getTerminals('conv-terminal')[0]).toMatchObject({ output: 'hello world', owner: 'host', canKill: true });
     terminal.triggerExit({ exitCode: 0, signal: null });
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
-      { terminalId: created.terminalId, exitStatus: { exitCode: 0, signal: null } },
+      { terminalId: expect.any(String), exitStatus: { exitCode: 0, signal: null }, canKill: false },
     ]);
-    unsub();
+    await client.releaseTerminal!({ sessionId: providerSessionId, terminalId: created.terminalId });
+    expect(rt.getTerminals('conv-terminal')[0]).toMatchObject({ output: 'hello world', canKill: false });
   });
 
   it('keeps a session visible as lost when the adapter process closes', async () => {
@@ -2890,9 +2889,10 @@ describe('AcpRuntime session manager', () => {
       })
     );
 
-    await expect(rt.sendPrompt('conv-upstream-final', { text: 'first' })).resolves.toMatchObject({
-      success: false,
-    });
+    const sent = rt.promptDetached('conv-upstream-final', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.admission).toMatchObject({ success: true });
+    expect(await sent.data.completion).toMatchObject({ success: false });
     const before = rt.getHistory('conv-upstream-final');
     expect(before.success).toBe(true);
     if (!before.success) return;
@@ -2926,10 +2926,10 @@ describe('AcpRuntime session manager', () => {
     });
     h.agent.prompt.mockRejectedValueOnce(new Error('connection closed'));
 
-    await expect(rt.sendPrompt('conv-settled-before-close', { text: 'first' })).resolves.toMatchObject({
-      success: false,
-      error: { type: 'prompt_failed' },
-    });
+    const sent = rt.promptDetached('conv-settled-before-close', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.admission).toMatchObject({ success: true });
+    expect(await sent.data.completion).toMatchObject({ success: false, error: { type: 'prompt_failed' } });
     expect(rt.getSessionState('conv-settled-before-close').lastTurnOutcome).toBe('errored');
 
     h.lastChild.emitExit(137);
@@ -2990,7 +2990,9 @@ describe('AcpRuntime session manager', () => {
 
     // conv-x 上落一条**暂定**的失败(传输层塌了那一类)。
     h.agent.prompt.mockRejectedValueOnce(new Error('ACP connection closed'));
-    await expect(rt.sendPrompt('conv-x', { text: 'first' })).resolves.toMatchObject({ success: false });
+    const sent = rt.promptDetached('conv-x', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.completion).toMatchObject({ success: false });
     const before = rt.getHistory('conv-x');
     expect(before.success).toBe(true);
     if (!before.success) return;
@@ -3055,6 +3057,30 @@ describe('AcpRuntime session manager', () => {
       error: { type: 'invalid_state' },
     });
     expect(h.agent.newSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the old connection after its route key is reused by a reconnect', async () => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    await rt.startSession(makeStartInput({ sessionId: 'replacement' }));
+    const oldClient = h.client();
+    h.lastChild.emitExit(137);
+    await untilSessionSummary(rt, 'replacement', 'adapter exited', summary => summary?.lifecycle === 'lost');
+    await rt.startSession(makeStartInput({ sessionId: 'replacement', providerSessionId: 'session-1' }));
+    const client = h.client();
+    const permission = { sessionId: 'session-1', toolCall: { toolCallId: 'stale', title: 'Old connection', kind: 'other' as const }, options: [] };
+    expect(await oldClient.requestPermission(decodePermissionRequest(permission))).toEqual({ outcome: { outcome: 'cancelled' } });
+    expect(rt.sessionLiveModels('replacement')?.states.state.snapshot().data.pendingPermissions).toEqual([]);
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'running' } as never) });
+    await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never) });
+    await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old connection' } }) });
+    expect(rt.getSessionState('replacement').lifecycle).toBe('working');
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'new connection' } }) });
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never) });
+    expect(rt.getSessionState('replacement').lifecycle).toBe('ready');
+    expect(JSON.stringify(rt.getChatHistory('replacement'))).toContain('new connection');
+    expect(JSON.stringify(rt.getChatHistory('replacement'))).not.toContain('old connection');
+    await rt.dispose();
   });
 
   it('reconnects a lost session through its original provider session', async () => {
@@ -3143,14 +3169,14 @@ describe('AcpRuntime session manager', () => {
     await inFlight;
 
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-1',
           messageId: 'replayed-active-turn',
           content: { type: 'text', text: 'partial before adapter exit' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });

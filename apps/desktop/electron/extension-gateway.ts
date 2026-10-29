@@ -13,6 +13,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest'
 import { extensionTabKind } from '@shared/extensions/manifest'
 import { declaredPermissions } from './session/main/core/extensions/extension-authoring'
 import { compatRefusal } from './session/main/core/extensions/market-catalog'
+import { withExtensionProgramAccess } from './session/main/core/extensions/extension-program-access'
 import {
   agentAddress,
   agentToolsOf,
@@ -146,23 +147,26 @@ function marketApp(entry: CloudMarketEntry & { firstPublishedAt: string }): AppS
  * checked as the caller, progress passed back.
  */
 async function callProgram(programs: ExtensionPrograms, program: ExtensionProgram, caller: Caller, name: string,
-  args: Record<string, unknown> | undefined, extra: Extra, signal: AbortSignal, readers: GatewayReaders): Promise<CallToolResult> {
-  const refusal = programs.agentToolsRefusal(program.extensionId)
-  if (refusal) return refused(refusal)
-  const tool = (await programs.tools(program)).find((candidate) => candidate.name === name)
-  if (tool && !toolVisibleTo(tool, 'model')) return refused(`tool ${name} is for the App's own pages only`)
-  let given: Awaited<ReturnType<typeof handedAs>>
-  try {
-    given = await handedAs(programs, agentAddress(caller.agentUserId)?.slice('user:'.length), tool, name, args)
-  } catch (error) {
-    return refused(error instanceof Error ? error.message : String(error))
-  }
-  const progressToken = extra._meta?.progressToken
-  const onprogress = progressToken === undefined ? undefined : (progress: Progress) =>
-    void extra.sendNotification({ method: 'notifications/progress', params: { ...progress, progressToken } })
-  const _meta = await callerMeta(caller, readers.sessionContext)
-  return programs.call(program, { name, arguments: given.args, _meta }, {
-    signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+  args: Record<string, unknown> | undefined, extra: Extra, parent: AbortSignal, readers: GatewayReaders): Promise<CallToolResult> {
+  return withExtensionProgramAccess(program.extensionId, parent, async (signal) => {
+    const refusal = programs.agentToolsRefusal(program.extensionId)
+    if (refusal) return refused(refusal)
+    const tool = (await programs.tools(program)).find((candidate) => candidate.name === name)
+    if (tool && !toolVisibleTo(tool, 'model')) return refused(`tool ${name} is for the App's own pages only`)
+    let given: Awaited<ReturnType<typeof handedAs>>
+    try {
+      given = await handedAs(programs, agentAddress(caller.agentUserId)?.slice('user:'.length), tool, name, args)
+    } catch (error) {
+      return refused(error instanceof Error ? error.message : String(error))
+    }
+    const progressToken = extra._meta?.progressToken
+    const onprogress = progressToken === undefined ? undefined : (progress: Progress) =>
+      void extra.sendNotification({ method: 'notifications/progress', params: { ...progress, progressToken } })
+    const _meta = await callerMeta(caller, readers.sessionContext)
+    signal.throwIfAborted()
+    return programs.call(program, { name, arguments: given.args, _meta }, {
+      signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+    })
   })
 }
 

@@ -3,12 +3,10 @@
  * (AIR 的 `subagent_spawned` 带 `launchToolCallId`)。认亲靠的是那次调用的结果里的 `agentId`(登记册按会话号归一),
  * 所以两种形态立出同样的行,❌ 不需要别名。
  */
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { enrichClaudeUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 
-const decode = (raw: Record<string, unknown>) => enrichClaudeUpdate(decodeSessionUpdate(raw as never), raw as never as SessionUpdate);
 
 const launch = {
   sessionUpdate: 'tool_call',
@@ -46,6 +44,9 @@ const launched = {
 };
 
 function rows(events: Array<Record<string, unknown>>) {
+  const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
+  const decode = (raw: Record<string, unknown>) => raw.sessionUpdate === 'subagent_spawned'
+    ? decodeSessionUpdate(raw) : decodeClaudeSessionUpdate(raw);
   const parser = new AcpTranscriptParser({ sessionId: 's' });
   parser.pushEvent({ kind: 'message', role: 'user', messageId: 'u1', text: 'review it' } as never, 1);
   for (const [i, raw] of events.entries()) parser.pushEvent(decode(raw), 2 + i);
@@ -58,7 +59,7 @@ function rows(events: Array<Record<string, unknown>>) {
 describe('the RFD subagent of a Claude Agent call', () => {
   it('builds the rows that AIR\'s announcement builds', () => {
     const air = rows([launch, airSpawned, launched]);
-    expect(air.map((row) => row.kind)).toEqual(['message', 'spawn-subagent-tool-call', 'spawn-subagent-tool-call']);
+    expect(air.map((row) => row.kind)).toEqual(['message', 'unknown-tool-call', 'spawn-subagent-tool-call']);
     expect(rows([launch, announce, launched])).toEqual(air);
   });
 });

@@ -1,6 +1,7 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { readFileSync } from 'node:fs';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
-import type { EnrichHook } from '@gugu/session-core/acp';
+import type { NormalizedEvent } from '@gugu/session-core/acp';
 import { AcpTranscriptParser } from '@gugu/session-core/acp';
 
 export interface RecordedPrompt {
@@ -56,7 +57,7 @@ export interface FixtureFile {
 }
 
 export interface DriveParserOptions {
-  enrich?: EnrichHook;
+  decode?: (raw: unknown) => NormalizedEvent;
 }
 
 export function loadFixture(url: URL): FixtureFile {
@@ -70,15 +71,16 @@ export function driveParser(
   const { meta, events } = fixture;
   const parser = new AcpTranscriptParser({
     sessionId: meta.sessionId,
-    ...(options.enrich ? { enrich: options.enrich } : {}),
   });
 
+  const decode = options.decode ?? decodeSessionUpdate;
+
   if (Array.isArray(meta.initialConfigOptions)) {
-    parser.push({
+    parser.pushEvent(decode({
       sessionUpdate: 'config_option_update',
       sessionId: meta.sessionId,
       configOptions: meta.initialConfigOptions,
-    } as unknown as SessionUpdate);
+    } as unknown as SessionUpdate));
   }
 
   for (const entry of events) {
@@ -89,19 +91,19 @@ export function driveParser(
         const ev = entry.event as RecordedPrompt;
         for (const block of ev.content) {
           if (block.type === 'text' && block.text) {
-            parser.push({
+            parser.pushEvent(decode({
               sessionUpdate: 'user_message_chunk',
               sessionId: ev.sessionId,
               messageId: undefined,
               content: { type: 'text', text: block.text },
-            } as unknown as SessionUpdate);
+            } as unknown as SessionUpdate));
           }
         }
         break;
       }
       case 'session_update': {
         const ev = entry.event as RecordedSessionUpdate;
-        parser.push(ev.update as SessionUpdate);
+        parser.pushEvent(decode(ev.update as SessionUpdate));
         break;
       }
       case 'prompt_result':
@@ -110,21 +112,21 @@ export function driveParser(
       case 'config_option_set': {
         const ev = entry.event as RecordedConfigOptionSet;
         if (Array.isArray(ev.responseConfigOptions)) {
-          parser.push({
+          parser.pushEvent(decode({
             sessionUpdate: 'config_option_update',
             sessionId: ev.sessionId,
             configOptions: ev.responseConfigOptions,
-          } as unknown as SessionUpdate);
+          } as unknown as SessionUpdate));
         }
         break;
       }
       case 'mode_set': {
         const ev = entry.event as RecordedModeSet;
-        parser.push({
+        parser.pushEvent(decode({
           sessionUpdate: 'current_mode_update',
           sessionId: ev.sessionId,
           currentModeId: ev.modeId,
-        } as unknown as SessionUpdate);
+        } as unknown as SessionUpdate));
         break;
       }
       default:

@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { awaitPending } from '../../../../../tests/support/awaitFact';
 
 import type { RecordEntry, SessionRecordSource, TimelineAfterResult } from '../contract';
-import { createSessionTimeline } from '../timeline';
+import { createSessionTimeline, type TimelineArchive } from '../timeline';
 import {
   boundaryEntries,
   collectItems,
@@ -56,6 +57,57 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('codex rollout 记录源', () => {
+  it('resets an old client after restoring a stale archive, even after the publisher passes its old seq', async () => {
+    const { root, file } = await stage();
+    const open = async (epoch: string, archive?: TimelineArchive | null) => {
+      const source = createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] });
+      const timeline = await createSessionTimeline(source, { sessionId: 'cursor-owner', newEpoch: () => epoch, archive });
+      disposers.push(() => timeline.dispose());
+      return timeline;
+    };
+    const before = await open('publisher-before');
+    const savedCursor = before.getSnapshot().cursor;
+    const archive = JSON.parse(JSON.stringify(await before.archive!())) as TimelineArchive;
+    // These host updates were visible to a client, but never reached the last disk archive.
+    const hostUpdate = (timeline: typeof before, revision: number) => timeline.syncPendingRequests([
+      { itemId: 'host-card', kind: 'permission', title: `Revision ${revision}`, options: [] },
+    ]);
+    for (let revision = 0; revision < 12; revision++) hostUpdate(before, revision);
+    expect(before.getAfter(savedCursor).ok).toBe(true);
+    const clientCursor = before.getSnapshot().cursor;
+    expect(clientCursor.seq).toBeGreaterThan(archive.seq);
+    before.dispose();
+
+    const resumed = await open('publisher-after', archive);
+    const line = (type: string, payload: object) => JSON.stringify({ type, timestamp: '2026-06-18T08:00:00Z', payload });
+    await appendFile(file, [
+      line('event_msg', { type: 'task_started' }),
+      line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'AFTER_REOPEN' }] }),
+      line('event_msg', { type: 'task_complete' }),
+    ].join('\n') + '\n');
+    await resumed.catchUp();
+    // A numeric cursor-ahead check no longer detects the rollback once seq catches up.
+    for (let revision = 0; revision <= clientCursor.seq; revision++) hostUpdate(resumed, revision);
+    expect(resumed.getSnapshot().cursor.seq).toBeGreaterThan(clientCursor.seq);
+
+    const result = resumed.getAfter(clientCursor);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('stale client was given an incomplete incremental batch');
+    expect(result.reset).toBe('epoch_changed');
+    expect(result.snapshot.cursor.epoch).toBe('publisher-after');
+    expect(result.snapshot.turns.flatMap(turn => turn.items).filter(item => item.kind === 'message' && item.text === 'AFTER_REOPEN')).toHaveLength(1);
+    const delivered: TimelineAfterResult[] = [];
+    const unsubscribe = resumed.subscribe(clientCursor, update => delivered.push(update));
+    expect(delivered).toEqual([result]);
+    unsubscribe();
+  });
+
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root } = await stage();
+    const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('native subagent activity loads its own record, preserving nested ownership and history', async () => {
     const childId = 'native-child-thread';
     const nestedId = 'native-nested-thread';
@@ -149,12 +201,11 @@ describe('codex rollout 记录源', () => {
     const entries = await start(
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
-    const kinds = entries.map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
-    expect(kinds).toContain('agent_thought_chunk');
+    const kinds = entries.map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('thinking');
     expect(kinds).toContain('tool_call');
-    expect(kinds).toContain('tool_call_update');
+    expect(kinds).toContain('tool_update');
     for (const entry of entries) {
       expect(entry.key).toMatch(new RegExp(`^codex:${THREAD_ID}:\\d+:\\d+$`));
       expect(typeof entry.at).toBe('number');
@@ -191,7 +242,7 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const assistantChunks = entries.filter(
-      (entry) => entry.update.sessionUpdate === 'agent_message_chunk'
+      (entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant')
     );
     expect(assistantChunks).toHaveLength(assistantResponseItems);
   });
@@ -206,17 +257,17 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(userTexts.length).toBeGreaterThan(0);
     expect(userTexts.some((text) => text.startsWith('<'))).toBe(false);
 
     const thoughts = entries.filter(
-      (entry) => entry.update.sessionUpdate === 'agent_thought_chunk'
+      (entry) => (entry.event.kind === 'thinking')
     );
     expect(thoughts).toHaveLength(1); // 两条 reasoning，只有带明文摘要的那条算数
     expect(
-      (thoughts[0].update as { content: { text: string } }).content.text
+      (thoughts[0].event as { text: string }).text
     ).not.toContain('REDACTED_BLOB');
   });
 
@@ -240,8 +291,8 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const thoughts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_thought_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'thinking'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(thoughts.slice(-2)).toEqual(['We need execute.', '**Timing the trip**\n\nMoving time is 202.']);
   });
 
@@ -271,8 +322,8 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(userTexts).toEqual(['真实用户问题']);
   });
 
@@ -292,7 +343,7 @@ describe('codex rollout 记录源', () => {
     const entries = await start(
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }),
     );
-    expect(entries.map((entry) => (entry.update as { content?: { text?: string } }).content?.text)).toContain(delivery);
+    expect(entries.map((entry) => (entry.event as { text?: string }).text)).toContain(delivery);
   });
 
   describe('接到 timeline 上', () => {
@@ -584,6 +635,7 @@ describe('codex rollout 记录源', () => {
       ['Default 模式下不能问(mac1 7 次)', 'request_user_input is unavailable in Default mode', 'cancelled'],
       ['咕咕适配器渲染不出来,如实回的空答案(2 次)', '{"answers":{}}', 'cancelled'],
       ['只有根线程能问', 'request_user_input can only be used by the root thread', 'cancelled'],
+      ['fenced JSON is display text, not a recorded answer', '```json\n{"answers":{"color":{"answers":["Blue"]}}}\n```', 'cancelled'],
       ['真回答(1 次)', '{"answers":{"color":{"answers":["Blue"]}}}', 'resolved'],
     ] as const)('没人认领、codex 做完:%s ⇒ %s', async (_case, output, state) => {
       const { file, timeline, settlement } = await open([asked], true);

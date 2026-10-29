@@ -64,8 +64,7 @@ function ctxWith(extra: Partial<SegmentCtx>): SegmentCtx {
     plan: () => null,
     translate: defaultChatTranslator,
     pendingToolCallIds: () => new Set<string>(),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    terminalSnapshot: () => null,
     ...extra,
   } as unknown as SegmentCtx;
 }
@@ -821,11 +820,11 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(header(closed)).not.toHaveProperty('withBody');
   });
 
-  it('❌ 落定的轮没有空头 —— 一句话就答完的那轮,落定后头收掉', () => {
+  it('有答案而无过程时不留空头，最后空轮保留收到确认', () => {
     const answered = turn('t13', [user('u13'), reply('a13', 'on it')], DONE, { startedAt: 7_000, endedAt: 9_000 });
     expect(kinds(flattenTier([answered], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
     const settled = turn('t14', [user('u14')], DONE, { startedAt: 7_000, endedAt: 9_000 });
-    expect(kinds(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
+    expect(header(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).toMatchObject({ id: 't14:process', empty: true });
   });
 });
 
@@ -934,7 +933,7 @@ describe('agent conversation segment process', () => {
   const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
     { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
   const conversation = (record: TranscriptTurn, active = false, open = false) => flattenTier([record], ctxWith({ active, foldTurnProcess: true, agentConversation: true,
-    isTurnProcessExpanded: () => open }), SEGMENTERS);
+    isTurnProcessExpanded: () => open }), SEGMENTERS).flatMap(unit => unit.children ?? [unit]);
   it('binds every completed segment to its stable process head, with only tools counted', () => {
     const units = conversation(completed());
     expect(ids(units).indexOf('footer:process:head')).toBe(ids(units).indexOf('answer') - 1);

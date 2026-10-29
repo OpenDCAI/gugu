@@ -33,6 +33,7 @@ export type ComposerPermissionRequest = {
   requestId: string;
   /** Pre-formatted action verb, e.g. "Read a File", "Execute". */
   title: string;
+  description?: string;
   options: ComposerPermissionOption[];
   /** Status prefix shown before the provider action title. */
   statusLabel?: string;
@@ -100,6 +101,7 @@ export function PermissionBand({
           {request.statusLabel ?? translate('composer.allow')}
         </span>{' '}
         <span>{request.title}</span>
+        {request.description && <span title={request.description} style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{request.description}</span>}
         {queueCount > 1 && (
           <span className={styles.bandCounter}>
             {translate('composer.queuePosition', { current: 1, total: queueCount })}

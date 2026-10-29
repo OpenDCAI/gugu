@@ -1,5 +1,6 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { expect, it } from 'vitest';
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
+
 import { AcpTranscriptParser } from './index';
 import { collectSubagentRoster } from '../../../../session-chat-ui/src/lib/subagent-roster';
 import { finalizeItems } from './item-fold';
@@ -9,20 +10,20 @@ it.each(['turn end', 'next user message', 'late parent content'] as const)(
   'keeps child tools running across %s until their own result arrives',
   (boundary) => {
     const p = new AcpTranscriptParser({ sessionId: 'parent' });
-    p.push({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'start child' } });
-    p.push(subagentUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit', background: true }));
-    const childTool = (status: 'in_progress' | 'completed') => subagentUpdate({
+    p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'start child' } }));
+    p.pushEvent(decodeSessionUpdate(({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit', background: true })));
+    const childTool = (status: 'in_progress' | 'completed') => decodeSessionUpdate({
       sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
         sessionUpdate: 'tool_call_update', toolCallId: 'bash', status,
       },
     });
-    p.push(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
+    p.pushEvent(decodeSessionUpdate(({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
       sessionUpdate: 'tool_call', toolCallId: 'bash', title: 'sleep 60', kind: 'execute', status: 'in_progress',
-    } }));
+    } })));
     // A normal parent tool must still settle when its own turn ends.
-    p.push({ sessionUpdate: 'tool_call', toolCallId: 'parent-read', title: 'Read file', kind: 'read', status: 'in_progress' });
+    p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'parent-read', title: 'Read file', kind: 'read', status: 'in_progress' }));
     if (boundary === 'next user message') {
-      p.push({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'next task' } });
+      p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'next task' } }));
     } else {
       p.endTurn(100);
       if (boundary === 'late parent content') {
@@ -33,7 +34,7 @@ it.each(['turn end', 'next user message', 'late parent content'] as const)(
     expect(p.history[0].items.find((item) => item.kind === 'read-tool-call')).toMatchObject({ status: 'done' });
     expect(p.history[0].items.find((item) => item.kind === 'spawn-subagent-tool-call')).toMatchObject({ status: 'done' });
     expect(roster()[0]).toMatchObject({ completedSteps: 0, calls: [{ toolCallId: 'bash', status: 'running' }] });
-    p.push(childTool('completed'));
+    p.pushEvent(childTool('completed'));
     expect(roster()[0]).toMatchObject({ completedSteps: 1, calls: [{ toolCallId: 'bash', status: 'done' }] });
   }
 );
@@ -63,24 +64,35 @@ it('preserves grouped, nested and finished child calls while settling parent gro
 
 it('native children retain progress after the parent moves on, and a follow-up reuses their identity', () => {
   const p = new AcpTranscriptParser({ sessionId: 'parent' });
-  p.push({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'first task' } });
-  p.push(subagentUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit', background: true, capabilities: { cancel: true } }));
-  p.push({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'second task' } });
-  p.push(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'first task' } }));
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit', background: true, capabilities: { cancel: true } }));
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'text', text: 'second task' } }));
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
     sessionUpdate: 'tool_call', toolCallId: 'step', title: 'Inspect files', kind: 'read', status: 'completed',
   } }));
-  p.push(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: {
     sessionUpdate: 'agent_message_chunk', messageId: 'result', content: { type: 'text', text: 'OLD_RESULT' },
   } }));
   let roster = collectSubagentRoster(p.history, p.activeTurn, 'Subagent');
   expect(roster).toHaveLength(1);
   expect(roster[0]).toMatchObject({ completedSteps: 1, canCancel: true });
   expect(p.activeTurn!.items).toHaveLength(1);
-  p.push(subagentUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'completed' }));
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'completed' }));
   expect(collectSubagentRoster(p.history, p.activeTurn, 'Subagent')).toHaveLength(0);
-  p.push(subagentUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'running', canCancel: true }));
+  p.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'running', canCancel: true }));
   roster = collectSubagentRoster(p.history, p.activeTurn, 'Subagent');
   expect(roster).toHaveLength(1);
   expect(p.agents).toHaveLength(1);
   expect(p.agents[0].output).toBeUndefined();
+});
+
+it('child summaries are domain fields; opaque metadata cannot supply them in the reducer', () => {
+  const p = new AcpTranscriptParser({ sessionId: 'parent' });
+  p.pushEvent({ kind: 'subagent', toolCallId: 'launch', title: 'Child', status: 'in_progress',
+    parentToolCallId: null, subagentSessionId: 'child' });
+  p.pushEvent({ kind: 'subagent_stream', subagentSessionId: 'child', event: {
+    kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn',
+    summary: 'canonical answer', _meta: { summary: 'must stay opaque' },
+  } });
+  expect(p.agents[0].summary).toBe('canonical answer');
 });
