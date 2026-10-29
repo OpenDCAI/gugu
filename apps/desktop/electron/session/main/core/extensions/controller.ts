@@ -87,7 +87,6 @@ function entryForTab(manifest: ExtensionManifest, tabKind: string | undefined): 
     throw new Error(`"${tabKind}" is not a tab of extension "${manifest.id}"`);
   }
   const entry = contribution.entry ?? manifest.entry;
-  if (contribution.hostPage === 'browser') throw new Error("This App tab is the host's page of a task's browser");
   if (contribution.hostPage || !entry) throw new Error('This App tab uses the host settings page');
   return entry;
 }

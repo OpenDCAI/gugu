@@ -1,10 +1,10 @@
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
+import { AgentContactRow } from './contacts/AgentContactRow'
+import { contactAgents, peopleContacts } from './contacts/contactSelectors'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst } from '../lib/contactsListSort'
 import {
-  agentContactPresentation,
-  useShownAgentContactStatus,
   agentContactRowDotClass,
   agentContactRowStatusClass
 } from './contactAgentTone'
@@ -28,7 +28,7 @@ import {
   Trash2,
   UserPlus,
   Users,
-  X, Zap
+  X
 } from '@/lib/icons'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useContactsStore } from '../store/contactsContext'
@@ -38,7 +38,7 @@ import { NewFriendsPanel } from './NewFriendsPanel'
 import { AddFriendSearch } from './AddFriendSearch'
 import { ContactsHeaderActions } from './contacts/AddContactMenu'
 import { ActionButton, FieldList, FieldRow, IconButton } from './contactsDetailControls'
-import { Avatar } from './Avatar'; import { AgentContactStatusMark } from './AgentContactStatusMark'
+import { Avatar } from './Avatar'
 import { CopyValue } from './CopyValue'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
@@ -56,7 +56,6 @@ import { persistableGroupRoster, replaceGroupRoster } from '../lib/imRepository'
 import { rendererLogger } from '../lib/log'
 import { closeIfMyAssistant } from '../lib/assistantClose'
 import { getGroupRoleLabel } from '@gugu/core/shared/enums/groupRoleModels'
-import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import type { GroupMemberItem } from '@gugu/core/shared/types/chat'
 import type { QrScanRoute } from '../lib/qrScanRoute'
@@ -66,7 +65,6 @@ import { AgentContactProfileCard, PersonContactProfileCard } from './contacts/Co
 import { commonGroupForAgent, requestStateForAgent } from './contacts/agentContactRequest'
 import {
   ContactRowContextMenu,
-  ContactRowDeleteButton,
   type ContactRowMenuActions
 } from './contacts/ContactRowActions'
 import { useRowContextMenu } from '../hooks/useRowContextMenu'
@@ -79,7 +77,7 @@ import { cn } from '@/lib/cn'
 import { messageForUser } from '../lib/userFacingError'
 import { ContactDetail, GroupChatRow, PaneBackButton } from './contacts/ContactDetail'
 import {
-  agentAvatarClass, boltClass, cpaneActionsClass, cpaneAvatarClass, cpaneCardClass, cpaneNameClass, cpaneStatusClass, ct,
+  cpaneActionsClass, cpaneAvatarClass, cpaneCardClass, cpaneNameClass, cpaneStatusClass, ct,
   detailCaptionClass, detailCardRowClass, detailPlaceholderClass, detailSectionClass, detailTitleClass, groupChatListCountLabel,
   groupChatListTitle, groupChatSummaryLabel, inlineInputClass, rowAvatarClass, rowKeyActivate, sectionChevronClass, sectionLabelClass
 } from './contacts/contactsPanelStyles'
@@ -192,80 +190,6 @@ function GroupNameEditor({
         <X size={14} />
       </IconButton>
     </div>
-  )
-}
-
-// ── AgentContactRow ────────────────────────────────────────────────────────────
-function AgentContactRow({
-  contact,
-  selected,
-  multiSelected = false,
-  selectionMode = false,
-  pinned = false,
-  onSelect,
-  onToggleSelection,
-  menu
-}: {
-  contact: ContactUser
-  selected: boolean
-  multiSelected?: boolean
-  selectionMode?: boolean
-  pinned?: boolean
-  onSelect: () => void
-  onToggleSelection?: () => void
-  menu?: ContactRowMenuActions
-}) {
-  const { status, presence } = useAgentDisplayStatus(contact.id)
-  const { tone, label: statusLabel } = useShownAgentContactStatus(contact.id, status, presence.presentation) // #7199 收回着 ≠ 不在线
-  const { allowsLiveActions } = agentContactPresentation(status)
-  const { menuPos, onContextMenu, closeMenu } = useRowContextMenu()
-  const rowActions = allowsLiveActions ? menu : undefined
-  return (
-    <>
-      {/* #3253 host 包一层：删除钮浮在行上而不是嵌进行里，行底色由 .gg-row-host:hover 接管
-          （tokens.css），否则指针移到钮上行就不高亮了。机制不变，只是行本身换成了 ListRow。 */}
-      <div className="gg-row-host group/contact-row relative">
-      <ListRow
-        role="button"
-        tabIndex={0}
-        data-contact-id={contact.id}
-        data-contact-option={selectionMode ? contact.id : undefined}
-        aria-pressed={selectionMode ? multiSelected : undefined}
-        selected={selected}
-        pinned={pinned}
-        leading={
-          <>
-            {selectionMode ? <SelectionCheckbox checked={multiSelected} /> : null}
-            <div className={agentAvatarClass(tone)}>
-              <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="sm" isAgent agentStatus={status === 'needs_user' ? status : undefined} />
-            </div>
-          </>
-        }
-        title={displayName(contact)}
-        accessory={
-          <>
-            <span className={boltClass}><Zap size={11} /></span>
-            {allowsLiveActions && contact.agent_public ? <Chip>{ct('panel.shared')}</Chip> : null}
-          </>
-        }
-        subtitle={
-          <span className={agentContactRowStatusClass(tone)}>
-            <AgentContactStatusMark tone={tone} />
-            {statusLabel}
-          </span>
-        }
-        onClick={() => (selectionMode ? onToggleSelection?.() : onSelect())}
-        onKeyDown={rowKeyActivate(() => (selectionMode ? onToggleSelection?.() : onSelect()))}
-        onContextMenu={rowActions ? onContextMenu : undefined}
-      />
-      {rowActions ? (
-        <ContactRowDeleteButton label={rowActions.removeLabel} onRemove={rowActions.onRemove} />
-      ) : null}
-      </div>
-      {allowsLiveActions && menu && menuPos ? (
-        <ContactRowContextMenu x={menuPos.x} y={menuPos.y} onClose={closeMenu} {...menu} />
-      ) : null}
-    </>
   )
 }
 
@@ -1142,16 +1066,8 @@ export function ContactsPanel({
   // @@@contacts-sidebar - selected group in the 3-section sidebar (cpane design)
   const [selectedSidebarGroupId, setSelectedSidebarGroupId] = useState<string | null>(null)
 
-  const humanContacts = useMemo(
-    () => contacts.filter((contact) => contact.type !== 'agent'),
-    [contacts]
-  )
-  const agentContacts = useMemo(() => {
-    const byId = new Map<string, ContactUser>()
-    for (const contact of contacts) if (contact.type === 'agent') byId.set(contact.id, contact)
-    for (const agent of sharedGroupAgents) byId.set(agent.id, agent)
-    return [...byId.values()]
-  }, [contacts, sharedGroupAgents])
+  const humanContacts = useMemo(() => peopleContacts(contacts), [contacts])
+  const agentContacts = useMemo(() => contactAgents(contacts, sharedGroupAgents), [contacts, sharedGroupAgents])
   const sentRequestIds = useMemo(
     () => new Set(sentRequests.map((request) => request.receiver_id)),
     [sentRequests]

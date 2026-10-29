@@ -16,7 +16,6 @@ import {
   parseRelayUrl,
   parseTunnelOpenRequest,
   parseTunnelOpenResponse,
-  quietTunnelPort,
   resetTunnelActivityForTest,
   setTunnelRelayUp,
   tunnelActiveAt,
@@ -391,38 +390,6 @@ describe('内嵌 SSH 服务端(只认登记过的咕咕钥匙、只转发本机�
     expect(elsewhere.stderr).toMatch(/open failed|administratively prohibited|channel/i)
   }, 40_000)
 
-  it('登记成「安静」的端口(云浏览器的实时画面)上走的字节不算;撤销登记后又算', async () => {
-    const t = await setup()
-    t.keys.add(t.publicKey)
-    const web = http.createServer((_req, res) => res.end('live-frame')).listen(0, '127.0.0.1')
-    await new Promise((resolve) => web.once('listening', resolve))
-    cleanups.push(() => web.close())
-    const remotePort = (web.address() as net.AddressInfo).port
-    const localPort = await freePort()
-    const forward = spawn('ssh', buildForwardSshArgs(t.target, { localPort, remotePort }), { stdio: 'ignore' })
-    cleanups.push(() => forward.kill('SIGTERM'))
-    const fetchOnce = async () => {
-      let body = ''
-      for (let i = 0; i < 50 && !body; i += 1) {
-        body = await new Promise<string>((resolve) => {
-          // 每次新开一条连接(安静与否在转发通道建立时定;keep-alive 会复用登记期间开的那条)。
-          http.get(`http://127.0.0.1:${localPort}/`, { agent: false }, (res) => {
-            let text = ''
-            res.on('data', (chunk) => (text += chunk))
-            res.on('end', () => resolve(text))
-          }).on('error', () => setTimeout(() => resolve(''), 100))
-        })
-      }
-      return body
-    }
-    const unquiet = quietTunnelPort(remotePort)
-    resetTunnelActivityForTest()
-    expect(await fetchOnce()).toBe('live-frame')
-    expect(tunnelActiveAt()).toBeNull()
-    unquiet()
-    expect(await fetchOnce()).toBe('live-frame')
-    expect(tunnelActiveAt()).not.toBeNull()
-  }, 40_000)
 
   it('执行命令的环境:去掉咕咕账号进程自己的变量,留 GUGU_SERVER_HOME,~/.local/bin 在 PATH 里', () => {
     const env = execEnv(
@@ -662,7 +629,7 @@ describe('渲染层:哪几台要经远程隧道连、界面说什么', () => {
 
 describe('设备连接上的「在用」:白名单,只认终端的输入与输出(总控 10-15 定)', () => {
   // 「光连着不算」:连着时桌面自动发的东西(心跳、状态轮询、刚连上的订阅与打开)、机器推来的变动都 ❌ 算。
-  // 10-15 实测:测试号云电脑没人用,却被云浏览器每 20 秒一次的 cloudBrowser.status、机器推的 files:changes 一直顶着醒。
+  // 10-15 实测:状态轮询和机器推的 files:changes 曾把没人用的云电脑一直顶着醒。
   const frame = (message: unknown) => ({ f: JSON.stringify(message) })
   const hb = frame({ t: 'hb' })
   const termIn = frame({ t: 'invoke', id: 7, channel: 'pty.sendInput', args: ['s', 'ls\r'] })
@@ -720,9 +687,9 @@ describe('设备连接上的「在用」:白名单,只认终端的输入与输�
     expect(await counts('push', 'taskhost.frame', [{ f: big.slice(200), p: 1, n: 2 }])).toBe(false)
   })
 
-  it('状态轮询不算:taskhost.call cloudBrowser.status(云浏览器每 20 秒一次)', async () => {
-    expect(await counts('request', 'taskhost.call', [], { channel: 'cloudBrowser.status', args: [] })).toBe(false)
-    expect(await counts('request', 'taskhost.frame', [frame({ t: 'invoke', id: 3, channel: 'cloudBrowser.status', args: [] })])).toBe(false)
+  it('状态轮询不算:taskhost.call 非交互读取', async () => {
+    expect(await counts('request', 'taskhost.call', [], { channel: 'sessionTimeline.sessionSnapshot', args: [] })).toBe(false)
+    expect(await counts('request', 'taskhost.frame', [frame({ t: 'invoke', id: 3, channel: 'sessionTimeline.sessionSnapshot', args: [] })])).toBe(false)
   })
 
   it('刚连上那批不算:打开窗口、订阅(哪怕订的是终端输出)、别的调用', async () => {

@@ -54,4 +54,3 @@ export function encodeResult(value: unknown): unknown {
   }
   return out
 }
-

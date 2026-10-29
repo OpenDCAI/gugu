@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +20,6 @@ vi.mock('../../../../mcp/gugu-im-server.mjs', () => ({
 import { ask, hostAsks, resetAsks } from './ask';
 import { humanToolPending, restoreHumanToolResults, runHumanTool, stopHumanToolWaits, yieldHumanToolWaits } from './human-tool-wait';
 import { readHumanToolRecords, saveHumanToolRecord } from './human-tool-results';
-import { CloudBrowser } from '../browser/cloud/cloud-browser';
 import { askInstallInSession } from '../extensions/consent-in-session';
 import { SessionCell } from '../../../../../../../packages/session-runtime/src/acp-agents/session/cell';
 import { FakeAcpAgent } from '../../../../../../../packages/session-runtime/src/acp-agents/acp-test-support';
@@ -29,12 +28,12 @@ import { syncAsked } from '../session-timeline/service';
 import { runAppAction } from '../../../../mcp/app-tool-host';
 
 const drain = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-function waiting(sessionId = 'session', source: 'browser-assistance' | 'app-install' = 'browser-assistance') {
+function waiting(sessionId = 'session', installation = false) {
   const controller = new AbortController();
   const completed = vi.fn();
-  const tool = runHumanTool<unknown>(sessionId, source === 'app-install' ? 'app_install' : 'browser_request_takeover', controller.signal, async signal => {
+  const tool = runHumanTool<unknown>(sessionId, 'app_install', controller.signal, async signal => {
     const answer = await ask(sessionId, { itemId: `original-${sessionId}`, kind: 'permission', title: 'Original human request',
-      options: [{ optionId: 'done', name: 'Done' }], origin: { source } }, { signal });
+      options: [{ optionId: 'done', name: 'Done' }], origin: { source: 'app-install' } }, { signal, ...(!installation ? { timeoutMs: 600_000 } : {}) });
     completed(answer);
     return { outcome: typeof answer === 'string' ? answer : answer.optionId };
   }, humanToolPending);
@@ -134,7 +133,7 @@ describe('a human request outlives only its steered tool waiter', () => {
   });
 
   it('installation keeps waiting for consent; pending is not a confirmed install', async () => {
-    const h = waiting('install', 'app-install');
+    const h = waiting('install', true);
     yieldHumanToolWaits('install');
     expect(await h.tool).toMatchObject({ state: 'pending', request_id: 'original-install' });
     expect(h.completed).not.toHaveBeenCalled();
@@ -158,7 +157,7 @@ describe('a human request outlives only its steered tool waiter', () => {
   });
 
   it('reconciles a host restart as ended, never as approval; retries use the same durable result ID', async () => {
-    const record = { id: 'operation', sessionId: 'session', requestId: 'same-human-card', tool: 'browser_request_login' as const,
+    const record = { id: 'operation', sessionId: 'session', requestId: 'same-human-card', tool: 'app_install' as const,
       messageId: 'a50457a7-8e2f-4f27-b0cc-dd3de59a0c1e', state: 'waiting' as const };
     saveHumanToolRecord(record);
     restoreHumanToolResults('session', 'project');
@@ -170,13 +169,28 @@ describe('a human request outlives only its steered tool waiter', () => {
     expect(readHumanToolRecords('session')).toEqual([]);
   });
 
+  it('ignores retired tool records without blocking a current App result', async () => {
+    const directory = join(fixture.root, 'human-tool-results');
+    mkdirSync(directory, { recursive: true });
+    const record = { id: 'current', sessionId: 'session', requestId: 'current-request', tool: 'app_install',
+      messageId: 'current-message', state: 'waiting' };
+    writeFileSync(join(directory, 'session.json'), JSON.stringify({ version: 1, items: [
+      { ...record, id: 'retired', tool: 'browser_request_login', messageId: 'retired-message' }, record,
+    ] }));
+    restoreHumanToolResults('session', 'project');
+    await drain();
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    expect(fixture.send).toHaveBeenCalledWith(expect.objectContaining({ clientMessageId: 'current-message' }));
+    expect(readHumanToolRecords('session')).toEqual([]);
+  });
+
   it('remembers a steer during this operation until its human request is registered', async () => {
     let begin!: () => void;
     const setup = new Promise<void>(resolve => { begin = resolve; });
-    const tool = runHumanTool<unknown>('session', 'browser_request_takeover', undefined, async signal => {
+    const tool = runHumanTool<unknown>('session', 'app_install', undefined, async signal => {
       await setup;
-      return ask('session', { itemId: 'late-card', kind: 'permission', title: 'Take over', options: [],
-        origin: { source: 'browser-assistance' } }, { signal });
+      return ask('session', { itemId: 'late-card', kind: 'permission', title: 'Install App', options: [],
+        origin: { source: 'app-install' } }, { signal });
     }, humanToolPending);
     const returned = vi.fn(); void tool.then(returned);
     yieldHumanToolWaits('session'); begin();
@@ -200,29 +214,10 @@ describe('a human request outlives only its steered tool waiter', () => {
     expect(readHumanToolRecords('session')).toEqual([]);
   });
 
-  it('the real CloudBrowser takeover keeps its card and sends its actual hand-back result', async () => {
-    const browser = new CloudBrowser({ PATH: '' }, fixture.root);
-    (browser as unknown as { sessionTab: Map<string, string> }).sessionTab.set('session', 'tab');
-    const call = new AbortController();
-    const tool = browser.requestTakeover('session', { reason: 'Finish this step' }, call.signal);
-    const requestId = [...hostAsks.get('session')!.keys()][0]!;
-    yieldHumanToolWaits('session');
-    expect(JSON.parse((await tool).message)).toMatchObject({ state: 'pending', request_id: requestId });
-    call.abort();
-    expect(hostAsks.get('session')!.has(requestId)).toBe(true);
-    hostAsks.get('session')!.get(requestId)!.answered({ optionId: 'done', by: 'desktop' });
-    await drain();
-    expect(fixture.send).toHaveBeenCalledTimes(1);
-    const message = (fixture.send.mock.calls[0]![0] as { text: string }).text;
-    expect(message).toContain('handed the browser back');
-    expect(message).toContain('fresh browser_snapshot');
-  });
-
-  it('the actual session admission releases a real browser wait before the adapter consumes the owner message', async () => {
-    const browser = new CloudBrowser({ PATH: '' }, fixture.root);
-    (browser as unknown as { sessionTab: Map<string, string> }).sessionTab.set('session', 'tab');
-    const tool = browser.requestTakeover('session', { reason: 'The person must finish this' });
-    const requestId = [...hostAsks.get('session')!.keys()][0]!;
+  it('the actual session admission releases a human App wait before the adapter consumes the owner message', async () => {
+    const h = waiting();
+    const tool = h.tool;
+    const requestId = 'original-session';
     const consumed: string[] = []; const admitted: string[] = [];
     const agent = new FakeAcpAgent();
     agent.extMethod = vi.fn(async (_method, params) => {
