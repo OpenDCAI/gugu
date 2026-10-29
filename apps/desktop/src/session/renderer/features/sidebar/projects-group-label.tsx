@@ -1,8 +1,6 @@
 import { FolderPlus, ListFilter } from '@/lib/icons'
 import { observer } from 'mobx-react-lite'
-import { ProjectCreationMenuItems } from '@renderer/features/projects/components/project-creation-menu-items'
-import { useNavigate } from '@renderer/lib/layout/navigation-provider'
-import { RemoteProjectMenuItems } from './remote-project-menu-items'
+import { AddProjectMenuItems } from './add-project-menu-items'
 import { sidebarStore } from '@renderer/lib/stores/app-state'
 import {
   DropdownMenu,
@@ -20,7 +18,6 @@ import { sidebarGroupHeaderClass, sidebarHeaderIconButtonClass } from './sidebar
 import { SidebarGroupToggle } from './sidebar-group-toggle'
 
 export const ProjectsGroupLabel = observer(function ProjectsGroupLabel() {
-  const { navigate } = useNavigate()
   const { translate } = useSessionMessages()
 
   return (
@@ -100,12 +97,7 @@ export const ProjectsGroupLabel = observer(function ProjectsGroupLabel() {
             </TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="min-w-60">
-            <DropdownMenuGroup>
-              <ProjectCreationMenuItems
-                onProjectReady={(projectId) => navigate('project', { projectId })}
-              />
-              <RemoteProjectMenuItems />
-            </DropdownMenuGroup>
+            <AddProjectMenuItems />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

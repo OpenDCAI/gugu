@@ -57,10 +57,11 @@ it('the direct quote summary is cut to 24 characters on one line',()=>{
  expect(quoteSummary('  第一行\n\n 第二行 ')).toBe('第一行 第二行')
  expect(quoteSummary(`${'一'.repeat(23)}👨‍👩‍👧尾巴`)).toBe(`${'一'.repeat(23)}👨‍👩‍👧…`)
 })
-it.each([false,true])('shows an incoming selected excerpt exactly once and retains its source jump (mobile=%s)',async mobile=>{
+for(const group of [false,true]) it.each([false,true])(`shows an incoming selected excerpt exactly once and retains its source jump (group=${group}, mobile=%s)`,async mobile=>{
  const source={...msg('old','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
  const reply={...msg('answer','agent',3,'old'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
- const {onShowMessage}=await render([source,msg('new','user-1',2),reply],mobile)
+ const {onShowMessage}=await render([source,msg('new','user-1',2),reply],mobile,group)
+ expect(inBubble('answer')).toBe(group)
  expect(quoted('answer')?.textContent).toContain('Beta chosen.')
  expect(quoted('answer')?.textContent).not.toContain('Alpha original')
  const row=h.container.querySelector('[data-msg-id="answer"]')!
@@ -86,11 +87,12 @@ it.each([false,true])('keeps reply text visible for an ambiguous older quote beg
  const body=h.container.querySelector('[data-msg-id="answer"] [data-testid="message-bubble-action-target"] .gg-md')
  expect(body?.textContent).toContain('Answer')
 })
-it.each([false,true])('keeps the task-card quote header for an ordinary card reply (mobile=%s)',async mobile=>{
+for(const group of [false,true]) it.each([false,true])(`keeps the task-card quote header for an ordinary card reply (group=${group}, mobile=%s)`,async mobile=>{
  const content=serializeComposerCard({v:1,type:'task',text:'Original task',agentUserId:'agent',agentName:'Ada',sessionId:'s',projectId:'p',deviceId:'d',machineLabel:'Mac'})
  const source={...msg('old','user-1',1),content_type:'card' as const,content}
  const reply={...msg('answer','agent',3,'old'),content:'看看',reply_to_content:content}
- await render([source,msg('new','user-1',2),reply],mobile,true)
+ await render([source,msg('new','user-1',2),reply],mobile,group)
+ expect(inBubble('answer')).toBe(group)
  expect(quoted('answer')?.textContent).toContain('新任务')
  expect(quoted('answer')?.textContent).toContain('Original task')
 })

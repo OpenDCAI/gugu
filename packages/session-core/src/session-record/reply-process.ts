@@ -46,8 +46,10 @@ function isRootSend(item: ToolCallItem): item is McpToolCall {
 export type AgentSendTarget =
   | {
       kind: 'chat';
-      /** The conversation the person can name (host `chatName`); null when the agent addressed it by number only. */
+      /** Canonical conversation ID from the send or its source link; otherwise the host resolves `chatId`. */
       conversationId: string | null;
+      /** The send's original address, for the host to resolve when there is no canonical source link. */
+      chatId?: string;
       /** The thread this session is bound to: a send to the delivery's own chat lands there (the server, not the agent, picks it). */
       threadRootId: string | null;
       whisper: boolean;
@@ -96,7 +98,9 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
   const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
   const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
   const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
-  return { text: args.text, to: { kind: 'chat', conversationId, threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) } };
+  return { text: args.text, to: { kind: 'chat', conversationId,
+    ...(!conversationId && typeof args.chat_id === 'string' ? { chatId: args.chat_id } : {}),
+    threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) } };
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */
