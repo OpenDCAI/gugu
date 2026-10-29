@@ -10,6 +10,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
+import { GuguSubscriptionRow } from '@renderer/features/settings/subscriptions/GuguSubscriptionRow';
 import { queryClient } from '@renderer/lib/query-client';
 import { setLocalePreference } from '@/i18n';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -239,6 +240,28 @@ it('adds a third-party API and explicitly switches the connection without openin
   expect(thrown).toEqual([]);
 });
 
+
+it.each([390, 720])('Gugu credits fit a %s px settings container and align the reset date with its explanation', async width => {
+  host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
+  root.render(<GuguSubscriptionRow />);
+  await until('the Gugu balances render', () => host.querySelector('.subscription-quota')?.textContent?.includes('8.2'));
+  const row = host.querySelector<HTMLElement>('[data-testid="subscription-row-gugu"]')!;
+  const quotas = [...row.querySelectorAll<HTMLElement>('.subscription-quota')];
+  await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
+  const available = quotas[0].getBoundingClientRect();
+  const period = quotas[1].getBoundingClientRect();
+  if (width === 390) {
+    expect(period.top).toBeGreaterThanOrEqual(available.bottom);
+    expect(Math.abs(period.left - available.left)).toBeLessThanOrEqual(1);
+    const reset = quotas[1].querySelector('p')!.getBoundingClientRect();
+    const explanation = row.querySelector('[data-testid="subscription-billing-copy"]')!.getBoundingClientRect();
+    expect(Math.abs(reset.left - explanation.left)).toBeLessThanOrEqual(1);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+  } else {
+    expect(Math.abs(period.top - available.top)).toBeLessThanOrEqual(1);
+    expect(period.left).toBeGreaterThan(available.right);
+  }
+});
 
 it('explains reserved credits when the available total differs from the two balances', async () => {
   control.held = 1;

@@ -121,9 +121,6 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
   return (
     <SettingsPage data-testid="settings-account">
       <SettingsNote>{t('account.intro')}</SettingsNote>
-      {mobile && officialServicesEnabled() && (
-        <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>
-      )}
 
       {/* Identity summary and labelled editors retain the original save/upload paths. */}
       <SettingsGroup presentation="summary">
@@ -246,6 +243,10 @@ export function AccountSection({ user, updateUser, logout, mobile = false }: Acc
           {saving ? t('account.saving') : t('account.save')}
         </Button>
       </div>
+
+      {mobile && officialServicesEnabled() && (
+        <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>
+      )}
 
       {/* Account-wide action stays below the editor and its save feedback. */}
       <SettingsGroup

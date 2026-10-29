@@ -40,6 +40,10 @@ vi.mock('../../../../apps/desktop/src/lib/billing/membership', async (importOrig
 }))
 import { getMembership, type Membership } from '../../../../apps/desktop/src/lib/billing/membership'
 
+vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({
+  desktopIpc: () => ({ invoke: async () => 'device_full', eventOn: () => () => {} }),
+}))
+
 const hour = 3_600_000
 
 function membership(overrides: Partial<Membership> = {}): Membership {
@@ -275,6 +279,25 @@ describe('#2503 用量页积分段的诚实性', () => {
     } finally { harness.cleanup() }
   })
 
+  it.each(['free', 'max'] as const)('设备领满时，只有确认 Free 会员才显示免费额度提示（%s）', async tier => {
+    vi.mocked(getMembership).mockResolvedValue(membership({ tier }))
+    const harness = await renderMembership()
+    try {
+      const text = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!.textContent ?? ''
+      expect(text.includes('这台设备已有 5 个账号领过免费额度')).toBe(tier === 'free')
+    } finally { harness.cleanup() }
+  })
+
+  it('会员档位正在读取时，不用设备领满提示冒充已确认 Free', async () => {
+    vi.mocked(getMembership).mockReturnValue(new Promise(() => {}))
+    const harness = await renderMembership()
+    try {
+      const row = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!
+      expect(row.querySelector('.subscription-plan-badge')).toBeNull()
+      expect(row.textContent).not.toContain('这台设备已有 5 个账号领过免费额度')
+    } finally { harness.cleanup() }
+  })
+
   it('会员行回到前台后重读网页刚开通的档位', async () => {
     vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
     const harness = await renderMembership()
@@ -296,6 +319,7 @@ describe('#2503 用量页积分段的诚实性', () => {
       const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
       expect(row.textContent).toContain('membership down')
       expect(row.querySelector('.subscription-plan-badge')).toBeNull()
+      expect(row.textContent).not.toContain('这台设备已有 5 个账号领过免费额度')
     } finally { harness.cleanup() }
   })
 

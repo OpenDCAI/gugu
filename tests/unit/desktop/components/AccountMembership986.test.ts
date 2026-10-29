@@ -45,6 +45,20 @@ it('手机账户页复用会员行，无需桌面设置的 QueryClientProvider �
   } finally { harness.cleanup() }
 })
 
+it('手机账户页先显示资料说明、资料编辑和保存，再显示会员行', async () => {
+  const harness = await render(true)
+  try {
+    const intro = harness.container.querySelector('.gg-settings-note')!
+    const name = harness.container.querySelector('#settings-account-name')!
+    const save = harness.container.querySelector('.gg-settings-actions')!
+    const membership = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!
+    expect(intro.textContent).toBe('头像、名称和简介是别人在咕咕里看到的你。')
+    expect(intro.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(name.compareDocumentPosition(membership) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(save.compareDocumentPosition(membership) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  } finally { harness.cleanup() }
+})
+
 it('桌面账户页不重复放会员行，保留在订阅页', async () => {
   const harness = await render(false)
   try { expect(harness.container.querySelector('[data-testid="subscription-row-gugu"]')).toBeNull() }

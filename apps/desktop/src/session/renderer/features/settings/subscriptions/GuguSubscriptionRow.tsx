@@ -116,7 +116,9 @@ export function GuguSubscriptionRow() {
           {translate('subscriptions.unavailable.error', { message: balanceError || windowsError || '' })}
         </p>
       )}
-      {deviceFull && <p className="subscription-note">{t('usage.na.deviceFull')}</p>}
+      {deviceFull && membership.isSuccess && !membership.isFetching && plan?.tier === 'free' && (
+        <p className="subscription-note">{t('usage.na.deviceFull')}</p>
+      )}
       {period && windows && periodUsd !== null && (
         <p className="subscription-note" data-testid="subscription-billing-copy">
           {t('credits.billingCopy', {
