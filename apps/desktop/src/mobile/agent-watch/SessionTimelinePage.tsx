@@ -173,7 +173,6 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // 有没有咕咕身份看会话自己带不带 agent id,❌ 看通讯录里有没有它的名字(通讯录还没到时会把有身份的说成没有);
   // 通讯录里真找不到,由去对话那头(MainLayout handleOpenAgentChat)响亮地说。
   // 会话的管理动作与列表行尾「…」同一个面板;都要那台机器执行,离线不给。
-  const agentUserId = agent?.agentUserId ?? session.agent?.userId ?? null
   const headerActions = (
     <>
       {phoneHost ? <PhoneTaskSkills deviceId={device.device_id} sessionId={session.conversationId} online={online} busy={attention === 'running' || attention === 'waiting' || sending || pendingSends.length > 0 || cancelling} /> : null}

@@ -181,7 +181,7 @@ describe('one agent status source for React and MobX', () => {
   })
 
   it('does not borrow an identity-free task reading when an identified agent is pending', () => {
-    const anonymous = { conversationId: 'new-task', status: { status: 'working', detail: 'running' }, unseen: false } as const
+    const anonymous = { conversationId: 'new-task', agentStatus: null, status: { status: 'working', detail: 'running' }, unseen: false } as const
     expect(sessionPresentation(anonymous, true)).toMatchObject({ tone: 'running', animate: true })
     expect(sessionPresentation(anonymous, false)).toBeNull()
     expect(sessionPresentation({ ...anonymous, agent: { userId: 'pending-identity' } }, false))
