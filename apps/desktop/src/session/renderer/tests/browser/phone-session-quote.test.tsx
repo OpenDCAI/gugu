@@ -111,22 +111,39 @@ it('loads the stored quote source through the phone host once and reveals that e
   const older = turn(SOURCE, 1, 'Repeated original words');
   const duplicate = turn('different-source', 2, 'Repeated original words');
   const latest = emptyAgentWatchTimeline();
-  latest.turns = [turn('stored-quote', 3, messageQuoteText(source, 'Repeated original words', 'User') + 'Read back this stored message')];
+  latest.turns = [...Array.from({ length: 12 }, (_, index) => turn(`recent-${index}`, index + 3, `Recent message ${index}`)),
+    turn('stored-quote', 15, messageQuoteText(source, 'Repeated original words', 'User') + 'Read back this stored message')];
   let publish!: (value: typeof latest) => void;
+  const pageReady = deferred<void>();
   const loadOlder = vi.fn(async () => {
-    await act(async () => publish({ ...latest, turns: [older, duplicate, ...latest.turns], hasOlder: false }));
+    await pageReady.promise;
+    publish({ ...latest, turns: [older, duplicate, ...latest.turns], hasOlder: false });
   });
   function Host() {
     const [timeline, setTimeline] = useState(latest);
     publish = setTimeline;
-    return conversation({ timeline, onLoadOlder: loadOlder });
+    return conversation({ timeline, onLoadOlder: async () => { if (timeline.hasOlder) await loadOlder(); } });
   }
   await mount(<Host />);
-  await until('stored phone quote has a reveal action', () => !!harness.container.querySelector('[data-slot="conversation-quote"]'));
+  const quoteSelector = '[data-slot="conversation-quote"][title="Repeated original words"]';
+  await until('phone history has its real scroll container', () => !!harness.container.querySelector('[data-chat-scroll]'));
+  const history = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;
+  history.scrollTop = history.scrollHeight;
+  history.dispatchEvent(new Event('scroll'));
+  await until('the stored quote excerpt has a reveal action', () => !!harness.container.querySelector(quoteSelector));
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   // Enable pagination after the initial top-edge layout, as a host metadata refresh would.
   await act(async () => publish({ ...latest, hasOlder: true }));
   loadOlder.mockClear();
-  await clickElement(harness.container.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!);
+  await clickElement(harness.container.querySelector<HTMLElement>(quoteSelector)!);
+  try {
+    await until('quote requests its missing page', () => loadOlder.mock.calls.length > 0);
+    const scroll = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;
+    scroll.scrollTop = 0;
+    scroll.dispatchEvent(new Event('scroll'));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(loadOlder, 'top-edge pagination shares the quote reveal request').toHaveBeenCalledOnce();
+  } finally { await act(async () => pageReady.resolve()); }
   await until('phone flashes the loaded stored source', () => !!harness.container.querySelector(`[data-item-id="${SOURCE}"].msg-src-flash`));
   expect(loadOlder).toHaveBeenCalledOnce();
   const rows = harness.container.querySelectorAll<HTMLElement>(`[data-item-id="${SOURCE}"]`);

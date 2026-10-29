@@ -43,6 +43,7 @@ export function usePhoneSessionQuotes(input: {
   const source = useSessionSourceMessage(owner, view, () => toast({ title: translateSessionMessage('transcript.originalMessageMissing'), tier: 'error' }))
   return {
     composer,
+    loadOlder: () => owner.canLoadOlderHistory ? source.loadOlder() : Promise.resolve([]),
     commands: { onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
       onConversationReply: source.reveal, flashMessageId: source.flashMessageId },
     capture: () => getSessionQuote(owner),
