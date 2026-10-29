@@ -6,6 +6,7 @@ import type { AssistantMachine } from '../../../../apps/desktop/src/session/rend
 import { assistantPaths } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-files'
 import { clickElement, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
+import { useAssistantPanelPage } from '../../../../apps/desktop/src/lib/assistantPanelPage'
 
 const savedNotice = vi.hoisted(() => vi.fn(async () => null))
 vi.mock('@/lib/assistantPanelBridge',() => ({ assistantPanelAccountId: () => null,requireAssistantPanelBridge: () => ({ queueNotice: savedNotice }) }))
@@ -35,6 +36,27 @@ function fixture() {
 }
 
 describe('Gugu structured capabilities', () => {
+  it('uses the toolbar to return editor → capability → list without a content breadcrumb', async () => {
+    const toolbar = createReactHarness()
+    function Toolbar() { const page = useAssistantPanelPage(); return page ? <button onClick={page.back}>Back</button> : null }
+    try {
+      await toolbar.render(<Toolbar />)
+      const { machine } = fixture()
+      await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+      await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="assistant-library-item-calendar"]')).not.toBeNull())
+      await clickElement(harness.container.querySelector('[data-testid="assistant-library-item-calendar"]')!)
+      await vi.waitFor(() => expect(harness.container.textContent).toContain('Original instructions'))
+      expect(harness.container.textContent).not.toContain('返回目录')
+      expect(toolbar.container.querySelector('button')).not.toBeNull()
+      await clickElement([...harness.container.querySelectorAll('button')].find(button => button.textContent?.includes('编辑'))!)
+      expect(harness.container.querySelector('[data-testid="assistant-library-editor"]')).not.toBeNull()
+      await clickElement(toolbar.container.querySelector('button')!)
+      expect(harness.container.querySelector('[data-testid="assistant-library-editor"]')).toBeNull()
+      expect(harness.container.textContent).toContain('Original instructions')
+      await clickElement(toolbar.container.querySelector('button')!)
+      expect(harness.container.querySelector('[data-testid="assistant-library-item-calendar"]')).not.toBeNull()
+    } finally { toolbar.cleanup() }
+  })
   it('shows groups and independent entries, then opens only that entry by ID', async () => {
     const { machine, entry } = fixture()
     await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
