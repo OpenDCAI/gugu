@@ -33,7 +33,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick, dense = false
   const { t } = useTranslation('messaging')
   const { chats } = useChatStore('chats')
   const bar = useRef<HTMLDivElement>(null)
-  const value = topics.find((topic) => topic.chat_id === current)?.chat_id ?? MAIN
+  const value = current ?? MAIN
   const agentOf = useMemo(() => {
     const anchors = new Set(topics.map((topic) => topic.source_message_id))
     const byAnchor = new Map<string, string>()
