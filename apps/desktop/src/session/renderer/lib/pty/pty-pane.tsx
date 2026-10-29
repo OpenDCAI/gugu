@@ -6,7 +6,7 @@ import {
   PaneDimensionProvider,
 } from '@renderer/features/tabs/pane-dimension-provider';
 import { createLocalSessionMentionProvider } from '@renderer/lib/chat/local-session-mention-provider';
-import { getDraggedWorkspaceFile } from '@renderer/lib/drag-files';
+import { droppedFileItems, getDraggedWorkspaceFile } from '@renderer/lib/drag-files';
 import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { terminalSessionMentionInput } from '@renderer/lib/chat/use-session-mention-drop';
 import { rpc } from '@renderer/lib/ipc';
@@ -395,11 +395,13 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
 
         if (!dt.files?.length) return;
 
-        const files = Array.from(dt.files);
+        const dropped = droppedFileItems(dt);
 
         void (async () => {
           try {
-            const resolved = await Promise.all(files.map((file) => resolveDroppedFile(file)));
+            const resolved = await Promise.all(
+              dropped.map(({ file, directory }) => resolveDroppedFile(file, directory))
+            );
             const paths = resolved.filter((path): path is string => Boolean(path));
             if (paths.length === 0) return;
             await injectImagePaths(paths);

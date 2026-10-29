@@ -57,3 +57,16 @@ describe('buildIntegrationListPayload — 按请求方的界面语言解析成�
     expect(forgejo('en-US').entry?.description).toBe('Work on Forgejo issues');
   });
 });
+
+describe('#921 where a credential the person types is kept', () => {
+  const amapForm = (custodyOf?: (integrationId: string) => 'platform' | 'local') => {
+    const entry = buildIntegrationListPayload('zh-CN', custodyOf).find((integration) => integration.id === 'amap');
+    return entry?.auth.methods.find((method) => method.kind === 'form');
+  };
+
+  it('on the platform, unless this installation has no such service — then on this computer', () => {
+    expect(amapForm()).toMatchObject({ custody: 'platform' });
+    expect(amapForm(() => 'local')).toMatchObject({ custody: 'local' });
+  });
+});
+

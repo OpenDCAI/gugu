@@ -28,4 +28,23 @@ export type IntegrationError =
   | { type: 'host_unreachable'; message: string }
   | { type: 'unsupported_host'; message: string }
   | { type: 'invalid_input'; message: string }
+  /**
+   * #921 The platform that keeps this credential is not open to the person yet (not on its allowlist, or not
+   * configured): `503 not_open`. Not a reason to keep the credential on the device instead.
+   */
+  | { type: 'not_open'; message: string }
+  /**
+   * #921 The request did not reach the platform in time (`408 request_timeout`), even after the device sent it a
+   * second time by itself. Temporary; the copy never asks the person to retry.
+   */
+  | { type: 'timed_out'; message: string }
+  /** #921 This device could not reach the Gugu platform (no network, or no answer in time). */
+  | { type: 'network'; message: string }
+  /** #921 a key this device kept from before was rejected on its way to the platform: enter it again. */
+  | { type: 'key_rejected'; message: string }
+  /**
+   * #921 the provider answered but cannot be used right now (quota, QPS, a temporary or unrecognised error): try again
+   * later. Temporary: never a reauth, never a reason to drop a key. A network or host failure stays `host_unreachable`.
+   */
+  | { type: 'provider_unavailable'; message: string }
   | { type: 'generic'; message: string };
