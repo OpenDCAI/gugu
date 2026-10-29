@@ -13,16 +13,32 @@ const local = vi.hoisted(() => ({ accounts: new Map<string, Record<string, unkno
 vi.mock('./integration-credential-store-instance', () => ({
   integrationCredentialStore: { isConfigured: async (id: string) => local.accounts.has(id), listAccounts: async () => [] },
 }));
+/** The device whose service the controller's RPCs reach (what `platform-credentials-instance` is in the app). */
+const instance = vi.hoisted(() => ({ service: null as null | InstanceType<typeof import('./platform-credentials').PlatformCredentialService> }));
 vi.mock('./integration-connection-service', () => ({
   integrationConnectionService: {
     getFreshAccount: async (id: string) => (local.accounts.has(id) ? { accountId: 'default', credentials: local.accounts.get(id) } : null),
+    checkAccounts: async (id: string) => instance.service!.checkAccounts(id),
   },
 }));
-vi.mock('./platform-credentials-instance', () => ({ platformCredentials: null }));
+vi.mock('./platform-credentials-instance', () => ({
+  get platformCredentials() {
+    return instance.service;
+  },
+}));
+// The library's "is each one connected" read: for AMap it is the platform service's check.
+vi.mock('./connection-statuses', () => ({
+  checkAllIntegrationConnections: async () => ({ amap: await instance.service!.check('amap') }),
+  checkConfiguredIntegrations: async () => ({}),
+}));
+vi.mock('./cli/cli-integrations', () => ({ cliMethodOf: () => null }));
+vi.mock('./integration-move', () => ({ exportAccountsForMove: vi.fn(), importAccountsFromMove: vi.fn(), previewAccountsForMove: vi.fn() }));
+vi.mock('./integration-payload-builder', () => ({ buildIntegrationListPayload: vi.fn() }));
 
 const { IntegrationCredentialStore } = await import('./integration-credential-store');
 const { PlatformCredentialService, platformCustodyProviders } = await import('./platform-credentials');
 const { connectedSessionIntegrations } = await import('./session-integrations');
+const { integrationsController } = await import('./controller');
 
 const BASE = 'https://db.test/functions/v1/cloud-computer';
 const GOOD = '0123456789abcdef0123456789abcdef';
@@ -32,7 +48,9 @@ const MCP_CALL = { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1,
 
 /** The platform, as the contract describes it, for one person. */
 function fakePlatform() {
-  const saved = new Map<string, { apiKey: string; rejected: boolean }>();
+  /** The platform's own clock (its `Date` header, the time it stores a key at). Unrelated to any device's clock. */
+  const clock = { now: Date.UTC(2026, 9, 29, 2, 0, 0) };
+  const saved = new Map<string, { apiKey: string; rejected: boolean; updatedAt?: string }>();
   /** When the person last disconnected each provider (an explicit connect clears it). */
   const disconnected = new Map<string, string>();
   let disconnections = 0;
@@ -62,6 +80,11 @@ function fakePlatform() {
     disconnected.set(provider, new Date(Date.UTC(2026, 9, 29, 3, 0, disconnections++)).toISOString());
   };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const answer = await route(input, init);
+    answer.headers.set('date', new Date(clock.now).toUTCString());
+    return answer;
+  }) as typeof fetch;
+  const route = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     const method = init?.method ?? 'GET';
     const raw = typeof init?.body === 'string' ? init.body : '';
@@ -71,7 +94,13 @@ function fakePlatform() {
     if (state.mode === 'absent') return Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 });
     if (state.mode === 'closed') return Response.json({ error: 'not_open', message: 'Not open to you yet.' }, { status: 503 });
     if (path === '/integrations' && method === 'GET') {
-      if (state.holdGet) await state.holdGet;
+      if (state.holdGet) {
+        // Like a real fetch, the wait ends when the device gives up (its signal aborts).
+        await new Promise<void>((resolve, reject) => {
+          void state.holdGet!.then(resolve);
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+        });
+      }
       const amap = saved.get('amap');
       return Response.json({
         providers: state.listsAmap ? [{
@@ -79,7 +108,7 @@ function fakePlatform() {
           // Every provider in the table is listed: `not_connected` with no times = nothing stored.
           accounts: [{
             ...(amap
-              ? { accountId: 'default', connected: !amap.rejected, state: amap.rejected ? 'reconnect' : 'connected', updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' }
+              ? { accountId: 'default', connected: !amap.rejected, state: amap.rejected ? 'reconnect' : 'connected', updatedAt: amap.updatedAt ?? '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' }
               : { accountId: 'default', connected: false, state: 'not_connected', updatedAt: null, checkedAt: null }),
             disconnectedAt: disconnected.get('amap') ?? null,
           }],
@@ -113,7 +142,8 @@ function fakePlatform() {
       const apiKey = put.fields?.apiKey;
       // A careless upstream message that repeats the key: the client must not pass it on.
       if (apiKey !== GOOD) return Response.json({ error: 'auth_failed', message: `AMap rejected ${apiKey} (INVALID_USER_KEY)` }, { status: 422 });
-      saved.set(credential[1]!, { apiKey, rejected: false });
+      const updatedAt = new Date(clock.now).toISOString();
+      saved.set(credential[1]!, { apiKey, rejected: false, updatedAt });
       if (manual) disconnected.delete(credential[1]!);
       if (state.putStallsAfterStoring) {
         // Like a real fetch, the wait ends when the device gives up (its signal aborts).
@@ -125,7 +155,7 @@ function fakePlatform() {
           });
         });
       }
-      return Response.json({ connected: true, updatedAt: '2026-10-29T02:00:00.000Z', checkedAt: '2026-10-29T02:00:01.000Z' });
+      return Response.json({ connected: true, updatedAt, checkedAt: updatedAt });
     }
     if (credential && method === 'DELETE') {
       disconnect(credential[1]!);
@@ -139,8 +169,8 @@ function fakePlatform() {
       return Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
     }
     return new Response('no such route', { status: 404 });
-  }) as typeof fetch;
-  return { saved, disconnected, disconnect, requests, state, fetchImpl };
+  };
+  return { clock, saved, disconnected, disconnect, requests, state, fetchImpl };
 }
 
 type Platform = ReturnType<typeof fakePlatform>;
@@ -151,7 +181,12 @@ afterEach(() => {
 });
 
 /** One of the person's devices: its own account table, signed in with its own session token. */
-async function device(platform: Platform, name: string, clock = { now: 1_000_000 }, options: { noPlatform?: boolean; requestTimeoutMs?: number } = {}) {
+async function device(
+  platform: Platform,
+  name: string,
+  clock = { now: 1_000_000 },
+  options: { noPlatform?: boolean; requestTimeoutMs?: number; listTimeoutMs?: number } = {}
+) {
   const fixture = await openRegistryFixture('empty');
   opened.push(fixture);
   const token = { value: `${name}-session-1` };
@@ -170,6 +205,7 @@ async function device(platform: Platform, name: string, clock = { now: 1_000_000
     providers: platformCustodyProviders,
     log: { info: (...args: unknown[]) => logs.push(args), warn: (...args: unknown[]) => logs.push(args) },
     now: () => clock.now,
+    ...(options.listTimeoutMs ? { listTimeoutMs: options.listTimeoutMs } : {}),
   });
   return { fixture, service, token, logs };
 }
@@ -435,11 +471,47 @@ describe('credentials the platform keeps (#921)', () => {
 
   it('the device gives up waiting before the platform answers: it re-reads the list, and a key the platform did store shows as connected', async () => {
     const platform = fakePlatform();
-    const d = await device(platform, 'D', undefined, { requestTimeoutMs: 50 });
+    const clock = { now: 1_000_000 };
+    const d = await device(platform, 'D', clock, { requestTimeoutMs: 50 });
     platform.state.putStallsAfterStoring = 200;
+    // The platform checks the key with AMap before it stores it: 3 s pass, on its clock and on the device's.
+    platform.state.onPut = () => {
+      platform.clock.now += 3_000;
+      clock.now += 3_000;
+    };
 
     expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
     expect(await d.service.check('amap')).toEqual({ connected: true });
+  });
+
+  it('editing a connected account’s key, the network drops mid-PUT: the old key still listed is not taken for the new one', async () => {
+    const platform = fakePlatform();
+    // This device's clock is far behind the platform's: the comparison must not lean on it.
+    const clock = { now: 1_000_000 };
+    const d = await device(platform, 'D', clock);
+    expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
+    platform.clock.now += 10 * 60_000;
+    clock.now += 10 * 60_000;
+    platform.state.putDown = true;
+
+    const result = await d.service.connect('amap', { apiKey: '1123456789abcdef0123456789abcdef' }, { editing: true });
+    expect(result).toMatchObject({ success: false, errorType: 'network' });
+    expect(platform.saved.get('amap')?.apiKey).toBe(GOOD);
+  });
+
+  it('a slow network on the list read says “can’t reach Gugu”, never the runtime’s English abort text', async () => {
+    const platform = fakePlatform();
+    const d = await device(platform, 'D', undefined, { listTimeoutMs: 50 });
+    platform.state.holdGet = new Promise<void>(() => {});
+
+    const check = await d.service.check('amap');
+    expect(check).toMatchObject({ connected: false, errorType: 'network' });
+    expect(JSON.stringify(check)).not.toMatch(/abort/i);
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+    const [account] = await d.service.checkAccounts('amap');
+    expect(account).toMatchObject({ connected: false, errorType: 'network' });
+    expect(JSON.stringify(account)).not.toMatch(/abort/i);
+    platform.state.holdGet = null;
   });
 
   it('the device cannot reach the platform: a plain network error (no English leftovers, no retry wording), nothing kept', async () => {
@@ -718,31 +790,30 @@ describe('credentials the platform keeps (#921)', () => {
       expect(b.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
     });
 
-    it('a check the person asks for skips one back-off slot, without resetting how the automatic back-off grows', async () => {
+    it('the library’s and the detail page’s automatic checks (window focus, every 30 s) never break through the back-off', async () => {
       const platform = fakePlatform();
       const clock = { now: 1_000_000 };
       const b = await device(platform, 'B', clock);
+      instance.service = b.service;
       await b.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
       platform.state.putFault = { status: 502, code: 'upstream_unavailable' };
       const uploads = () => platform.requests.filter((request) => request.method === 'PUT').length;
 
-      await b.service.refresh({ maxAgeMs: 0 }); // 1st upload; next slot in 5 min
-      clock.now += 60_000;
-      b.service.checkedByPerson('amap');
-      await b.service.check('amap'); // the person's check: uploads now
-      expect(uploads()).toBe(2);
-      clock.now += 60_000;
-      await b.service.refresh({ maxAgeMs: 0 }); // automatic: waits its slot (10 min after the 2nd)
-      expect(uploads()).toBe(2);
-      clock.now += 9 * 60_000;
-      await b.service.refresh({ maxAgeMs: 0 });
-      expect(uploads()).toBe(3);
-      clock.now += 19 * 60_000;
-      await b.service.refresh({ maxAgeMs: 0 }); // 20 min after the 3rd: not yet
-      expect(uploads()).toBe(3);
-      clock.now += 60_000;
-      await b.service.refresh({ maxAgeMs: 0 });
-      expect(uploads()).toBe(4);
+      try {
+        await b.service.refresh({ maxAgeMs: 0 }); // 1st upload; the next slot is 5 min later
+        for (let second = 30; second < 5 * 60; second += 30) {
+          clock.now += 30_000;
+          // What the renderer's queries call when the person switches back to the window.
+          await integrationsController.checkAllConnections();
+          await integrationsController.checkAccounts('amap');
+        }
+        expect(uploads()).toBe(1);
+        clock.now += 30_000; // the slot is due: the automatic read uploads again
+        await integrationsController.checkAccounts('amap');
+        expect(uploads()).toBe(2);
+      } finally {
+        instance.service = null;
+      }
     });
 
     it('the back-off doubles from 5 minutes and stops growing at an hour', async () => {
@@ -802,7 +873,7 @@ describe('credentials the platform keeps (#921)', () => {
       const b = await device(platform, 'B');
 
       expect(await b.service.connect('amap', { apiKey: GOOD })).toEqual({ success: true });
-      expect(platform.saved.get('amap')).toEqual({ apiKey: GOOD, rejected: false });
+      expect(platform.saved.get('amap')).toMatchObject({ apiKey: GOOD, rejected: false });
       expect(await b.service.check('amap')).toEqual({ connected: true });
     });
 

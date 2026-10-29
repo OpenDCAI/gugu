@@ -237,3 +237,38 @@ it('the device waits longer than the platform’s 30 s key check, and less than 
   expect(PLATFORM_REQUEST_TIMEOUT_MS).toBeGreaterThan(30_000)
   expect(PLATFORM_REQUEST_TIMEOUT_MS).toBeLessThan(60_000)
 })
+
+describe('reading the list on a slow network (#921)', () => {
+  const stalls = (init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      if (init?.signal?.aborted) return reject(init.signal.reason)
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+    })
+
+  it('the caller’s time limit running out is a network error, never the runtime’s English abort text', async () => {
+    const c = createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => 'jwt', fetch: (async (_url: unknown, init?: RequestInit) => stalls(init)) as typeof fetch })
+    const error = await c.list(AbortSignal.timeout(20)).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ status: 0, code: 'network' })
+    expect(String((error as Error).message)).not.toMatch(/abort/i)
+  })
+
+  it('a caller that cancels on purpose still gets its own abort back', async () => {
+    const c = createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => 'jwt', fetch: (async (_url: unknown, init?: RequestInit) => stalls(init)) as typeof fetch })
+    const cancel = new AbortController()
+    const pending = c.list(cancel.signal).catch((caught: unknown) => caught)
+    cancel.abort()
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+  })
+})
+
+it('the list read also tells the platform’s clock (its Date header), and null when it sends none', async () => {
+  const listed = { providers: [] }
+  const dated = createPlatformIntegrationsClient({
+    baseUrl: BASE,
+    accessToken: async () => 'jwt',
+    fetch: (async () => new Response(JSON.stringify(listed), { headers: { date: 'Thu, 29 Oct 2026 02:10:00 GMT' } })) as typeof fetch,
+  })
+  await expect(dated.listWithClock()).resolves.toEqual({ providers: [], platformNow: Date.UTC(2026, 9, 29, 2, 10, 0) })
+  const undated = createPlatformIntegrationsClient({ baseUrl: BASE, accessToken: async () => 'jwt', fetch: (async () => json(listed)) as typeof fetch })
+  await expect(undated.listWithClock()).resolves.toEqual({ providers: [], platformNow: null })
+})
