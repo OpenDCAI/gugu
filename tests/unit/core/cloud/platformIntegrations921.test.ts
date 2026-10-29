@@ -8,6 +8,7 @@ import {
   isPlatformServiceMissing,
   PlatformCredentialRejectedError,
   PlatformForwarderBusyError,
+  PlatformForwarderRefusedError,
   PlatformIntegrationNotConnectedError,
 } from '@gugu/core/cloud/platformIntegrations'
 
@@ -209,5 +210,15 @@ describe('a forwarded call that the platform turns down (#921)', () => {
     expect(error).toBeInstanceOf(PlatformForwarderBusyError)
     expect((error as Error).message).toMatch(wording)
     expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401/i)
+  })
+
+  it.each([
+    ['a request it cannot read', 400, 'invalid_request', /could not read this amap request/i],
+    ['a batch with too many tool calls', 413, 'too_large', /too many amap tool calls in one request/i],
+  ] as const)('says plainly when the platform turns down %s: not a reconnect, not sign-in, not busy', async (_case, status, code, wording) => {
+    const error = await callAmapTool(() => json({ error: code, message: 'no' }, status)).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PlatformForwarderRefusedError)
+    expect((error as Error).message).toMatch(wording)
+    expect((error as Error).message).not.toMatch(/not connected|reconnect|sign|log ?in|401|try again/i)
   })
 })
