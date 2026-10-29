@@ -2099,22 +2099,19 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           return {
             code: 'provider-session-missing',
             detail: error.message,
-            ...(canRestartSession
-              ? {
-                  actions: [
-                    {
-                      label: translate('transcript.condition.startFresh'),
-                      run: () => {
-                        void sessionRegistry
-                          .get(store.sessionId)
-                          ?.restartSession(store.sessionId)
-                          .then(() => store.retry())
-                          .catch(() => {});
-                      },
-                    },
-                  ],
-                }
-              : {}),
+            actions: [
+              retry,
+              ...(canRestartSession ? [{
+                label: translate('transcript.condition.startFresh'),
+                run: () => {
+                  void sessionRegistry
+                    .get(store.sessionId)
+                    ?.restartSession(store.sessionId)
+                    .then(() => store.retry())
+                    .catch(() => {});
+                },
+              }] : []),
+            ],
           };
         case 'adapter_lost':
           return {

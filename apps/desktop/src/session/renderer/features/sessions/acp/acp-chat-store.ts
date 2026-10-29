@@ -837,6 +837,8 @@ export class AcpChatStore {
     // Terminal load errors stay put so remounts and generic retry callers do not
     // respawn/provision again — which ones are terminal lives in acp-load-error.
     if (this.historyLoading || !this.loadError || isTerminalLoadError(this.loadError)) return;
+    const retryMissing = this.loadError.kind === 'provider_session_missing'
+      || this._sessionRecord()?.providerSessionState === 'missing';
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
@@ -845,7 +847,9 @@ export class AcpChatStore {
     this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
-    void this._runBootstrap();
+    // An explicit retry re-probes the saved ID. The host clears the durable missing
+    // mark only after the provider actually resumes; opening the page never does.
+    void this._runBootstrap({ retryMissing });
   }
 
   /**
@@ -1044,7 +1048,11 @@ export class AcpChatStore {
   private _requireSession(failureTitle: AcpFailureTitle): AcpLiveSession | null {
     const session = this.session;
     if (!session) {
-      this._toastError(failureTitle, new Error('ACP session is not connected'));
+      const missing = this.loadError?.kind === 'provider_session_missing'
+        || this._sessionRecord()?.providerSessionState === 'missing';
+      this._toastError(failureTitle, new Error(missing
+        ? this.loadError?.message || translateSessionMessage('transcript.condition.providerSessionMissingWithHistory')
+        : 'ACP session is not connected'));
       return null;
     }
     return session;
@@ -1348,6 +1356,10 @@ export class AcpChatStore {
    */
   get canQueueBeforeSession(): boolean {
     if (!this._bootstrapped || this.session) return false;
+    // A known-missing session cannot accept a prompt. Keep the draft until an
+    // explicit retry confirms the original ID or the user chooses Start fresh.
+    if (this.loadError?.kind === 'provider_session_missing'
+      || this._sessionRecord()?.providerSessionState === 'missing') return false;
     return this.loadError === null || !isTerminalLoadError(this.loadError);
   }
 
@@ -1605,7 +1617,7 @@ export class AcpChatStore {
    * 所以「明明不需要建立却传了 start 输入」不是冗余,是**副作用**。谁已经建立好了,谁就该被附着,
    * ❌ 不再建立一次。
    */
-  private async _runBootstrap(options?: { attachOnly?: boolean }): Promise<void> {
+  private async _runBootstrap(options?: { attachOnly?: boolean; retryMissing?: boolean }): Promise<void> {
     runInAction(() => {
       this._bootstrapsInFlight += 1;
     });
@@ -1661,7 +1673,7 @@ export class AcpChatStore {
     });
   }
 
-  private async _runBootstrapInner(options?: { attachOnly?: boolean }): Promise<void> {
+  private async _runBootstrapInner(options?: { attachOnly?: boolean; retryMissing?: boolean }): Promise<void> {
     let providerId: string | undefined;
     let bootstrapSession: AcpLiveSession | undefined;
     let firstPrompt: PendingPrompt | null = null;
@@ -1691,8 +1703,8 @@ export class AcpChatStore {
       const session = sessionRegistry
         .get(this.sessionId)
         ?.sessions.get(this.sessionId)?.data;
-      if (session?.providerSessionState === 'missing') {
-        // provider 那侧的会话引用永久失效了。会话**照常打开**,库里那份记录照常上屏 ——
+      if (session?.providerSessionState === 'missing' && !options?.retryMissing) {
+        // 上次 provider 报过这条引用不存在。会话**照常打开**,库里那份记录照常上屏 ——
         // 失效的是「接着聊」这件事,不是「看看我说过什么」。
         //
         // ⚠️ 这个判断此前写在上面那次读库**之前**并且直接 return,于是本机
@@ -2174,7 +2186,7 @@ export class AcpChatStore {
       // Before ACP bootstrap completes the draft is local to this store. Persisting it through
       // the absent session would emit a false "Failed to sync draft" error while the startup
       // queue is explicitly holding user input.
-      if (this.canQueueBeforeSession) return;
+      if (!this.session) return;
       const session = this._requireSession('acpFailure.syncDraft');
       if (!session) return;
       void session
