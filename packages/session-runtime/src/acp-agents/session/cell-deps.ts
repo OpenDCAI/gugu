@@ -107,7 +107,7 @@ export interface SessionCellDeps {
    */
   mergeEnvelopes?: (texts: readonly string[]) => string;
   /** Core-owned envelope identity and uncertainty marking, injected by the host. */
-  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   logger: Logger;
   /**
    * behavior `agent-context-injection` 的 **③**:走用户级载体的会话级系统提示词。

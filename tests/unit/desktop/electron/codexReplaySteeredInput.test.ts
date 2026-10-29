@@ -95,7 +95,7 @@ async function loadHistory(): Promise<unknown[]> {
     return awaitFact(method, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   }
   await call('initialize', { protocolVersion: 2, clientCapabilities: {} })
-  await call('session/resume', { sessionId: 'th-steer', cwd: dir, mcpServers: [] })
+  await call('session/resume', { sessionId: 'th-steer', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } })
   return updates
 }
 

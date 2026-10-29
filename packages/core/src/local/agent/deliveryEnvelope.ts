@@ -317,11 +317,16 @@ export function readDeliveryEnvelope(text: string): DeliveryReading | null {
   return { body: segments.map((segment) => segment.body).join('\n\n'), segments }
 }
 
-/** Reconcile recovery against provider-owned user history, never optimistic host rows. */
+/**
+ * Reconcile recovery against provider-owned user history, never optimistic host rows.
+ * `receivedMessageIds` are ids already read off the provider's own record (#980: resumed without replay);
+ * they count as received exactly like ids found in replayed inputs.
+ */
 export function recoverDeliveryEnvelopes(
   text: string,
   replayedUserInputs: readonly string[],
   historyUnknown = false,
+  receivedMessageIds?: ReadonlySet<string>,
 ): string | null {
   let envelopes: XmlElement[] | null
   try {
@@ -334,8 +339,8 @@ export function recoverDeliveryEnvelopes(
     // Opaque or retired inputs must remain deliverable even when no safe per-envelope edit exists.
     return text
   }
-  const seen = new Set(replayedUserInputs.flatMap((input) =>
-    readDeliveryEnvelope(input)?.segments.flatMap((segment) => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? []))
+  const seen = new Set([...(receivedMessageIds ?? []), ...replayedUserInputs.flatMap((input) =>
+    readDeliveryEnvelope(input)?.segments.flatMap((segment) => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? [])])
   const retained = envelopes.filter((envelope) => historyUnknown || !seen.has(envelope.attrs.get('msg') ?? ''))
   if (retained.length === 0) return null
   return mergeDeliveryEnvelopes(retained.map((envelope) => {

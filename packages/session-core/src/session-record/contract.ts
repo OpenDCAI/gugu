@@ -20,6 +20,7 @@ import type { PermissionSubject } from '../acp/models/permissions';
 import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import type { QueuedPrompt } from '../acp/models/prompt';
+import type { ToolImageLookup } from '../acp/models/turns/tool-calls';
 import type { SessionLiveReply } from './live-reply';
 export type { SessionLiveReply } from './live-reply';
 
@@ -246,8 +247,27 @@ export type RecordBoundary = { messageId?: string } & (
  * （不进时间线，只关掉当前这一轮）。❌ 不许一条同时是两者 —— 那样"这条要不要去重"没有答案。
  */
 export type RecordEntry =
-  | { key: string; at?: number; event: NormalizedEvent; boundary?: never }
-  | { key: string; at?: number; boundary: RecordBoundary; event?: never };
+  | { key: string; at?: number; event: NormalizedEvent; boundary?: never; imageOrigins?: readonly (RecordImageRef | null)[] }
+  | { key: string; at?: number; boundary: RecordBoundary; event?: never; imageOrigins?: never };
+
+/**
+ * 一张工具图在记录文件里的原文位置:那段 base64 正文从哪个字节起、多少个字。`imageOrigins` 与这条 `tool_update`
+ * 的 `images` 一一对齐(找不到原文的那一张是 null)。
+ *
+ * 为什么(#980):图本来就在记录里,时间线存档再抄一份,存档 72–96% 是 base64(一份 50MB 的存档里 36MB 是图),
+ * 每次冷开都要整份读进来再解析。存档只记位置,图要看时再按位置从记录里读回来。
+ * 读回来先核首尾各一小段:对不上(文件被改写过)就当取不到,❌ 不许把别的字节当图交出去。
+ */
+export type RecordImageRef = {
+  readonly path: string;
+  /** base64 正文第一个字节在文件里的位置。 */
+  readonly start: number;
+  /** base64 字数;全是 ASCII,也就是字节数。 */
+  readonly chars: number;
+  /** 正文开头与结尾各一小段,读回来核对用。 */
+  readonly head: string;
+  readonly tail: string;
+};
 
 export interface SessionRecordSourceEvents {
   /** 新解码出的记录，按记录里的先后顺序。 */
@@ -288,6 +308,8 @@ export interface SessionRecordSource {
   resumePoint?(): Promise<SessionRecordResume | null>;
   /** 立刻把尾读追到文件尾,读完(行已交给 onEntries)才返回。不支持的源没有这个口。 */
   catchUp?(): Promise<void>;
+  /** 按 `imageOrigins` 给的位置把一张图从记录里读回来;读不到或核对不上回 null。不支持的源没有这个口。 */
+  readImage?(ref: RecordImageRef): Promise<string | null>;
   stop(): void;
 }
 
@@ -546,6 +568,11 @@ export interface SessionTimeline {
    */
   releaseSettlement(itemId: string): void;
   dispose(): void;
+  /**
+   * 某个工具条目交回来的第 `index` 张图。存档装回来的轮里图只剩类型和字数(`imageRefs`),这里按位置从记录里读回来;
+   * 读不回来如实回 `no_such_image`,与图不在了是同一种降级。没有这个口的时间线,调用方自己在快照里找(`findToolImage`)。
+   */
+  toolImage?(input: { itemId: string; index: number; maxChars?: number }): Promise<ToolImageLookup>;
   /**
    * 交出此刻的存档，供宿主存盘、下次开这条会话时直接装回来。
    * 返回 null = 这条时间线存不了（记录源不支持续读）——那只是慢，不是错。
