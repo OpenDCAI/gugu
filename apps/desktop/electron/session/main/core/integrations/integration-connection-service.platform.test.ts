@@ -7,7 +7,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const platform = vi.hoisted(() => ({
   isPlatformProvider: (integrationId: string) => integrationId === 'amap',
-  connect: vi.fn(async () => ({ success: true as const })),
+  custody: vi.fn((): 'platform' | 'local' => 'platform'),
+  connect: vi.fn(async (): Promise<unknown> => ({ success: true as const })),
   disconnect: vi.fn(async () => ({ success: true })),
   check: vi.fn(async () => ({
     connected: false as const,
@@ -35,7 +36,30 @@ afterAll(() => vi.unstubAllGlobals());
 const { IntegrationConnectionService } = await import('./integration-connection-service');
 const CAPABILITIES = { requiresRepositoryUrl: false, supportsIssueContext: false };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  platform.custody.mockReturnValue('platform');
+  network.mockImplementation(async () => {
+    throw new Error('This test has no network: AMap must not be called from the device.');
+  });
+});
+
+const GOOD = '0123456789abcdef0123456789abcdef';
+
+/** AMap's own MCP, as it answers a good key (only reached where the platform has no such service). */
+function amapAnswers(): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  return async (_input, init) => {
+    const message = JSON.parse(String(init?.body ?? '{}')) as { id?: number; method?: string };
+    if (message.id === undefined) return new Response(null, { status: 202 });
+    const result =
+      message.method === 'initialize'
+        ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'amap', version: '1' } }
+        : message.method === 'tools/list'
+          ? { tools: [{ name: 'maps_weather', inputSchema: { type: 'object' } }] }
+          : { content: [{ type: 'text', text: '{"city":"北京市"}' }] };
+    return Response.json({ jsonrpc: '2.0', id: message.id, result });
+  };
+}
 
 describe('integrations whose credential the platform keeps (#921)', () => {
   it('hands the key to the platform, not to the local credential store', async () => {
@@ -62,5 +86,29 @@ describe('integrations whose credential the platform keeps (#921)', () => {
     });
     expect(await new IntegrationConnectionService().checkAccounts('amap')).toEqual([{ accountId: 'default', connected: true }]);
     expect(network).not.toHaveBeenCalled();
+  });
+
+  it('keeps the key on this computer only when the platform has no such service', async () => {
+    platform.connect.mockResolvedValueOnce({ keepHere: true });
+    network.mockImplementation(amapAnswers());
+
+    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: true });
+    expect(store.upsertAccount).toHaveBeenCalledWith('amap', { accountId: 'default', credentials: { apiKey: GOOD } });
+  });
+
+  it('keeps nothing on the device when the platform is not open to the person', async () => {
+    platform.connect.mockResolvedValueOnce({ success: false, errorType: 'not_open', error: '高德地图 is not open to you yet.' });
+
+    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: false, errorType: 'not_open' });
+    expect(store.upsertAccount).not.toHaveBeenCalled();
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it('where the platform has no such service, disconnecting and checking stay on this computer', async () => {
+    platform.custody.mockReturnValue('local');
+    expect(await new IntegrationConnectionService().disconnect('amap')).toEqual({ success: true });
+    expect(store.delete).toHaveBeenCalledWith('amap');
+    expect(platform.disconnect).not.toHaveBeenCalled();
+    expect(platform.check).not.toHaveBeenCalled();
   });
 });

@@ -8,10 +8,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * 会话里给不给高德的工具,走的是开会话那一步真的判断(`connectedSessionIntegrations`)。
  */
 
+/** What this device's own credential store holds (only used where the platform has no such service). */
+const local = vi.hoisted(() => ({ accounts: new Map<string, Record<string, unknown>>() }));
 vi.mock('./integration-credential-store-instance', () => ({
-  integrationCredentialStore: { isConfigured: async () => false, listAccounts: async () => [] },
+  integrationCredentialStore: { isConfigured: async (id: string) => local.accounts.has(id), listAccounts: async () => [] },
 }));
-vi.mock('./integration-connection-service', () => ({ integrationConnectionService: { getFreshAccount: async () => null } }));
+vi.mock('./integration-connection-service', () => ({
+  integrationConnectionService: {
+    getFreshAccount: async (id: string) => (local.accounts.has(id) ? { accountId: 'default', credentials: local.accounts.get(id) } : null),
+  },
+}));
 vi.mock('./platform-credentials-instance', () => ({ platformCredentials: null }));
 
 const { IntegrationCredentialStore } = await import('./integration-credential-store');
@@ -28,13 +34,20 @@ const MCP_CALL = { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1,
 function fakePlatform() {
   const saved = new Map<string, { apiKey: string; rejected: boolean }>();
   const requests: Array<{ method: string; path: string; authorization: string | null; body: unknown; raw: string }> = [];
-  const state = { putFault: null as null | { status: number; code: string }, onPut: null as null | (() => void) };
+  const state = {
+    putFault: null as null | { status: number; code: string },
+    onPut: null as null | (() => void),
+    /** absent = this installation has no such service (the gateway's 404); closed = not open to this person (503). */
+    mode: 'open' as 'open' | 'absent' | 'closed',
+  };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     const method = init?.method ?? 'GET';
     const raw = typeof init?.body === 'string' ? init.body : '';
     const path = url.pathname.replace('/functions/v1/cloud-computer', '');
     requests.push({ method, path, authorization: new Headers(init?.headers).get('authorization'), body: raw ? JSON.parse(raw) : undefined, raw: `${url}${raw}` });
+    if (state.mode === 'absent') return Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 });
+    if (state.mode === 'closed') return Response.json({ error: 'not_open', message: 'Not open to you yet.' }, { status: 503 });
     if (path === '/integrations' && method === 'GET') {
       const amap = saved.get('amap');
       return Response.json({
@@ -74,6 +87,7 @@ type Platform = ReturnType<typeof fakePlatform>;
 const opened: RegistryFixture[] = [];
 afterEach(() => {
   for (const fixture of opened.splice(0)) fixture.close();
+  local.accounts.clear();
 });
 
 /** One of the person's devices: its own account table, signed in with its own session token. */
@@ -249,6 +263,41 @@ describe('credentials the platform keeps (#921)', () => {
     await c.service.refresh({ maxAgeMs: 0 });
     expect(platform.requests.filter((request) => request.method === 'PUT')).toHaveLength(2);
     expect(JSON.stringify(c.logs)).not.toContain(GOOD);
+  });
+
+  it('only an installation without the platform service keeps the key on this computer, and reaches AMap from here', async () => {
+    const platform = fakePlatform();
+    platform.state.mode = 'absent';
+    const d = await device(platform, 'D');
+
+    // The platform service is not there: the connection keeps the key on this computer (#649's way) instead.
+    expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ keepHere: true });
+    expect(d.service.custody('amap')).toBe('local');
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+
+    // With the key in this computer's own store, the session builds AMap's own address here.
+    local.accounts.set('amap', { apiKey: GOOD });
+    const entry = await amapEntry(d.service);
+    if (!entry) throw new Error('AMap should be handed to the session');
+    expect((await endpointOf(entry)).url).toBe(`https://mcp.amap.com/mcp?key=${GOOD}`);
+  });
+
+  it('a platform not open to the person is not a fallback: nothing is kept on the device and nothing is used from it', async () => {
+    const platform = fakePlatform();
+    platform.state.mode = 'closed';
+    const d = await device(platform, 'D');
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+    const result = await d.service.connect('amap', { apiKey: BAD });
+    expect(result).toMatchObject({ success: false, errorType: 'not_open' });
+    expect(JSON.stringify(result)).not.toContain(BAD);
+    expect(d.service.custody('amap')).toBe('platform');
+    expect(await d.service.check('amap')).toMatchObject({ connected: false, errorType: 'not_open' });
+
+    // Even a key this computer still holds from #649 is not used, and it is not deleted either.
+    local.accounts.set('amap', { apiKey: GOOD });
+    expect(await amapEntry(d.service)).toBeNull();
+    expect(d.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
   });
 });
 

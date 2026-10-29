@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createPlatformIntegrationsClient,
+  isPlatformServiceMissing,
   PlatformCredentialRejectedError,
   PlatformIntegrationNotConnectedError,
 } from '@gugu/core/cloud/platformIntegrations'
@@ -84,5 +85,19 @@ describe('platform integrations client (#921)', () => {
     const response = await endpoint.fetch(endpoint.url, { method: 'POST', headers: endpoint.headers, body: '{}' })
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ jsonrpc: '2.0', id: 1, result: { tools: [] } })
+  })
+
+  it('tells “this installation has no such service” (the gateway’s 404) apart from the platform’s own answers', async () => {
+    // Supabase's gateway when the function is not deployed; a self-hosted gateway with no route for it.
+    for (const body of [{ code: 'NOT_FOUND', message: 'Requested function was not found' }, { message: 'no Route matched with those values' }]) {
+      const error = await client(() => json(body, 404)).c.list().catch((e: unknown) => e)
+      expect(isPlatformServiceMissing(error)).toBe(true)
+    }
+    // The service is there and answered: not a reason to keep anything on the device.
+    for (const [status, code] of [[503, 'not_open'], [404, 'unknown_provider'], [404, 'not_found'], [401, 'unauthorized']] as const) {
+      const error = await client(() => json({ error: code, message: 'no' }, status)).c.saveCredential('amap', { apiKey: 'k' }).catch((e: unknown) => e)
+      expect(isPlatformServiceMissing(error), code).toBe(false)
+    }
+    expect(isPlatformServiceMissing(new Error('offline'))).toBe(false)
   })
 })
