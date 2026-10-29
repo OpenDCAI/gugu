@@ -142,7 +142,11 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
           const previous = value.groups[id]
           for (const itemId of new Set([...Object.keys(previous?.items ?? {}), ...Object.keys(next.items)])) {
             const before = previous?.items[itemId], after = next.items[itemId], hint = `${id}:${itemId}`
-            if (value.hints.includes(hint)) { value.hints = value.hints.filter(item => item !== hint); continue }
+            if (value.hints.includes(hint)) {
+              value.hints = value.hints.filter(item => item !== hint)
+              // A panel receipt knows no route: the read that first reports one still announces it (#881).
+              if (!(next.kind === '连接应用' && before && after && before.state !== after.state)) continue
+            }
             if (json(before) === json(after)) continue
             append(next, !before ? '+' : !after ? '-' : '~', after ?? before!, before)
           }
