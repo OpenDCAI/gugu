@@ -105,6 +105,8 @@ export function createAssistantWorkOutboxPump(deps: {
   deliver(event: ClaimedAssistantWorkEvent, signal: AbortSignal): Promise<AssistantWorkAdmission>
   warn?(detail: { code: string; messageId?: string }): void
   unavailable?(context: AssistantWorkOutboxContext, failure: {code:string;day:string}, signal: AbortSignal): Promise<void>
+  /** An event goes back to the queue and is claimable again in `ms` (its backoff, or its lease running out). No event announces that. */
+  retryIn?(ms: number): void
   now?: () => number
 }) {
   let flight: Promise<void> | null = null
@@ -124,12 +126,14 @@ export function createAssistantWorkOutboxPump(deps: {
       'SESSION_DEVICE_OFFLINE', 'SESSION_DEVICE_UNREACHABLE', 'SESSION_DEVICE_NO_ANSWER', 'DELIVERY_NOT_READY', 'SESSION_HOST_NOT_READY', 'DELIVERY_TIMEOUT', 'WORK_RPC_TIMEOUT',
     ]).has(code ?? '')
     const backoffAttempts = observedFailure ? event.failed_attempts : Math.max(0, event.attempts - 1)
+    const retryAfterSeconds = Math.min(300, 5 * 2 ** Math.min(6, backoffAttempts))
     await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_settle', {
       p_runtime_instance_id: ctx.runtimeInstanceId, p_message_id: event.message_id, p_lease_token: event.lease_token,
       p_stage: stage, ...(code ? { p_error_code: code } : {}),
-      p_retry_after_seconds: Math.min(300, 5 * 2 ** Math.min(6, backoffAttempts)),
+      p_retry_after_seconds: retryAfterSeconds,
       p_receipt: stage === 'retry' ? { failure_observed: observedFailure } : receipt ?? {},
     })
+    if (stage === 'retry') deps.retryIn?.(retryAfterSeconds * 1000)
   }
 
   const deliverOne = async (ctx: AssistantWorkOutboxContext, event: ClaimedAssistantWorkEvent, claimStartedAt: number):Promise<boolean> => {
@@ -145,7 +149,7 @@ export function createAssistantWorkOutboxPump(deps: {
     if (!assistantWorkDeliveryTarget(event)) { await settle(ctx,event,'retry','DELIVERY_NOT_READY');return false }
     const budget = Math.min(ASSISTANT_WORK_DELIVERY_BUDGET_MS, event.lease_remaining_ms - Math.max(0, performance.now() - claimStartedAt) - 5000)
     // Insufficient remaining lease is not a failed delivery attempt. Let a fresh claim take it.
-    if (budget <= 0) return false
+    if (budget <= 0) { deps.retryIn?.(event.lease_remaining_ms - Math.max(0, performance.now() - claimStartedAt)); return false }
     const controller = new AbortController()
     active.add(controller)
     let timer: ReturnType<typeof setTimeout> | undefined

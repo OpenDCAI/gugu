@@ -128,6 +128,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearHumanAuthSession: (reason: 'signed-out' | 'lost'): Promise<void> => ipcRenderer.invoke('human-auth-session:clear', reason),
   // #5906 —— 渲染层把一条设备命令放回 pending 之后说一声(见 main.ts 的同名通道)。
   notifyDeviceCommandsChanged: (): void => ipcRenderer.send('device-runtime:commands-changed'),
+  // 渲染层建 / 改 / 删了定时任务之后说一声(见 main.ts 的同名通道)。
+  notifyScheduledTasksChanged: (): void => ipcRenderer.send('device-runtime:scheduled-tasks-changed'),
   // #6396 —— 渲染层收到 agent_changed(本账号的 agent 有变动)后说一声,主进程据此刷新起名用的号(见 main.ts 同名通道)。
   notifyOwnedAgentsChanged: (): void => ipcRenderer.send('owned-agents:changed'),
   // @@@2374 — 按域名通用,❌ 不再一域一对方法。原来只有 `auth` 那一对,`extensions` 域

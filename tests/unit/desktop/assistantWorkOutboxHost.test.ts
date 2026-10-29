@@ -8,7 +8,7 @@ function fixture(target='cloud') {
   const deliverLocal=vi.fn(async()=>({admitted:true,messageId:'message',receipt:{agent_user_id:'agent'}}))
   const prepareRemote=vi.fn(async()=>undefined)
   const requestRemote=vi.fn(async()=>({requestId:'rpc',result:{status:'admitted',messageId:'message',receipt:{agent_user_id:'remote-agent'}}}))
-  const subscribe=vi.fn(async(_owner:string,_changed:()=>void)=>()=>{})
+  const subscribe=vi.fn(async(_owner:string,_changed:()=>void,_live:(up:boolean)=>void)=>()=>{})
   const warn=vi.fn()
   const deps={context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'cloud',client:{rpc}}),deliverLocal,prepareRemote,requestRemote,subscribe,warn}
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
@@ -89,5 +89,41 @@ describe('account delivery host',()=>{
     expect(never).not.toHaveBeenCalled()
     expect(g.rpc).toHaveBeenCalledWith('assistant_work_outbox_claim',expect.any(Object))
     host.stop();other.stop()
+  })
+  it('while the work channel is live a heartbeat claim is only a safety net; once it drops, every heartbeat claims',async()=>{
+    const f=fixture();let live!:(up:boolean)=>void
+    f.subscribe.mockImplementation(async(_owner:string,_changed:()=>void,up:(up:boolean)=>void)=>{live=up;return()=>{}})
+    const host=createAssistantWorkOutboxHost({...f.deps,active:async()=>true,safetyIntervalMs:60_000})
+    const claims=()=>f.rpc.mock.calls.filter(([name])=>name==='assistant_work_outbox_claim').length
+    await host.tick()
+    await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
+    live(true)
+    const subscribed=claims()
+    await host.tick();await host.tick()
+    expect(claims()).toBe(subscribed)
+    live(false)
+    await host.tick()
+    expect(claims()).toBeGreaterThan(subscribed)
+    host.stop()
+  })
+  it('a failed delivery is claimed again when its backoff ends, not at the next safety claim',async()=>{
+    vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']})
+    try {
+      const f=fixture()
+      f.deliverLocal.mockRejectedValueOnce(Object.assign(new Error('session busy'),{code:'SESSION_RUNTIME_FAILED'}))
+      let pending=true
+      f.rpc.mockImplementation(async(name:string)=>({data:name==='assistant_work_outbox_claim'?{events:pending?[event]:[]}:name==='assistant_work_history'?{events:[event],next_after:null}:{},error:null}))
+      const host=createAssistantWorkOutboxHost({...f.deps,active:async()=>true,safetyIntervalMs:60*60_000})
+      const claims=()=>f.rpc.mock.calls.filter(([name])=>name==='assistant_work_outbox_claim').length
+      await host.kick()
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle',expect.objectContaining({p_stage:'retry',p_retry_after_seconds:5}))
+      pending=false
+      const afterFailure=claims()
+      await vi.advanceTimersByTimeAsync(4_000)
+      expect(claims()).toBe(afterFailure)
+      await vi.advanceTimersByTimeAsync(2_500)
+      expect(claims()).toBeGreaterThan(afterFailure)
+      host.stop()
+    } finally { vi.useRealTimers() }
   })
 })

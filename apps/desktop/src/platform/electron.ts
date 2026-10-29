@@ -210,6 +210,11 @@ export const electronPlatform: AppPlatform = {
     if (!api?.notifyDeviceCommandsChanged) throw unavailable('Device runtime notification')
     api.notifyDeviceCommandsChanged()
   },
+  notifyScheduledTasksChanged() {
+    const api = electronApi()
+    if (!api?.notifyScheduledTasksChanged) throw unavailable('Device runtime notification')
+    api.notifyScheduledTasksChanged()
+  },
   notifyOwnedAgentsChanged() {
     const api = electronApi()
     if (!api?.notifyOwnedAgentsChanged) throw unavailable('Owned agents change notification')
