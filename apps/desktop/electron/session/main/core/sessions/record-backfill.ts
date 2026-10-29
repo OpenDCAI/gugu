@@ -1,7 +1,7 @@
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { log } from '@main/lib/logger';
 import { sessionRecordHarnessForProvider } from '@main/core/session-timeline/locate';
-import { recordTurnsAfterStore } from './record-backfill-match';
+import { recordIdentityFor, recordTurnsAfterStore } from './record-backfill-match';
 import { appendRecordTurnNow, readStoredTailNow, withStoredTurns } from './session-turn-store';
 
 /**
@@ -17,7 +17,8 @@ import { appendRecordTurnNow, readStoredTailNow, withStoredTurns } from './sessi
 export async function syncStoredHistoryFromRecord(sessionId: string): Promise<{ inserted: number }> {
   const { readSessionRow, pickRecordTurns } = await import('@main/core/session-timeline/service');
   const row = readSessionRow(sessionId);
-  if (!row?.providerSessionId || !sessionRecordHarnessForProvider(row.provider)) return { inserted: 0 };
+  const identity = recordIdentityFor(sessionRecordHarnessForProvider(row?.provider));
+  if (!row?.providerSessionId || !identity) return { inserted: 0 };
   // 正在跑的会话,它自己的回合正由运行时一轮轮落库;此刻补,会把还没落库的那一轮从记录里先抄一份进来。
   const { acpSessionLive } = await import('@main/core/session-timeline/write-bridge');
   if (await acpSessionLive(sessionId).catch(() => true)) return { inserted: 0 };
@@ -28,7 +29,7 @@ export async function syncStoredHistoryFromRecord(sessionId: string): Promise<{ 
       let missing: TranscriptTurn[] | null = null;
       for (const limit of TAIL_WINDOWS) {
         const tail = await readStoredTailNow(sessionId, limit);
-        missing = recordTurnsAfterStore(record, tail);
+        missing = recordTurnsAfterStore(record, tail, identity);
         if (missing !== null || tail.length < limit) break;
       }
       return missing;

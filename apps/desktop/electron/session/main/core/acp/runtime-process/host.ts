@@ -661,15 +661,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       mark('platform-injected', { injected: platformInjection.injected });
       const resolved = await withHostResolvedCli(platformInjection.command);
       mark('run-context-resolved', { resolved: resolved.input.runContext.cli.kind === 'resolved' });
-      const resumeHistory = await resumeHistoryFacts(resolved.input, {
-        storedQueue: async () => {
-          try {
-            return await client.getStoredQueue({ sessionId: resolved.input.sessionId });
-          } catch {
-            return null;
-          }
-        },
-      });
+      const resumeHistory = await resumeHistoryFacts(resolved.input, {});
       mark('resume-history-read', { replay: resumeHistory.replayHistory !== false });
       const injected = { ...resolved, input: { ...resolved.input, ...resumeHistory } };
       if (injected.input.sourceSessionId && injected.input.forkFromProviderSessionId) {

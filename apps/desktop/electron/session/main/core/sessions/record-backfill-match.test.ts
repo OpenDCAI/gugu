@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TranscriptTurn } from '@gugu/session-core/acp';
-import { recordTurnsAfterStore, turnIdentityKeys } from './record-backfill-match';
+import { recordIdentityFor, recordTurnsAfterStore, turnIdentityKeys } from './record-backfill-match';
 
 /** A turn as the runtime stored it (`S:turn:sN`) or as the record timeline reads it (`S:turn:N`). */
-const turn = (id: string, prompt: string | null, own: { message?: string; tool?: string } = {}): TranscriptTurn => ({
+const turn = (id: string, prompt: string | null, own: { message?: string; tool?: string; reply?: string } = {}): TranscriptTurn => ({
   id, seq: 0, initiator: prompt === null ? 'agent' : 'user',
   items: [
     ...(prompt === null ? [] : [{ kind: 'message', id: `${id}:message:auto:user:0`, seq: 0, role: 'user', text: prompt }]),
-    ...(own.message ? [{ kind: 'message', id: `${id}:message:${own.message}`, seq: 1, role: 'assistant', text: 'reply' }] : []),
+    ...(own.message ? [{ kind: 'message', id: `${id}:message:${own.message}`, seq: 1, role: 'assistant', text: own.reply ?? 'reply' }] : []),
     ...(own.tool ? [{ kind: 'execute-tool-call', id: `${id}:tool:${own.tool}`, seq: 2, toolCallId: own.tool }] : []),
   ],
 } as unknown as TranscriptTurn);
@@ -61,5 +61,30 @@ describe('filling the store from the record (#980)', () => {
     const stored = [turn('S:turn:s1', 'just talk', {}), turn('S:turn:s0', 'tool turn', { tool: 't' })];
     const record = [turn('S:turn:0', 'tool turn', { tool: 't' }), turn('S:turn:1', 'just talk', {}), turn('S:turn:2', 'new', { tool: 'n' })];
     expect(recordTurnsAfterStore(record, stored)?.map((t) => t.id)).toEqual(['S:turn:2']);
+  });
+
+  it('keeps a new turn whose prompt repeats an older stored one ("继续" with new ids)', () => {
+    const stored = [turn('S:turn:s0', '继续', { tool: 't1' })];
+    const record = [turn('S:turn:0', '继续', { tool: 't1' }), turn('S:turn:1', '继续', { tool: 't4' }), turn('S:turn:2', 'new', { tool: 't5' })];
+    expect(recordTurnsAfterStore(record, stored)?.map((t) => t.id)).toEqual(['S:turn:1', 'S:turn:2']);
+  });
+
+  it('recognizes Codex turns by prompt and reply, because its record numbers items its own way', () => {
+    expect(recordIdentityFor('codex')).toBe('content');
+    expect(recordIdentityFor('claude')).toBe('ids');
+    expect(recordIdentityFor('qwen')).toBeNull();
+    const stored = [turn('S:turn:s0', 'ALPHA please', { message: 'msg_live', reply: 'ALPHA980' })];
+    const record = [
+      turn('S:turn:0', 'ALPHA please', { message: 'codex:t:1:8', reply: 'ALPHA980' }),
+      turn('S:turn:1', 'BRAVO please', { message: 'codex:t:2:8', reply: 'BRAVO981' }),
+    ];
+    expect(recordTurnsAfterStore(record, stored, 'ids')).toBeNull();
+    expect(recordTurnsAfterStore(record, stored, 'content')?.map((t) => t.id)).toEqual(['S:turn:1']);
+  });
+
+  it('does not anchor a Codex store on a prompt alone', () => {
+    const stored = [turn('S:turn:s0', '继续', { message: 'msg_live', reply: 'done A' })];
+    const record = [turn('S:turn:0', '继续', { message: 'codex:t:1:8', reply: 'done B' })];
+    expect(recordTurnsAfterStore(record, stored, 'content')).toBeNull();
   });
 });

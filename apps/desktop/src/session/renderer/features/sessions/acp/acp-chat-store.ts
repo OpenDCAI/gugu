@@ -2070,6 +2070,15 @@ export class AcpChatStore {
         this._runtimeReplayEndSeq = lastRuntimeSeq === undefined ? 0 : lastRuntimeSeq + 1;
         this._runtimeCursor = history.data.cursor;
         this._runtimeCount = history.data.count;
+        if (this._storedBaseSeq === null && session?.providerSessionId) {
+          // #980 开场读库时库还是空的(这次改动之前建的老会话)。接回不再重放,它的历史只在宿主起会话之前
+          // 从 agent 的记录补进库的那份里 ⇒ 引擎就绪后再读一次库,读到了就照库上屏。
+          await this._loadStoredFirstPage(generation);
+          if (this._disposed || generation !== this._historyGeneration) {
+            clientSession.dispose();
+            return;
+          }
+        }
         if (this._storedBaseSeq === null) {
           // 库里为空 ⇒ 引擎是唯一来源,往上翻也只能翻它;之后的对账并进这一页。
           this._olderSource = 'runtime';

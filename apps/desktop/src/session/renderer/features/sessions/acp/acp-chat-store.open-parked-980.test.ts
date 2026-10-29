@@ -255,6 +255,21 @@ describe('#980 打开一条没在跑的会话', () => {
     expect(committedIds(store)).toEqual(['s0', 's1']);
   });
 
+  it('库原本是空的老会话:补库还在读时人就发了一句 —— 引擎就绪后再读一次库,补进来的历史照库上屏', async () => {
+    host.sync.mockReturnValue(new Promise(() => {}));
+    // 打开时读一次、发话起开场又读一次,都还是空的;宿主起会话前补完库,引擎就绪后那一读才读到。
+    host.storedPages = [page(), page(), page(turn('r0', 0), turn('r1', 1))];
+    create.mockImplementation(async () => liveSession());
+    const { store } = storeFor();
+    store.bootstrap();
+    await vi.waitFor(() => expect(host.sync).toHaveBeenCalledWith(store.sessionId));
+    expect(committedIds(store), '阳控:打开时库是空的').toEqual([]);
+
+    runInAction(() => store.submitPrompt('接着上次的来'));
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(committedIds(store), '引擎那页只有新轮,历史来自补完的库').toEqual(['r0', 'r1']);
+  });
+
   it('停着时宿主把它拉起来(投递、定时):起完就挂上 —— 只附着、❌ 带启动输入,不等人发一句', async () => {
     create.mockImplementation(async () => liveSession());
     const { store } = storeFor();
