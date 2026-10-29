@@ -9,6 +9,7 @@ import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
+import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscriptionSwitchEvents';
 import { stopExactSessionpageSession } from './session-orchestration';
 import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
 
@@ -83,9 +84,14 @@ export async function switchSubscription(
   // 换不成(连接没了、登录没存、Codex 凭据不在文件里)就在停会话之前报出来。
   await assertHarnessConnectionSelectable(providerId, connectionId, { nativeEnv });
   const stopped: LiveSession[] = [];
+  const progress = (closed: number) => {
+    if (live.length > 0) events.emit(subscriptionSwitchProgressChannel, { providerId, closed, total: live.length });
+  };
   try {
-    for (const session of live) {
+    progress(0);
+    for (const [index, session] of live.entries()) {
       if (await stopForSwitch(session)) stopped.push(session);
+      progress(index + 1);
     }
     await selectHarnessConnection(providerId, connectionId, { nativeEnv });
   } finally {

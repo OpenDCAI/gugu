@@ -32,9 +32,17 @@ vi.mock('@renderer/lib/ipc', async (importOriginal) => {
   };
   const agents = new Proxy({}, { get: (_, key) => answers[String(key)] ?? pending });
   const namespace = new Proxy({}, { get: () => pending });
+  const original = await importOriginal<typeof import('@renderer/lib/ipc')>();
   return {
-    ...(await importOriginal<object>()),
+    ...original,
     rpc: new Proxy({}, { get: (_, key) => (key === 'agents' ? agents : namespace) }),
+    // 「关掉并切换」的进度由测试按主进程的样子推。
+    onMachineEvent: ((machine, event, cb) => {
+      if (event.name !== 'subscriptions:switch-progress') return original.onMachineEvent(machine, event, cb);
+      const listener = cb as (data: { providerId: string; closed: number; total: number }) => void;
+      control.progressListeners.add(listener);
+      return () => control.progressListeners.delete(listener);
+    }) as typeof original.onMachineEvent,
   };
 });
 
@@ -53,6 +61,7 @@ const control = vi.hoisted(() => ({
   stopBusySessions: [] as boolean[],
   oldHost: false,
   closeHold: null as Promise<void> | null,
+  progressListeners: new Set<(data: { providerId: string; closed: number; total: number }) => void>(),
   usageByConnection: {} as Record<string, { windowMinutes: number; usedPercent: number }[]>,
   connectionsError: false,
 }));
@@ -138,6 +147,7 @@ beforeEach(() => {
   control.stopBusySessions = [];
   control.oldHost = false;
   control.closeHold = null;
+  control.progressListeners.clear();
   control.usageByConnection = {};
   control.connectionsError = false;
   control.connections = [{ id: 'native', kind: 'native', name: '', current: true }];
@@ -392,13 +402,24 @@ it('a refusal offers one click that closes the working sessions and switches to 
   let release!: () => void;
   control.closeHold = new Promise<void>((resolve) => (release = resolve));
   closeAndSwitch.click();
-  await until('the row says it is closing', () => row.querySelector('.subscription-note')?.textContent === '正在关掉 Codex 会话，关完就切换…');
+  await until('the row says it is closing', () => row.querySelector('.subscription-switch-progress')?.textContent?.startsWith('正在关掉 Codex 会话，关完就切换') === true);
   expect(row.querySelector('[data-testid="subscription-close-and-switch"]')).toBeNull();
   expect(row.querySelector('[role="alert"]')).toBeNull();
+  // 进度条读主进程报的真数:关完几个 / 一共几个;还没报时是空条、不写数。
+  const bar = () => row.querySelector('[data-testid="subscription-close-progress"]') as HTMLElement;
+  expect(bar().getAttribute('aria-valuenow')).toBe('0');
+  expect(row.querySelector('[data-testid="subscription-close-progress-count"]')).toBeNull();
+  await until('the progress listener is attached', () => control.progressListeners.size > 0);
+  for (const listener of control.progressListeners) listener({ providerId: 'claude', closed: 1, total: 1 });
+  for (const listener of control.progressListeners) listener({ providerId: 'codex', closed: 3, total: 9 });
+  await until('the bar shows 3 of 9', () => row.querySelector('[data-testid="subscription-close-progress-count"]')?.textContent === '3 / 9');
+  expect(bar().getAttribute('aria-valuenow')).toBe('3');
+  expect(bar().getAttribute('aria-valuemax')).toBe('9');
+  expect(parseFloat((bar().querySelector('i') as HTMLElement).style.width)).toBeCloseTo((3 / 9) * 100, 2);
   release();
   await until('the switch goes through', () => control.selected === 'saved-api');
   expect(control.stopBusySessions).toEqual([false, true]);
-  await until('the refusal is gone', () => row.querySelector('.subscription-note') === null && row.querySelector('[data-testid="subscription-close-and-switch"]') === null);
+  await until('the refusal is gone', () => row.querySelector('.subscription-note') === null && row.querySelector('.subscription-switch-progress') === null && row.querySelector('[data-testid="subscription-close-and-switch"]') === null);
   expect(row.querySelector('[role="alert"]')).toBeNull();
   expect(thrown).toEqual([]);
 });

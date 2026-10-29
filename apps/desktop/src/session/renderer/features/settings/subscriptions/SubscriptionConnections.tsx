@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
 import { getAgentConfigRuntimeClient } from '@renderer/lib/agent-config/runtime-client';
+import { onMachineEvent } from '@renderer/lib/ipc';
+import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscriptionSwitchEvents';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Input } from '@renderer/lib/ui/input';
@@ -43,8 +45,14 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
 /**
  * 切换没成时给行摆的一句话。`gentle`=被拒而不是出错(有会话正在工作),不飘红。
  * `closeAndSwitch`:被拒时的出路 —— 一键把正在工作的会话也关掉、接着切(额度用完时它们本来也跑不下去)。
+ * `progress`:点了之后正在关 —— 关完几个 / 一共几个;`null` = 主进程还没报第一次。
  */
-export type SwitchNotice = { tone: 'gentle' | 'error'; text: string; closeAndSwitch?: () => void };
+export type SwitchNotice = {
+  tone: 'gentle' | 'error';
+  text: string;
+  closeAndSwitch?: () => void;
+  progress?: { closed: number; total: number } | null;
+};
 
 /** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
 export function SubscriptionConnections({ agent, machine, onError }: {
@@ -101,15 +109,28 @@ export function SubscriptionConnections({ agent, machine, onError }: {
         ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
         : action.error ? errorText(action.error) : null;
   const tone = closing || (busy && !closeUnsupported) ? 'gentle' : 'error';
+  const [progress, setProgress] = useState<{ closed: number; total: number } | null>(null);
+  useEffect(() => {
+    if (!closing) return;
+    return onMachineEvent(machine, subscriptionSwitchProgressChannel, (event) => {
+      if (event.providerId === agent.id) setProgress({ closed: event.closed, total: event.total });
+    });
+  }, [closing, machine, agent.id]);
   // 被拒的那次切的是哪个连接:「关掉并切换」原样再切一次。
   const refusedId = busy && !closeUnsupported && action.variables?.kind === 'select' ? action.variables.id : null;
   const { mutate } = action;
   const closeAndSwitch = useCallback(() => {
-    if (refusedId) mutate({ kind: 'select', id: refusedId, stopBusySessions: true });
+    if (!refusedId) return;
+    setProgress(null);
+    mutate({ kind: 'select', id: refusedId, stopBusySessions: true });
   }, [refusedId, mutate]);
   useEffect(() => {
-    onError?.(failure === null ? null : { tone, text: failure, ...(refusedId ? { closeAndSwitch } : {}) });
-  }, [failure, tone, refusedId, closeAndSwitch, onError]);
+    onError?.(failure === null ? null : {
+      tone, text: failure,
+      ...(refusedId ? { closeAndSwitch } : {}),
+      ...(closing ? { progress } : {}),
+    });
+  }, [failure, tone, refusedId, closeAndSwitch, closing, progress, onError]);
   const signIn = (connectionId: string) => {
     if (!method || !canSignIn) return;
     setOpen(false);

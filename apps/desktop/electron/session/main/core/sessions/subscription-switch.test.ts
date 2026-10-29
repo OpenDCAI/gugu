@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   summaries: new Map<string, Record<string, unknown>>(),
   calls: [] as string[],
+  progress: [] as string[],
 }));
 
 vi.mock('@main/core/acp/agent-status-bridge', () => ({
@@ -12,7 +13,12 @@ vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { li
 vi.mock('@main/db/client', () => ({ db: {} }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({
-  events: { emit: (_channel: unknown, target: { sessionId: string }) => mocks.calls.push(`reclaimed:${target.sessionId}`) },
+  events: {
+    emit: (channel: { name: string }, data: { sessionId?: string; closed?: number; total?: number }) => {
+      if (channel.name === 'subscriptions:switch-progress') mocks.progress.push(`${data.closed}/${data.total}`);
+      else mocks.calls.push(`reclaimed:${data.sessionId}`);
+    },
+  },
 }));
 vi.mock('@main/core/agents/harness-connections', () => ({
   assertHarnessConnectionSelectable: vi.fn(async () => undefined),
@@ -48,6 +54,7 @@ function summary(sessionId: string, overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.summaries.clear();
   mocks.calls.length = 0;
+  mocks.progress.length = 0;
 });
 
 it('stops idle Codex sessions before the credentials change and hands them back afterwards', async () => {
@@ -110,6 +117,14 @@ it('closes working sessions too when the user chose to close them and switch', a
   summary('idle');
   await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
   expect(mocks.calls).toEqual(['stop:busy', 'stop:idle', 'select:codex:work', 'reclaimed:busy', 'reclaimed:idle']);
+  // 进度条读的是真关掉了几个:开始时 0/2,每关完一个推一次。
+  expect(mocks.progress).toEqual(['0/2', '1/2', '2/2']);
+});
+
+it('reports no progress when there is nothing to close', async () => {
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['select:codex:work']);
+  expect(mocks.progress).toEqual([]);
 });
 
 it('waits out a process that is still exiting instead of failing the switch', async () => {
