@@ -693,6 +693,14 @@ describe('the Apps as app_search reads them (10-19)', () => {
     expect(SWITCHED_OFF('雷达')).toMatch(/^Switched off on this computer\. You cannot switch it on: ask your owner to open 「App」 in 咕咕, open 雷达 there and press 「启用」 \(Turn on\); /)
   })
 
+  // 5-minute game rounds 2-3 (10-29): a group App made in another chat read as 「on」 was taken for 「in this chat」.
+  it('an App of chat files: on this computer, in no chat by itself — the row names the call that puts it into one', async () => {
+    const group = { manifest: manifestOf('dinner-vote', 'Dinner vote', { contributes: { tabs: [{ name: 'main', title: 'Vote', opensFiles: { chat: ['.dinner-vote.json'] } }] } } as Partial<ExtensionManifest>), enabled: true, givesAgents: false }
+    const catalog = createExtensionCatalog({ programs: () => ({ ...programs, agentToolsRefusal: () => null }), onProblem: () => {}, apps: () => [group], market: async () => [] })
+    const [row] = (await catalog.apps('s1', false)).apps
+    expect(row!.next).toContain(`It is on your owner's computer, in no chat by itself: app_install { app: "dinner-vote", chat_id, data } puts it into a chat`)
+  })
+
   it('the market: Apps not installed here, how to install each, who confirms; one this computer cannot install says why; deprecated ones are not offered; installed ones take its dates', async () => {
     const offered = [
       entry('agent-notes', { publishedAt: '2026-10-12T00:00:00Z' }),

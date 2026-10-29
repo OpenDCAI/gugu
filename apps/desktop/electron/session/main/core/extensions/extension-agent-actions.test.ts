@@ -35,6 +35,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
     approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
+    get: (id: string) => list().extensions.find((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     // One publisher throughout these cases: a first install is one not installed yet.
     isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
@@ -1347,6 +1348,18 @@ describe('app_install: what comes next', () => {
     expect(groupUnchecked.next).not.toMatch(/app_check/);
     // 集体记忆对账第 6 条:进群只指 app_install 带 chat_id 这一条路。
     expect(groupUnchecked.next).toMatch(/"chat_id":"<the chat>"\} again sends it into the chat/);
+  });
+
+  // 5-minute game rounds 2-3 (10-29): a group App made in another chat is installed here; app_install { app } sends it on.
+  it('an App installed here (app): nothing is installed again, its tabs come back, the next says it is in the chat', async () => {
+    installFromDirectory.mockClear();
+    list.mockReturnValue({ extensions: [{ manifest: inspectedOf([groupTab]).manifest, rootDir: '/installed/dinner-vote' }], invalid: [] });
+    const result = await runExtensionAgentAction({ action: 'install', app: 'dinner-vote', chat_id: 'chat-1' }, {}) as { installed: boolean; id: string; tabs: unknown; next?: string };
+    expect(result).toMatchObject({ installed: true, id: 'dinner-vote', tabs: [{ name: 'main', tab_kind: 'dinner-vote.main', chat_files: ['.dinner-vote.json'] }] });
+    expect(result.next).toMatch(/has it installed, and it is in the chat as a card now/);
+    expect(installFromDirectory).not.toHaveBeenCalled();
+    await expect(runExtensionAgentAction({ action: 'install', app: 'not-here', chat_id: 'chat-1' }, {}))
+      .rejects.toThrow('App not-here is not installed on this computer');
   });
 });
 
