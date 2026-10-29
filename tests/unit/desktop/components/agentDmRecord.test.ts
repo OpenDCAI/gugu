@@ -33,6 +33,8 @@ describe('authorized DM rows in the shared transcript', () => {
     const batch = [{ ...rows[0], items: [{ ...items[0], id: 'batch', text: items.map(item => item.kind === 'message' ? item.text : '').join('\n') }] }] as TranscriptTurn[]
     expect(dmRecordIds(batch).get('batch')).toEqual(['m1', 'm2'])
     expect(dmRecordIds(batch).get('m1')).toEqual(['m1'])
+    expect(dmRecordIds(batch).get('batch:batch-0')).toEqual(['m1'])
+    expect(dmRecordIds(batch).get('batch:batch-1')).toEqual(['m2'])
     expect(mergeDmRecord(batch, [human('m1', 1), human('m2', 2)], names)).toBe(batch)
   })
 

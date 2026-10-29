@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import type { ChatView } from '@gugu/session-chat-ui'
 import type { CapturedUnreadEntry } from '@/lib/chatUnreadLocator'
@@ -14,6 +14,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   onError: (error: unknown) => void
 }) {
   const view = useRef<ChatView | null>(null)
+  const [loadedAnchor, setLoadedAnchor] = useState<string | null>(null)
   const atBottom = useRef(false)
   const activation = useRef<{ shown: boolean; cursor: AgentDmReadCursor; first: string | null; placed: string | null; loading: boolean } | null>(null)
   if (!activation.current || (shown && !activation.current.shown)) {
@@ -23,8 +24,15 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   }
   activation.current.shown = shown
   const current = activation.current
-  current.cursor.ignore(ignoredMessageIds)
-  if (current.first && ignoredMessageIds.includes(current.first)) current.first = null
+  // An authorized IM row can precede the session window's watermark without
+  // having a projected item. It cannot become a permanent visibility barrier.
+  const unavailable = messages.filter(row => !dmTranscriptItem(row.id, aliases)).map(row => row.id)
+  current.cursor.ignore([...ignoredMessageIds, ...unavailable])
+  if (current.first && (ignoredMessageIds.includes(current.first) || unavailable.includes(current.first))) current.first = null
+  if (current.first === loadedAnchor && !messages.some(row => row.id === current.first)) {
+    current.cursor.ignore(loadedAnchor ? [loadedAnchor] : [])
+    current.first = null
+  }
   const reportFollowing = useCallback(() => setFollowingTail(shown && atBottom.current && current.cursor.canFollow(messages)), [shown, current, messages, setFollowingTail])
   const place = useCallback(() => {
     if (!shown || !current.first || !view.current) return
@@ -39,7 +47,8 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     place()
     if (!shown || !current.first || messages.some(row => row.id === current.first) || current.loading) return
     current.loading = true
-    void loadMessageAnchor(current.first).catch(onError)
+    const id = current.first
+    void loadMessageAnchor(id).then(() => { if (activation.current === current) setLoadedAnchor(id) }).catch(onError)
   }, [shown, current, messages, place, reportFollowing, loadMessageAnchor, onError])
   useLayoutEffect(() => () => setFollowingTail(undefined), [setFollowingTail])
   const onVisibleItems = useCallback((ids: readonly string[]) => {

@@ -20,6 +20,29 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     let observing = true;
     let seen = new WeakSet<Element>();
     let observer: IntersectionObserver;
+    let frame = 0;
+    const readable = (element: Element) => {
+      const viewport = host.getBoundingClientRect();
+      const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
+      const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
+      const content = body.getBoundingClientRect();
+      return content.width > 0 && content.height > 0 && content.bottom > viewport.top && content.top < bottom
+        && content.right > viewport.left && content.left < viewport.right;
+    };
+    const report = (elements: readonly Element[]) => {
+      if (!observing || document.visibilityState === 'hidden') return;
+      const ids = elements.filter(readable).map(element => element.getAttribute('data-agent-conversation-message')).filter((id): id is string => !!id);
+      if (ids.length) onVisibleItems(ids);
+    };
+    // A virtual row can already intersect before its anchored body is laid out.
+    // Read again after layout changes, even if the person does not scroll.
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        report([...host.querySelectorAll('[data-agent-conversation-message]')]);
+      });
+    };
     const observe = () => host.querySelectorAll('[data-agent-conversation-message]').forEach(element => {
       if (!seen.has(element)) { seen.add(element); observer.observe(element); }
     });
@@ -29,36 +52,30 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
       observer?.disconnect();
       seen = new WeakSet();
       observer = new IntersectionObserver(entries => {
-        if (!observing || document.visibilityState === 'hidden') return;
-        const viewport = host.getBoundingClientRect();
-        const readableBottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
-        const ids = entries.filter(entry => {
-          if (!entry.isIntersecting || entry.intersectionRect.height <= 0) return false;
-          // A message's header/actions can intersect while its body is behind the floating editor.
-          const body = entry.target.querySelector('[data-user-card], [data-attachment-chip]') ?? entry.target;
-          const content = body.getBoundingClientRect();
-          return content.bottom > viewport.top && content.top < readableBottom;
-        }).map(entry => entry.target.getAttribute('data-agent-conversation-message')).filter((id): id is string => !!id);
-        if (ids.length) onVisibleItems(ids);
+        report(entries.filter(entry => entry.isIntersecting && entry.intersectionRect.height > 0).map(entry => entry.target));
       }, { root: host, rootMargin: `0px 0px -${Math.max(0, rect.bottom - bottom)}px 0px` });
       observe();
+      schedule();
     };
     resetObserver();
     const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resetObserver);
     resize?.observe(host);
     if (slot) resize?.observe(slot);
     const mutations = new MutationObserver(records => {
-      for (const record of records) if (record.type === 'attributes') { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
+      for (const record of records) if (record.type === 'attributes' && (record.target as Element).hasAttribute('data-agent-conversation-message')) { observer.unobserve(record.target as Element); observer.observe(record.target as Element); }
       observe();
+      schedule();
     });
-    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message'] });
+    mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-agent-conversation-message', 'style'] });
     observe();
     const visibleAgain = () => {
       if (!observing || document.visibilityState === 'hidden') return;
       host.querySelectorAll('[data-agent-conversation-message]').forEach(element => { observer.unobserve(element); observer.observe(element); });
+      schedule();
     };
     document.addEventListener('visibilitychange', visibleAgain);
-    return () => { observing = false; document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
+    host.addEventListener('scroll', schedule, true);
+    return () => { observing = false; cancelAnimationFrame(frame); host.removeEventListener('scroll', schedule, true); document.removeEventListener('visibilitychange', visibleAgain); mutations.disconnect(); resize?.disconnect(); observer.disconnect(); };
   }, [shown, onVisibleItems, slot]);
   return <div ref={root} data-agent-conversation="" className={`${className ?? 'relative min-h-0 flex-1'} ${nativeChatAppearance}`} style={style}>
     <ChatTranscript stickToBottom pinUserMessages {...props}

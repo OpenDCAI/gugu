@@ -61,6 +61,7 @@ export function dmRecordIds(turns: readonly TranscriptTurn[]): Map<string, reado
         .flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : [])
       if (messages.length) ids.set(item.id, messages)
       else if (turn.id === `im:${item.id}`) ids.set(item.id, [item.id])
+      if (messages.length > 1) messages.forEach((id, index) => ids.set(`${item.id}:batch-${index}`, [id]))
       for (const id of messages) ids.set(id, [id])
     } else if (item.kind === 'session-notice' && turn.id === `im:${item.id}`) {
       ids.set(item.id, [item.id])
