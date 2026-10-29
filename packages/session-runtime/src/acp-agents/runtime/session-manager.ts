@@ -861,6 +861,11 @@ export class SessionManager implements InboundRouter {
         // ❌ 不去问状态机——`endReplay()` 先切 phase 后发变更,那一刻问 phase 会把最后一回合报错。
         record.replaying = true;
         record.cell.beginReplay();
+        // #980 不重放 ⇒ 补投去重的那份「agent 收到过什么」由宿主从记录里读好带进来;没带 = 读不出来。
+        if (input.replayHistory === false) {
+          record.cell.useRecordedDeliveries(input.recordedDeliveryIds ?? null);
+          record.cell.continueTurnIndexAt(input.turnIndexBase ?? 0);
+        }
 
         try {
           const loadingCell = record.cell;
@@ -2839,11 +2844,15 @@ export class SessionManager implements InboundRouter {
    * 首轮一切正常,最难被发现。(矩阵 L3-CUI 格真机复验这一条。)
    */
   private buildLoadSessionRequest(input: AcpStartInput, providerSessionId: string): LoadSessionRequest {
+    const { _meta } = sessionOpenMeta(input);
+    // #980 不重放 = ACP v2 的「不带 replayFrom」。v1 适配器没有这一格,`_meta.history.replay` 是两边都认的那根线
+    // (v2 通道据它决定带不带 replayFrom,Codex 适配器也认它)。
+    const meta = input.replayHistory === false ? { ..._meta, history: { replay: false } } : _meta;
     return {
       cwd: input.cwd,
       sessionId: providerSessionId,
       mcpServers: (input.mcpServers ?? []) as LoadSessionRequest['mcpServers'],
-      ...sessionOpenMeta(input),
+      ...(meta ? { _meta: meta } : {}),
     };
   }
 

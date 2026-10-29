@@ -20,7 +20,7 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
-import { getStoredToolImage, persistCommittedTurn, readStoredTurns, storedRevertBoundary, truncateStoredHistory } from './session-turn-store';
+import { appendRecordTurnNow, getStoredToolImage, persistCommittedTurn, readStoredTailNow, readStoredTurns, storedRevertBoundary, storedTurnIndexBase, truncateStoredHistory, withStoredTurns } from './session-turn-store';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 
@@ -55,6 +55,30 @@ describe('conversation-turn-store', () => {
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
       INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
     `);
+  });
+
+  it('#980 continues runtime turn numbers after every stored run, ignoring store-renumbered and record rows', async () => {
+    expect(await storedTurnIndexBase('c1')).toBe(0);
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:0', 'first run') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:6', 'later run', 6) });
+    await withStoredTurns('c1', () => appendRecordTurnNow('c1', turn('c1:turn:2', 'from the record', 2)));
+    expect(await storedTurnIndexBase('c1')).toBe(7);
+  });
+
+  it('#980 appends record turns after the store tail, inside the same per-session write chain', async () => {
+    const live = persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:0', 'chat turn') });
+    const filled = withStoredTurns('c1', async () => {
+      const tail = await readStoredTailNow('c1', 10);
+      await appendRecordTurnNow('c1', turn('c1:turn:1', 'terminal turn', 1));
+      return tail.length;
+    });
+    // The fill waited for the live write queued before it.
+    expect(await filled).toBe(1);
+    await live;
+    expect(storedTexts(fixture).map((item) => item.kind === 'message' ? item.text : null)).toEqual(['chat turn', 'terminal turn']);
+    const page = await readStoredTurns('c1');
+    expect(page.originTurnIds).toEqual(['c1:turn:0', 'record:c1:turn:1']);
+    expect(page.turns[1].id).toBe('c1:turn:s1');
   });
 
   it('retains exact live reference identities when repeated runtime IDs are stored and reread', async () => {
