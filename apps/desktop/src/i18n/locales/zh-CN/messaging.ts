@@ -419,6 +419,7 @@ export default {
       }
     },
     "attachmentContextMissing": "附件发送失败：当前对话已不可用",
+    "attachmentSendTimedOut": "附件发送超时。",
     "attachmentPersistenceFailed": "附件 {{fileName}} 保存失败。",
     "attach": "添加",
     "cancelQuote": "取消引用",
@@ -758,6 +759,8 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "unknown": "状态待确认",
+      "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
       "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",

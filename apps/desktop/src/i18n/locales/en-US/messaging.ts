@@ -420,6 +420,7 @@ export default {
       }
     },
     "attachmentContextMissing": "Could not send the attachment because the chat is no longer available",
+    "attachmentSendTimedOut": "Attachment send timed out.",
     "attachmentPersistenceFailed": "Could not save {{fileName}}",
     "attach": "Add",
     "cancelQuote": "Cancel reply",
@@ -759,6 +760,8 @@ export default {
     },
     "retracted": "Message retracted",
     "sendStatus": {
+      "unknown": "Awaiting confirmation",
+      "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
       "archived": "Recipient is archived. Not delivered.",
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",

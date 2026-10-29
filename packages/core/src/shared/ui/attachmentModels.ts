@@ -49,7 +49,7 @@ export interface MessageFileRef {
   file_item_id?: string | null
   file_version?: number | null
   file_blob_id?: string | null
-  local_send_state?: 'sending' | 'failed' | null
+  local_send_state?: 'sending' | 'failed' | 'unknown' | null
 }
 
 /** 没定型的行(事件载荷、REST 原样回的 JSON)上读那两列。 */

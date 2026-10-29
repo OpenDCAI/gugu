@@ -144,6 +144,7 @@ export function deriveMessageSendState(
   // of the watermark (fixes agent directed-message receipts). Falls back to the watermark path otherwise.
   precise?: { memberIds: readonly string[]; messageReaders: MessageReaders },
 ): MessageSendState {
+  if (message.local_send_state === 'unknown') return 'unknown'
   if (message.local_send_state === 'failed') return 'failed'
   if (message.local_send_state === 'sending' || message.seq < 0) return 'sending'
   const preciseRead = precise

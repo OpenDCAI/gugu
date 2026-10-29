@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageSendStatus } from '../../../../apps/desktop/src/components/chat/MessageSendStatus'
+import { deriveMessageSendState } from '@gugu/core/shared/ui/messageState'
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -10,6 +12,14 @@ afterEach(() => {
   harness.cleanup()
 })
 describe('MessageSendStatus', () => {
+  it('keeps an ambiguous attachment visibly unknown without a sending spinner or resend action', async () => {
+    const state = deriveMessageSendState({ seq: -1, local_send_state: 'unknown' } as MessageItem, {})
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state, messageId: 'message-1' }),
+      { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    expect(document.body.querySelector('[data-send-state="unknown"]')?.textContent).toContain('状态待确认')
+    expect(document.body.querySelector('.gg-ring-march')).toBeNull()
+    expect(document.body.querySelector('[data-testid="message-send-retry"]')).toBeNull()
+  })
   it('shows a terminal per-recipient archive refusal alongside other recipients still waiting', async () => {
     await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'queued', messageId: 'm',
       blocks: [{ agent_user_id: 'archived', reason: 'agent_archived' }] }),
