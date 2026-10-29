@@ -17,6 +17,7 @@ import {
   type ProcessRuntimePort,
 } from '@gugu/session-wire/util/process-runtime';
 import { createAcpRuntimeController } from '../api/controller';
+import { createHostPromptPreparation } from '../session/host-prompt-preparation';
 import { AcpRuntime } from '../runtime/runtime';
 import type { AcpRuntimeDeps } from '../runtime/types';
 import { ChildAcpProcessHost } from './child-process-host';
@@ -56,6 +57,13 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       // #5381 会话历史落盘:回合提交推给主进程,由它决定落不落(只有它知道库里有没有)。
       const turnCommitted = createEventStreamHost(acpRuntimeApiContract.turnCommitted);
       const promptSteered = createEventStreamHost(acpRuntimeApiContract.promptSteered);
+      // #881 Each provider request asks the host for its notice: the host's preparation is in another process.
+      const preparationRequested = createEventStreamHost(acpRuntimeApiContract.nativePromptPreparationRequested);
+      const preparationSettled = createEventStreamHost(acpRuntimeApiContract.nativePromptPreparationSettled);
+      const preparation = createHostPromptPreparation({
+        request: (event) => preparationRequested.emit(undefined, event),
+        settle: (event) => preparationSettled.emit(undefined, event),
+      });
       const attachmentStore = new LocalAttachmentStore(attachmentsDir);
       const promptQueueStore = new LocalPromptQueueStore(join(attachmentsDir, 'prompt-queues'));
       const homeDir = os.homedir();
@@ -106,10 +114,13 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       scope.add(() => platformSessionClosed.dispose());
       scope.add(() => turnCommitted.dispose());
       scope.add(() => promptSteered.dispose());
+      scope.add(() => { preparation.dispose(); preparationRequested.dispose(); preparationSettled.dispose(); });
       scope.add(() => acp.dispose());
       return withValidation(
         acpRuntimeApiContract,
-        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted, promptSteered),
+        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted, promptSteered, {
+          requested: preparationRequested, settled: preparationSettled, bridge: preparation,
+        }),
         workerValidatePolicy(env)
       );
     },
