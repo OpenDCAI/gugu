@@ -35,8 +35,10 @@ import { createElement, useEffect, useLayoutEffect, useRef } from 'react';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { platform } from '@/platform';
 
 const onCopyError = (error: unknown) => toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' });
+const writeClipboardText = (text: string) => platform.writeClipboardText(text);
 
 export type ChatTranscriptProps = Pick<
   ChatViewOptions,
@@ -137,7 +139,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
         pinUserMessages: p.pinUserMessages,
         class: p.class,
         contentClass: p.contentClass,
-        commands: { onCopyError, ...p.commands },
+        commands: { onCopyError, ...p.commands, writeClipboardText },
         padTop: p.padTop,
         embedded: p.embedded,
         // Thread stable wrappers that read from propsRef at call time — never stale.
@@ -179,7 +181,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
 
   // Push command callbacks reactively so inline functions are never stale.
   useEffect(() => {
-    viewRef.current?.setCommands({ onCopyError, ...props.commands });
+    viewRef.current?.setCommands({ onCopyError, ...props.commands, writeClipboardText });
   }, [props.commands]);
 
   // Layout lives on the process-long context (measurement-coupled), not on the

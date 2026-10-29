@@ -15,7 +15,7 @@ type Target = Parameters<NonNullable<ChatCommands['onMessageTextMount']>>[0];
 const log = rendererLogger('session/message-quotes');
 
 /** Whole-message quotes keep their source; selected-text sending stays disabled until compatible receivers ship. */
-export function useSessionMessageQuotes(store: AcpChatStore | null | undefined, editor: MutableRefObject<PromptEditorRef | null>) {
+export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 'setDraftText'> | null | undefined, editor: MutableRefObject<PromptEditorRef | null>) {
   const { translate } = useSessionMessages();
   const latest = useRef({ store, translate });
   latest.current = { store, translate };

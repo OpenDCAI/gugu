@@ -24,6 +24,7 @@ export function bindMessageQuoteTouchMenu(bubble: HTMLElement, text: HTMLElement
   const context = (event: MouseEvent) => {
     // Android may deliver its contextmenu before our hold timer. Claim a padding
     // hold once; a hold starting in the text still belongs to native selection.
+    if (fired) { event.preventDefault(); event.stopImmediatePropagation(); return; }
     if (!start) return;
     const at = start;
     clear(); fired = true;

@@ -105,6 +105,7 @@
     "@capacitor/android": "^8.3.3",
     "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.3.3",
+    "@capacitor/clipboard": "8.0.1",
     "@capacitor/core": "^8.3.3",
     "@capacitor/local-notifications": "^8.3.1",
     "@codemirror/autocomplete": "6.20.3",

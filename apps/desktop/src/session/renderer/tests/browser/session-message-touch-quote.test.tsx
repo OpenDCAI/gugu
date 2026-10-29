@@ -79,13 +79,14 @@ it('leaves native text selection alone and cancels a padding hold when scrolling
   } finally { window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 });
 
-it('handles an Android context menu arriving before the hold timer only once', async () => {
+it.each(['before', 'after'] as const)('handles an Android context menu arriving %s the hold timer only once', async timing => {
   const { bubble } = await mountMessage();
   const capture = vi.fn();
   window.addEventListener(RENDERER_CONTENT_MENU_OPEN, capture);
   try {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     touch(bubble, 'pointerdown');
+    if (timing === 'after') await vi.advanceTimersByTimeAsync(501);
     bubble.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
     await vi.advanceTimersByTimeAsync(501);
     expect(capture).toHaveBeenCalledOnce();

@@ -13,6 +13,7 @@ import { File as FilePart } from "./file";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
 import { Image } from "./image";
 import { MarkdownText } from "./markdown-text";
+import { MessageCopyButton } from "./message-copy-button";
 import {
   Reasoning,
   ReasoningContent,
@@ -52,8 +53,6 @@ import {
 } from "@assistant-ui/react";
 import {
   ArrowDown as ArrowDownIcon,
-  Check as CheckIcon,
-  Copy as CopyIcon,
   Download as DownloadIcon,
   MoreHorizontal as MoreHorizontalIcon,
 } from "@/lib/icons";
@@ -558,16 +557,7 @@ const AssistantActionBar: FC = () => {
       autohide="not-last"
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip={c.copy}>
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
+      <MessageCopyButton />
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton

@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy } from '@/lib/icons'
@@ -42,7 +43,7 @@ export function CopyValue({
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(value)
+      await platform.writeClipboardText(value)
       if (feedback === 'inline') flash(message)
       else toast(message, 'success')
     } catch (error) {

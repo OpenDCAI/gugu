@@ -26,6 +26,8 @@ article.subscription-service {
 .subscription-quota[data-warning] strong { color: var(--warn); }
 .subscription-quota[data-warning] .subscription-meter i { background: var(--warn); }
 .subscription-error { color: var(--danger-fg); font-size: var(--font-body); line-height: 1.6; overflow-wrap: anywhere; }
+.subscription-switch-refusal { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.subscription-switch-refusal > button { flex-shrink: 0; }
 .subscription-connection-list { display: flex; flex-direction: column; gap: 0; }
 .subscription-connection-menu { width: 340px; max-width: calc(100vw - 32px); }
 .subscription-connection-option { display: flex; align-items: stretch; }
@@ -36,6 +38,8 @@ article.subscription-service {
 .subscription-connection:first-child { padding-top: 0; }
 .subscription-connection-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--font-body); }
 .subscription-connection-description { color: var(--muted-fg); font-size: var(--font-body); overflow-wrap: anywhere; margin-top: 4px; }
+.subscription-connection-quota { color: var(--muted-fg); font-size: var(--font-body); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.subscription-connection-quota[data-warning] { color: var(--warn); }
 .subscription-connection-controls { display: flex; align-items: center; gap: 4px; }
 .subscription-connection-form { display: flex; flex-direction: column; gap: 16px; }
 .subscription-connection-form label { display: flex; flex-direction: column; gap: 6px; color: var(--muted-fg); font-size: var(--font-body); }

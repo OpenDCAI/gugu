@@ -36,6 +36,7 @@ import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
 import { messageForUser } from '@/lib/userFacingError'
 import { nativeUserAttachmentCommands } from './native-user-attachments'
+import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false,
@@ -78,8 +79,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }, [draft, onDraftApplied, draftText, setDraftText])
   const options = useConversationOptions({ deviceId, sessionId, local: false, phoneHost })
   const queue = useConversationQueue({ deviceId, sessionId, local: false, phoneHost }, timeline.queuedPrompts, agentWorking, options.steers)
-  const editorState = useRef({ text: draftText, edit: queue.props.queuedPromptEdit })
-  editorState.current = { text: draftText, edit: queue.props.queuedPromptEdit }
+  const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
+  const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
+  editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }
   const receiveEditor = useCallback((handle: PromptEditorRef | null) => {
     editor.current = handle
     if (!handle) return
@@ -112,6 +114,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const submit = async (value: string) => {
     if (sending || stopping || inFlight.current) return
     inFlight.current = true
+    const sentQuote = quotes.capture()
     try {
       if (!await uploads.waitForUploads()) return
       const sentAttachments = attachments
@@ -126,7 +129,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
       setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
-        await onSend(text, images)
+        await onSend(quotes.prompt(text, sentQuote), images)
+        quotes.consume(sentQuote)
         view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) { paths.current.delete(file.id); uploads.forget(file.id) }
       } catch {
@@ -169,7 +173,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
-    onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+    ...quotes.commands,
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
     resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : nativeRecord ? machineRpc(deviceId).sessionTimeline.sessionNativeToolImage({ conversationId: sessionId, itemId, index }).then(result => { if (!result.ok) throw new Error(result.error.message); if (!result.value.ok) throw new Error(result.value.message); return result.value.image }) : fetchToolImage(deviceId, sessionId, itemId, index))),
     onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputs.handlers, conversationAgentName: () => agentName, onStop,
@@ -184,9 +188,11 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {backgroundError ? <div role="alert">{backgroundError}</div> : null}
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
+    {quotes.composer.preview}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
     <AgentConversationComposer {...options.props} {...queue.props} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
+      queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
       attachments={attachments} onAttachmentsChange={next => { uploads.keepOnly(new Set(next.map(file => file.id))); setAttachments(next) }}
       onRetryAttachment={uploads.retry} onFilesDropped={addFiles} onImageFilesDropped={addFiles}

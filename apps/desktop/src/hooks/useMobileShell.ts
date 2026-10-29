@@ -16,7 +16,7 @@ export const MOBILE_SHELL_MAX_WIDTH = 720
 export function readMobileShell(): boolean {
   if (platform.kind === 'capacitor') return true
   if (platform.kind === 'electron') return false
-  return window.innerWidth < MOBILE_SHELL_MAX_WIDTH
+  return typeof window !== 'undefined' && window.innerWidth < MOBILE_SHELL_MAX_WIDTH
 }
 
 export function useMobileShell(): boolean {

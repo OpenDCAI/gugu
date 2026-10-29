@@ -1,0 +1,138 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, useState, type ComponentProps } from 'react';
+import { page } from 'vitest/browser';
+import { SessionConversation } from '@/mobile/agent-watch/SessionConversation';
+import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store';
+import { finishRendererContentMenu, RENDERER_CONTENT_MENU_OPEN } from '@/lib/contentContextMenu';
+import { handoffNativeComposer } from '@/lib/nativeComposerHandoff';
+import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
+import type { ContentContextMenu } from '@shared/content-context-menu';
+import type { TranscriptTurn } from '@gugu/session-chat-ui';
+import { createReactHarness, renderWithAppProviders, deferred, clickElement } from '../../../../../../../tests/support/testHarness';
+import { until } from '../../../../../../../tests/support/awaitCondition';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { i18n } from '@/i18n/runtime';
+import '@/styles/tokens.css';
+import '@renderer/index.css';
+
+vi.mock('@gugu/core/cloud/config', async original => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
+vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: { chatView: 'double' } }) }));
+vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
+  ...(await original<object>()),
+  SessionpageRpcError: class SessionpageRpcError extends Error {},
+  fetchSessionOptions: vi.fn(() => new Promise(() => {})),
+  setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
+  machineRpc: vi.fn(() => ({})), fetchToolImage: vi.fn(), stopBackgroundTask: vi.fn(), fetchBackgroundTasks: vi.fn(),
+}));
+
+const SESSION = 'phone-quote-task';
+const SOURCE = 'phone-quote-task:turn:s1:message:source';
+const source = { kind: 'session' as const, sessionId: SESSION, itemId: SOURCE };
+const turn = (id: string, seq: number, text: string): TranscriptTurn => ({ id: `turn:s${seq}`, seq, initiator: 'user', outcome: { kind: 'done' }, items: [
+  { kind: 'message', id, seq: 0, role: 'user', text },
+  { kind: 'message', id: `${id}-answer`, seq: 1, role: 'assistant', text: 'Phone original reply' },
+] });
+let harness: ReturnType<typeof createReactHarness>;
+afterEach(() => { vi.useRealTimers(); harness?.cleanup(); });
+
+function conversation(overrides: Partial<ComponentProps<typeof SessionConversation>> = {}) {
+  const timeline = emptyAgentWatchTimeline();
+  timeline.turns = [turn(SOURCE, 1, 'Phone original message')];
+  return <SessionConversation timeline={timeline} deviceId="device" sessionId={SESSION} agentName="Agent" nativeRecord
+    sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
+    onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} {...overrides} />;
+}
+async function mount(node = conversation()) {
+  await page.viewport(390, 844);
+  harness = createReactHarness();
+  harness.container.style.cssText = 'height:700px;width:390px;display:flex;flex-direction:column';
+  await renderWithAppProviders(harness, node, { contacts: {} });
+}
+function preview() {
+  return [...harness.container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === i18n.t('composer.cancelQuote', { ns: 'messaging' }));
+}
+function editor() { return harness.container.querySelector<HTMLElement>('[contenteditable="true"]')!; }
+async function quoteSource() {
+  await until('phone source uses the conversation renderer', () => !!harness.container.querySelector(`[data-conversation-text="${SOURCE}"]`));
+  const row = harness.container.querySelector<HTMLElement>(`[data-user-card="${SOURCE}"]`)!;
+  let previous = '', stable = 0;
+  await until('phone composer and virtual rows finish their initial positioning', () => {
+    const scroll = harness.container.querySelector<HTMLElement>('[data-chat-scroll]');
+    const box = row.getBoundingClientRect();
+    const geometry = `${scroll?.scrollTop}/${box.top}/${box.height}/${editor()?.getBoundingClientRect().top}`;
+    stable = geometry === previous ? stable + 1 : 0; previous = geometry;
+    return stable >= 4;
+  });
+  const requests: ContentContextMenu[] = [];
+  const capture = (event: Event) => requests.push((event as CustomEvent<ContentContextMenu>).detail);
+  window.addEventListener(RENDERER_CONTENT_MENU_OPEN, capture);
+  try {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    row.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20, bubbles: true }));
+    await vi.advanceTimersByTimeAsync(501);
+    expect(requests).toHaveLength(1);
+    await act(async () => { finishRendererContentMenu(requests[0].requestId, 'quote'); });
+  } finally { vi.useRealTimers(); window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
+}
+
+it('wires the real phone host to whole-message quoting with a visible preview', async () => {
+  await mount();
+  await quoteSource();
+  expect(preview(), 'the actual phone composer shows the cancellable quote').toBeDefined();
+  expect(preview()?.parentElement?.textContent).toContain('Phone original message');
+});
+
+it('keeps the quote on a failed native send and consumes it only after a successful retry', async () => {
+  const failed = deferred<void>(), accepted = deferred<void>();
+  const send = vi.fn().mockReturnValueOnce(failed.promise).mockReturnValueOnce(accepted.promise);
+  await mount(conversation({ onSend: send }));
+  await quoteSource();
+  await act(async () => handoffNativeComposer(SESSION, { text: '手机原话' }));
+  expect(editor().textContent).toBe('手机原话');
+  expect(editor().innerHTML).not.toContain(SOURCE);
+  const submit = () => [...harness.container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === translateSessionMessage('composer.sendMessage'))!;
+  await clickElement(submit());
+  await until('phone sends its serialized quote once', () => send.mock.calls.length === 1);
+  expect(readMessageQuote(send.mock.calls[0][0])).toMatchObject({ source, excerpt: 'Phone original message', body: '手机原话' });
+  expect(preview()).toBeDefined();
+  await act(async () => failed.reject(new Error('Connection lost')));
+  await until('failed send restores the body', () => editor().textContent === '手机原话');
+  expect(preview()).toBeDefined();
+  await clickElement(submit());
+  await until('explicit retry sends once more', () => send.mock.calls.length === 2);
+  expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
+  expect(preview()).toBeDefined();
+  await act(async () => accepted.resolve());
+  await until('successful native send clears the quote', () => !preview());
+  expect(editor().textContent).toBe('');
+});
+
+it('loads the stored quote source through the phone host once and reveals that exact row', async () => {
+  const older = turn(SOURCE, 1, 'Repeated original words');
+  const duplicate = turn('different-source', 2, 'Repeated original words');
+  const latest = emptyAgentWatchTimeline();
+  latest.turns = [turn('stored-quote', 3, messageQuoteText(source, 'Repeated original words', 'User') + 'Read back this stored message')];
+  let publish!: (value: typeof latest) => void;
+  const loadOlder = vi.fn(async () => {
+    await act(async () => publish({ ...latest, turns: [older, duplicate, ...latest.turns], hasOlder: false }));
+  });
+  function Host() {
+    const [timeline, setTimeline] = useState(latest);
+    publish = setTimeline;
+    return conversation({ timeline, onLoadOlder: loadOlder });
+  }
+  await mount(<Host />);
+  await until('stored phone quote has a reveal action', () => !!harness.container.querySelector('[data-slot="conversation-quote"]'));
+  // Enable pagination after the initial top-edge layout, as a host metadata refresh would.
+  await act(async () => publish({ ...latest, hasOlder: true }));
+  loadOlder.mockClear();
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!);
+  await until('phone flashes the loaded stored source', () => !!harness.container.querySelector(`[data-item-id="${SOURCE}"].msg-src-flash`));
+  expect(loadOlder).toHaveBeenCalledOnce();
+  const rows = harness.container.querySelectorAll<HTMLElement>(`[data-item-id="${SOURCE}"]`);
+  expect(rows).toHaveLength(1);
+  expect(harness.container.querySelector('[data-item-id="different-source"].msg-src-flash')).toBeNull();
+  const row = rows[0], scroll = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;
+  expect(row.getBoundingClientRect().top).toBeGreaterThanOrEqual(scroll.getBoundingClientRect().top);
+  expect(row.getBoundingClientRect().bottom).toBeLessThanOrEqual(editor().getBoundingClientRect().top);
+});
