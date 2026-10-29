@@ -239,6 +239,33 @@ it('retains every configured integration when device and note metadata exhaust t
   expect(overflow.mock.calls[0]?.[1]).toBe('owner-a')
 })
 
+it('carries the delegation hint of a connected CLI application into the opening index', async () => {
+  const use = { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] }
+  const index = await assistantStartupIndex({ ...fixture(), localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [
+      { id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use },
+      { id: 'feishu:second', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use },
+      { id: 'email:default', name: '邮箱', modifiedAt: '2026-10-29T07:38:13Z' },
+    ],
+  }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toEqual([
+    { id: 'email', name: '邮箱' }, { id: 'feishu', name: '飞书', use },
+  ])
+})
+
+it('keeps the delegation route when the budget forces application details out', async () => {
+  const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
+  const use = { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: Array.from({ length: 600 }, (_, i) => `lark-skill-${i}`) }
+  const index = await assistantStartupIndex({ ...fixture(), overflow, localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [{ id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use }],
+  }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toEqual([
+    { id: 'feishu', name: '飞书', use: { note: use.note, delegate: use.delegate } },
+  ])
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(overflow.mock.calls[0]?.[0]).toContain('lark-skill-599')
+})
+
 it('keeps application names inline even when their optional CLI locations alone exceed the budget', async () => {
   const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
   const index = await assistantStartupIndex({ ...fixture(), overflow, localSources: async () => [{
