@@ -322,6 +322,26 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     return [...local, ...remote.flat()].sort((a, b) => at(b) - at(a))
   }
 
+  /** 那台机器上这几个 agent 各自的会话(按 Agent ID 发消息、打开 agent 的会话都按它找)。 */
+  const sessionsOfAgents = async (deviceId: string, userIds: string[]): Promise<Map<string, string>> => {
+    const device = await reachable(deviceId, true, undefined, true)
+    const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
+    // 行上不带 agent 的是协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
+    if (listed.sessions.some((session) => session.agent === undefined)) {
+      throw new CrossMachineError('SESSION_DEVICE_OUTDATED', `咕咕 on ${describe(device)} is too old to be reached by Agent ID; address its sessions as session:<id>. Nothing was sent there`)
+    }
+    return new Map(listed.sessions.flatMap((session) =>
+      session.agent && userIds.includes(session.agent.userId) ? [[session.agent.userId, session.conversationId] as const] : []))
+  }
+
+  /** 一个 agent 在别的机器上的会话(打开它时):它在哪台(名册,或调用方已知),那台的会话表里它那条。在本机、找不到 = null。 */
+  const sessionOfAgent = async (agentId: string, deviceId?: string): Promise<{ sessionId: string; deviceId: string } | null> => {
+    const at = deviceId ?? (await deps.lookupAgents({ userIds: [agentId], numbers: [] })).find((row) => row.userId === agentId)?.deviceId
+    if (!at || at === await deps.thisDeviceId()) return null
+    const sessionId = (await sessionsOfAgents(at, [agentId])).get(agentId)
+    return sessionId ? { sessionId, deviceId: at } : null
+  }
+
   /** session_message 的远端那一格(见 unified-session-message.ts)。 */
   const messageDeps = (callerOf: () => Promise<RemoteSessionCaller>, signal?: AbortSignal): NonNullable<UnifiedSessionMessageDeps['remote']> => ({
     locateSessions: async (sessionIds) => {
@@ -340,16 +360,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     assertReachable: async (deviceIds) => {
       for (const deviceId of deviceIds) await reachable(deviceId, true, undefined, true)
     },
-    sessionsOfAgents: async (deviceId, userIds) => {
-      const device = await reachable(deviceId, true, undefined, true)
-      const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
-      // 行上不带 agent 的是协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
-      if (listed.sessions.some((session) => session.agent === undefined)) {
-        throw new CrossMachineError('SESSION_DEVICE_OUTDATED', `咕咕 on ${describe(device)} is too old to be reached by Agent ID; address its sessions as session:<id>. Nothing was sent there`)
-      }
-      return new Map(listed.sessions.flatMap((session) =>
-        session.agent && userIds.includes(session.agent.userId) ? [[session.agent.userId, session.conversationId] as const] : []))
-    },
+    sessionsOfAgents,
     deliver: async (deviceId, group) => {
       const result = await call(deviceId, await callerOf(), { action: 'message', session_ids: group.sessionIds, text: group.text, ...group.said }, signal) as { recipients?: UnifiedRecipientResult[] }
       return result?.recipients ?? []
@@ -508,6 +519,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appCall,
     appSpawn,
     messageDeps,
+    sessionOfAgent,
     assertFileHandoffSupported,
     answer,
   }

@@ -14,7 +14,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMess
 // Only the phone transport is replaced: the codec, opening algorithm and shell receiver are real.
 vi.mock('../../../../apps/desktop/src/components/appSlot/phoneAppHost', () => ({
   openPhoneLink: (target: GuguLinkTarget) => openLinkWith({
-    installed: () => [], isEnabled: () => false, locale: () => 'en', sessionProject: async () => null,
+    installed: () => [], isEnabled: () => false, locale: () => 'en', sessionProject: async () => null, agentSession: async () => null,
     reveal: async () => {}, openApp: async () => 'own', resourceChat: async (id) => id,
     openResource: async (resource) => { await openLinkTarget(resource) }, bringUp: async () => {}, deliver: () => {},
   }, target),

@@ -71,6 +71,7 @@ import {
   saveRecentFolders,
   type RecentFolders,
 } from './remote-recent-folders';
+import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 
 const REMOTE_PREFIX = 'remote:';
 
@@ -340,6 +341,18 @@ export class RemoteHostsStore {
   listedProject(sessionId: string): string | null {
     const found = this.findListedSession(sessionId);
     return found && sidebarStore.remoteSession(found.projectId, sessionId) ? found.projectId : null;
+  }
+
+  /**
+   * 侧栏没画出来的、那台机器上的一条会话(没挂上的那台、侧栏放不到项目下的):把那台的项目表挂进来,按它的项目打开
+   * —— 会话历史原来自己做的那一步,现在每个打开会话的入口都有。项目已知就用它;不知道就从那台的会话目录里找;都没有 = null。
+   */
+  async reachProject(sessionId: string, deviceId: string, projectId?: string): Promise<string | null> {
+    await this.syncProjects(deviceId);
+    const project = projectId ?? this.sessionsOf(deviceId).sessions.find((session) => session.conversationId === sessionId)?.projectId;
+    if (!project) return null;
+    await getProjectManagerStore().ensureProjectLoaded(project);
+    return project;
   }
 
   /**

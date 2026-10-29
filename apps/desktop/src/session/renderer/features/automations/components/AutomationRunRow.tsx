@@ -6,7 +6,7 @@ import {
   sessionAgentStatus,
   sessionAgentStatusDetail,
 } from '@renderer/features/sessions/stores/session-selectors';
-import { useNavigate } from '@renderer/lib/layout/navigation-provider';
+import { followLink } from '@/lib/guguLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
 import type { AutomationRun } from '@shared/core/automations/automation-run';
@@ -32,7 +32,6 @@ export const AutomationRunRow = observer(function AutomationRunRow({
   deliveredTo,
   deliveredToName,
 }: AutomationRunRowProps) {
-  const { navigate } = useNavigate();
   const { translate } = useSessionMessages();
   const fetchedRun = useAutomationRun(automationId, runId);
   const run = runProp ?? fetchedRun;
@@ -55,7 +54,7 @@ export const AutomationRunRow = observer(function AutomationRunRow({
   function handleOpenSession() {
     if (!interactive) return;
     if (!sessionId || !projectId) return;
-    navigate('session', { projectId, sessionId: sessionId });
+    followLink({ kind: 'session', sessionId, projectId });
   }
 
   if (!run) return null;
