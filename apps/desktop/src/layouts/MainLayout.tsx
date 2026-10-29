@@ -962,17 +962,6 @@ function InnerLayout({
     })
   }
 
-  // 手机会话页模式按钮的「聊天」(#7197):会话行上只带 agent 的 id,按 id 在通讯录里找到它,走「发消息」同一条。
-  const handleOpenAgentChat = (agentUserId: string, draft?: string) => {
-    const contact = contacts.find((item) => item.id === agentUserId)
-    if (!contact) {
-      openChatLog.error({ targetId: agentUserId }, 'agent chat: agent not in contacts')
-      toast(t('shell.toast.openChatFailed'), 'error')
-      return
-    }
-    void handleSwitchToChat(contact, draft)
-  }
-
   // 手机上从群成员里建好 agent:回到那个群(与桌面 openAgentChat 的落点同一条规则)。
   const handleReturnToGroup = (chatId: string) => {
     if (openChatBlock(chatId, 'group-chat')) return
@@ -1364,7 +1353,6 @@ function InnerLayout({
                   createRequest={watchCreateRequest}
                   createInGroup={watchCreateGroup}
                   openRequest={watchOpenRequest}
-                  onOpenAgentChat={handleOpenAgentChat}
                   onOpenGroupChat={handleReturnToGroup}
                 />
               </div>

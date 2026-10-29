@@ -62,7 +62,6 @@ export function AgentWatchPage({
   createRequest,
   createInGroup = null,
   openRequest,
-  onOpenAgentChat: _onOpenAgentChat,
   onOpenGroupChat,
 }: {
   /** 「项目」tab 是不是当前 tab。手机壳里这张页常驻在横滑分页器里,切走时也挂着。 */
@@ -76,8 +75,6 @@ export function AgentWatchPage({
   createInGroup?: { chatId: string; name: string } | null
   /** 每来一个新的 = 一个 App 点名了这条会话(`gugu.showSession`,useAppShowSession):进它的时间线,与在列表里点那一行同一步。 */
   openRequest?: AppShowSessionDetail | null
-  /** 去这个 agent 的私聊:会话页模式按钮的「聊天」(#7197),与通讯录「发消息」同一条。 */
-  onOpenAgentChat?: (agentUserId: string) => void
   /** 从群里建的 agent 建好了:回到那个群。 */
   onOpenGroupChat?: (chatId: string) => void
 }) {

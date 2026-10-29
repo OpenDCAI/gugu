@@ -30,6 +30,5 @@
   "apps/desktop/src/components/UpdateBanner.tsx",
   "apps/desktop/src/components/agentsettings/AgentFinancePane.tsx",
   "apps/desktop/src/components/agentsettings/AgentTasksPane.tsx",
-  "apps/desktop/src/components/chat/AgentSessionpagePresentation.tsx",
   "apps/desktop/src/layouts/MainLayout.tsx"
 ]
