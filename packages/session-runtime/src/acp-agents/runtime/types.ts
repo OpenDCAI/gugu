@@ -1,6 +1,5 @@
 import type {
   AcpRuntimeStartInput,
-  PromptAttachment,
   PromptInput,
   QueuedPrompt,
   TranscriptTurn,
@@ -14,14 +13,8 @@ export type AcpStartInput = AcpRuntimeStartInput;
 
 export type ResolveAcpProvider = (providerId: string) => ResolvedAcpProvider | null;
 
-export interface ResolvedPromptAttachment {
-  data: string;
-  mimeType: string;
-}
-
-export type ResolvePromptAttachment = (
-  attachment: PromptAttachment
-) => Promise<ResolvedPromptAttachment>;
+export type { ResolvedPromptAttachment, ResolvePromptAttachment } from '../session/cell-deps';
+import type { ResolvePromptAttachment } from '../session/cell-deps';
 
 /** The runtime machine's durable snapshot; no renderer-side queue is involved. */
 export interface PromptQueueStore {

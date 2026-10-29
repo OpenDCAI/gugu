@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import os from 'node:os';
 import { acpRuntimeApiContract } from '@gugu/session-core/acp';
@@ -22,6 +21,7 @@ import { AcpRuntime } from '../runtime/runtime';
 import type { AcpRuntimeDeps } from '../runtime/types';
 import { ChildAcpProcessHost } from './child-process-host';
 import { LocalAttachmentStore } from './local-attachment-store';
+import { createPromptAttachmentResolver } from './resolve-prompt-attachment';
 import { LocalPromptQueueStore } from './local-prompt-queue-store';
 
 export type BootAcpRuntimeProcessOptions = {
@@ -85,21 +85,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         host: childHost,
         mergeEnvelopes: options.mergeEnvelopes,
         recoverDelivery: options.recoverDelivery,
-        resolveAttachment: async (attachment) => {
-          if (attachment.type === 'attachment') {
-            const stored = await attachmentStore.get(attachment.id);
-            if (!stored) throw new Error(`Attachment '${attachment.id}' could not be resolved`);
-            return {
-              data: Buffer.from(stored.data).toString('base64'),
-              mimeType: stored.ref.mimeType,
-            };
-          }
-          const data = await readFile(attachment.originalPath);
-          return {
-            data: data.toString('base64'),
-            mimeType: attachment.mimeType,
-          };
-        },
+        resolveAttachment: createPromptAttachmentResolver(attachmentStore),
         attachmentStore,
         promptQueueStore,
         logger,

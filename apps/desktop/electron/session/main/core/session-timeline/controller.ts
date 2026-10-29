@@ -97,6 +97,7 @@ export const sessionTimelineController = createRPCController({
   sessionsList: async () => service.listSessions(),
   sessionNativeRecord: service.nativeRecord,
   sessionNativeToolImage: service.nativeToolImage,
+  sessionNativeAttachment: service.nativeAttachment,
   sessionReadState: (input: { conversationId: string }) => ({ unreadKeys: nativeConversationUnread(input.conversationId) }),
   sessionVisible: (input: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: markNativeConversationVisible(input.conversationId, input.itemIds) }),
   sessionSnapshot: async (input: SessionpageSessionSnapshotRequest) =>

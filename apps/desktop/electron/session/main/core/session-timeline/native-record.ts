@@ -2,6 +2,7 @@ import { nativeConversationUnread } from '../sessions/session-conversation-read'
 import type { SessionTimelineResult } from './service';
 import type { SessionTimeline } from '@gugu/session-core/session-record/contract';
 import type { TranscriptTurn } from '@gugu/session-core/acp/client';
+import { nativeAttachmentDataUrl, type NativeAttachmentRequest } from './native-attachment';
 
 export function createNativeRecordReader(deps: {
   readSession(id: string): { runtime: string | null } | null | undefined;
@@ -45,5 +46,27 @@ async function nativeToolImage(input: { conversationId: string; itemId: string; 
   });
 }
 
-return { snapshot: nativeRecord, image: nativeToolImage };
+async function nativeAttachment(input: NativeAttachmentRequest): Promise<SessionTimelineResult<string>> {
+  return deps.withTimeline(input.conversationId, () => nativeAttachmentDataUrl(input, {
+    readTurn: async () => {
+      const active = deps.activeTurn(input.conversationId);
+      if (active?.items.some(item => item.id === input.itemId)) return active;
+      const prefix = `${input.conversationId}:turn:s`;
+      const suffix = input.itemId.startsWith(prefix) ? input.itemId.slice(prefix.length) : '';
+      const seq = /^(\d+):/.exec(suffix)?.[1];
+      if (seq === undefined) return null;
+      const { getStoredHistory } = await import('../sessions/session-turn-store');
+      const page = await getStoredHistory({ sessionId: input.conversationId, before: Number(seq) + 1, limit: 1 });
+      return page.turns.find(turn => turn.items.some(item => item.id === input.itemId)) ?? null;
+    },
+    download: async id => {
+      const { getAcpRuntimeClient } = await import('../acp/runtime-process/host');
+      const result = await (await getAcpRuntimeClient()).downloadAttachment({ id });
+      if (!result.success) throw new Error('图片附件无法读取');
+      return { ref: result.data.meta, data: await result.data.bytes() };
+    },
+  }));
+}
+
+return { snapshot: nativeRecord, image: nativeToolImage, attachment: nativeAttachment };
 }

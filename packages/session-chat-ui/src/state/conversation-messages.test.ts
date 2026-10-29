@@ -3,6 +3,17 @@ import { conversationMessages, resolveConversationMessageReference } from './con
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 
 describe('conversation reply references', () => {
+  it('quotes an attached file by label while preserving the original input and exact anchor', () => {
+    const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const turns: TranscriptTurn[] = [{ id: 't', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'input', seq: 0, role: 'user', text },
+      { kind: 'message', id: 'answer', seq: 1, role: 'assistant', text: '收到', sentReplyTo: 'input' },
+    ] as ChatMessage[] as TranscriptTurn['items'] }];
+    const result = conversationMessages(turns)[0]!.items as ChatMessage[];
+    expect(result[1]!.conversationReply).toMatchObject({ itemId: 'input', text: '看下文件\ntri19-file.txt' });
+    expect(result[0]!.text).toBe(text);
+    expect(turns[0]!.items[0]).toMatchObject({ id: 'input', text });
+  });
   it('resolves a reply to the actual earlier sender across turns without mutating stored messages', () => {
     const turns: TranscriptTurn[] = [
       { id: 't1', seq: 0, initiator: 'user', items: [

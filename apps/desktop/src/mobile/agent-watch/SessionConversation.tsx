@@ -35,6 +35,7 @@ import { openMessageSender } from '@/lib/openMessageSender'
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { ComposerAttachButton } from '@/components/chat/ComposerAttachButton'
 import { messageForUser } from '@/lib/userFacingError'
+import { nativeUserAttachmentCommands } from './native-user-attachments'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false,
@@ -142,7 +143,30 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: text => composerDraft.setText(value => appendToDraft(value, text)) })
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost)
   const turns = timeline.turns
+  const attachmentTurns = useRef(turns)
+  attachmentTurns.current = turns
+  const userAttachments = useMemo(() => nativeUserAttachmentCommands({
+    turns: () => attachmentTurns.current,
+    readImage: async (itemId, attachmentId) => {
+      const result = await machineRpc(deviceId).sessionTimeline.sessionNativeAttachment({ conversationId: sessionId, itemId, attachmentId })
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    readPathImage: async path => {
+      const client = machineRpc(deviceId)
+      const resolved = await client.sessionCreate.resolveAttachmentPath(sessionId, path)
+      if (!resolved.success) throw new Error('图片附件无法读取')
+      const result = await client.app.readUserImageDataUrl(resolved.data)
+      if (!result.success) throw new Error(result.error)
+      return result.dataUrl
+    },
+    openImage: (url, name, thumb) => openImageViewer([{ url, alt: name, thumb }], 0),
+    openFile: outputs.openFile,
+    unavailable: () => translateSessionMessage('attachmentViewer.unavailable'),
+    onError: error => setBackgroundError(messageForUser(error)),
+  }), [deviceId, sessionId, outputs.openFile])
   const commands: ChatCommands = {
+    ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),

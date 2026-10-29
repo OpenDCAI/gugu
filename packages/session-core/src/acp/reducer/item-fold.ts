@@ -679,8 +679,8 @@ function foldItemContent(
         const updated: TranscriptMessage = foldMessageContent({
           ...msg,
           ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
-          ...(event.attachments?.length
-            ? { attachments: [...(msg.attachments ?? []), ...event.attachments] }
+          ...(event.attachments && (event.attachments.length || event.attachmentsMode === 'replace')
+            ? { attachments: event.attachmentsMode === 'replace' ? event.attachments : [...(msg.attachments ?? []), ...event.attachments] }
             : {}),
         }, event);
         return normalizeToolStructure(

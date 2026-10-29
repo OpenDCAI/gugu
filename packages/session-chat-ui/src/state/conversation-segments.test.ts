@@ -23,6 +23,15 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('uses attachment labels in a native response preview without changing the input or its anchor', () => {
+    const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const input = { ...message('u', 'user'), text };
+    const record = turn([input, message('answer', 'assistant')]);
+    const rows = flattenTier([record], context(false), segmenters);
+    const reply = rows.find(row => row.itemId === 'answer')!.data as ChatMessage;
+    expect(reply.conversationReply).toMatchObject({ itemId: 'u', text: '看下文件\ntri19-file.txt' });
+    expect(input.text).toBe(text);
+  });
   it('keeps the latest live words in a bubble and earlier words in the process', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
     const rows = flattenTier([record], context(true), segmenters);

@@ -81,6 +81,7 @@ import { watchSessionState, type SessionStateWatch } from './live-permissions';
 import { locateSessionRecord, type SessionRecordLocation } from './locate';
 import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
+import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
@@ -966,10 +967,11 @@ export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
   try {
-    if (!(await sessionOpenedFile(input.conversationId, input.path))) {
+    const copy = await findSessionAttachmentCopy(input.conversationId, input.path);
+    if (!copy && !(await sessionOpenedFile(input.conversationId, input.path))) {
       return fail('not_opened', `这条会话没有打开过 ${input.path}`);
     }
-    return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
+    return { ok: true, value: await readOpenedFileChunk(copy ?? input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
@@ -1482,3 +1484,4 @@ export async function changeQueue(input: { conversationId: string; action: impor
 const nativeRecordReader = createNativeRecordReader({ readSession: readSessionRow, activeTurn: id => entries.get(id)?.nativeActiveTurn, withTimeline });
 export const nativeRecord = nativeRecordReader.snapshot;
 export const nativeToolImage = nativeRecordReader.image;
+export const nativeAttachment = nativeRecordReader.attachment;

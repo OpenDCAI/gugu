@@ -1,5 +1,6 @@
 import { conversationOutput, processTrigger } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
+import { conversationQuoteText } from './conversation-quote-text';
 import { withSentReplies } from './sent-replies';
 import { planConversationSegments } from './conversation-segments';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
@@ -435,7 +436,7 @@ export function flattenTier(
           if (!reply.conversationReply && !reply.sentReplyTo && !reply.id.includes(':sent:') && block.input) {
             const envelope = readDeliveryEnvelope(block.input.text);
             const facts = envelope?.segments[0]?.facts;
-            reply.conversationReply = { itemId: block.input.id, text: envelope?.body ?? block.input.text,
+            reply.conversationReply = { itemId: block.input.id, text: conversationQuoteText(envelope?.body ?? block.input.text),
               ...(block.inputFrom || facts?.from ? { from: block.inputFrom ? ctx.translate('transcript.backgroundSource') : facts!.from! } : {}), ...(facts?.fromId ? { fromId: facts.fromId } : {}) };
           }
           emitConversationReply(reply, [], steps);

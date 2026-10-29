@@ -3,6 +3,7 @@ import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/a
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { withSentReplies } from './sent-replies';
+import { conversationQuoteText } from './conversation-quote-text';
 
 /** Match identities only; identical words in another message are never an anchor. */
 export function resolveConversationMessageReference(turns: readonly TranscriptTurn[], reference: string): string | null {
@@ -63,7 +64,7 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const original = quoted ? messages.get(quoted) : undefined;
     if (!original) return quoted ? { ...item, conversationReply: { itemId: quoted, text: reply?.preview ?? '', unloaded: true,
       ...(reply?.from ? { from: reply.from } : {}), ...(reply?.fromId ? { fromId: reply.fromId } : {}) } } : item;
-    const conversationReply = { itemId: original.item.id, text: original.text, ...(original.from ? { from: original.from } : {}),
+    const conversationReply = { itemId: original.item.id, text: conversationQuoteText(original.text), ...(original.from ? { from: original.from } : {}),
       ...(original.fromId ? { fromId: original.fromId } : {}), ...(original.self ? { self: true } : {}), ...(original.chatId ? { chatId: original.chatId } : {}) };
     return { ...item, conversationReply };
   }) }));
