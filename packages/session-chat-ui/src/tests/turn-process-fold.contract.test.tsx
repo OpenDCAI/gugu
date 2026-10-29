@@ -562,7 +562,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
     }
   });
 
-  it('阴控:落定的一轮只有用户那一句(机器没说它在跑)⇒ 没有头', async () => {
+  it('末轮空时保留无展开按钮的确认，后面有新轮后收起', async () => {
     const ctx = createChatContext({ layout: { preset: 'double', userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
@@ -570,8 +570,16 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
     document.body.appendChild(host);
     const view = createChatView({ context: ctx, state, parent: host });
     try {
-      state.transcript.history.seed([{ ...ONLY_PROMPT, endedAt: STARTED_AT + 1_000, outcome: { kind: 'done' } } as TranscriptTurn]);
+      const empty = { ...ONLY_PROMPT, endedAt: STARTED_AT + 1_000, outcome: { kind: 'done' } } as TranscriptTurn;
+      state.transcript.history.seed([empty]);
       await until('prompt row mounts', () => (host.textContent ?? '').includes('Work out 89 times 64'));
+      await settled(host);
+      const acknowledgement = host.querySelector('[data-slot="turn-process"]');
+      expect(acknowledgement).not.toBeNull();
+      expect(acknowledgement?.querySelector('[data-collapse-id]')).toBeNull();
+      state.transcript.history.seed([empty, { id: 'new', seq: empty.seq + 1, initiator: 'user', outcome: { kind: 'done' },
+        items: [msg('new-answer', 0, 'assistant', 'New answer')] } as TranscriptTurn]);
+      await until('new answer mounts', () => (host.textContent ?? '').includes('New answer'));
       await settled(host);
       expect(host.querySelector('[data-slot="turn-process"]')).toBeNull();
     } finally {
