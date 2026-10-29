@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest'
 import type { TFunction } from 'i18next'
 import { messageActionItems, messageSelectionActionItems } from '../../../../apps/desktop/src/components/chat/messageActionItems'
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 const t = ((key: string) => key) as TFunction<'messaging'>
 it('keeps the existing capabilities, with Reply quoting the range that is already selected', () => {
   const whole = vi.fn(), selected = vi.fn(), keep = vi.fn()

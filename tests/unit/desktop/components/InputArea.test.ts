@@ -11,6 +11,8 @@ import { ContactsContext } from '../../../../apps/desktop/src/store/contactsCont
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { readComposer, writeComposer, selectComposer } from '../../../support/composerEditor'
 import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/mention'
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
 }))

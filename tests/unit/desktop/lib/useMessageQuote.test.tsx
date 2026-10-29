@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useMessageQuote } from '../../../../apps/desktop/src/hooks/useMessageQuote'
 import { contentWithQuote } from '../../../../apps/desktop/src/components/chat/messageQuoteContent'
 import { createReactHarness, message } from '../../../support/testHarness'
 
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 let h: ReturnType<typeof createReactHarness>
 let state: ReturnType<typeof useMessageQuote>
 function Probe({ chatId = 'topic-1' }: { chatId?: string }) {

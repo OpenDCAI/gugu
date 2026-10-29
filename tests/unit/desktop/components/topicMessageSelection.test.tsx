@@ -6,6 +6,8 @@ import { topicHistoryStub } from '../../../support/chatWindowStub'
 import { createReactHarness, message, renderWithAppProviders, clickElement } from '../../../support/testHarness'
 import { writeComposer } from '../../../support/composerEditor'
 
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => true }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 let h: ReturnType<typeof createReactHarness>

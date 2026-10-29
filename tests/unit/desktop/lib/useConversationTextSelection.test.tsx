@@ -5,6 +5,8 @@ import type { ChatMessage } from '@gugu/session-chat-ui'
 import { useConversationTextSelection } from '../../../../apps/desktop/src/hooks/useConversationTextSelection'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 let h: ReturnType<typeof createReactHarness>
 let api: ReturnType<typeof useConversationTextSelection>
 let roots: HTMLDivElement[]

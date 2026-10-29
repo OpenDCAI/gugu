@@ -163,14 +163,15 @@ describe('MessageBubble touch menu', () => {
     await clickElement(menuItem('复制文本'))
     expect(writeText).toHaveBeenCalledWith('hello')
   })
-  it('quotes a captured excerpt with the original message identity', async () => {
+  it('hides excerpt quoting while retaining whole-message reply after desktop selection', async () => {
     const onQuote = vi.fn()
     await renderMessage(undefined, false, vi.fn(), { onQuote })
     selectMessageText('hello')
     await contextMenu()
     window.getSelection()!.removeAllRanges()
-    await clickElement(menuItem('引用选中文字'))
-    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello' }), { originalContent: 'hello from mobile' })
+    expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent === '引用选中文字')).toBe(false)
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
   })
   it('ignores a selection outside the message and retains whole-message copying', async () => {
     const writeText = vi.fn(async (_text: string) => {})

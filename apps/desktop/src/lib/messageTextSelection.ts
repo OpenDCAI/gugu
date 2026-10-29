@@ -1,3 +1,5 @@
+import { SELECTED_MESSAGE_QUOTES_ENABLED } from './messageQuoteRollout'
+
 export const MESSAGE_SELECTION_SETTLED = 'gugu:message-selection-settled'
 
 export interface MessageTextSelection {
@@ -63,7 +65,7 @@ export function observeMessageTextSelection(root: HTMLElement, options: MessageT
   }
   const commit = () => {
     const next = read()
-    if (!next || next.selectionId === lastQuoted) return
+    if (!SELECTED_MESSAGE_QUOTES_ENABLED || !next || next.selectionId === lastQuoted) return
     lastQuoted = next.selectionId
     quoted = next.selectionId
     options.onQuote(next.text, next.selectionId)

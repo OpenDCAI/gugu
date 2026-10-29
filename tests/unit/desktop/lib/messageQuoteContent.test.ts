@@ -1,6 +1,8 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { contentWithQuote, parseQuotedContent, partialQuotedContent } from '../../../../apps/desktop/src/components/chat/messageQuoteContent'
 
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 it('separates a selected excerpt from reply text that itself starts with a Markdown quote', () => {
   const body = '> This is my reply.\n\nThen an explanation.'
   const wire = contentWithQuote(body, { messageId: 'source', senderName: 'Ada', content: 'Beta', originalContent: 'Alpha Beta' })

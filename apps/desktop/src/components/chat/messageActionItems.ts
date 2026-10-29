@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next'
 import { Clock, Copy, Download, ExternalLink, Pin, Reply, Share, Smile, SquareCheck, TextCursorInput, Trash, type IconComponent } from '@/lib/icons'
+import { SELECTED_MESSAGE_QUOTES_ENABLED } from '../../lib/messageQuoteRollout'
 
 export type MessageActionTarget = {
   isRetracted: boolean
@@ -40,7 +41,7 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
   const hasContent = !!target.content && !target.isRetracted
   const items: (MessageActionItem | false)[] = [
     !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
-    !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
+    SELECTED_MESSAGE_QUOTES_ENABLED && !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
     !!target.onShowReactions && { key: 'react', icon: Smile, label: t('message.actions.react'), onSelect: target.onShowReactions, disabled: target.isRetracted },
     !!target.onSelectText && { key: 'selectText', icon: TextCursorInput, label: t('message.actions.selectText'), onSelect: target.onSelectText, disabled: !hasContent, keepOpen: true },
@@ -57,8 +58,8 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
   return items.filter((item): item is MessageActionItem => item !== false)
 }
 
-/** Selection already owns a range: Reply uses that excerpt instead of adding a second quote command.
+/** Until excerpt-aware receivers ship, Reply keeps its whole-message meaning.
  * Permissions and every other action, including future extensions, still come from the same list. */
 export function messageSelectionActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
-  return messageActionItems({ ...target, onReply: target.onQuoteSelection ?? target.onReply, onQuoteSelection: undefined }, t)
+  return messageActionItems({ ...target, onReply: SELECTED_MESSAGE_QUOTES_ENABLED ? target.onQuoteSelection ?? target.onReply : target.onReply, onQuoteSelection: undefined }, t)
 }

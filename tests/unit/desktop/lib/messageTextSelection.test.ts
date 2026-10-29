@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { observeMessageTextSelection } from '../../../../apps/desktop/src/lib/messageTextSelection'
 
+// Opt-in contract for the follow-up rollout; production defaults are covered separately.
+vi.mock('../../../../apps/desktop/src/lib/messageQuoteRollout', () => ({ SELECTED_MESSAGE_QUOTES_ENABLED: true }))
 let root: HTMLDivElement
 let cleanups: (() => void)[]
 beforeEach(() => {
