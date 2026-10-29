@@ -147,6 +147,49 @@ describe('并排:同一种两页时内容不挪地方', () => {
     expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
   });
 
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'unmount'] as const)(
+    'shields embedded pages during divider dragging and restores them on %s',
+    (ending) => {
+      const { pane, b } = mountTwo('page');
+      act(() => pane.splitTab(b, 'right'));
+      const divider = dom.window.document.querySelector<HTMLElement>('[data-pair-divider]')!;
+      vi.spyOn(divider.parentElement!, 'getBoundingClientRect').mockReturnValue({
+        left: 0, top: 0, width: 1000, height: 600,
+      } as DOMRect);
+      const shielded = () => dom.window.document.documentElement.hasAttribute('data-gugu-dragging');
+      let captured = false;
+      const capture = vi.fn(() => {
+        expect(shielded()).toBe(true);
+        captured = true;
+      });
+      Object.assign(divider, {
+        setPointerCapture: capture,
+        hasPointerCapture: () => captured,
+        releasePointerCapture: () => { captured = false; },
+      });
+      const pointer = (type: string, clientX = 400) => {
+        const event = new dom.window.MouseEvent(type, { bubbles: true, button: 0, buttons: 1, clientX });
+        Object.defineProperty(event, 'pointerId', { value: 17 });
+        act(() => { divider.dispatchEvent(event); });
+      };
+
+      expect(shielded()).toBe(false);
+      pointer('pointerdown');
+      expect(capture).toHaveBeenCalledWith(17);
+      expect(shielded()).toBe(true);
+      pointer('pointermove');
+      expect(pane.pairShare).toBe(0.4);
+
+      if (ending === 'unmount') act(() => root.render(null));
+      else if (ending === 'blur') act(() => { dom.window.dispatchEvent(new dom.window.Event('blur')); });
+      else pointer(ending);
+      expect(shielded()).toBe(false);
+      expect(captured).toBe(false);
+      pointer('pointermove', 600);
+      expect(pane.pairShare).toBe(0.4);
+    },
+  );
+
   it.each(['a', 'b'] as const)('shows only fullscreen page %s and restores its pair without remounting', (selected) => {
     const { pane, a, b, placed } = mountTwo('page');
     act(() => {

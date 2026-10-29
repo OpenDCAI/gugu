@@ -16,6 +16,7 @@ import {
   PaneDimensionProvider,
   type PaneDimensionSink,
 } from '@renderer/features/tabs/pane-dimension-provider';
+import { setDragShield } from '@renderer/lib/drag-shield';
 import { PaneContext, usePaneContext } from '../tabs/pane-context';
 import { PairPlacementContext } from './pair-placement-context';
 import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
@@ -340,12 +341,15 @@ const PairDivider = observer(function PairDivider({
   containerRef: RefObject<HTMLDivElement | null>;
   sizing?: { onResize: (width: number) => void; onReset: () => void };
 }) {
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container || event.button !== 0) return;
     event.preventDefault();
+    dragCleanup.current?.();
     const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       const extent = vertical ? rect.height : rect.width;
@@ -357,13 +361,30 @@ const PairDivider = observer(function PairDivider({
       sizing?.onResize(extent * (1 - share));
     };
     const end = () => {
+      if (dragCleanup.current !== end) return;
+      dragCleanup.current = null;
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', end);
       handle.removeEventListener('pointercancel', end);
+      handle.removeEventListener('lostpointercapture', end);
+      window.removeEventListener('blur', end);
+      setDragShield(false);
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
     };
+    dragCleanup.current = end;
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', end);
     handle.addEventListener('pointercancel', end);
+    handle.addEventListener('lostpointercapture', end);
+    window.addEventListener('blur', end);
+    // A webview runs in another process: capture alone cannot keep a fast drag in the host.
+    setDragShield(true);
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (error) {
+      end();
+      throw error;
+    }
   };
   return (
     <div
