@@ -165,6 +165,27 @@ describe('saved tasks remain open when their provider cannot resume', () => {
     expect(boundary.start).toHaveBeenCalledWith({ input: expect.objectContaining({ providerSessionId: 'original-provider-id' }) });
   });
 
+  it('keeps a draft local while an explicit missing-session retry is in flight', async () => {
+    const { store, record, open } = savedTask(true);
+    await open();
+    const resume = Promise.withResolvers<unknown>();
+    boundary.start.mockImplementationOnce(() => resume.promise);
+    store.retry();
+    await vi.waitFor(() => expect(boundary.start).toHaveBeenCalledOnce());
+    expect(store.loadError).toBeNull();
+    expect(record.providerSessionState).toBe('missing');
+    vi.useFakeTimers();
+    store.setDraftText('keep during retry');
+    await vi.runOnlyPendingTimersAsync();
+    expect(boundary.draft).not.toHaveBeenCalled();
+    expect(boundary.toasts).toEqual([]);
+    expect(store.draftText).toBe('keep during retry');
+    vi.useRealTimers();
+    runInAction(() => { delete record.providerSessionState; });
+    resume.resolve({ success: true, data: { providerSessionId: 'original-provider-id' } });
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+  });
+
   it('blocks sends during an explicit probe and recovers only after a successful same-ID result', async () => {
     const { store, record, open } = savedTask(true);
     await open();

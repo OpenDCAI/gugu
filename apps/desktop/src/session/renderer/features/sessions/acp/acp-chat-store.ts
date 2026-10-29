@@ -2183,10 +2183,12 @@ export class AcpChatStore {
     this._draftTimer = window.setTimeout(() => {
       this._draftTimer = null;
       const draft = { rev, input: text.trim().length > 0 ? { text } : null };
-      // Before ACP bootstrap completes the draft is local to this store. Persisting it through
-      // the absent session would emit a false "Failed to sync draft" error while the startup
-      // queue is explicitly holding user input.
-      if (!this.session) return;
+      // Startup and known-missing drafts stay local until an engine accepts them.
+      // Unexpected disconnections still use the existing visible sync failure.
+      if (this.canQueueBeforeSession || (!this.session && (
+        this.loadError?.kind === 'provider_session_missing'
+        || this._sessionRecord()?.providerSessionState === 'missing'
+      ))) return;
       const session = this._requireSession('acpFailure.syncDraft');
       if (!session) return;
       void session
