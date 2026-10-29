@@ -37,8 +37,8 @@ const plugin = defineIntegrationPlugin(
       methods: [{
         kind: 'cli', tool: 'lark-cli', login: 'qr-code',
         prerequisite: { text: {
-          en: 'Follow the two authorization steps to connect your Feishu app and personal account.',
-          'zh-CN': '按引导完成两次授权，连接你的飞书应用和个人账号。',
+          en: 'Scan with Feishu to authorize',
+          'zh-CN': '用飞书扫码授权',
         } },
       }],
     },
