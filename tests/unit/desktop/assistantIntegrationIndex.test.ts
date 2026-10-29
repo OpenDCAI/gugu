@@ -4,15 +4,19 @@ const data = vi.hoisted(() => ({
   listAccounts: vi.fn(async (provider: string) => data.connected.has(provider) ? [{ accountId: 'default', updatedAt: 1000, isDefault: true }] : []),
   resolveSecret: vi.fn(() => { throw new Error('Must not decrypt credentials') }),
 }))
+// #921 a credential the platform keeps: asking the platform first brings in what another device connected.
+const platform = vi.hoisted(() => ({ refresh: vi.fn(async () => { data.connected.add('amap'); return true }) }))
 vi.mock('@gugu/session-plugins/integrations', () => ({ integrationPluginRegistry: { getAll: () => [
   { metadata: { id: 'dingtalk', name: '钉钉' } }, { metadata: { id: 'feishu', name: '飞书' } }, { metadata: { id: 'email', name: '邮箱' } },
   { metadata: { id: 'github', name: 'GitHub' } }, { metadata: { id: 'wecom', name: '企业微信' } },
+  { metadata: { id: 'amap', name: '高德地图' } },
 ] } }))
 // Mail hands its tools to sessions; GitHub only links issues and gives an agent nothing to call.
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/session-integrations', () => ({
   integrationGivesSessionTools: (integrationId: string) => integrationId === 'email',
 }))
 vi.mock('../../../apps/desktop/electron/session/main/core/provider-accounts/provider-account-registry-instance', () => ({ providerAccountRegistry: data }))
+vi.mock('../../../apps/desktop/electron/session/main/core/integrations/platform-credentials-instance', () => ({ platformCredentials: platform }))
 vi.mock('../../../apps/desktop/electron/session/main/core/integrations/cli/cli-integrations', () => ({
   cliMethodOf: (id: string) => ['dingtalk', 'feishu', 'wecom'].includes(id) ? { kind: 'cli' } : null,
   connectedCliSkills: async (configured: (id: string) => Promise<boolean>) => [
@@ -53,4 +57,11 @@ it('never marks a connected CLI application issue-only while its skills cannot b
   data.connected.add('wecom')
   expect((await configuredIntegrationIndex()).find(row => row.id === 'wecom:default')).not.toHaveProperty('note')
   data.connected.delete('wecom')
+})
+
+it('lists an integration the platform keeps for the person even when this device never connected it (#921)', async () => {
+  expect(data.connected.has('amap')).toBe(false)
+  const rows = await configuredIntegrationIndex()
+  expect(platform.refresh).toHaveBeenCalled()
+  expect(rows.find(row => row.id === 'amap:default')).toMatchObject({ name: '高德地图', isDefault: true })
 })
