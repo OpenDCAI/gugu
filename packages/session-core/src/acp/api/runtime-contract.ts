@@ -142,6 +142,33 @@ export const acpRuntimeApiContract = defineContract({
     event: z.object({ sessionId: z.string().min(1) }),
   }),
   /**
+   * The host prepares each native prompt's notice (an assistant's resource changes) in its own module graph,
+   * so the runtime asks for it per provider request (#881). Off until the host calls `enableNativePromptPreparation`.
+   */
+  nativePromptPreparationRequested: eventStream({
+    key: z.void(),
+    event: z.object({ sessionId: z.string().min(1), requestId: z.string().min(1) }),
+  }),
+  /** The provider request that carried the prepared notice was sent (`accepted`) or abandoned. */
+  nativePromptPreparationSettled: eventStream({
+    key: z.void(),
+    event: z.object({ requestId: z.string().min(1), accepted: z.boolean() }),
+  }),
+  enableNativePromptPreparation: procedure({
+    input: z.object({}),
+    output: z.void(),
+  }),
+  /** `ok: false`: the runtime no longer waits for this request; the host releases what it prepared. */
+  resolveNativePromptPreparation: procedure({
+    input: z.object({
+      requestId: z.string().min(1),
+      available: z.boolean(),
+      text: z.string().optional(),
+      beforeText: z.string().optional(),
+    }),
+    output: z.object({ ok: z.boolean() }),
+  }),
+  /**
    * 一条回合提交了(#5381)。主进程订阅它把历史落盘 —— 会话页不再把「用户会不会丢历史」
    * 交给 provider 的重放去决定(实测:claude 的适配器在上下文压缩之后只重放最后一次压缩边界
    * 之后的部分)。**只在私有合同里**:渲染进程读历史走库,不需要也不该看见这条推送。
