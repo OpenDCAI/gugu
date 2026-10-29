@@ -7,6 +7,8 @@ import { executeAgentDelivery } from './actions/deliverToAgent';
 import { agentScheduleChangeText, restoreAgentSchedules, runAgentScheduleAction, tellAgentScheduleChanged } from './agent-schedules';
 import { AutomationScheduler, type SchedulerCallbacks } from './automation-scheduler';
 import { deleteSession } from '@main/core/sessions/deleteSession';
+import { sessionEvents } from '@main/core/sessions/session-events';
+import { projectEvents } from '@main/core/projects/project-events';
 import { AutomationsService } from './automations-service';
 import { closeSpentOneTimeAutomation, getAutomation, insertRun } from './repo';
 import { setOwnerTimeZoneContext } from '@shared/core/automations/timezone';
@@ -96,6 +98,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  service.stop();
   setOwnerTimeZoneContext(null);
   fixture.close();
   mocks.db = undefined;
@@ -265,7 +268,9 @@ describe('到点送回建它的会话', () => {
     const { id, run } = await dueOneTimeRun();
     remove();
     const automation = (await getAutomation(id))!;
-    expect(automation.agentSession).toEqual({ name: _label === '删除' ? null : '个人助理', gone: true });
+    expect(automation.agentSession).toEqual(_label === '删除'
+      ? { name: null, gone: true }
+      : { name: '个人助理', gone: false, archived: true });
 
     const started = await insertRun({
       automationId: id,
@@ -503,5 +508,66 @@ describe('人动了它排的那条,告诉它(owner 10-19 B)', () => {
     expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(1);
     expect(mocks.messageSessionFrom.mock.calls[0]![2]).toContain('moved your schedule');
     expect(mocks.messageSessionFrom.mock.calls[0]![2]).toContain('2026-10-15 10:00 Asia/Shanghai');
+  });
+});
+
+describe('orphaned agent schedules (#933)', () => {
+  it('cleans a truly missing agent on list load through ordinary run cleanup and is idempotent', async () => {
+    const orphan = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'orphan', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    const retained = scheduleIdOf(await runAgentScheduleAction(OTHER, { action: 'schedule_create', prompt: 'keep', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    // A completed one-time schedule without an agent target is not an orphan, even without a project.
+    fixture.sqlite.prepare('UPDATE automations SET agent_session_id = NULL, project_id = NULL, enabled = 0 WHERE id = ?').run(retained);
+    fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([retained]);
+    expect(await getAutomation(orphan)).toBeNull();
+    expect(fixture.sqlite.prepare('SELECT id FROM automation_runs WHERE automation_id = ?').all(orphan)).toEqual([]);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([retained]);
+    expect((await getAutomation(retained))?.enabled).toBe(false);
+  });
+
+  it('retains archived schedules and history unchanged and shows them again after Restore', async () => {
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'restore', cron: '0 8 * * *', tz: 'Asia/Shanghai' }, service));
+    const before = fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id);
+    const runs = fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(id);
+    fixture.sqlite.prepare("UPDATE sessions SET archived_at = '2026-10-15T06:01:00Z' WHERE id = ?").run(AGENT.sessionId);
+    expect(await service.listAutomations()).toEqual([]);
+    expect((await getAutomation(id))?.agentSession).toEqual({ name: '个人助理', gone: false, archived: true });
+    expect(fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id)).toEqual(before);
+    expect(fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(id)).toEqual(runs);
+    fixture.sqlite.prepare('UPDATE sessions SET archived_at = NULL WHERE id = ?').run(AGENT.sessionId);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([id]);
+    expect(fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id)).toEqual(before);
+  });
+
+  it('keeps an orphan with an active run and reports the existing deletion refusal', async () => {
+    const { id, run } = await dueOneTimeRun();
+    await insertRun({ automationId: id, triggerConfigSnapshot: run.triggerConfigSnapshot,
+      agentConfigSnapshot: run.agentConfigSnapshot, scheduledAt: run.scheduledAt, status: 'creating_session',
+      triggerKind: 'cron', startedAt: NOW });
+    fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+    await expect(service.listAutomations()).rejects.toThrow('automation_runs_active');
+    expect(await getAutomation(id)).not.toBeNull();
+    expect(fixture.sqlite.prepare('SELECT deleted_at FROM automations WHERE id = ?').get(id)).toEqual({ deleted_at: null });
+  });
+
+  it.each(['session', 'project'] as const)('cleans after a real %s deletion event even without opening the list', async (kind) => {
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'cascade', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    // Exercise the real lifecycle emitter while keeping this database test out of the scheduler's timer loop.
+    const start = vi.spyOn(AutomationScheduler.prototype, 'start').mockImplementation(() => {});
+    try {
+      service.start();
+      if (kind === 'session') {
+        fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+        sessionEvents._emit('session:deleted', AGENT.sessionId);
+      } else {
+        fixture.sqlite.prepare('DELETE FROM projects WHERE id = ?').run('project-1');
+        projectEvents._emit('project:deleted', 'project-1');
+      }
+      await vi.waitFor(async () => expect(await getAutomation(id)).toBeNull());
+      expect(fixture.sqlite.prepare('SELECT id FROM automation_runs WHERE automation_id = ?').all(id)).toEqual([]);
+    } finally {
+      service.stop();
+      start.mockRestore();
+    }
   });
 });
