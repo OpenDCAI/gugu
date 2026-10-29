@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -134,5 +134,24 @@ describe('human-tool review regressions', () => {
     restoreHumanToolResults('session', 'project'); await drain();
     expect(fixture.send).toHaveBeenCalledTimes(2);
     expect(fixture.send.mock.calls[1]![0]).toEqual(expect.objectContaining({ clientMessageId: messageId, text: sent.text }));
+  });
+
+  it.each(['invalid picture', 'image write failure'])('delivers the actual result without pictures after %s', async failure => {
+    const pictures = failure === 'invalid picture' ? [{ label: 'bad' }]
+      : [{ label: 'preview', mimeType: 'image/png', data: 'AAAA' }];
+    const tool = runHumanTool<unknown>('session', 'app_install', undefined, async signal => {
+      await ask('session', { itemId: 'picture-failure', kind: 'permission', title: 'Install', options: [], origin: { source: 'app-install' } }, { signal });
+      return { installed: true, device_id: 'd0000000-0000-4000-8000-000000000001', pictures };
+    }, humanToolPending);
+    yieldHumanToolWaits('session'); await tool;
+    if (failure === 'image write failure') writeFileSync(join(fixture.root, 'human-tool-results', 'session'), 'not a directory');
+    hostAsks.get('session')!.get('picture-failure')!.answered({ optionId: 'install', by: 'desktop' }); await drain();
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    const actual = result(fixture.send.mock.calls[0]![0]);
+    expect(actual.result).toEqual({ installed: true, device_id: 'device:d0000000-0000-4000-8000-000000000001' });
+    expect(actual.pictures).toBeUndefined();
+    expect(actual.pictures_error).toEqual(expect.any(String));
+    expect(actual.pictures_error.length).toBeGreaterThan(0);
+    expect(readHumanToolRecords('session')).toEqual([]);
   });
 });

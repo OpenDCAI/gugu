@@ -19,6 +19,7 @@ export type HumanToolRecord = {
   result?: unknown;
   encoded?: true;
   pictures?: HumanToolPicture[];
+  picturesError?: string;
 };
 
 function file(sessionId: string): string {
@@ -53,21 +54,36 @@ export function saveHumanToolRecord(record: HumanToolRecord): void {
  * This text-only outbox carries stable local image references; image bytes stay in binary files. */
 export function prepareHumanToolResult(record: HumanToolRecord, result: unknown): HumanToolRecord {
   if (record.encoded) return record;
-  const { shown, pictures } = withPictures(encodeResult(result));
+  const encoded = encodeResult(result);
+  let shown = encoded;
+  let picturesError: string | undefined;
   const saved: HumanToolPicture[] = [];
-  let label = '';
-  for (const picture of pictures) {
-    if (picture.type === 'text') { label = picture.text.slice('Picture: '.length); continue; }
-    const directory = join(resolveGuguHome(), 'human-tool-results', record.sessionId);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const suffix = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[picture.mimeType] ?? 'bin';
-    const target = join(directory, `${record.id}-${saved.length}.${suffix}`);
-    const temp = `${target}.${process.pid}.tmp`;
-    writeFileSync(temp, Buffer.from(picture.data, 'base64'), { mode: 0o600 });
-    renameSync(temp, target);
-    saved.push({ label, mime_type: picture.mimeType, file_path: target });
+  try {
+    const split = withPictures(encoded);
+    shown = split.shown;
+    let label = '';
+    for (const picture of split.pictures) {
+      if (picture.type === 'text') { label = picture.text.slice('Picture: '.length); continue; }
+      const directory = join(resolveGuguHome(), 'human-tool-results', record.sessionId);
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const suffix = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[picture.mimeType] ?? 'bin';
+      const target = join(directory, `${record.id}-${saved.length}.${suffix}`);
+      const temp = `${target}.${process.pid}.tmp`;
+      writeFileSync(temp, Buffer.from(picture.data, 'base64'), { mode: 0o600 });
+      renameSync(temp, target);
+      saved.push({ label, mime_type: picture.mimeType, file_path: target });
+    }
+  } catch (error) {
+    picturesError = error instanceof Error ? error.message : String(error);
+    // A picture failure must not lose the actual tool outcome or inline the rejected bytes.
+    if (encoded && typeof encoded === 'object' && !Array.isArray(encoded)) {
+      shown = Object.fromEntries(Object.entries(encoded).filter(([key]) => key !== 'pictures'));
+    }
+    saved.length = 0;
+    log.warn('Human tool pictures could not be attached', { sessionId: record.sessionId, requestId: record.requestId, error: picturesError });
   }
-  return { ...record, state: 'finished', result: shown, encoded: true, ...(saved.length ? { pictures: saved } : {}) };
+  return { ...record, state: 'finished', result: shown, encoded: true, ...(saved.length ? { pictures: saved } : {}),
+    ...(picturesError ? { picturesError } : {}) };
 }
 
 const delivering = new Map<string, Promise<void>>();
@@ -83,6 +99,7 @@ export function deliverHumanToolResult(record: HumanToolRecord, projectId?: stri
     if (!project) throw new Error('Human tool result has no session project');
     const { sendMessage } = await import('../sessions/sendMessage');
     const payload = JSON.stringify({ tool: record.tool, request_id: record.requestId, state: 'finished', result: record.result,
+      ...(record.picturesError ? { pictures_error: record.picturesError } : {}),
       ...(record.pictures ? { pictures: record.pictures } : {}) }).replaceAll('<', '\\u003c');
     const pictures = record.pictures?.map(picture => stringifyMention({ kind: 'file', label: picture.label, target: picture.file_path })).join('\n');
     await sendMessage({ sessionId: record.sessionId, projectId: project, clientMessageId: record.messageId,
