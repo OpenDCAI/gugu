@@ -32,15 +32,12 @@ export function SettlementCard({
   onRespond,
   machine,
   source,
-  action,
 }: {
   settlement: Settlement
   /** The computer the session runs on: an App install's 「给哪些 agent」 lists that one's agents (D-31). */
   machine?: string
   /** Optional task provenance inside the same actionable card. */
   source?: ReactNode
-  /** The way to what is asked, above the answers while it is pending (an agent's browser login: its Browser Use tab). */
-  action?: ReactNode
   /** 这条会话的腿。答不答得了与写侧同一条判据(`remoteSettlementGap`)。 */
   runtime: SessionpageSessionSummary['runtime']
   busy: boolean
@@ -91,7 +88,6 @@ export function SettlementCard({
             : t('agentWatch.settlement.questionSet', { n: questions?.length ?? 0 })}
       </div>
       {settlement.detail && !multi ? <div className="gg-aw-card-detail">{settlement.detail}</div> : null}
-      {pending ? action : null}
 
       {settlement.state === 'cancelled' ? (
         <div className="gg-aw-card-answered">{t('agentWatch.settlement.cancelled')}</div>

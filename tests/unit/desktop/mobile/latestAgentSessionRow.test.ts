@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { latestAgentSessionRow } from '../../../../apps/desktop/src/mobile/agent-watch/useAgentSessionRow'
 
-// The cloud browser card reads the agent's pending browser ask from this session: with several rows for one agent it must be
-// the latest one (same rule as #658), not the first in directory order.
+// An agent with several session rows resolves to the latest one, not directory order.
 const row = (deviceId: string, conversationId: string, agent: string, lastInteractedAt?: string) =>
   ({ deviceId, session: { conversationId, agent: { userId: agent }, ...(lastInteractedAt ? { lastInteractedAt } : {}) } }) as never
 

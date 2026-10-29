@@ -2161,6 +2161,7 @@ export class SessionManager implements InboundRouter {
     const assistantOwnerId = input.providerId === 'claude' && isRecord(assistant)
       && typeof assistant.ownerId === 'string' && assistant.ownerId.trim() ? assistant.ownerId : null;
     const callbacks: SessionCellCallbacks = {
+      onPromptSteered: () => this.deps.onPromptSteered?.(input.sessionId),
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
         this.publishOnTick(record);

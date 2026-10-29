@@ -2,6 +2,18 @@ import { safeDeliveredBody } from './delivery-presentation';
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import { withSentReplies } from './sent-replies';
+
+/** Match identities only; identical words in another message are never an anchor. */
+export function resolveConversationMessageReference(turns: readonly TranscriptTurn[], reference: string): string | null {
+  const id = reference.replace(/^msg:/, '');
+  for (const turn of turns) for (const item of withSentReplies(turn, { allDestinations: true }).items) {
+    if (item.kind !== 'message') continue;
+    if (item.id === reference || /:sent:([^:]+)$/.exec(item.id)?.[1] === id) return item.id;
+    if (readDeliveryEnvelope(item.text)?.segments.some(segment => segment.facts?.messageId?.replace(/^msg:/, '') === id)) return item.id;
+  }
+  return null;
+}
 
 /** 被引用那条在群里说的 ⇒ 那个群的对话 id(人读群名用);私聊没有。 */
 function groupOf(facts: DeliveryReadFacts | null | undefined): string | undefined {
@@ -46,9 +58,11 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
   return turns.map(turn => ({ ...turn, items: turn.items.map(item => {
     if (item.kind !== 'message') return item;
     const data = item as ChatMessage;
-    const quoted = readDeliveryEnvelope(item.text)?.segments[0]?.facts?.replyTo?.messageId.replace(/^msg:/, '') ?? data.sentReplyTo;
+    const reply = readDeliveryEnvelope(item.text)?.segments[0]?.facts?.replyTo;
+    const quoted = reply?.messageId.replace(/^msg:/, '') ?? data.sentReplyTo;
     const original = quoted ? messages.get(quoted) : undefined;
-    if (!original) return item;
+    if (!original) return quoted ? { ...item, conversationReply: { itemId: quoted, text: reply?.preview ?? '', unloaded: true,
+      ...(reply?.from ? { from: reply.from } : {}), ...(reply?.fromId ? { fromId: reply.fromId } : {}) } } : item;
     const conversationReply = { itemId: original.item.id, text: original.text, ...(original.from ? { from: original.from } : {}),
       ...(original.fromId ? { fromId: original.fromId } : {}), ...(original.self ? { self: true } : {}), ...(original.chatId ? { chatId: original.chatId } : {}) };
     return { ...item, conversationReply };

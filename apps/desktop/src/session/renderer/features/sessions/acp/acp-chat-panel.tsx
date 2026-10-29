@@ -1,4 +1,5 @@
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { useSessionSourceMessage } from './use-session-source-message';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
@@ -96,7 +97,6 @@ import { useSessionSchedules } from '@renderer/features/automations/use-session-
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
-import { SessionHostBrowserAsk } from '@renderer/features/extensions/session-host-browser-ask';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -1639,7 +1639,6 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       <NeedsYouSlot />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
-      <SessionHostBrowserAsk sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -1786,6 +1785,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
+  const sourceMessage = useSessionSourceMessage(store, viewRef, () => toast({ title: translate('transcript.originalMessageMissing'), variant: 'destructive' }));
   const [composerSlot, setComposerSlot] = useState<HTMLElement | null>(null);
   const [heroSlot, setHeroSlot] = useState<HTMLElement | null>(null);
   const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
@@ -1847,12 +1847,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    * 这里就什么都不做 —— 到顶是常态,❌ 不是错误,不弹任何东西。
    */
   const handleReachStart = useCallback(() => {
-    const current = store;
-    if (!current) return;
-    void current.loadOlderHistory().then((turns) => {
-      if (turns.length > 0) viewRef.current?.loadOlder(turns);
-    });
-  }, [store]);
+    void sourceMessage.loadOlder();
+  }, [sourceMessage.loadOlder]);
 
   const isSessionEmpty = useObserver(() => store?.isEmpty ?? false);
   const activeSessionId = store?.sessionId ?? null;
@@ -2241,7 +2237,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
-      onConversationReply: (itemId) => viewRef.current?.scrollToItem(itemId),
+      onConversationReply: sourceMessage.reveal,
+      flashMessageId: sourceMessage.flashMessageId,
       conversationAgentName: () => conversationAgentName,
       conversationAgentSession: () => store?.sessionId ?? null,
       onOpenSender: openMessageSender,
@@ -2393,7 +2390,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         if (store) dismissSubagent(store.sessionId, entryId);
       },
     }),
-    [store, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching

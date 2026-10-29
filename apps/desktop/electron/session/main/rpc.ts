@@ -4,7 +4,6 @@ import { agentSessionController, assistantWorkController } from './core/sessions
 import { appController } from './core/app/controller';
 import { automationsController } from './core/automations/controller';
 import { browserController } from './core/browser/controller';
-import { cloudBrowserController } from './core/browser/cloud/controller';
 import { sessionController } from './core/sessions/controller';
 import { editorBufferController } from './core/editor/controller';
 import { extensionsController } from './core/extensions/controller';
@@ -49,8 +48,6 @@ export const rpcRouter = createRPCRouter({
   appSettings: appSettingsController,
   providerSettings: providerSettingsController,
   browser: browserController,
-  // #7199 云电脑上 agent 用的那个 Chrome(状态与小图;实时画面另走隧道上的 websocket)。别的电脑经 rpcOn(云电脑) 问。
-  cloudBrowser: cloudBrowserController,
   extensions: extensionsController,
   gitRepository: gitRepositoryController,
   pty: ptyController,

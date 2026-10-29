@@ -18,7 +18,7 @@ let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });
 
 it.each(['image', 'file'] as const)('updates a mounted transcript from the authorized original %s after its message arrives', async kind => {
-  const context = createChatContext({ layout: { preset: 'double', agentConversation: true } });
+  const context = createChatContext({ layout: { preset: 'double', userGutter: 0, agentConversation: true } });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.className = nativeChatAppearance;

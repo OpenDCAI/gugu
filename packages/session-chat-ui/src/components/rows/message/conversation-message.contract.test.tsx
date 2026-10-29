@@ -71,7 +71,7 @@ describe('agent-centered conversation bubbles', () => {
         const bubble = row.querySelector<HTMLElement>('[data-user-card]')!;
         const name = row.querySelector<HTMLElement>('span[title]')!;
         // owner 0 号图:名字那一行只有名字,❌ 被回复那条的摘要。
-        expect(row.querySelector('button[title="你好"]')).toBeNull();
+        expect(row.querySelectorAll('button[title="你好"]')).toHaveLength(role === 'assistant' ? 1 : 0);
         expect(row.textContent).not.toContain('你好↵');
         expect(bubble.contains(name)).toBe(false);
         // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
@@ -294,6 +294,18 @@ describe('agent-centered conversation bubbles', () => {
       // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
+  });
+  it('clicks the exact quote anchor after a virtual row is reused', async () => {
+    const onConversationReply = vi.fn();
+    const quoted: ChatMessage = { kind: 'message', id: 'reply', role: 'assistant', text: 'reply', conversationReply: { itemId: 'original-1', text: 'same words' } };
+    const view = await mount(quoted, 600, { onConversationReply });
+    try {
+      view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!.click();
+      expect(onConversationReply).toHaveBeenLastCalledWith('original-1');
+      view.update({ ...quoted, id: 'reply-2', conversationReply: { itemId: 'original-2', text: 'same words' } });
+      view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!.click();
+      expect(onConversationReply).toHaveBeenLastCalledWith('original-2');
+    } finally { view.dispose(); }
   });
   it('truncates narration to 160 characters with the same measured 32px row', async () => {
     const view = await mount({ kind: 'message', id: 'narration', role: 'assistant', text: 'word '.repeat(80), conversationNarration: true });

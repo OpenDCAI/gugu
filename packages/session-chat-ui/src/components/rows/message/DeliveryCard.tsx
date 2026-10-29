@@ -7,6 +7,7 @@
 import type { DeliveryReadFacts, DeliverySegment } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { isSelfAddress, shownSender, useSelfIdentity } from '@session-chat/lib/self-identity';
 import { useSenderAvatar } from '@session-chat/lib/sender-avatar';
 import { useAppName } from '@session-chat/lib/app-name';
@@ -254,6 +255,7 @@ function SingleDelivery(props: {
   anchorId?: string;
 }) {
   const translate = useChatTranslator();
+  const commands = useCommands();
   const self = useSelfIdentity();
   const senderAvatar = useSenderAvatar();
   const namers: Namers = { appName: useAppName(), chatName: useChatName() };
@@ -359,12 +361,14 @@ function SingleDelivery(props: {
       <Show when={facts()?.replyTo}>
         {(reply) => (
           // A quoted card (a task, a question) reads as its words, not as the JSON it is stored as.
-          <div class={deliveryReply} data-slot="delivery-reply" title={quotedWords(reply().preview)}>
+          <button type="button" class={deliveryReply} data-slot="delivery-reply" title={quotedWords(reply().preview)}
+            disabled={!commands().onConversationReply} aria-label={translate('transcript.showOriginalMessage')}
+            onClick={() => commands().onConversationReply?.(props.data.conversationReply?.itemId ?? reply().messageId)}>
             {translate('transcript.deliveryReplyTo', {
               from: shownSender(reply().from, reply().fromId, self()) ?? reply().fromId,
               preview: quotedWords(reply().preview),
             })}
-          </div>
+          </button>
         )}
       </Show>
       </Show>

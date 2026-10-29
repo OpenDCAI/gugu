@@ -125,6 +125,14 @@ export const deliveryFactsToggle = style({
 });
 
 export const deliveryReply = style({
+  display: 'block',
+  background: 'transparent',
+  border: 0,
+  padding: 0,
+  textAlign: 'left',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } },
   height: deliveryVars.lineH,
   lineHeight: deliveryVars.lineH,
   marginTop: deliveryVars.gap,

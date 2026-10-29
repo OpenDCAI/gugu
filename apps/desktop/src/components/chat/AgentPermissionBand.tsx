@@ -13,7 +13,6 @@ import { translateSessionMessage } from '@/session/renderer/localization/locale-
 import { machineRegistry } from '@/session/renderer/lib/machine-routing'
 import { remoteHostsStore } from '@/session/renderer/features/remote-hosts/remote-hosts-store'
 import { toComposerPermission } from '@/session/renderer/features/sessions/acp/composer-permission'
-import { BrowserAssistanceAction } from '../browserUse/BrowserAssistanceAction'
 
 const permissionLog = rendererLogger('chat/agent-permission-band')
 
@@ -52,7 +51,6 @@ export function AgentPermissionBand({ sessionId, pending, respond }: {
     <SessionUiThemeProvider theme={theme} target="documentElement">
       <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
         <div data-testid="agent-sessionpage-permission">
-          {sessionId ? <BrowserAssistanceAction sessionId={sessionId} settlement={pending} /> : null}
           <PermissionBand request={request} queueCount={pending.queueCount} onResolve={onResolve} />
         </div>
       </MessageProvider>

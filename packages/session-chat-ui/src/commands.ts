@@ -46,6 +46,8 @@ export type ChatCommands = {
   /** Authorized IM system notices stay visible in their process header, even when folded. */
   conversationProcessNotice?: (processId: string) => { id: string; text: string } | null;
   onConversationReply?: (itemId: string) => void;
+  /** Exact source row receiving the shared chat source-message flash. */
+  flashMessageId?: string | null;
   onCopyError?: (error: unknown) => void;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;

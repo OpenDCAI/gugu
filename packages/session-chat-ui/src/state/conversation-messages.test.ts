@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conversationMessages } from './conversation-messages';
+import { conversationMessages, resolveConversationMessageReference } from './conversation-messages';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 
 describe('conversation reply references', () => {
@@ -33,8 +33,8 @@ describe('conversation reply references', () => {
     ] as ChatMessage[] as TranscriptTurn['items'] }];
     const [items] = conversationMessages(turns).map(turn => turn.items as ChatMessage[]);
     expect(items[1].conversationReply).toEqual({ itemId: 'incoming', text: '帮我看一下', from: '天天', fromId: 'user:other' });
-    // 引用的那条不在这段记录里 ⇒ 不画,❌ 换成别的。
-    expect(items[2].conversationReply).toBeUndefined();
+    // Preserve its exact anchor so a click can load older history; never quote another input.
+    expect(items[2].conversationReply).toEqual({ itemId: 'unknown', text: '', unloaded: true });
     expect(items[3].conversationReply).toBeUndefined();
     // 群里那条:带上它所在的群(人读群名),发送者是那条自己的发送者。
     expect(items[5].conversationReply).toEqual({ itemId: 'group-in', text: '群里问一句', from: '小王', fromId: 'user:wang', chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
@@ -42,5 +42,16 @@ describe('conversation reply references', () => {
     expect(items[6].conversationReply).toEqual({ itemId: 'call:sent:c', text: '答你', self: true, chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
     // 发去的地方认不出是群 ⇒ 不写群名,❌ 猜。
     expect(items[8].conversationReply).toEqual({ itemId: 'call:sent:e', text: '私聊里说', self: true });
+  });
+  it('resolves delivery and sent identities without matching repeated text', () => {
+    const turns: TranscriptTurn[] = [{ id: 't', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'local-first', seq: 0, role: 'user', text: 'same words' },
+      { kind: 'message', id: 'local-delivery', seq: 1, role: 'user', text: '<gugu_delivery route="chat" msg="msg:remote" from="W" from_id="user:w"><![CDATA[same words]]></gugu_delivery>' },
+      { kind: 'message', id: 'tool:sent:sent-id', seq: 2, role: 'assistant', text: 'same words' },
+    ] }];
+    expect(resolveConversationMessageReference(turns, 'msg:remote')).toBe('local-delivery');
+    expect(resolveConversationMessageReference(turns, 'sent-id')).toBe('tool:sent:sent-id');
+    expect(resolveConversationMessageReference(turns, 'local-first')).toBe('local-first');
+    expect(resolveConversationMessageReference(turns, 'same words')).toBeNull();
   });
 });
