@@ -28,6 +28,16 @@ beforeEach(() => { ui = createReactHarness(); read.mockReset().mockResolvedValue
 afterEach(() => ui.cleanup())
 
 describe('其他设备的额度通知由命令结果驱动', () => {
+  it('模型不可用的关闭同样按命令版本保存，新失败仍可提示', async () => {
+    const unavailable = (revision: string) => ({ ...failure(revision), rawMessage: 'Model test is not available' })
+    read.mockResolvedValue([unavailable('one')]); await ui.render(createNode(Probe, {}))
+    await clickElement(ui.container.querySelector('button')!)
+    await emit(); expect(current()).toBe('')
+    ui.cleanup(); ui = createReactHarness(); await ui.render(createNode(Probe, {}))
+    expect(current()).toBe('')
+    read.mockResolvedValue([unavailable('two')]); await emit()
+    expect(current()).toBe('cmd')
+  })
   it('打开时补读；事件只刷新当前聊天/话题/Agent，重连后再补读', async () => {
     read.mockResolvedValue([failure()])
     await ui.render(createNode(Probe, {}))

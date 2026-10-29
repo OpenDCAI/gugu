@@ -24,6 +24,7 @@
 .qc-who > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qc-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; overflow-y: auto; padding: 8px 16px 12px; }
 .qc-msg { max-width: 86%; align-self: flex-start; overflow-wrap: anywhere; line-height: 1.6; }
+.qc-list > .tfc-line { padding-inline: 0; }
 .qc-msg[data-mine] { align-self: flex-end; border-radius: 18px; background: var(--bubble-mine); padding: 8px 14px; }
 .qc-msg[data-sending='sending'], .qc-msg[data-sending='queued'] { opacity: 0.6; }
 .qc-plain { white-space: pre-wrap; }
