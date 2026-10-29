@@ -4,7 +4,7 @@ import type { AcpChatStore } from './acp-chat-store';
 
 /** Map an AcpPermissionRequest to the ComposerPermissionRequest shape the UI expects. */
 export function toComposerPermission(
-  req: Pick<AcpChatStore['permissionQueue'][number], 'requestId' | 'toolCallId' | 'waitKind' | 'title' | 'options'> | undefined,
+  req: Pick<AcpChatStore['permissionQueue'][number], 'requestId' | 'toolCallId' | 'waitKind' | 'title' | 'description' | 'options'> | undefined,
   translate: (key: SessionMessageLookupKey) => string,
   inTranscript: (toolCallId: string) => boolean = () => false,
 ): ComposerPermissionRequest | null {

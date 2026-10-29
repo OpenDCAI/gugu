@@ -38,12 +38,15 @@ describe('native admission through local message delivery', () => {
   afterEach(() => emdashAgentRegistry.setBridge(null));
 
   it('resumes the same provider session when a human DM finds its executor missing before admission', async () => {
-    const h = makeAcpHarness({ reportsState: true });
-    Object.assign(h.agent, { protocolVersion: 2 });
+    const h = makeAcpHarness({ nativeState: true });
     h.agent.initialize.mockResolvedValue({ protocolVersion: 2, agentCapabilities: { loadSession: true } });
     h.agent.prompt = vi.fn<AcpAgentApi['prompt']>()
       .mockRejectedValueOnce(Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Session not found' } }))
-      .mockImplementation(async (_params, accept) => { accept?.(); return { stopReason: 'end_turn' }; });
+      .mockImplementation(async (_params, dispatch) => {
+        h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
+        h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'message', role: 'user', messageId: 'human-dm-accepted', text: dispatch!.message.text, contentMode: 'replace' } });
+        return { status: 'accepted', requestId: dispatch!.requestId, messageId: 'human-dm-accepted' };
+      });
     const runtime = new AcpRuntime(h.deps);
     const input = makeStartInput({ sessionId: 'human-dm-ended-executor' });
     const wake = vi.fn(async () => {
@@ -54,6 +57,7 @@ describe('native admission through local message delivery', () => {
       expect((await runtime.startSession(input)).success).toBe(true);
       const receipt = await delivery(runtime, input.sessionId, wake, 'manual')('same human DM');
       expect(receipt).toMatchObject({ turnId: expect.any(String) });
+      h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' } });
       if (typeof receipt !== 'boolean') await receipt.completion;
       expect(wake).toHaveBeenCalledTimes(1);
       expect(h.children).toHaveLength(2);
