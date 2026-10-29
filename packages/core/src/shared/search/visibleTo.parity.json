@@ -1,0 +1,784 @@
+{
+  "source": "gugu-supabase messageVisibilityRule and oneWhisperRule6835 scenarios",
+  "cases": [
+    {
+      "name": "public member",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "outsider",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "late member before floor",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T13:00:00Z"
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "inclusive floor",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T14:00:00+02:00"
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "whisper sender",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "owner",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "peer"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "whisper recipient",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "owner"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "unrelated whisper",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "agent"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "empty whisper recipients",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "owner does not impersonate owned agent",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "agent"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "agent sees its own whisper",
+      "actorId": "agent",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "agent",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "agent"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "agent",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "agent-only membership",
+      "actorId": "agent",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "agent",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "agent",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "owner absent from agent group",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "agent",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "topic inherits source membership",
+      "actorId": "owner",
+      "sourceChatId": "group",
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "topic",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "topic direct earlier floor",
+      "actorId": "owner",
+      "sourceChatId": "group",
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T13:00:00Z"
+          }
+        },
+        {
+          "actorId": "owner",
+          "chatId": "topic",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T10:00:00Z"
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "topic",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "topic source earlier floor",
+      "actorId": "owner",
+      "sourceChatId": "group",
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T10:00:00Z"
+          }
+        },
+        {
+          "actorId": "owner",
+          "chatId": "topic",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T13:00:00Z"
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "topic",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": true
+    },
+    {
+      "name": "topic unrelated whisper still hidden",
+      "actorId": "owner",
+      "sourceChatId": "group",
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "topic",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": true,
+        "toUserIds": [
+          "agent"
+        ],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    },
+    {
+      "name": "global deletion is an extra search restriction",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": "2026-10-21T00:00:00Z",
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": true,
+      "searchVisible": false
+    },
+    {
+      "name": "actor hide is an extra search restriction",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": true
+      },
+      "backendVisible": true,
+      "searchVisible": false
+    },
+    {
+      "name": "unknown actor hide never grants search visibility",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": null
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": null
+      },
+      "backendVisible": true,
+      "searchVisible": false
+    },
+    {
+      "name": "sub-millisecond history floor",
+      "actorId": "owner",
+      "sourceChatId": null,
+      "memberships": [
+        {
+          "actorId": "owner",
+          "chatId": "group",
+          "floor": {
+            "known": true,
+            "at": "2026-10-20T12:00:00.000900Z"
+          }
+        }
+      ],
+      "document": {
+        "id": "message",
+        "chatId": "group",
+        "threadRootId": null,
+        "seq": 1,
+        "senderId": "peer",
+        "createdAt": "2026-10-20T12:00:00.000100Z",
+        "text": "needle",
+        "isWhisper": false,
+        "toUserIds": [],
+        "deletedAt": null,
+        "hasFile": false,
+        "hasImage": false,
+        "hasLink": false
+      },
+      "access": {
+        "actorId": "owner",
+        "messageId": "message",
+        "fromHistory": false,
+        "hiddenForActor": false
+      },
+      "backendVisible": false,
+      "searchVisible": false
+    }
+  ]
+}
