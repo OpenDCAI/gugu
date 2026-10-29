@@ -3,10 +3,12 @@ package projection
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -128,6 +130,26 @@ func TestEncodedFramesCrossSRTPAndDecodeInOrder(t *testing.T) {
 		t.Fatal(err)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+	// The browser pipeline must not guess a platform-specific YUV matrix. Inspect
+	// the actual SPS/VUI that crossed SRTP, not the FFmpeg command arguments.
+	probePath := filepath.Join(filepath.Dir(config.Executable), "ffprobe")
+	probe := exec.CommandContext(ctx, probePath, "-v", "error", "-f", "h264", "-select_streams", "v:0", "-show_entries", "stream=color_range,color_space,color_transfer,color_primaries", "-of", "json", "pipe:0")
+	probe.Stdin = bytes.NewReader(stream)
+	metadata, probeErr := probe.Output()
+	if probeErr != nil {
+		t.Fatalf("inspect received SPS/VUI with ffprobe: %v", probeErr)
+	}
+	var colors struct {
+		Streams []map[string]string `json:"streams"`
+	}
+	if err = json.Unmarshal(metadata, &colors); err != nil || len(colors.Streams) != 1 {
+		t.Fatalf("invalid received video metadata: %s %v", metadata, err)
+	}
+	for key, want := range map[string]string{"color_range": "tv", "color_space": "bt709", "color_transfer": "bt709", "color_primaries": "bt709"} {
+		if colors.Streams[0][key] != want {
+			t.Fatalf("received video has ambiguous %s: %s", key, metadata)
+		}
 	}
 	decoder := exec.CommandContext(ctx, config.Executable, "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "3", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")
 	decoder.Stdin = bytes.NewReader(stream)

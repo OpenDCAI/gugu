@@ -77,6 +77,10 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 		"-f", "rawvideo", "-pixel_format", "bgra", "-video_size", fmt.Sprintf("%dx%d", config.Width, config.Height),
 		"-framerate", strconv.Itoa(config.FPS), "-i", "pipe:0", "-an",
 		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+		// Convert RGB with the same matrix advertised in the H.264 SPS/VUI.
+		// Unspecified defaults differ between FFmpeg and browser decoders.
+		"-vf", "scale=out_color_matrix=bt709:out_range=tv,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+		"-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
 		"-pix_fmt", "yuv420p", "-profile:v", "baseline", "-level:v", "3.1",
 		"-b:v", strconv.Itoa(config.Bitrate), "-maxrate", strconv.Itoa(config.Bitrate), "-bufsize", strconv.Itoa(config.Bitrate),
 		"-bf", "0", "-g", strconv.Itoa(config.FPS), "-keyint_min", strconv.Itoa(config.FPS),
