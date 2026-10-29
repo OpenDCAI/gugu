@@ -34,7 +34,11 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pixels := make(chan [3]int, 64)
+	type decodedPixel struct {
+		RGB       [3]int `json:"rgb"`
+		Timestamp uint32 `json:"rtpTimestamp"`
+	}
+	pixels := make(chan decodedPixel, 64)
 	failures := make(chan error, 1)
 	failed := func(err error) {
 		select {
@@ -57,7 +61,7 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 		}
 	})
 	mux.HandleFunc("/pixel", func(w http.ResponseWriter, r *http.Request) {
-		var pixel [3]int
+		var pixel decodedPixel
 		if decodeErr := json.NewDecoder(http.MaxBytesReader(w, r.Body, 100)).Decode(&pixel); decodeErr != nil {
 			failed(decodeErr)
 			return
@@ -98,11 +102,12 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 		t.Fatalf("browser media readiness: %v: %s", err, diagnostics.text())
 	}
 	config := testEncoderConfig(t)
-	encoder, err := StartEncoder(ctx, config, source)
+	encoder, err := StartVideoEncoder(ctx, config, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer encoder.Close()
+	var sequence uint64
 	for channel := 0; channel < 3; channel++ {
 		frame := make([]byte, config.Width*config.Height*4)
 		for offset := 0; offset < len(frame); offset += 4 {
@@ -111,16 +116,21 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 		}
 		ticker := time.NewTicker(100 * time.Millisecond)
 		seen := false
+		encoded := make(map[uint32]EncodedFrame)
 		for !seen {
 			select {
 			case <-ticker.C:
-				if err = encoder.WriteFrame(ctx, frame); err != nil {
+				sequence++
+				receipt, frameErr := encoder.WriteFrame(ctx, sequence, frame)
+				if frameErr != nil {
 					ticker.Stop()
-					t.Fatalf("encoder: %v; Chromium: %s", err, diagnostics.text())
+					t.Fatalf("encoder: %v; Chromium: %s", frameErr, diagnostics.text())
 				}
+				encoded[receipt.Timestamp] = receipt
 			case pixel := <-pixels:
 				// Canvas reports RGB while the source buffer is BGRA.
-				if pixel[2-channel] >= 215 && pixel[(3-channel)%3] <= 15 && pixel[(4-channel)%3] <= 15 {
+				if receipt, matched := encoded[pixel.Timestamp]; matched && receipt.Sequence != 0 &&
+					pixel.RGB[2-channel] >= 215 && pixel.RGB[(3-channel)%3] <= 15 && pixel.RGB[(4-channel)%3] <= 15 {
 					seen = true
 				}
 			case browserErr := <-failures:
@@ -148,9 +158,10 @@ const projectionBrowserFixture = `<!doctype html><video autoplay muted playsinli
   peer.ontrack = ({track}) => { (async () => {
     video.srcObject = new MediaStream([track]);
     await video.play();
-    const frame = () => {
+    const frame = (_, metadata) => {
+      if (!Number.isInteger(metadata.rtpTimestamp)) { report('Decoded video frame has no RTP timestamp'); return; }
       draw.drawImage(video, 0, 0, 128, 96);
-      fetch('/pixel', {method:'POST', body:JSON.stringify(Array.from(draw.getImageData(64,48,1,1).data).slice(0,3))});
+      fetch('/pixel', {method:'POST', body:JSON.stringify({rgb:Array.from(draw.getImageData(64,48,1,1).data).slice(0,3), rtpTimestamp:metadata.rtpTimestamp})});
       video.requestVideoFrameCallback(frame);
     };
     video.requestVideoFrameCallback(frame);

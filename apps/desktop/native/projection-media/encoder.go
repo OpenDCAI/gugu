@@ -44,11 +44,15 @@ type Encoder struct {
 	err     error
 }
 
+func validEncoderConfig(config EncoderConfig) bool {
+	return filepath.IsAbs(config.Executable) && config.Width >= 2 && config.Height >= 2 && config.Width <= 4096 && config.Height <= 4096 && config.Width%2 == 0 && config.Height%2 == 0 && config.FPS >= 1 && config.FPS <= 60 && config.Bitrate >= 64_000 && config.Bitrate <= 40_000_000
+}
+
 func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (*Encoder, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !filepath.IsAbs(config.Executable) || output == nil || config.Width < 2 || config.Height < 2 || config.Width > 4096 || config.Height > 4096 || config.Width%2 != 0 || config.Height%2 != 0 || config.FPS < 1 || config.FPS > 60 || config.Bitrate < 64_000 || config.Bitrate > 40_000_000 {
+	if !validEncoderConfig(config) || output == nil {
 		return nil, errors.New("invalid projection encoder configuration")
 	}
 	packets, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -157,10 +161,7 @@ func (e *Encoder) WriteFrame(ctx context.Context, bgra []byte) error {
 	defer e.write.Unlock()
 	select {
 	case <-e.done:
-		if e.err != nil {
-			return fmt.Errorf("%w: %v", ErrClosed, e.err)
-		}
-		return ErrClosed
+		return e.closedError()
 	default:
 	}
 	stopWrite := context.AfterFunc(ctx, func() { e.stop(ctx.Err()) })
@@ -170,6 +171,13 @@ func (e *Encoder) WriteFrame(ctx context.Context, bgra []byte) error {
 		return err
 	}
 	return ctx.Err()
+}
+
+func (e *Encoder) closedError() error {
+	if e.err != nil {
+		return fmt.Errorf("%w: %v", ErrClosed, e.err)
+	}
+	return ErrClosed
 }
 
 func (e *Encoder) Close() error {
