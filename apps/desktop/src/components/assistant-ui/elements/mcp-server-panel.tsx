@@ -117,7 +117,7 @@ export function McpServerPanel({
                     <button
                       type="button"
                       onClick={() => onAuthorize?.(server.id)}
-                      className="ms-auto rounded-[var(--radius-control)] bg-[var(--warn-tint)] px-2 py-0.5 text-[length:var(--font-caption)] font-medium text-amber-700 transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_srgb,var(--warn)_24%,transparent)] active:scale-[0.96] dark:text-amber-300"
+                      className="ms-auto rounded-[var(--radius-control)] bg-[var(--warn-tint)] px-2 py-0.5 text-[length:var(--font-caption)] font-medium text-[var(--warn-fg)] transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_srgb,var(--warn)_24%,transparent)] active:scale-[0.96]"
                     >
                       Authorize
                     </button>
