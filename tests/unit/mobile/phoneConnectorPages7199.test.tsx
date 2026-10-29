@@ -15,12 +15,12 @@ import { clickElement, createNode, createReactHarness, deferred, waitForConditio
 // #7199 手机连接应用的详情页与连接页:真目录(二十家)+ 假的助理的家(rpc 记下调用),渲染出来点一遍。
 // 判据落在行为上:点了什么就发了什么调用、连上后重读状态、没断成就留在确认卡上。
 
-const ui = vi.hoisted(() => ({ platformKind: 'capacitor' as 'capacitor' | 'web', rpc: null as unknown, listeners: [] as Array<(data: unknown) => void> }))
+const ui = vi.hoisted(() => ({ platformKind: 'capacitor' as 'capacitor' | 'web', writeClipboardText: vi.fn(async (_text: string) => {}), rpc: null as unknown, listeners: [] as Array<(data: unknown) => void> }))
 
 vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/phoneAssistantAuthorization',() => ({ phoneAssistantAuthorization: () => ui.rpc }))
 vi.mock('../../../apps/desktop/src/components/assistant/assistant-app-client',() => ({ reportAssistantAppChange: vi.fn(async () => {}) }))
-vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return ui.platformKind } } }))
+vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return ui.platformKind }, writeClipboardText: ui.writeClipboardText } }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   machineRpc: () => ui.rpc,
   onMachineEvent: (_device: string, _event: unknown, listener: (data: unknown) => void) => {
@@ -114,6 +114,7 @@ beforeEach(() => {
   rpc = makeRpc()
   ui.rpc = rpc
   ui.platformKind = 'capacitor'
+  ui.writeClipboardText.mockReset().mockResolvedValue(undefined)
   ui.listeners = []
   opened = []
   vi.spyOn(window, 'open').mockImplementation((url) => {
@@ -374,13 +375,14 @@ describe('连接页:浏览器授权', () => {
   })
 
   it('授权页被对方的 App 接走了:能复制授权链接,到浏览器里自己打开', async () => {
-    const writeText = vi.fn(async () => undefined)
+    const writeText = vi.fn().mockRejectedValue(new Error('WebView clipboard denied'))
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     await startAuthorization()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       await clickElement(q('assistant-connector-copy-auth-link')!)
-      expect(writeText).toHaveBeenCalledWith(opened[0])
+      expect(ui.writeClipboardText).toHaveBeenCalledExactlyOnceWith(opened[0])
+      expect(writeText).not.toHaveBeenCalled()
       expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.linkCopied', { ns: 'assistant' }))
       await act(async () => { await vi.runOnlyPendingTimersAsync() })
       expect(q('assistant-connector-copy-auth-link')!.textContent).toContain(i18n.t('connectors.setup.copyAuthLink', { ns: 'assistant' }))

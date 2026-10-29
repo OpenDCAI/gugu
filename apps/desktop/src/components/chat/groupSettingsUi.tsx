@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -179,7 +180,7 @@ export function GroupInviteLinkBlock({ inviteLink, onOpenPoster }: { inviteLink:
           size="sm"
           onClick={async () => {
             try {
-              await navigator.clipboard.writeText(inviteLink)
+              await platform.writeClipboardText(inviteLink)
               toast(t('group.settings.inviteCopied'), 'success')
             } catch (error) {
               toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))

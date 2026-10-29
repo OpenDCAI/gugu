@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
@@ -199,7 +200,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,失败原因去敏后显示并记录。
   const copySessionId = async () => {
     try {
-      await navigator.clipboard.writeText(sessionId);
+      await platform.writeClipboardText(sessionId);
       toast({ title: translate('sidebar.sessionIdCopied') });
     } catch (error) {
       log.error({ error, sessionId }, 'sidebar copy session id failed');
