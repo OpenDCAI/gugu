@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Avatar } from '../../../../apps/desktop/src/components/Avatar'
-import { AGENT_AVATAR_PALETTES, agentAvatarPalette } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
+import { AGENT_AVATAR_PALETTES, agentAvatarPalette, boringFaceFeatureColor } from '../../../../apps/desktop/src/lib/agentAvatarPalette'
 import { boringAgentAvatarDataUri } from '../../../../apps/desktop/src/lib/boringAgentAvatar'
 import { SessionAvatar } from '../../../../apps/desktop/src/mobile/agent-watch/StatusGlyph'
 import { runtime } from '../../../../apps/desktop/src/components/agentAvatar/engine/runtime'
@@ -59,6 +59,16 @@ describe('default agent avatars', () => {
     expect(used.size).toBe(AGENT_AVATAR_PALETTES.length)
     const svgText = decodeURIComponent(boringAgentAvatarDataUri(ID))
     expect(agentAvatarPalette(ID).some((color) => svgText.includes(`fill="${color}"`))).toBe(true)
+  })
+
+  it('draws light features once white reaches 3:1 on the body, dark ones otherwise', async () => {
+    // Mid-dark reds, corals and purples took black features under beam's own YIQ test.
+    for (const body of ['#e76f51', '#ff4d6d', '#7678ed', '#b08968', '#3d5e92']) expect(boringFaceFeatureColor(body)).toBe('#FFFFFF')
+    for (const body of ['#ff9915', '#fad928', '#edecb3', '#80ffdb', '#38b000']) expect(boringFaceFeatureColor(body)).toBe('#000000')
+    await render()
+    const rects = svg()!.querySelectorAll('g[mask] > rect')
+    const face = svg()!.querySelector('g[mask] > g rect')!.getAttribute('fill')
+    expect(face).toBe(boringFaceFeatureColor(rects[1].getAttribute('fill')!))
   })
 
   it('keeps every palette colour within the first palette\'s contrast bounds on the dark page and on white', () => {
