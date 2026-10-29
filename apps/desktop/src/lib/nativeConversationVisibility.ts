@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
 export type NativeConversationVisibility = { sessionId: string; visible: readonly string[]; aliases: ReadonlyMap<string, readonly string[]> }
-type State = { entries: ReadonlyMap<string, NativeConversationVisibility>; listeners: Set<() => void> }
+type ReadState = { chatId: string; firstUnreadId: string | null; confirmedSeq: number; loaded: readonly string[]; visible: readonly string[]; pendingSeqs: readonly number[] }
+type State = { entries: ReadonlyMap<string, NativeConversationVisibility>; listeners: Set<() => void>; readers?: Map<string, ReadState> }
 const KEY = '__GUGU_NATIVE_CONVERSATION_VISIBILITY__'
 const empty: State = { entries: new Map(), listeners: new Set() }
 function state(): State {
@@ -18,4 +19,9 @@ export function publishNativeConversationVisibility(key: string, value: NativeCo
 }
 export function useNativeConversationVisibility(): State['entries'] {
   return useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } }, () => state().entries)
+}
+/** ID-only diagnostics share the viewport's lifetime and never carry message text or account credentials. */
+export function publishNativeConversationReadState(key: string, value: ReadState | null): void {
+  const readers = state().readers ??= new Map()
+  if (value) readers.set(key, value); else readers.delete(key)
 }
