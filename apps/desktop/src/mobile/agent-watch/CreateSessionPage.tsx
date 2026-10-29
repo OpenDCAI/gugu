@@ -168,8 +168,11 @@ export function CreateSessionPage({
 
   const blocker = options ? createBlocker(options, selection) : null
   const readingModelDefault = !modelTouched.current && (!models || models.harness !== harness) && modelsState !== 'failed'
+  const modelNeedsSignIn = !phoneAttempt && models && models.harness === harness && (models.harnessAuth === 'signed-out' || models.selectedCredential === 'uncredentialed' || models.harnessState === 'auth-required')
+    && (selection.model === null || models.models.some((choice) => choice.id === selection.model && choice.source === 'harness'))
+  const modelNotice = modelNeedsSignIn ? t('agentWatch.create.modelHarnessState.auth-required') : readingModelDefault ? t('agentWatch.create.modelLoading') : null
   const creating = pendingText !== null
-  const canSubmit = online && options !== null && optionsError === null && blocker === null && !readingModelDefault
+  const canSubmit = online && options !== null && optionsError === null && blocker === null && !readingModelDefault && !modelNeedsSignIn
   const reloadOptions = () => {
     setOptions(null)
     setOptionsError(null)
@@ -192,8 +195,8 @@ export function CreateSessionPage({
       const submittedDraft = draft.current
       submittedDraft?.hold(first.text)
       // 还没读到选项 / 还有拦着的原因 → 如实报,❌ 不带着空 projectId 发过去让机器来拒。
-      if (!online || !options || optionsError || blocker || readingModelDefault) {
-        setCreateError(readingModelDefault ? t('agentWatch.create.modelLoading') : t(`agentWatch.create.blocked.${blocker ?? 'loading'}`))
+      if (!online || !options || optionsError || blocker || readingModelDefault || modelNeedsSignIn) {
+        setCreateError(blocker ? t(`agentWatch.create.blocked.${blocker}`) : modelNotice ?? t('agentWatch.create.blocked.loading'))
         runtime.thread.composer.setText(first.text)
         submittedDraft?.restore(first.text)
         return
@@ -304,9 +307,9 @@ export function CreateSessionPage({
 
   // 「为什么还不能发」钉在输入框上方,与失败横幅同一位置 —— 人看输入框时它就在眼前。
   // ⚠️ 这是**说明**,不是错误:机器上没项目是常态,❌ 不用报错的红。
-  const blockerNotice = options && (blocker || readingModelDefault) ? (
-    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker ?? 'loading_model'}>
-      {blocker ? t(`agentWatch.create.blocked.${blocker}`) : t('agentWatch.create.modelLoading')}
+  const blockerNotice = options && (blocker || modelNotice) ? (
+    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker ?? (modelNeedsSignIn ? 'model_auth_required' : 'loading_model')}>
+      {blocker ? t(`agentWatch.create.blocked.${blocker}`) : modelNotice}
     </div>
   ) : null
   const pendingCreationNotice = phoneAttempt && !creating ? (

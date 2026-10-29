@@ -123,7 +123,7 @@ describe('phone first-send host readiness', () => {
   })
 
   it('does not replace an explicitly chosen own default when its catalogue returns', async () => {
-    prepareCodex()
+    prepareCodex(true, 'platform:gpt-6-luna')
     await harness.render(createNode(CreateSessionPage, { device: remote, onCreated: vi.fn() }))
     await act(async () => { (harness.container.querySelector('[data-testid="pick-codex"]') as HTMLButtonElement).click() })
     await act(async () => { (harness.container.querySelector('[data-testid="pick-own-default"]') as HTMLButtonElement).click() })
@@ -131,6 +131,18 @@ describe('phone first-send host readiness', () => {
     await act(async () => { send().click() })
     expect(rpc.create).toHaveBeenCalledOnce()
     expect(rpc.create.mock.calls[0]?.[1]).not.toHaveProperty('model')
+  })
+
+  it('shows the existing sign-in explanation when the chosen own model has no login', async () => {
+    prepareCodex()
+    await harness.render(createNode(CreateSessionPage, { device: remote, onCreated: vi.fn() }))
+    await act(async () => { (harness.container.querySelector('[data-testid="pick-codex"]') as HTMLButtonElement).click() })
+    await act(async () => { (harness.container.querySelector('[data-testid="pick-own-default"]') as HTMLButtonElement).click() })
+    await write('Keep this draft until sign-in')
+    expect(harness.container.querySelector('[data-blocker="model_auth_required"]')?.textContent).toContain('登录')
+    expect(send().disabled).toBe(true)
+    expect(readComposer(input())).toBe('Keep this draft until sign-in')
+    expect(rpc.create).not.toHaveBeenCalled()
   })
 
   it('retains a signed-in remembered own default even when a factory platform model is offered', async () => {
