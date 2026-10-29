@@ -1,3 +1,5 @@
+import { claimInterruptedDeferredMessages } from './session-deferred-messages';
+import { closeInterruptedRunIntervals } from '../usage/run-interval-recorder';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
@@ -17,7 +19,8 @@ vi.mock('@main/core/projects/utils', () => ({ resolveSession: () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
-import { drainAllSessionMessageOutboxes, drainSessionMessageOutbox, sendMessage } from './sendMessage';
+import { sessionBootTasks } from '../boot-tasks';
+import { claimInterruptedDispatches, drainAllSessionMessageOutboxes, drainSessionMessageOutbox, sendMessage } from './sendMessage';
 import { setSessionMessageRouter } from './session-message-router';
 import { SessionpageLocalDeliveryRouter } from '../../../../sessionpage/session-injection';
 
@@ -111,11 +114,49 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
     expect(fixture.sqlite.prepare('SELECT config FROM sessions WHERE id=?').get(target.sessionId)).toEqual(before);
   });
 
-  it('keeps genuine active delivery failures visible to the boot caller', async () => {
+  it('records genuine active delivery failures without rejecting boot, while normal sends still reject', async () => {
     await holdMessage(target.sessionId, 'failed-held');
     const failure = new Error('provider transport failed');
     setSessionMessageRouter(async () => { throw failure; });
 
-    await expect(drainAllSessionMessageOutboxes()).rejects.toBe(failure);
+    await expect(drainAllSessionMessageOutboxes()).resolves.toBeUndefined();
+    expect(sessionBootTasks.snapshot()).toContainEqual({ operation: 'outbox-drain', taskId: target.sessionId, message: failure.message });
+    fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(JSON.stringify({ version: '1', type: 'pty', messageOutbox: [{ id: 'normal-failed-held', text: 'pending', state: 'pending' }] }), target.sessionId);
+    await expect(drainSessionMessageOutbox(target)).rejects.toBe(failure);
   });
+  it('isolates a pending task with missing provider metadata and still drains the valid task', async () => {
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
+      VALUES ('invalid','project-1','Invalid',NULL,'pty','{"version":"1","type":"pty","messageOutbox":[{"id":"bad-message","text":"pending","state":"pending"}]}');`);
+    await holdMessage(target.sessionId, 'valid-held');
+    const deliver = vi.fn(async () => ({ status: 'not-ready' as const }));
+    setSessionMessageRouter(deliver);
+    await expect(drainAllSessionMessageOutboxes()).resolves.toBeUndefined();
+    expect(deliver).toHaveBeenCalledWith(target.sessionId, expect.objectContaining({ id: 'valid-held' }));
+    expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'outbox-drain', taskId: 'invalid' }));
+  });
+
+  it.each(['dispatch-recovery', 'deferred-recovery'])('isolates a real SQLite refusal in %s and recovers another task', (operation) => {
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
+      VALUES ('bad','project-1','Bad','codex','pty','{"version":"1","type":"pty"}');`);
+    for (const id of ['bad', target.sessionId]) {
+      const messageId = `${id}-receipt`;
+      fixture.sqlite.prepare('INSERT INTO messages (id,session_id,content,sender,metadata) VALUES (?,?,?,?,?)')
+        .run(messageId, id, 'pending', 'user', JSON.stringify({ kind: 'ordinary-message', state: 'dispatching', ...(operation === 'deferred-recovery' ? { defer: true } : {}) }));
+      fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(JSON.stringify({ version: '1', type: 'pty', messageOutbox: [{ id: messageId, text: 'pending', state: 'dispatching' }] }), id);
+    }
+    fixture.sqlite.exec(`CREATE TRIGGER refuse_bad_receipt BEFORE UPDATE ON messages WHEN OLD.session_id='bad' BEGIN SELECT RAISE(ABORT,'fixture task refusal'); END;`);
+    expect(operation === 'dispatch-recovery' ? claimInterruptedDispatches() : claimInterruptedDeferredMessages()).toBe(1);
+    expect(fixture.sqlite.prepare("SELECT json_extract(metadata,'$.state') state FROM messages WHERE session_id=?").get(target.sessionId)).toEqual({ state: 'outcome-unknown' });
+    expect(fixture.sqlite.prepare("SELECT json_extract(metadata,'$.state') state FROM messages WHERE session_id='bad'").get()).toEqual({ state: 'dispatching' });
+    expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation, taskId: 'bad', message: expect.stringContaining('fixture task refusal') }));
+  });
+
+  it('isolates a real run-interval update refusal and closes another task interval', () => {
+    fixture.sqlite.exec(`INSERT INTO session_run_intervals (session_id,started_at,last_seen_at) VALUES ('bad',1,2),('good',3,4);
+      CREATE TRIGGER refuse_bad_interval BEFORE UPDATE ON session_run_intervals WHEN OLD.session_id='bad' BEGIN SELECT RAISE(ABORT,'interval refusal'); END;`);
+    expect(closeInterruptedRunIntervals()).toBe(1);
+    expect(fixture.sqlite.prepare("SELECT ended_at FROM session_run_intervals WHERE session_id='good'").get()).toEqual({ ended_at: 4 });
+    expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'run-interval-recovery', taskId: 'bad' }));
+  });
+
 });

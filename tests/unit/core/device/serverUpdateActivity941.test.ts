@@ -39,4 +39,16 @@ describe('server update activity reported by the account that is waiting', () =>
     delete files['/srv/accounts/u/data/server-update.json']
     expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: '0.2.58-beta.1057.1' })
   })
+  it('reports fresh supervisor capability and the existing activity failure ledger', () => {
+    const files: Record<string, string> = {
+      '/srv/data/supervisor-health.json': JSON.stringify({ at: now, confirmedRestart: true }),
+      '/srv/accounts/u/data/activity.json': JSON.stringify({ at: now, bootFailures: [{ operation: 'outbox-drain', taskId: 'bad', message: 'router failed' }] }),
+    }
+    const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_TASK_HOST_USER_DATA: '/srv/accounts/u/data' }
+    const deps = { nowMs: () => now, readText: (file: string) => files[file] ?? null, uid: () => 1000 }
+    expect(resolveDeviceHostInfo(env, deps)).toMatchObject({ server_confirmed_restart: true, server_boot_failures: [{ taskId: 'bad', operation: 'outbox-drain', message: 'router failed' }] })
+    files['/srv/data/supervisor-health.json'] = JSON.stringify({ at: now - SERVER_ACTIVITY_STALE_MS, confirmedRestart: true })
+    expect(resolveDeviceHostInfo(env, deps).server_confirmed_restart).toBeUndefined()
+  })
+
 })

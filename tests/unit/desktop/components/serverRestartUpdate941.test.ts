@@ -8,13 +8,14 @@ import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext
 import type { Device } from '@gugu/core/shared/types/chat'
 
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry }))
+const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string) => true))
+vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart }))
 
 const current = '0.2.58-beta.1056.1'
 const target = '0.2.58-beta.1057.1'
 function server(update: Device['capabilities']['server_update'] = { state: 'ready', version: target }, version = current): Device {
   return { device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online', is_online: true,
-    last_seen_at: '2026-10-29T00:00:00Z', capabilities: { terminals: [], runtimes: [], host_kind: 'server', app_version: version, server_update: update } }
+    last_seen_at: '2026-10-29T00:00:00Z', capabilities: { terminals: [], runtimes: [], host_kind: 'server', server_confirmed_restart: true, app_version: version, server_update: update } }
 }
 let container: HTMLDivElement
 let root: Root
@@ -31,6 +32,7 @@ async function click(id: string) {
   await act(async () => { node(id)!.click() })
 }
 beforeEach(() => {
+  restart.mockReset().mockResolvedValue(true)
   retry.mockReset().mockResolvedValue(true)
   toast.mockReset()
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
@@ -50,7 +52,9 @@ describe('confirmed server update feedback', () => {
   })
 
   it('does not offer confirmed restart to an older server', async () => {
-    await render(server({ state: 'ready', version: target }, '0.2.58-beta.1055.1'))
+    const legacy = server({ state: 'ready', version: target }, '0.2.58')
+    delete legacy.capabilities.server_confirmed_restart
+    await render(legacy)
     expect(node('update-now')).toBeNull()
     expect(retry).not.toHaveBeenCalled()
   })
@@ -60,7 +64,8 @@ describe('confirmed server update feedback', () => {
     await click('update-now')
     expect(retry).not.toHaveBeenCalled()
     await click('update-now-yes')
-    expect(retry).toHaveBeenCalledExactlyOnceWith('remote')
+    expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target)
+    expect(retry).not.toHaveBeenCalled()
     expect(node('restarting')!.textContent).toBe('正在重启…')
     expect(node('update-now')).toBeNull()
     await render(server(undefined, target))
@@ -69,8 +74,8 @@ describe('confirmed server update feedback', () => {
   })
 
   it.each(['refused', 'rejected'])('reports a %s restart request instead of leaving a sent state', async (failure) => {
-    if (failure === 'refused') retry.mockResolvedValue(false)
-    else retry.mockRejectedValue(new Error('remote disconnected'))
+    if (failure === 'refused') restart.mockResolvedValue(false)
+    else restart.mockRejectedValue(new Error('remote disconnected'))
     await render(); await click('update-now'); await click('update-now-yes')
     expect(node('restarting')).toBeNull()
     expect(node('update-now')).not.toBeNull()
@@ -81,10 +86,18 @@ describe('confirmed server update feedback', () => {
     await render()
     vi.useFakeTimers()
     await click('update-now'); await click('update-now-yes')
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
     expect(node('restarting')).toBeNull()
     expect(node('update-now')).not.toBeNull()
     expect(toast).toHaveBeenCalledWith(expect.stringContaining(target), 'error')
-    expect(retry).toHaveBeenCalledTimes(1)
+    expect(restart).toHaveBeenCalledTimes(1)
   })
+  it('shows a task boot failure while keeping the online device usable', async () => {
+    const device = server()
+    device.capabilities.server_boot_failures = [{ operation: 'outbox-drain', taskId: 'task-bad', message: 'router refused' }]
+    await render(device)
+    expect(node('boot-failure')?.textContent).toContain('router refused')
+    expect(node('update-now')).not.toBeNull()
+  })
+
 })

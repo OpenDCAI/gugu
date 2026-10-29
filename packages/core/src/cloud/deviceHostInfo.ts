@@ -1,3 +1,4 @@
+import { parseSessionBootFailures } from '../shared/sessionBootTasks'
 /**
  * #6264「设置 → 设备」每一行要写清楚的那几件事:这是一台什么机器(桌面 / 咕咕 server)、什么系统、
  * 什么架构、它自己的升级走到哪一步了。由那台机器自己随心跳报(心跳是 gugu_devices 行的唯一写者),
@@ -216,6 +217,15 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
     const update = (accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null) ?? (text ? parseServerUpdateState(text, nowMs) : null)
     if (update) info.server_update = update
+    try {
+      const health = JSON.parse(readText(join(home, 'data', SUPERVISOR_HEALTH_FILE)) ?? '{}') as { confirmedRestart?: unknown; at?: unknown }
+      if (health.confirmedRestart === true && typeof health.at === 'number' && nowMs - health.at >= 0 && nowMs - health.at < SERVER_ACTIVITY_STALE_MS) {
+        info.server_confirmed_restart = true
+      }
+      const activity = JSON.parse(activityText ?? '{}') as { bootFailures?: unknown }
+      const failures = parseSessionBootFailures(activity.bootFailures)
+      if (failures.length) info.server_boot_failures = failures
+    } catch { /* Optional diagnostics do not gate device liveness. */ }
     // #6264 磁盘余量:一次 statfs 系统调用,随 30 秒一次的心跳报。满了之后升级、保存、登录态续期都会失败,
     // 以前界面上什么都看不到(机器照样「在线」)。
     const disk = readDiskSpace(home, deps.statfs ?? statfsSync)

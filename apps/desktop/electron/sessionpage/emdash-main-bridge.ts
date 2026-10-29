@@ -1,3 +1,4 @@
+export { sessionBootTasks } from '../session/main/core/boot-tasks'
 // @@@sessionpage — gugu-side esbuild ENTRY for the session-page backend bundle. The session backend is a
 // cohesive submodule (owner #43), not a set of gugu subsystems: its boot orchestration lives on its OWN
 // side (apps/desktop/electron/session/main/embedded-boot.ts), which exposes exactly ONE entry

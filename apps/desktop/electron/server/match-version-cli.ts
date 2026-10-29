@@ -99,7 +99,7 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
     return 3
   }
   const requestedAt = now()
-  requestVersionSwitch(account.dataDir, `desktop asked to switch to ${parsed.version}`, requestedAt, parsed.now)
+  requestVersionSwitch(account.dataDir, `desktop asked to switch to ${parsed.version}`, requestedAt, parsed.now, parsed.version)
   const readState = deps.readUpdateState ?? ((a: ServerAccount) => {
     try {
       return fs.readFileSync(path.join(a.dataDir, SERVER_UPDATE_STATE_FILE), 'utf8')

@@ -3,11 +3,9 @@
  * 两处说同一件事,❌ 各写一套。纯函数,读的只是那台机器随心跳报上来的几项(老宿主不报 = 不知道,不下结论)。
  */
 import type { DeviceCapabilities } from '../shared/types/chat'
-import { compareServerVersions } from './serverVersionSelection'
-
-/** The first released server that treats the manual retry as a confirmed restart. */
-export function serverSupportsConfirmedRestart(version: string | null | undefined): boolean {
-  return Boolean(version && compareServerVersions(version, '0.2.58-beta.1056.1') >= 0)
+/** Old supervisors must explicitly report support; a version string cannot grant an override. */
+export function serverSupportsConfirmedRestart(capabilities: Pick<DeviceCapabilities, 'server_confirmed_restart'> | null | undefined): boolean {
+  return capabilities?.server_confirmed_restart === true
 }
 
 /** Account activity older than this cannot block an update or supply a busy count. */
@@ -146,6 +144,7 @@ export function formatBytes(bytes: number): string {
 
 /** #6264 设备行点「重试」换到匹配版本的那条设备调用(界面也要用,所以放在不碰文件系统的这里)。 */
 export const VERSION_RETRY_RPC = 'server.versionMatch.retry'
+export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
 
 /**
  * #6264 报给那台机器的「这是哪一台桌面」:设备编号 + 版本。设备编号跟着硬件走,同一台电脑上的正式版、Beta、

@@ -1,3 +1,4 @@
+import { sessionBootTasks } from './core/boot-tasks'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -1840,9 +1841,9 @@ export async function openAllEmdashProjects(): Promise<void> {
   results.forEach((result, index) => {
     const project = projects[index]!
     if (result.status === 'rejected') {
-      agentSessionLog.error({ projectId: project.id, err: result.reason }, '启动时打开项目失败')
+      sessionBootTasks.record('project-open', project.id, result.reason)
     } else if (!result.value.success) {
-      agentSessionLog.error({ projectId: project.id, error: result.value.error }, '启动时打开项目失败')
+      sessionBootTasks.record('project-open', project.id, result.value.error)
     }
   })
 }

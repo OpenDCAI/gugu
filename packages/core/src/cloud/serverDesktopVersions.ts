@@ -114,9 +114,9 @@ export function recordDesktopReport(accountDataDir: string, hello: DesktopHello,
  * 有 agent 在跑时只有人点过「现在重启更新」(`confirmed`)才当场换 —— 换版要结束账号进程,在跑的那一轮跟着没了
  * (10-28 Linux 2:桌面升了一版来敲门,7 条车道正在跑的那一轮全断)。
  */
-export function requestVersionSwitch(accountDataDir: string, reason: string, now = Date.now(), confirmed = false): void {
+export function requestVersionSwitch(accountDataDir: string, reason: string, now = Date.now(), confirmed = false, target?: string): void {
   mkdirSync(accountDataDir, { recursive: true })
-  writeJsonAtomic(join(accountDataDir, VERSION_SWITCH_FILE), { reason: reason.slice(0, 200), at: now, ...(confirmed ? { confirmed: true } : {}) })
+  writeJsonAtomic(join(accountDataDir, VERSION_SWITCH_FILE), { reason: reason.slice(0, 200), at: now, ...(confirmed && isServerVersion(target) ? { confirmed: true, target } : {}) })
 }
 
 /** 人点的「现在重启更新」多久内算数:过了还没换成(守护进程没在跑、换版失败),❌ 让它在之后的某次换版里替人再拍一次板。 */
@@ -126,16 +126,17 @@ export const VERSION_SWITCH_CONFIRM_TTL_MS = 10 * 60 * 1000
 export function readVersionSwitchRequest(
   accountDataDir: string,
   now = Date.now(),
-): { reason: string; at: number; confirmed: boolean } | null {
+): { reason: string; at: number; confirmed: boolean; target?: string } | null {
   const text = readText(join(accountDataDir, VERSION_SWITCH_FILE))
   if (!text) return null
   try {
-    const value = JSON.parse(text) as { reason?: unknown; at?: unknown; confirmed?: unknown }
+    const value = JSON.parse(text) as { reason?: unknown; at?: unknown; confirmed?: unknown; target?: unknown }
     if (typeof value.at !== 'number' || now - value.at > 24 * 60 * 60 * 1000) return null
     return {
       reason: typeof value.reason === 'string' ? value.reason : '',
       at: value.at,
-      confirmed: value.confirmed === true && now - value.at < VERSION_SWITCH_CONFIRM_TTL_MS,
+      confirmed: value.confirmed === true && isServerVersion(value.target) && now - value.at >= 0 && now - value.at < VERSION_SWITCH_CONFIRM_TTL_MS,
+      ...(isServerVersion(value.target) ? { target: value.target } : {}),
     }
   } catch {
     return null
@@ -168,16 +169,16 @@ export function noteDesktopHello(
 
 /**
  * 设备行「更新没成功 · 重试」/「现在重启更新」那一下(设备 RPC,远程隧道经咕咕云、远程 SSH 经设备连接,只有人点才发):
- * 账号进程留一个比失败更晚、人确认过的换版请求,守护进程下一轮就不看冷却、也不等空闲,重新下载 / 换过去。
+ * 普通重试只解除失败冷却并等待空闲；确认重启使用单独 RPC，绑定目标且消费一次。
  * 老 server 不认 = unknown_method(它也不会报「更新没成功」)。
  */
-export { VERSION_RETRY_RPC } from './serverMachineHealth'
+export { VERSION_RETRY_RPC, VERSION_RESTART_RPC } from './serverMachineHealth'
 
 /** 账号进程这一侧收到「重试」。非咕咕 server = false。 */
 export function requestVersionRetry(env: NodeJS.ProcessEnv, now = Date.now()): boolean {
   const dataDir = env.GUGU_SERVER_MODE === '1' ? env.GUGU_TASK_HOST_USER_DATA?.trim() : undefined
   if (!dataDir) return false
-  requestVersionSwitch(dataDir, 'retry from desktop', now, true)
+  requestVersionSwitch(dataDir, 'retry when idle from desktop', now)
   return true
 }
 
@@ -196,4 +197,12 @@ export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packag
   if (!options.published) return null
   const own = env.GUGU_APP_VERSION?.trim()
   return isServerVersion(own) ? own : null
+}
+
+/** Only the distinct, explicitly confirmed action grants an override for this target, once. */
+export function requestConfirmedVersionRestart(env: NodeJS.ProcessEnv, target: unknown, confirmed: unknown, now = Date.now()): boolean {
+  const dataDir = env.GUGU_SERVER_MODE === '1' ? env.GUGU_TASK_HOST_USER_DATA?.trim() : undefined
+  if (!dataDir || confirmed !== true || !isServerVersion(target)) return false
+  requestVersionSwitch(dataDir, 'confirmed restart from desktop', now, true, target)
+  return true
 }

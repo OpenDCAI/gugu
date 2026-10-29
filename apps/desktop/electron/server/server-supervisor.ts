@@ -1,3 +1,4 @@
+import { createServerVersionLifecycle } from './server-version-lifecycle'
 /**
  * 咕咕 server 的守护进程(`gugu-server run`,系统服务拉起的就是它)。
  *
@@ -10,7 +11,6 @@
  *  ⑤ #6264 每个账号跑和自己桌面匹配的那一版(server-account-versions.ts):各账号可以跑不同版本,换版只重启那一个账号。
  */
 import { SERVER_LOGIN_ACTION } from '@gugu/core/cloud/remoteTunnel'
-import { readVersionSwitchRequest } from '@gugu/core/cloud/serverDesktopVersions'
 import { onErrorEvents } from '@gugu/session-shared'
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
@@ -131,9 +131,11 @@ export async function runSupervisor(): Promise<void> {
 
   const layout = managedLayout()
   const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
+  const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
   const versions = createAccountVersionConverger({
     layout,
     followSupervisor,
+    lifecycle,
     log,
     running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
     // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
@@ -197,6 +199,9 @@ export async function runSupervisor(): Promise<void> {
     }
     // #6264 各账号对一对版本:只读每个账号目录里的两个小文件,要换的只重启那一个账号。
     if (!followSupervisor) versions.converge(signedIn)
+    try { lifecycle?.reclaim() } catch (error) {
+      log.warn('Version reclamation failed', { error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   const stopAll = async (): Promise<void> => {
@@ -255,10 +260,11 @@ export async function runSupervisor(): Promise<void> {
 
   startServerUpdater({
     log,
-    // 人在这个账号上点了「现在重启更新」:它的 agent 不再挡守护进程自己的升级(别的账号的照样挡)。
+    lifecycle,
+    // Account restart confirmation never authorises a supervisor-wide upgrade.
     isBusy: () =>
       listAccounts().some(
-        (account) => children.has(account.userId) && accountIsBusy(account.dataDir) && !readVersionSwitchRequest(account.dataDir)?.confirmed,
+        (account) => children.has(account.userId) && accountIsBusy(account.dataDir),
       ),
     shutdown: () => shutdown('upgrade'),
     inUse: () => versions.inUse(),

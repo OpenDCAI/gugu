@@ -112,26 +112,7 @@ fi
 TARGET="$SERVER_HOME/versions/$VERSION"
 # 切换前在用的那个版本:留着(它可能正在跑,也是回退的去处)。
 PREV="$(readlink "$SERVER_HOME/current" 2>/dev/null | sed 's#^versions/##')"
-# #6264 清旧版本:一台机器上几个账号可能各跑各的版本(每个账号跑和自己桌面匹配的那一份)。
-# 留下:要装的这一版、切换前在用的、各账号记着跑的(accounts/*/data/server-version.json),再加最近用过的 5 份
-# (按目录时刻;与 server-account-versions.ts 的 versionsToKeep 同一条规则)。其余删掉 —— 盘不能被旧版本慢慢吃满。
-prune_versions() {
-  [ -d "$SERVER_HOME/versions" ] || return 0
-  keep=" $VERSION $PREV "
-  for f in "$SERVER_HOME"/accounts/*/data/server-version.json; do
-    [ -f "$f" ] || continue
-    v="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$f" | head -n 1)"
-    [ -n "$v" ] && keep="$keep$v "
-  done
-  n=0
-  for name in $(ls -1t "$SERVER_HOME/versions" 2>/dev/null); do
-    case "$keep" in *" $name "*) continue ;; esac
-    if [ "$n" -lt 5 ]; then n=$((n + 1)); continue; fi
-    rm -rf "${SERVER_HOME:?}/versions/$name"
-  done
-}
-# 下载之前先清(以前是先下后清,盘本来就紧的机器正是在下载这一步装不下的)。
-prune_versions
+# Bootstrap stages packages only. The running supervisor owns all reclamation and rollback pointers.
 if [ -x "$TARGET/bin/gugu-server" ]; then
   say "版本 $VERSION 已经装过了。"
 else
@@ -198,7 +179,6 @@ if [ "$KEEP_CURRENT" = 1 ] && [ -n "$PREV" ] && [ -x "$SERVER_HOME/current/bin/g
 else
   switch_current
 fi
-prune_versions
 # 旧的安装脚本踩了上面那个坑时留下的:versions/<某版本>/current.tmp(一条软链,删了无害)。
 for stray in "$SERVER_HOME"/versions/*/current.tmp; do
   if [ -L "$stray" ]; then rm -f "$stray"; fi

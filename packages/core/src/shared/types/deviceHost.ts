@@ -1,3 +1,4 @@
+import type { SessionBootFailure } from '../sessionBootTasks'
 // #6264 心跳随行报的「这是台什么机器」(见 packages/core/src/cloud/deviceHostInfo.ts);
 // 设备行上以 DeviceCapabilities 的可选字段出现:老宿主不报 = 不知道(界面退回平台名),❌ 补默认值。
 
@@ -56,6 +57,9 @@ export interface DeviceHostInfo {
    * 那一端又从没连上过它时也认得出。老宿主不报 = 缺席。
    */
   home_dir?: string
+  /** Supervisor explicitly supports target-bound, one-shot confirmed account restarts. */
+  server_confirmed_restart?: true
+  server_boot_failures?: SessionBootFailure[]
   server_update?: DeviceServerUpdate
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true

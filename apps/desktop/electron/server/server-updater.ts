@@ -1,3 +1,4 @@
+import type { ServerVersionLifecycle } from './server-version-lifecycle'
 /**
  * 咕咕 server 自己升级(product spec 第 5 条):后台悄悄下好、校验、解开,
  * **这台机器上没有 agent 在跑的时候**才切过去;切的时候终端会话(tmux)不受影响。
@@ -20,8 +21,8 @@ import { serverDownloadBase } from './server-download'
 import { liveKeeperPid } from './server-keeper'
 import { startDetached } from './server-service'
 import type { SupervisorLog } from './server-supervisor'
-import { pruneVersions, touchVersion, versionManifestUrl } from './server-account-versions'
-import { pointCurrent, readBadVersions, spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
+import { touchVersion, versionManifestUrl } from './server-account-versions'
+import { readBadVersions, spawnUpgradeGuard } from './server-upgrade-guard'
 
 /**
  * 新版本最迟半小时就发现(原先 6 小时:新 Beta 要好几个小时才到云机器上,10-27 owner 撞到)。
@@ -197,6 +198,7 @@ export async function stageVersion(layout: Pick<Layout, 'versions'>, manifest: S
 
 export type ServerUpdaterDeps = {
   log: SupervisorLog
+  lifecycle: ServerVersionLifecycle | null
   /** 这台机器上有没有 agent 正在干活(在跑一轮,或卡在等人批准)。 */
   isBusy: () => boolean
   /** 走正常退出流程(收子进程、放锁)。 */
@@ -253,25 +255,29 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
         log.info('发现新版本,后台下载', { current: layout.version, next: manifest.version })
         state.set('downloading', manifest.version)
         // #6264 下载前先清:留下各账号在用的 + 最近 5 份(同一台机器上几个账号各跑各的版本,❌ 只留一份)。
-        pruneVersions(layout.versions, [path.basename(layout.running), manifest.version, ...(deps.inUse?.() ?? [])])
+        deps.lifecycle?.hold('supervisor-update', manifest.version)
+        deps.lifecycle?.reclaim()
       }
-      const versionDir = await stageVersion(layout, manifest)
+      if (!deps.lifecycle) throw new Error('Supervisor version lifecycle is not initialised')
+      deps.lifecycle.hold('supervisor-update', manifest.version)
+      await deps.lifecycle.stage(manifest.version, () => stageVersion(layout, manifest))
+      const versionDir = path.join(layout.versions, manifest.version)
       // 每一轮都续写一次:读侧据此知道守护进程还在等,而不是早就没了。
       state.set('ready', manifest.version)
       if (deps.isBusy()) return void retryWhenIdle(manifest.version)
       if (stopped) return
       log.info('没有 agent 在跑,切到新版本', { from: layout.version, to: manifest.version })
       // #6264 先留下「从哪切到哪」,再请看门狗(用本进程 —— 已知能跑的这一版)盯着:新版本站不稳就切回来。
-      writeUpgradeMarker(layout.home, {
+      deps.lifecycle.switchSupervisor({
         from: layout.version,
         to: manifest.version,
         fromDir: layout.running,
         toDir: versionDir,
         switchedAt: Date.now(),
-      })
+      }, () => {
       const guard = spawnUpgradeGuard(layout.home)
       log.info('升级看门狗已就位', { guard: guard ?? null })
-      pointCurrent(layout.home, versionDir)
+      })
       if (!process.env.GUGU_SERVER_SUPERVISED && liveKeeperPid(layout.home) === null) {
         // 没有系统服务管:自己先起新版本,它会等本进程退干净(放掉单实例锁)再启动。
         startDetached(path.join(layout.current, 'bin', 'gugu-server'), { GUGU_SERVER_WAIT_PID: String(process.pid) })

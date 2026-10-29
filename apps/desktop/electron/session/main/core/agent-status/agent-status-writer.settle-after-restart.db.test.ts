@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import { openFixture } from '@tooling/utils/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
@@ -128,4 +129,12 @@ describe('settling after a restart leaves sessions whose engine survived in tmux
       expect(status(id)).toEqual({ status: 'error', detail: null });
     }
   });
+  it('records one task update refusal and continues restart recovery for the other tasks', async () => {
+    fixture.sqlite.exec(`CREATE TRIGGER refuse_one_status BEFORE UPDATE ON sessions WHEN OLD.id='pty-gone' BEGIN SELECT RAISE(ABORT,'status fixture refusal'); END;`);
+    await expect(agentStatusWriter.settleAfterRestart(new Set())).resolves.toBeUndefined();
+    expect(status('pty-gone').status).toBe('working');
+    expect(status('acp').status).toBe('error');
+    expect(sessionBootTasks.snapshot()).toContainEqual(expect.objectContaining({ operation: 'status-recovery', taskId: 'pty-gone' }));
+  });
+
 });
