@@ -184,6 +184,7 @@ const fallbackMessages = {
   'transcript.deliveryScheduledTitled': 'scheduled “{title}”, due now',
   'transcript.deliveryDetails': 'Details',
   'transcript.deliveryReplyTo': 'Replying to {from}: {preview}',
+  'transcript.showOriginalMessage': 'Show original message',
   'transcript.deliveryUnknownSender': 'Delivered via 咕咕',
   'transcript.deliveryLegacySender': 'Delivered via 咕咕',
   'transcript.deliveryFact.at': 'Time',

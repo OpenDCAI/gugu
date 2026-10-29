@@ -101,6 +101,31 @@ describe('DevicesSection interaction', () => {
     expect(value.remove).not.toHaveBeenCalled()
   })
 
+  it('a machine with two versions: ⋯ → remove opens the version list, each version but this one removed on its own, back to the list', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', tier: 'acceptance-tasks431', is_online: false }),
+      device({ device_id: 'me', machine_id: 'same-mac', tier: 'beta', is_current_device: true })] })
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
+    await openMenu()
+    expect(document.body.querySelector('[data-testid="settings-device-remove-button"]'), 'not the whole machine').toBeNull()
+    await act(async () => { document.body.querySelector<HTMLElement>('[data-testid="settings-device-remove-versions"]')!.click() })
+    await flush()
+    const versions = () => document.body.querySelector('[data-testid="settings-device-versions-dialog"]')
+    expect(versions()!.textContent).toContain('移除「Remote Mac」的版本')
+    expect(versions()!.querySelector('[data-testid="device-configuration-remove-me"]'), 'this version stays').toBeNull()
+    await act(async () => { versions()!.querySelector<HTMLButtonElement>('[data-testid="device-configuration-remove-old"]')!.click() })
+    await flush()
+    const dialog = () => document.body.querySelector('[data-testid="settings-device-remove-dialog"]') as HTMLElement | null
+    expect(versions()).toBeNull()
+    await act(async () => { buttonByText(dialog()!, '取消').click() })
+    expect(versions(), 'cancel goes back to the list').not.toBeNull()
+    await act(async () => { versions()!.querySelector<HTMLButtonElement>('[data-testid="device-configuration-remove-old"]')!.click() })
+    await flush()
+    await act(async () => { buttonByText(dialog()!, '移除这个版本').click() })
+    await flush()
+    expect(value.remove).toHaveBeenCalledWith('old', { cascade: false })
+    expect(dialog()).toBeNull()
+  })
+
   it('opens the confirmation sheet above the settings layer and removes an unbound device', async () => {
     const value = store()
     await act(async () => {

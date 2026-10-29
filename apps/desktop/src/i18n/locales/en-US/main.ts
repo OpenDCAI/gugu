@@ -647,6 +647,7 @@ export default {
     "noResults": "No results",
     "projects": "Projects · {{count}}",
     "friends": "Friends · {{count}}",
+    "groupAgents": "Agents met in groups · {{count}}",
     "rooms": "Chats · {{count}}",
     "agents": "Agents · {{count}}",
     "groupChat": "Group chat",

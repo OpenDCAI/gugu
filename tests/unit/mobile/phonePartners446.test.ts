@@ -6,6 +6,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import {
   newProjectPath,
   partnerFriends,
+  partnerGroupAgents,
   partnerProjects,
   projectAgents,
   projectAgentTarget,
@@ -30,7 +31,7 @@ function session(conversationId: string, projectId: string, fields: Partial<Sess
   return { conversationId, projectId, title: conversationId, harness: 'claude', runtime: 'acp', agentStatus: null, lastInteractedAt: null, supported: true, ...fields }
 }
 
-// 手机「伙伴」(owner 10-26,OpenDCAI/gugu#446):项目记在账号上、不归哪台机器;朋友 = 人 + 别人的 agent。
+// 手机「伙伴」(OpenDCAI/gugu#446):项目记在账号上、不归哪台机器;朋友只列人,群里的 Agent 单独列。
 describe('partnerProjects', () => {
   it('merges the local projects bound to one group across machines into one project', () => {
     const projects = partnerProjects([
@@ -70,24 +71,36 @@ describe('partnerProjects', () => {
 })
 
 describe('partnerFriends', () => {
-  it('is people plus other owners’ agents, never my own agents', () => {
+  it('lists people only, excluding both my own and other owners’ agents', () => {
     const me = 'me'
     const friends = partnerFriends(
-      [contact('张三'), contact('my-agent', { type: 'agent', owner_user_id: me })],
-      [contact('their-agent', { type: 'agent', owner_user_id: 'someone' }), contact('mine-again', { type: 'agent', owner_user_id: me })],
-      me,
+      [contact('张三'), contact('my-agent', { type: 'agent', owner_user_id: me }), contact('their-agent', { type: 'agent', owner_user_id: 'someone' })],
     )
-    expect(friends.map((friend) => friend.id).sort()).toEqual(['their-agent', '张三'].sort())
+    expect(friends.map((friend) => friend.id)).toEqual(['张三'])
   })
 
   it('does not list one person twice', () => {
-    const friends = partnerFriends([contact('a')], [contact('a', { type: 'agent', owner_user_id: 'x' })], 'me')
+    const friends = partnerFriends([contact('a'), contact('a'), contact('a', { type: 'agent', owner_user_id: 'x' })])
     expect(friends).toHaveLength(1)
+    expect(friends[0]?.type).toBe('human')
   })
 
   it('orders by how the name reads', () => {
-    const friends = partnerFriends([contact('c', { display_name: '周' }), contact('a', { display_name: '陈' }), contact('b', { display_name: '林' })], [], 'me')
+    const friends = partnerFriends([contact('c', { display_name: '周' }), contact('a', { display_name: '陈' }), contact('b', { display_name: '林' })])
     expect(friends.map((friend) => friend.display_name)).toEqual(['陈', '林', '周'])
+  })
+})
+
+describe('partnerGroupAgents', () => {
+  it('lists other owners’ agents once, using the shared-group version from the desktop library', () => {
+    const shared = contact('their-agent', { type: 'agent', owner_user_id: 'someone', display_name: '陈' })
+    const agents = partnerGroupAgents(
+      [contact('person'), contact('my-agent', { type: 'agent', owner_user_id: 'me' }), { ...shared, display_name: 'old name' }],
+      [shared, contact('their-other-agent', { type: 'agent', owner_user_id: 'someone', display_name: '周' }), contact('mine-again', { type: 'agent', owner_user_id: 'me' }), contact('unknown-owner', { type: 'agent' })],
+      'me',
+    )
+    expect(agents.map(agent => agent.id)).toEqual(['their-agent', 'their-other-agent'])
+    expect(agents[0]).toBe(shared)
   })
 })
 

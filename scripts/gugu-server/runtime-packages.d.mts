@@ -1,7 +1,7 @@
 export declare const NATIVE_EXTERNAL_PACKAGES: readonly string[]
 export declare const ADAPTER_BRIDGE_ENTRIES: readonly string[]
 export declare const ADAPTER_PACKAGES: readonly string[]
-export declare const BROWSER_PACKAGES: readonly string[]
+export declare const APP_PAGE_PACKAGES: readonly string[]
 export declare const RUNTIME_PACKAGES: readonly string[]
 export declare const EXCLUDED_NATIVE_PACKAGE_PREFIXES: readonly string[]
 export declare function packageNameOf(specifier: string): string

@@ -91,6 +91,22 @@ export const enUSProjectMessages = {
 
   // ── projects: home, titlebar and view shell ────────────────────────────
   'projects.home.hero': 'What should we do in {projectName}?',
+  // ── sample project (#709) ───────────────────────────────────────────────
+  'projects.sample.name': 'Weekend in Hangzhou',
+  'projects.sample.tag': 'Sample',
+  'projects.sample.note': "This sample is read-only. You can't send messages here.",
+  'projects.sample.newProject': 'New project',
+  'projects.sample.empty': 'Your projects will show up here.',
+  'projects.sample.emptyWithSample': 'Your projects will show up here. Create one, or open the sample.',
+  'projects.sample.taskDetail': 'Task',
+  'projects.sample.taskDone': 'Done',
+  'projects.sample.taskSteps': 'What it did',
+  'projects.sample.taskFiles': 'Files it delivered',
+  'projects.sample.closePane': 'Close',
+  'projects.sample.searched': 'Searched',
+  'projects.sample.wrote': 'Wrote {files}',
+  'projects.sample.shared': 'Shared in the group: {files}',
+  'projects.sample.posted': 'Replied in the group',
   'projects.home.connecting': 'Connecting to the project; you can send once it is ready…',
   // 卡片头「N 个文件夹 · N 个会话」:两个数各自取单复数,再拼起来(❌「1 folders」)。
   'projects.folders.meta': '{folders} · {sessions}',
@@ -218,6 +234,8 @@ export const enUSProjectMessages = {
   // ── projects: delete confirmation ──────────────────────────────────────
   'projects.delete.title': 'Delete project',
   'projects.delete.confirm': 'Delete',
+  'projects.delete.failed': 'Could not delete the project',
+  'projects.delete.checkTimeout': 'The device did not answer while checking the project. Try again once it is connected.',
   'projects.delete.description':
     '"{projectLabel}" will be deleted, together with all of its tasks (archived ones included) — they cannot be restored from Task history. The project folder and worktrees will stay on the filesystem.',
   'projects.delete.detachWarning_one':
@@ -316,6 +334,21 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
 
   // ── projects: home, titlebar and view shell ────────────────────────────
   'projects.home.hero': '我们应该在 {projectName} 中做些什么？',
+  'projects.sample.name': '周末去杭州',
+  'projects.sample.tag': '示例',
+  'projects.sample.note': '示例只能看，不能在这里发消息。',
+  'projects.sample.newProject': '新建项目',
+  'projects.sample.empty': '这里会放你的项目。',
+  'projects.sample.emptyWithSample': '这里会放你的项目。新建一个，或打开示例看看。',
+  'projects.sample.taskDetail': '任务',
+  'projects.sample.taskDone': '已完成',
+  'projects.sample.taskSteps': '做了这些',
+  'projects.sample.taskFiles': '交付的文件',
+  'projects.sample.closePane': '关闭',
+  'projects.sample.searched': '搜索了',
+  'projects.sample.wrote': '写了 {files}',
+  'projects.sample.shared': '发到群里：{files}',
+  'projects.sample.posted': '在群里回复',
   'projects.home.connecting': '正在连接项目，就绪后即可发送…',
   'projects.folders.meta': '{folders} · {sessions}',
   'projects.folders.folderCount_one': '{count} 个文件夹',
@@ -438,6 +471,8 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   // ── projects: delete confirmation ──────────────────────────────────────
   'projects.delete.title': '删除项目',
   'projects.delete.confirm': '删除',
+  'projects.delete.failed': '未能删除项目',
+  'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将删除“{projectLabel}”。项目里的会话（包括已归档的）会一并永久删除，不能从会话历史里恢复。项目文件夹与 worktree 仍会保留在文件系统上。',
   'projects.delete.detachWarning_one': '该自动化将从项目分离，并在挂到其他项目之前不会运行：',
   'projects.delete.detachWarning_other': '这些自动化将从项目分离，并在挂到其他项目之前不会运行：',

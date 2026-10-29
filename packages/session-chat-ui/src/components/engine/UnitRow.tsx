@@ -34,7 +34,9 @@
  *   Mismatch check is suppressed while animating (expected mid-tween).
  */
 
+import '@session-chat/styles/source-message-flash.css';
 import { useDebug } from '@session-chat/components/contexts/debug-context';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatTheme } from '@session-chat/core/theme';
@@ -150,6 +152,7 @@ export type UnitRowProps = {
 
 export function UnitRow(props: UnitRowProps) {
   const debug = useDebug();
+  const commands = useCommands();
   let rowEl: HTMLElement | undefined;
 
   const def = createMemo(() => UNIT_REGISTRY[props.unit.kind]);
@@ -390,6 +393,7 @@ export function UnitRow(props: UnitRowProps) {
             <div
               data-row-kind={props.unit.kind}
               data-item-id={props.unit.itemId}
+              classList={{ 'msg-src-flash': commands().flashMessageId === props.unit.itemId }}
               data-row-inset={insetX()}
               style={{
                 'padding-top': `${props.unit.gapBefore}px`,

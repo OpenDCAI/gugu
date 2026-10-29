@@ -7,6 +7,7 @@
  * 离线、不在名下、够不着、太旧都在发出之前说清;发出去没回音就说「那边可能已经做了」,❌ 排队、❌ 换机器。
  */
 import type { Device } from '@gugu/core/shared/types/chat'
+import { deviceMachines } from '@gugu/core/shared/deviceMachines'
 import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import { cloudComputerPresence, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
@@ -27,7 +28,7 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
-import { FILE_PATCH_PROTOCOL, protocol13FileChanges } from '@gugu/session-core/session-record/contract'
+import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
@@ -217,8 +218,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     // 对端的工具错误原样带回(那台机器上同一个工具会说的那句话),前面点名是哪台机器。
     if (response.error) throw new CrossMachineError(response.error.code || 'SESSION_REMOTE_ERROR', `on ${describe(device)}: ${response.error.message}`)
     const result = response.result as { value?: unknown; protocol?: number } | undefined
-    // A host before protocol 14 does not say its protocol here (protocol13FileChanges, delete on next bump).
-    return protocol13FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
+    return protocol14FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
   }
 
   /**
@@ -496,7 +497,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   return {
     devices: async () => {
       const { thisDeviceId, rows } = await devices()
-      return rows.map(({ device_id, label, is_online }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
+      return deviceMachines(rows.map(device => ({ ...device, is_current_device: device.device_id === thisDeviceId })))
+        .map(({ device: { device_id, label, is_online } }) => ({ deviceId: device_id, label, online: is_online, thisMachine: device_id === thisDeviceId }))
     },
     async listDeviceRows() {
       const [{ thisDeviceId, rows }, cloud] = await Promise.all([
@@ -504,8 +506,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         // 管家问不到不挡列机器:那一行就照库里的在线与否列(不标 cloud_computer)。
         deps.cloudComputerState?.().catch(() => null) ?? Promise.resolve(null),
       ])
-      return rows
-        .map((device) => {
+      return deviceMachines(rows.map(device => ({ ...device, is_current_device: device.device_id === thisDeviceId })))
+        .map(({ device }) => {
           // #7199 云电脑标出它此刻的样子:asleep 也接活 —— 把它当 device 传过去就会先叫醒它。
           const presence = cloudComputerPresence(device, cloud)
           return {

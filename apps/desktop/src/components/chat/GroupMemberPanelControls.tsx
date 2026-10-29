@@ -12,6 +12,7 @@ import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
 import { type ActiveMemberProfile, agentOwnerDisplayName, toAgentProfile, toHumanProfile } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
+import { Hint } from '../ui/Tooltip'
 import { Menu, MenuItem } from '../ui/Menu'
 import { AddGroupMembers } from './AddGroupMembers'
 import { InviteButton } from './InviteButton'
@@ -155,11 +156,15 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
   }, [chatId])
 
-  const headerActions: ReactNode = showInvite ? (
-    <>
-      {mobile && <InviteButton icon={<Plus />} label={t('group.memberList.createAgent')} onClick={createAgentInGroup} testId="member-list-create-agent" />}
-      <InviteButton icon={<UserPlus />} label={t('group.memberList.invite')} onClick={openPicker} testId="member-list-invite" />
-    </>
+  const headerActions: ReactNode = showInvite && mobile ? (
+    <InviteButton icon={<Plus />} label={t('group.memberList.createAgent')} onClick={createAgentInGroup} testId="member-list-create-agent" />
+  ) : null
+  const inviteAction: ReactNode = showInvite ? (
+    <Hint label={t('group.memberList.invite')} side="bottom">
+      <IconButton aria-label={t('group.memberList.invite')} onClick={openPicker} data-testid="member-list-invite">
+        <UserPlus />
+      </IconButton>
+    </Hint>
   ) : null
 
   const rowActions = useCallback((memberId: string): ReactNode => {
@@ -225,5 +230,5 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
     </>
   ) : null
 
-  return { headerActions, rowActions, openProfile, overlays, errorLine, activeMemberId: renderedProfile?.member.id ?? null }
+  return { headerActions, inviteAction, rowActions, openProfile, overlays, errorLine, activeMemberId: renderedProfile?.member.id ?? null }
 }

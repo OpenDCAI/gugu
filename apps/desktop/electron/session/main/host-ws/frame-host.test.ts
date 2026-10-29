@@ -276,10 +276,10 @@ describe('FrameSessionHost over a device-shaped link', () => {
   });
 });
 
-// Protocol 13 compatibility (delete with protocol13FileChanges on the next protocol bump): the frame a
-// protocol-13 window receives for a turn with a file edit, captured at the host's egress.
-describe('a protocol-13 window', () => {
-  it('receives 13\'s own file entity for a patch, and a 14 window the patch unchanged', async () => {
+// Protocol 14 compatibility (delete with protocol14FileChanges on the next protocol bump): the frame a
+// protocol-14 window receives for a turn with a file edit, captured at the host's egress.
+describe('a protocol-14 window', () => {
+  it('receives 14\'s own file entity for a patch, and a 15 window the patch unchanged', async () => {
     const host = new FrameSessionHost();
     const patch = { type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'file',
       patch: { format: 'git_patch', text: 'diff --git "a//w/a.txt" "b//w/a.txt"\n--- "a//w/a.txt"\n+++ "b//w/a.txt"\n@@ -2,3 +2,4 @@\n beta\n-gamma\n+GAMMA-817\n delta\n+zeta\n' } };
@@ -294,8 +294,8 @@ describe('a protocol-13 window', () => {
       await flush();
       return (frames.find((frame) => (frame as { t: string }).t === 'result') as { value: { turns: Array<{ items: unknown[] }> } }).value.turns[0]!.items;
     };
-    expect(await read(13)).toEqual([{ kind: 'modify-file-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt',
+    expect(await read(14)).toEqual([{ kind: 'modify-file-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt',
       status: 'done', path: '/w/a.txt', oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' }]);
-    expect(await read(14)).toEqual([item]);
+    expect(await read(15)).toEqual([item]);
   });
 });

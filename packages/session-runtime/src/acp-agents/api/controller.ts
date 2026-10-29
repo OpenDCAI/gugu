@@ -13,7 +13,8 @@ import { createAcpProcedures } from './procedures';
 export function createAcpRuntimeController(
   runtime: AcpRuntime,
   platformSessionClosed: EventStreamHost<typeof acpRuntimeApiContract.platformSessionClosed>,
-  turnCommitted: EventStreamHost<typeof acpRuntimeApiContract.turnCommitted>
+  turnCommitted: EventStreamHost<typeof acpRuntimeApiContract.turnCommitted>,
+  promptSteered: EventStreamHost<typeof acpRuntimeApiContract.promptSteered>
 ) {
   const procedures = createAcpProcedures(runtime);
   return createController(acpRuntimeApiContract, {
@@ -22,5 +23,6 @@ export function createAcpRuntimeController(
     session: runtime.sessionLiveHost(),
     platformSessionClosed,
     turnCommitted,
+    promptSteered,
   });
 }

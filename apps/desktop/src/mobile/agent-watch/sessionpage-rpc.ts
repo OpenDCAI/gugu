@@ -7,7 +7,7 @@ import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
 import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
 import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, FILE_PATCH_PROTOCOL, protocol13FileChanges, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, FILE_PATCH_PROTOCOL, protocol14FileChanges, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
@@ -139,8 +139,8 @@ function once(deviceId: string) {
     const reply = await callDeviceRpc<{ value: unknown; protocol?: number }>(deviceId, SESSION_HOST_RPC.call,
       { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-    // A host before protocol 14 does not say its protocol here (protocol13FileChanges, delete on next bump).
-    return protocol13FileChanges(reply.result?.value, reply.result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
+    return protocol14FileChanges(reply.result?.value, reply.result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
   })
 }
 

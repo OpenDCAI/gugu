@@ -1849,7 +1849,9 @@ export class SessionCell {
     const nativeSteer = steered && this.supportsSteering;
     if (nativeSteer) this.nativeInputAfterStart = true;
     if (steered && !nativeSteer && this.agent.interruptForMessage) {
-      return this.steerByInterrupt(prompt, opts);
+      const held = this.steerByInterrupt(prompt, opts);
+      if (held.success) this.deps.callbacks?.onPromptSteered?.();
+      return held;
     }
     if (!started && !steered) {
       const queued = ok({ queued: true });
@@ -2058,6 +2060,8 @@ export class SessionCell {
         }
         recordUserMessage();
         this.pendingNativeSteers.push({ prompt, toolsAtAdmission: this.runningToolIds() });
+        // The adapter has the input before a released human tool creates its next boundary.
+        this.deps.callbacks?.onPromptSteered?.();
         // A stop can race the admission receipt; it must retain that accepted input too.
         if (this.closeRequested) this.returnPendingNativeSteers();
         confirmPreparation();
@@ -2073,6 +2077,7 @@ export class SessionCell {
       const watched = started && prompt.origin === 'communication' && opts?.onAdmission !== undefined;
       const receiptOrTimeout = agent.prompt(promptRequest, { requestId, message: submittedMessage,
         ...(watched ? { admissionTimeoutMs: PROMPT_ADMISSION_TIMEOUT_MS } : {}) });
+      if (steered) this.deps.callbacks?.onPromptSteered?.();
       // Prepared context is consumed by the model only when its turn completes; any failure releases it.
       if (!steered) void request.completion.promise.then(result => result.success ? confirmPreparation() : releasePreparation());
       const receipt = receiptOrTimeout.then(receipt => {

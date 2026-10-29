@@ -7,7 +7,7 @@ const { launch, closeFirst, releaseFirst, gone } = vi.hoisted(() => {
 });
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/server-background-test' } }));
 vi.mock('node:module', () => ({ createRequire: () => Object.assign(() => ({ chromium: { launchPersistentContext: launch } }), { resolve: () => '/runtime/mcp' }) }));
-vi.mock('../../../../apps/desktop/electron/session/main/core/browser/cloud/chrome', () => ({ findChrome: () => '/chrome', chromeArgs: () => [] }));
+vi.mock('../../../../apps/desktop/electron/server/app-browser', () => ({ findAppBrowser: () => '/chrome' }));
 vi.mock('../../../../apps/desktop/electron/session/main/core/extensions/extension-protocol', () => ({ setupExtensionProtocol: () => {} }));
 vi.mock('../../../../apps/desktop/electron/session/main/core/extensions/extensions-root', () => ({ extensionsService: () => ({ grantedHosts: () => [] }) }));
 vi.mock('../../../../apps/desktop/electron/session/main/core/extensions/extension-bridge', () => ({ answerCall: vi.fn(), stopPageWatches: vi.fn() }));
