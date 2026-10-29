@@ -380,6 +380,7 @@ import {
 import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
+import { platformCredentials } from './session/main/core/integrations/platform-credentials-instance'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
@@ -2503,6 +2504,17 @@ function onHumanAuthSessionChanged(): void {
   // 登录一到就认本机(认出即通知窗口重读设备表);登出时答 null,下次登录认出来会再通知一次。
   void localDeviceId()
   void handOffWechatIfAny()
+  refreshPlatformCredentials()
+}
+// #921 平台保管的凭据(高德):开机、登录变了就问一次平台哪些连着,本机账号表照着改 —— 另一台设备连的,这台也算连着;
+// #649 留在本机的 key 也在这一步传上去。要等会话页后端 boot 完(账号表是它建的),之前来的那一下由 boot 之后那次补上。
+let platformCredentialsBoot: Promise<unknown> | null = null
+function refreshPlatformCredentials(): void {
+  if (!platformCredentialsBoot) return
+  void platformCredentialsBoot.then(() => {
+    platformCredentials.invalidate()
+    return platformCredentials.refresh()
+  })
 }
 // 「设置 → 聊天渠道 → 微信」的收发在云电脑管家上(#7199,桌面关了照样能聊);界面直接调管家。
 // 主进程只剩一件事:桌面第一版在本机连过的微信,登录后交给管家、交完删掉本机那份(owner 不用重扫)。
@@ -6025,6 +6037,8 @@ app.whenReady().then(async () => {
     const emdashBoot = emdash.bootEmdashModule(ipcMain, {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
+    platformCredentialsBoot = emdashBoot.catch(() => undefined)
+    refreshPlatformCredentials()
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
         if (change.reading?.status !== 'working') void assistantPanel.publish(change.sessionId).catch(() => {

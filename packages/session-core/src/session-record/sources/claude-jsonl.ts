@@ -9,12 +9,14 @@ import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/
 
 import {
   type RecordEntry,
+  type RecordImageRef,
   type SessionRecordLocator,
   type SessionRecordResume,
   type SessionRecordSource,
   type SessionRecordSourceEvents
 } from '../contract';
 import { findUnder, isFile } from './find-file';
+import { locateImages, readRecordImage } from './record-images';
 import {
   SessionRecordNotFoundError,
   asRecord,
@@ -107,7 +109,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
       path,
       pollInterval(this.options),
       {
-        onLines: (lines) => this.emitLines(lines),
+        onLines: (lines, offsets) => this.emitLines(lines, offsets),
         onRestart: (reason) => {
           // 先清去重表再转发：TailReader 在 onRestart 之后紧接着把整份文件当"新行"送进来，
           // 不清的话每一条都会撞上 seenUuids 被丢掉 —— 订阅者拿到一条空时间线。
@@ -151,7 +153,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.childRoots = data.childRoots;
     this.seenUuids = new Set(data.seenUuids);
     this.lastUuid = data.lastUuid;
-    const ok = await this.reader!.resumeFrom(data.tail, (lines) => this.emitLines(lines));
+    const ok = await this.reader!.resumeFrom(data.tail, (lines, offsets) => this.emitLines(lines, offsets));
     if (!ok) {
       // 尾读器判定续不上（inode 换了 / 文件变短 / 读不到）。把刚装回去的去重表清掉，
       // 交给调用方统一走「作废 + 整份重读」那条路。
@@ -188,6 +190,10 @@ class ClaudeJsonlSource implements SessionRecordSource {
     await this.reader?.catchUp();
   }
 
+  readImage(ref: RecordImageRef): Promise<string | null> {
+    return readRecordImage(ref);
+  }
+
   stop(): void {
     this.stopped = true;
     this.reader?.stop();
@@ -202,16 +208,19 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.seenUuids = new Set();
     this.lastUuid = null;
     this.anchors = new Set();
-    await this.reader!.readFromStart((lines) => this.emitLines(lines));
+    await this.reader!.readFromStart((lines, offsets) => this.emitLines(lines, offsets));
     // 分叉串联接在整份读之后：串上来的那份也是"已有内容"，尾读要交接到链条最后一份上。
     const tailPath = await this.chainForks(path);
     if (tailPath !== path) this.reader!.retarget(tailPath);
   }
 
-  private emitLines(lines: string[]): void {
+  /** `offsets` 只有尾读器读的行才有(分叉文件整份读进来的没有):有它才给工具图记原文位置。 */
+  private emitLines(lines: string[], offsets?: number[]): void {
     if (this.stopped || !this.events) return;
     const events = this.events;
-    emitJsonLines(lines, 'claude', this.warn, (entries) => events.onEntries(entries), (record) => this.decodeRecord(record));
+    const path = this.reader?.currentPath;
+    emitJsonLines(lines, 'claude', this.warn, (entries) => events.onEntries(entries), (record) => this.decodeRecord(record),
+      offsets && path ? (entries, index) => locateImages(entries, lines[index], offsets[index], path) : undefined);
   }
 
   private decodeRecord(record: Record<string, unknown>): RecordEntry[] {
