@@ -27,9 +27,9 @@ describe('one account work outbox', () => {
     f.deliver.mockRejectedValue(Object.assign(new Error('requester must update'), { code }))
     await f.pump.kick()
     expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_settle', expect.objectContaining({
-      p_stage: 'retry', p_error_code: 'CLIENT_OUTDATED', p_receipt: { failure_observed: false }, p_retry_after_seconds: 1,
+      p_stage: 'retry', p_error_code: 'CLIENT_OUTDATED', p_receipt: { failure_observed: false }, p_retry_after_seconds: 30,
     }), context)
-    expect(f.retryIn).toHaveBeenCalledWith(1000)
+    expect(f.retryIn).toHaveBeenCalledWith(30_000)
   })
 
   it('defers a moved home before contacting any old delivery address',async()=>{

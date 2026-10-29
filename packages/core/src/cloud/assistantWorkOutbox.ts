@@ -127,7 +127,7 @@ export function createAssistantWorkOutboxPump(deps: {
     ]).has(code ?? '')
     const backoffAttempts = observedFailure ? event.failed_attempts : Math.max(0, event.attempts - 1)
     // This rejects the claimant's RPC version, not admission at the recipient.
-    const retryAfterSeconds = code === 'CLIENT_OUTDATED' ? 1 : Math.min(300, 5 * 2 ** Math.min(6, backoffAttempts))
+    const retryAfterSeconds = code === 'CLIENT_OUTDATED' ? 30 : Math.min(300, 5 * 2 ** Math.min(6, backoffAttempts))
     await call({ rpc: (name, args) => deps.rpc(name, args, ctx) }, 'assistant_work_outbox_settle', {
       p_runtime_instance_id: ctx.runtimeInstanceId, p_message_id: event.message_id, p_lease_token: event.lease_token,
       p_stage: stage, ...(code ? { p_error_code: code } : {}),
