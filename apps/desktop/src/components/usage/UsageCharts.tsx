@@ -5,11 +5,11 @@ import type { ChartPoint, ModelTotal } from '../../lib/usage/charts'
 // 用量页的 VChart 图。这个模块整体懒加载 ——
 // VChart 有几百 KB,只有打开用量页才需要。
 
-// VChart 自带的默认色板:≤10 个系列用 10 色,更多用 20 色。
-const PALETTE_10 = ['#1664FF', '#1AC6FF', '#FF8A00', '#3CC780', '#7442D4', '#FFC400', '#304D77', '#B48DEB', '#009488', '#FF7DDA']
-const PALETTE_20 = ['#1664FF', '#B2CFFF', '#1AC6FF', '#94EFFF', '#FF8A00', '#FFCE7A', '#3CC780', '#B9EDCD', '#7442D4', '#DDC5FA',
-  '#FFC400', '#FAE878', '#304D77', '#8B959E', '#B48DEB', '#EFE3FF', '#009488', '#59BAA8', '#FF7DDA', '#FFCFEE']
-const colorScale = (domain: string[]) => ({ type: 'ordinal', domain, range: domain.length > 10 ? PALETTE_20 : PALETTE_10 })
+/** 分类色:tokens.css 的 --usage-series-1..20(theme batch B)。10 个以内取奇数位,超过 10 个用全部 20 个;canvas 经 tokenColor() 取值。 */
+const series = (positions: readonly number[]) => positions.map((n) => tokenColor(`--usage-series-${n}`))
+const ALL_20 = Array.from({ length: 20 }, (_, i) => i + 1)
+const ODD_10 = ALL_20.filter((n) => n % 2 === 1)
+const colorScale = (domain: string[]) => ({ type: 'ordinal', domain, range: series(domain.length > 10 ? ALL_20 : ODD_10) })
 
 const OPTIONS = { mode: 'desktop-browser' as const }
 const BASE = { background: 'transparent', padding: { top: 12, right: 12, bottom: 4, left: 4 } }

@@ -71,7 +71,7 @@ div.gg-phone-capability-content {
 .gg-phone-capability-status[data-tone='live'],
 .gg-phone-host-status[data-ready='true'] { color: var(--live); }
 .gg-phone-capability-status[data-tone='warn'] { color: var(--fg); }
-.gg-phone-capability-error { color: var(--danger); }
+.gg-phone-capability-error { color: var(--danger-fg); }
 .gg-settings-row-body > .gg-phone-capability-status { margin-top: var(--spacing-xs); }
 div.gg-phone-capability-actions {
   display: flex;

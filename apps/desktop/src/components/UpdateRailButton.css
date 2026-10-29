@@ -17,7 +17,7 @@
 
 .gg-update-rail[data-failed] .gg-update-rail-icon {
   background: var(--danger-tint);
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 .gg-update-rail-progress {

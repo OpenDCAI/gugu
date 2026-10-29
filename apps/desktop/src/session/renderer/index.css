@@ -218,9 +218,9 @@
      gugu 皮肤下会塌成同一个白色，选中与未选中肉眼分不出。括号里的兜底供脱离 gugu 皮肤时
      （独立会话页 / 组件测试）使用。登记成 @theme 色标才有 bg-row-* 工具类可用；
      ❌ 别写成 `bg-[var(--selected)]` 那种任意值，也别退回手写 CSS 规则。 */
-  --color-row-hover: var(--hover, rgb(0 0 0 / 0.04));
-  --color-row-selected: var(--selected, rgb(59 130 246 / 0.14));
-  --color-row-press: var(--press, rgb(0 0 0 / 0.08));
+  --color-row-hover: var(--hover);
+  --color-row-selected: var(--selected);
+  --color-row-press: var(--press);
 
   --color-foreground: var(--foreground, var(--fg));
   --color-foreground-inverse: var(--foreground-inverse);
@@ -290,8 +290,8 @@
   /* @@@live-accent (Refs #6104) — design.md 的唯一 accent。streaming / running / connected /
      currently selected 全部走它,❌ 不许再有第二个蓝。定义处是 apps/desktop/src/styles/tokens.css
      的 --live / --live-soft;这里的兜底段供脱离咕咕皮肤时使用(独立会话页 / 组件测试)。 */
-  --color-live: var(--live, oklch(0.714 0.143 255));
-  --color-live-soft: var(--live-soft, color-mix(in oklab, oklch(0.714 0.143 255) 14%, transparent));
+  --color-live: var(--live);
+  --color-live-soft: var(--live-soft);
 
   --color-status-in-progress: var(--status-in-progress);
   --color-status-in-review: var(--status-in-review);
@@ -372,7 +372,7 @@
      ❌ 但别据此推出「单段也没事」:它成立靠的是 Tailwind 默认主题这条**另一个**机制,
      不是靠上面那 15 条的兜底机制。末段 `#fff` 是这条机制万一被掐断(比如有人写
      `--color-*: initial` 清空默认色标)时的最后一跳;红 9 在明暗两个主题下都配白字。 */
-  --color-destructive-foreground: var(--color-white, #fff);
+  --color-destructive-foreground: var(--color-white);
   /* shadcn 的 input 是输入框**边框**色,不是背景;会话页输入框用的就是 border-border */
   --color-input: var(--border, var(--border-color));
   /* 旧主题块里的 --ring 是零运行时消费者的近黑死声明,已删除。shadcn ring 语义继续经
@@ -420,7 +420,7 @@
      写一条同名自引用声明 —— 它在分层里,被咕咕 tokens.css 的无层 `:root` 以及下面
      `.emlight`/`.emdark` 的无层声明整条盖过,所以嵌进咕咕与独立构建都取到真值。
      兜底段(暗色那一档)只在既没有咕咕皮肤、又不在 .emlight/.emdark 里时才会用上。 */
-  --shadow-lift: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / 0.45));
+  --shadow-lift: var(--shadow-lift);
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
@@ -702,7 +702,7 @@
     --jade-12: color(display-p3 0.142 0.229 0.194);
 
     /* ── Semantic tokens ─────────────────────────────────────── */
-    --background: white;
+    --background: var(--color-white); /* 会话页浅色作用域的底就是白;❌ var(--bg):.emlight 也会在深色宿主里单独挂上 */
     --background-1: var(--neutral-2);
     --background-2: var(--neutral-3);
     --background-3: var(--neutral-4);
@@ -779,9 +779,6 @@
     --selection: var(--blue-6);
     --selection-foreground: var(--blue-12);
 
-    /* @@@live-accent — 兜底:脱离咕咕皮肤时本块自带 live(浅色 = blue-500)。 */
-    --live: oklch(0.623 0.188 260);
-    --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
 
     /* @@@live-accent — 「运行中」就是 design.md 说的 live。原值是 amber-11,
        那是第二个 accent:同一个产品里「在动」用琥珀、「选中」用蓝,读者无从推断二者是一类。 */
@@ -816,26 +813,6 @@
     --xterm-cursor-accent: var(--foreground-inverse);
     --xterm-selection-bg: color(display-p3 0.004 0.502 0.984 / 0.212);
     --xterm-selection-fg: var(--blue-12);
-    /* 16 个基础色(ANSI 0–15)= VS Code Light+ 的默认终端色(microsoft/vscode
-       terminalColorRegistry.ts),是跟浅底成套挑过的一组。❌ 不给就回落到 xterm 为黑底
-       设计的内置色板,白/亮白/亮黄在白底上读不出来(#5655)。个别亮色低于正文对比度,
-       由 pty.ts 的 TERMINAL_MINIMUM_CONTRAST_RATIO 兜住。 */
-    --xterm-ansi-black: #000000;
-    --xterm-ansi-red: #cd3131;
-    --xterm-ansi-green: #107c10;
-    --xterm-ansi-yellow: #949800;
-    --xterm-ansi-blue: #0451a5;
-    --xterm-ansi-magenta: #bc05bc;
-    --xterm-ansi-cyan: #0598bc;
-    --xterm-ansi-white: #555555;
-    --xterm-ansi-bright-black: #666666;
-    --xterm-ansi-bright-red: #f14c4c;
-    --xterm-ansi-bright-green: #14ce14;
-    --xterm-ansi-bright-yellow: #b5ba00;
-    --xterm-ansi-bright-blue: #3b8eea;
-    --xterm-ansi-bright-magenta: #d670d6;
-    --xterm-ansi-bright-cyan: #29b8db;
-    --xterm-ansi-bright-white: #a5a5a5;
 
     --foreground-diff-added: var(--green-9);
     --foreground-diff-modified: var(--amber-9);
@@ -1150,9 +1127,6 @@
     --selection: var(--blue-9);
     --selection-foreground: var(--blue-12);
 
-    /* @@@live-accent — 兜底:暗色提一档到 blue-400,深底上才读得出「它在动」。 */
-    --live: oklch(0.714 0.143 255);
-    --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
 
     --status-in-progress: var(--live);
     --status-in-review: var(--green-10);
@@ -1189,25 +1163,6 @@
     --xterm-cursor-accent: var(--foreground-inverse);
     --xterm-selection-bg: color(display-p3 0.224 0.557 1 / 0.475);
     --xterm-selection-fg: var(--blue-11);
-    /* 16 个基础色(ANSI 0–15)= VS Code Dark+ 的默认终端色(microsoft/vscode
-       terminalColorRegistry.ts)。黑 #000000 在深底上本身读不出来,由 pty.ts 的
-       TERMINAL_MINIMUM_CONTRAST_RATIO 调亮 —— 与 VS Code 同一组合(#5655)。 */
-    --xterm-ansi-black: #000000;
-    --xterm-ansi-red: #cd3131;
-    --xterm-ansi-green: #0dbc79;
-    --xterm-ansi-yellow: #e5e510;
-    --xterm-ansi-blue: #2472c8;
-    --xterm-ansi-magenta: #bc3fbc;
-    --xterm-ansi-cyan: #11a8cd;
-    --xterm-ansi-white: #e5e5e5;
-    --xterm-ansi-bright-black: #666666;
-    --xterm-ansi-bright-red: #f14c4c;
-    --xterm-ansi-bright-green: #23d18b;
-    --xterm-ansi-bright-yellow: #f5f543;
-    --xterm-ansi-bright-blue: #3b8eea;
-    --xterm-ansi-bright-magenta: #d670d6;
-    --xterm-ansi-bright-cyan: #29b8db;
-    --xterm-ansi-bright-white: #e5e5e5;
 
     --foreground-diff-added: var(--green-10);
     --foreground-diff-modified: var(--amber-9);
@@ -1325,7 +1280,7 @@
   --chat-mention-bg: var(--background-info);
   --chat-mention-fg: var(--foreground-info);
   --chat-code-bg: var(--background-1);
-  --chat-code-inline-bg: rgba(0, 0, 0, 0.06);
+  --chat-code-inline-bg: color-mix(in srgb, var(--chat-fg) 6%, transparent);
   --chat-table-header-bg: var(--background-1);
   /* @@@font-single-source (#3334) — 与 @theme 的 --font-sans/--font-mono 同源。
      ⚠️ ChatRoot 会把宿主 ChatConfig 的字体作为**行内** custom property 写在 transcript 根上
@@ -1350,10 +1305,6 @@
   --chat-radius-xl: 12px;
   --chat-radius-thread: 24px; /* #7333 = --radius-thread(composer 与用户气泡同形,Refs #7324) */
   --chat-radius-full: 9999px;
-  /* @@@shadow-lift (Refs #6104) — 浮层那唯一一档,逐字等值于 tokens.css 的浅色侧。
-     嵌进咕咕时咕咕的 :root 已经给了同一个值;这一份是**独立会话页构建**的那一份 ——
-     没有它,`shadow-lift` 会落到 @theme 那条自引用声明的兜底(暗色值),浅色下影子重一倍。 */
-  --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.12);
 }
 
 .emdark {
@@ -1387,7 +1338,7 @@
   --chat-mention-bg: var(--background-info);
   --chat-mention-fg: var(--foreground-info);
   --chat-code-bg: var(--background-2);
-  --chat-code-inline-bg: rgba(255, 255, 255, 0.08);
+  --chat-code-inline-bg: color-mix(in srgb, var(--chat-fg) 8%, transparent);
   --chat-table-header-bg: var(--background-2);
   /* @@@font-single-source (#3334) — 与 @theme 的 --font-sans/--font-mono 同源。
      ⚠️ ChatRoot 会把宿主 ChatConfig 的字体作为**行内** custom property 写在 transcript 根上
@@ -1412,8 +1363,6 @@
   --chat-radius-xl: 12px;
   --chat-radius-thread: 24px; /* #7333 = --radius-thread(composer 与用户气泡同形,Refs #7324) */
   --chat-radius-full: 9999px;
-  /* @@@shadow-lift (Refs #6104) — 暗色侧那一份,理由同 .emlight。 */
-  --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.45);
 }
 
 /* @@@task-fusion (#2802) — 这一段原本是会话页独立 app 时代的全局重置,靠 shadow root 的
@@ -1622,27 +1571,17 @@
     width: 70%;
     background: linear-gradient(
       120deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.28) 30%,
-      rgba(255, 255, 255, 0.75) 50%,
-      rgba(255, 255, 255, 0.28) 70%,
-      rgba(255, 255, 255, 0) 100%
+      transparent 0%,
+      color-mix(in srgb, var(--background) 28%, transparent) 30%,
+      color-mix(in srgb, var(--background) 75%, transparent) 50%,
+      color-mix(in srgb, var(--background) 28%, transparent) 70%,
+      transparent 100%
     );
     transform: skewX(-15deg) translateX(-150%);
     animation: logo-shimmer-move 5s linear infinite;
     will-change: transform;
   }
 
-  .emdark .logo-shimmer-overlay::before {
-    background: linear-gradient(
-      120deg,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 0.28) 30%,
-      rgba(0, 0, 0, 0.75) 50%,
-      rgba(0, 0, 0, 0.28) 70%,
-      rgba(0, 0, 0, 0) 100%
-    );
-  }
 
   @keyframes logo-shimmer-move {
     0% {

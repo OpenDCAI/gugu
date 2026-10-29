@@ -93,6 +93,7 @@ vi.mock('@main/core/agent-status/agent-status-writer', () => ({
 }));
 
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
+  providerSupportsNativeStartHook: vi.fn(() => false),
   agentHookService: {
     emitAgentEvent: vi.fn(),
     getPort: vi.fn(() => 0),

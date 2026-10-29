@@ -170,10 +170,10 @@ export function registerSshLinkIpc(options: {
     }
     return openOutcome(deviceId, result, upgrader)
   })
-  options.ipcMain.handle(SSH_LINK_CHANNELS.upgrade, async (_event, request: { deviceId?: unknown; force?: unknown; desktopTooOld?: unknown }) => {
+  options.ipcMain.handle(SSH_LINK_CHANNELS.upgrade, async (_event, request: { deviceId?: unknown; force?: unknown; desktopTooOld?: unknown; now?: unknown }) => {
     if (!request || typeof request.deviceId !== 'string' || !ID.test(request.deviceId) || !upgrader) return false
     if (!(await machineFor(request.deviceId))) return false
-    return upgrader.request(request.deviceId, { force: request.force === true, desktopTooOld: request.desktopTooOld === true })
+    return upgrader.request(request.deviceId, { force: request.force === true, desktopTooOld: request.desktopTooOld === true, now: request.now === true })
   })
   options.ipcMain.handle(SSH_LINK_CHANNELS.send, (_event, request: { deviceId?: unknown; message?: unknown }) => {
     if (!request || typeof request.deviceId !== 'string') return false

@@ -20,6 +20,7 @@ export function sshLinkFacts(
   if (problem === 'signInRequired' || problem === 'hostKeyChanged') return { isOnline: false, sshLink: 'signInRequired' }
   if (problem === 'notSignedIn') return { isOnline: false, sshLink: null }
   if (problem === 'outdated' || problem === 'updating') return { isOnline: true, sshLink: problem }
+  if (problem === 'waitingIdle') return { isOnline: true, sshLink: 'outdated' }
   if (problem && problem !== 'unmapped') return { isOnline: true, sshLink: 'unreachable' }
   return { isOnline: true, sshLink: null }
 }

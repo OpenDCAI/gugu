@@ -52,7 +52,7 @@ function DisconnectDialog({ onCancel, onConfirm }: { onCancel: () => void; onCon
       <div className="flex flex-col gap-3 p-[18px]">
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('channels.disconnectConfirm.title')}</div>
         <div className={`${body} text-[var(--muted-fg)]`}>{t('channels.disconnectConfirm.body')}</div>
-        {failed ? <div className={`${body} text-[var(--danger)]`}>{failed}</div> : null}
+        {failed ? <div className={`${body} text-[var(--danger-fg)]`}>{failed}</div> : null}
         <div className="flex justify-end gap-2">
           <Button size="sm" onClick={onCancel}>{t('channels.disconnectConfirm.cancel')}</Button>
           <Button

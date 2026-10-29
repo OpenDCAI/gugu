@@ -151,10 +151,12 @@ export const plugin = definePlugin(
     // 咕咕的托管安装只认 npm 平台包(mise-distribution.ts 读的是 npm registry 元数据 +
     // 平台包的 sha512),厂商脚本装到哪儿、装的是哪个版本、字节对不对都在咕咕视野之外。
     // ⇒ 这一家由用户自己按厂商文档装,咕咕认那一份(#6098)。
-    hostDependency: recognisedDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「Hermes Agent v0.21.0 (2026.8.31) · upstream …」(mac1 10-07;后面几行还有
+    // Python / OpenAI SDK 的版本,包装器的 banner 在它前面)。
+    hostDependency: { ...recognisedDependency({
       binaryNames: ['hermes'],
       installDocs: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation',
-    }),
+    }), versionLine: /^Hermes Agent v/ },
     memory: hermesMemory,
     // 终端腿不开(见 session-bundle 的 `surfaces`),这一格只是如实说明为什么没有首句通道。
     prompt: {

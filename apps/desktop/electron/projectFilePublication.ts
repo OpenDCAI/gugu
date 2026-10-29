@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { FILE_CHUNK_BYTES, type FileRevision } from '@gugu/core/shared/fileResolver'
@@ -7,7 +7,8 @@ import { isInside, readWorkspaceChunk } from './session/main/core/files/workspac
 import { findProjectFileCopy, listProjectGroupIds, rememberProjectFile } from './sessionpage/sessionpage-project-groups'
 import { importProjectFile } from './projectFileImport'
 import { sanitizeRemoteFileName } from './remoteFileOpen'
-import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import type { AttachmentsEndpoint, CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import { handOffNextVersion, NextVersionHandoffRefused } from '@gugu/core/cloud/fileVersionHandoff'
 import type { FilesPlatform } from '../src/session/shared/extensions/app-files-core'
 
 export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
@@ -15,15 +16,33 @@ export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
 export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string; data?: ArrayBuffer }
 /** The file this publication is the next version of, and the version it started from (`file_device_publish`'s `p_expected`). */
 export type ProjectFileNextVersion = { itemId: string; expectedVersion: number }
-export type ProjectFilePublishOptions = { message?: ProjectFileMessage; next?: ProjectFileNextVersion }
+/** `handoff`: a member's copy handed to this host (#791), written as their next version under their name and message. */
+export type ProjectFilePublishOptions = { message?: ProjectFileMessage; next?: ProjectFileNextVersion; handoff?: string }
 type Publisher = NonNullable<FilesPlatform['publishFile']>
 type AppUpload = Parameters<Publisher>[1]
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<unknown>
 /** Publish actual bound-root files, importing explicit external selections; the ordinary uploader stays shared. */
 export function createProjectFilePublisher(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>; root(id: string): Promise<string | null>
-  rpc: Rpc; env?: NodeJS.ProcessEnv
+  rpc: Rpc; env?: NodeJS.ProcessEnv; endpoint?(): Promise<AttachmentsEndpoint>
 }) {
+  /**
+   * #791: the next version of a file a project chat keeps on another machine is handed to that machine, which writes it
+   * as this actor's edit and message. Null when the chat keeps no files on a host (the ordinary upload decides). A copy
+   * of an older version throws `File revision conflict`; the host offline or not in time, `NextVersionHandoffRefused`.
+   */
+  const handOff = async (chatId: string, file: SelectedProjectFile, actor: string, next: ProjectFileNextVersion, message?: ProjectFileMessage) => {
+    if (!deps.endpoint || !await deps.rpc('file_project_policy_for', { p_chat: chatId, p_as: actor })) return null
+    const bytes = file.data ? new Uint8Array(file.data) : new Uint8Array(await readFile(file.path))
+    const outcome = await handOffNextVersion(await deps.endpoint(), { itemId: next.itemId, expectedVersion: next.expectedVersion,
+      fileName: file.name.split('/').at(-1)!, contentType: file.contentType, bytes, as: actor,
+      ...(message ? { message: { message_id: message.message_id, to_user_ids: message.to_user_ids ?? [], thread_root_id: message.thread_root_id ?? null } } : {}) })
+    if (outcome.status === 'conflict') throw new Error('File revision conflict')
+    if (outcome.status !== 'published') throw new NextVersionHandoffRefused(outcome)
+    const result = await deps.rpc('workspace_get_as', { p_item_id: next.itemId, p_as_user_id: actor })
+    const row = (Array.isArray(result) ? result[0] : result) as NonNullable<Awaited<ReturnType<Publisher>>>
+    return { ...row, message: { id: outcome.message_id, chat_id: chatId, file_item_id: next.itemId, file_version: outcome.version } }
+  }
   const binding = async (chatId: string, actor: string) => {
     const identity = await deps.identity()
     const project = (await listProjectGroupIds(identity.accountId, deps.env)).find(row => row.chatId === chatId)
@@ -34,10 +53,16 @@ export function createProjectFilePublisher(deps: {
     return { identity, project, policy }
   }
   const publishFile = async (chatId: string, file: SelectedProjectFile, parentId: string | null, actor: string,
-    store?: Parameters<Publisher>[4], { message, next }: ProjectFilePublishOptions = {}, temporary = false): Promise<Awaited<ReturnType<Publisher>> & { message?: Record<string, unknown> } | null> => {
-    const bound = await binding(chatId, actor); if (!bound) return null
+    store?: Parameters<Publisher>[4], { message, next, handoff }: ProjectFilePublishOptions = {}, temporary = false): Promise<Awaited<ReturnType<Publisher>> & { message?: Record<string, unknown> } | null> => {
+    let bound: Awaited<ReturnType<typeof binding>>
+    try { bound = await binding(chatId, actor) } catch (error) {
+      // This machine has the project, but another one keeps its files.
+      if (!next || handoff || !/Only the bound file host/.test(String(error))) throw error
+      bound = null
+    }
+    if (!bound) return next && !handoff ? handOff(chatId, file, actor, next, message) : null
     const { identity, project, policy } = bound
-    if (policy.proactive_upload && !store) return null
+    if (policy.proactive_upload && !store && !handoff) return null
     const root = await deps.root(project.projectId)
     if (!root) throw new Error('Project root is unavailable')
     if (!isAbsolute(file.path)) throw new Error('Choose an original file in the bound project folder')
@@ -54,11 +79,15 @@ export function createProjectFilePublisher(deps: {
     }
     const sha256 = hash.digest('hex')
     let row: NonNullable<Awaited<ReturnType<Publisher>>>, sent: Record<string, unknown> | undefined
-    if (policy.proactive_upload) row = await store!()
+    if (policy.proactive_upload && !handoff) row = await store!()
     else {
-      const receipt = await deps.rpc('file_device_publish', { p_item: next?.itemId ?? randomUUID(), p_chat: chatId, p_device: identity.deviceId, p_path: path, p_sha: sha256,
-        p_size: first.size, p_filename: file.name.split('/').at(-1), p_type: file.contentType, p_parent: parentId,
-        ...(next ? { p_expected: next.expectedVersion } : {}), ...(message ? { p_message: message } : {}) }) as { item_id: string; message?: Record<string, unknown> }
+      const receipt = await (handoff
+        ? deps.rpc('file_version_handoff_publish', { p_id: handoff, p_path: path, p_sha: sha256, p_size: first.size })
+        : deps.rpc('file_device_publish', { p_item: next?.itemId ?? randomUUID(), p_chat: chatId, p_device: identity.deviceId, p_path: path, p_sha: sha256,
+          p_size: first.size, p_filename: file.name.split('/').at(-1), p_type: file.contentType, p_parent: parentId,
+          ...(next ? { p_expected: next.expectedVersion } : {}), ...(message ? { p_message: message } : {}) })) as { status?: string; item_id: string; message?: Record<string, unknown> }
+      // A handoff the requester withdrew, or that the file moved on from, is settled without a version.
+      if (handoff && receipt.status !== 'published') throw new Error(`Next version handoff ${receipt.status}`)
       sent = receipt.message
       if (message && !sent) throw new Error('Project attachment was not committed')
       const result = await deps.rpc('workspace_get_as', { p_item_id: receipt.item_id, p_as_user_id: actor })

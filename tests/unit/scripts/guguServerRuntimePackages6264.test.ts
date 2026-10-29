@@ -97,7 +97,7 @@ describe('server 包的运行时清单', () => {
     expect(RUNTIME_PACKAGES).toEqual(expect.arrayContaining([...ADAPTER_PACKAGES, 'better-sqlite3', 'node-pty']));
   });
 
-  it('#7199 云电脑上 agent 的浏览器工具(@playwright/mcp)也进包:与桌面同一个根依赖', () => {
+  it('server App background HTML has its packaged Playwright runtime', () => {
     expect(rootPackage.dependencies['@playwright/mcp']).toBeTruthy();
     expect(RUNTIME_PACKAGES).toContain('@playwright/mcp');
   });

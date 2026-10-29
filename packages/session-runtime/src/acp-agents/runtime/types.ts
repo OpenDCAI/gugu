@@ -33,11 +33,13 @@ export interface PromptQueueStore {
 export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
+  onPromptSteered?: (sessionId: string) => void;
   agentHost: AgentPluginHost;
   host: AcpRuntimeProcessHost;
   resolveAttachment: ResolvePromptAttachment;
   /** 多条投递信封合成一条的唯一属主(core 的 mergeDeliveryEnvelopes),由宿主注入。 */
   mergeEnvelopes?: (texts: readonly string[]) => string;
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
   attachmentStore?: AttachmentStore;
   logger: Logger;
   /** Notifies the privileged main process when an adapter-held platform token has no consumer. */

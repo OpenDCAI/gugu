@@ -17,7 +17,7 @@ import {
 } from './groupSettingsStyles'
 
 const firstSectionLabelStyle: CSSProperties = { ...settingsSectionLabelStyle, borderTop: 'none', paddingTop: 0, marginTop: 0 }
-const limitErrorStyle: CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger)', marginTop: -8, paddingBottom: 8 }
+const limitErrorStyle: CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger-fg)', marginTop: -8, paddingBottom: 8 }
 const limitStyle: CSSProperties = { ...settingsMutedTextStyle, display: 'flex', alignItems: 'center', gap: 4 }
 
 /**

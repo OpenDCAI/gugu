@@ -1757,6 +1757,7 @@ export class CodexAppServerSession {
         surface: 'app-server',
         descriptor: codexPlugin.capabilities.sessionBundle,
         executable: this.codexBin,
+        versionLine: codexPlugin.capabilities.hostDependency.versionLine,
         executionContext: new NodeExecutionContext({ root: cwd, env: childEnv }),
         env: versionProbeEnv(childEnv),
       })

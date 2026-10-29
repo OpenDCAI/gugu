@@ -92,7 +92,7 @@
 /* 引用 = 咕咕的引用条：2px 竖轨，次级色 */
 :where(blockquote) { margin-inline: 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--em-border-1); color: var(--em-foreground-muted); }
 :where(hr) { height: 1px; margin: var(--em-spacing-lg) 0; border: 0; background: var(--em-border); }
-::placeholder { color: var(--em-foreground-passive); opacity: 1; }
+::placeholder { color: var(--em-foreground-muted); opacity: 1; }
 
 /* 图标的默认尺寸放在按钮前面：同为 0 特异度，按钮里的图标规则（18 号、对齐）排在后面才盖得过它（L11 复核 51 补看） */
 :where(gugu-icon) { display: inline-block; flex: none; width: var(--em-icon-sm); height: var(--em-icon-sm); vertical-align: -3px; color: inherit; }

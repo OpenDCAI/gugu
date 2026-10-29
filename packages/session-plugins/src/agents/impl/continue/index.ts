@@ -12,6 +12,7 @@ import {
   MANAGED_NODE_VERSION,
   buildStandardCommand,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { icon } from './icon';
 
@@ -36,12 +37,12 @@ export const plugin = definePlugin(
     trust: { kind: 'none' },
     // 托管安装(npm backend):纯 JS(bin `dist/cn.js`)+ 运行期依赖(含 sharp 的原生件,
     // 由 aube 按本机平台挑)。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'cn',
       backend: 'npm',
       package: '@continuedev/cli',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     /**
      * agent memory —— Continue CLI **自己会去读**的记忆文件。
      *

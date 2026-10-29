@@ -195,7 +195,7 @@ export function CloudComputerProvisionPanel({
           return (
             <li key={step.id} className="flex items-start gap-2" data-step={step.id} data-status={stuck ? 'failed' : step.status}>
               <span className="flex h-[21px] shrink-0 items-center">
-                {stuck ? <X aria-hidden className="size-4 text-[var(--danger)]" /> : <StepIcon status={step.status} />}
+                {stuck ? <X aria-hidden className="size-4 text-[var(--danger-fg)]" /> : <StepIcon status={step.status} />}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className={cn(text, step.status === 'pending' ? 'text-[var(--faint-fg)]' : 'text-[var(--fg)]', stuck && 'font-semibold')}>
@@ -254,7 +254,7 @@ export function CloudComputerRowStatus({
   }, [])
   if (failure) {
     return (
-      <span className="text-[var(--danger)]" data-testid="settings-cloud-computer-status" data-status="wake-failed">
+      <span className="text-[var(--danger-fg)]" data-testid="settings-cloud-computer-status" data-status="wake-failed">
         {failure.kind === 'credits_exhausted'
           ? <>{t('devices.cloud.creditsExhausted')}{onUpgrade && <>{' '}<InlineAction onClick={onUpgrade}>{t('devices.cloud.topUp')}</InlineAction></>}</>
           : <>{t('devices.cloud.wakeFailed')}{tc(`cloudComputer.reason.${failure.kind}`)}{' '}<InlineAction onClick={() => void wake()}>{t('devices.retry')}</InlineAction></>}
@@ -262,11 +262,11 @@ export function CloudComputerRowStatus({
     )
   }
   if (snapshot.state === 'error' && provisionShown) {
-    return <span className="text-[var(--danger)]" data-testid="settings-cloud-computer-status" data-status="error">{t('devices.cloud.provisionFailedShort')}</span>
+    return <span className="text-[var(--danger-fg)]" data-testid="settings-cloud-computer-status" data-status="error">{t('devices.cloud.provisionFailedShort')}</span>
   }
   if (snapshot.state === 'error') {
     return (
-      <span className="text-[var(--danger)]" data-testid="settings-cloud-computer-status" data-status="error">
+      <span className="text-[var(--danger-fg)]" data-testid="settings-cloud-computer-status" data-status="error">
         {t('devices.cloud.wakeFailed')}{tc('cloudComputer.reason.failed')}{' '}
         <InlineAction onClick={() => void wake()} testId="settings-cloud-computer-wake-retry">{t('devices.retry')}</InlineAction>
       </span>
@@ -375,7 +375,7 @@ export function CloudComputerCloseDialog({
           </div>
         )}
         {failure && (
-          <div className={cn(text, 'text-[var(--danger)]')} role="alert">
+          <div className={cn(text, 'text-[var(--danger-fg)]')} role="alert">
             {failure === 'listed' ? t('devices.cloud.close.closedButListed') : <>{t('devices.cloud.close.failed')}{tc(`cloudComputer.reason.${failure.kind}`)}</>}
           </div>
         )}
@@ -395,7 +395,7 @@ export function CloudComputerLoadError({ kind }: { kind: CloudComputerFailureKin
   const { t } = useTranslation('settings')
   const { t: tc } = useTranslation('common')
   return (
-    <div className={cn(caption, 'text-[var(--danger)]')} data-testid="settings-cloud-computer-load-error" data-kind={kind}>
+    <div className={cn(caption, 'text-[var(--danger-fg)]')} data-testid="settings-cloud-computer-load-error" data-kind={kind}>
       {t('devices.cloud.stateFailed')}{tc(`cloudComputer.reason.${kind}`)}{' '}
       <InlineAction onClick={() => void refreshCloudComputer().catch(() => undefined)}>{t('devices.retry')}</InlineAction>
     </div>

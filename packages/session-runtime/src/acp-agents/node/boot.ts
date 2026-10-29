@@ -35,6 +35,7 @@ export type BootAcpRuntimeProcessOptions = {
    * (session-runtime 不依赖 `@gugu/core`,所以只能由宿主传进来)。
    */
   mergeEnvelopes: (texts: readonly string[]) => string;
+  recoverDelivery: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
 };
 
 export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): void {
@@ -54,6 +55,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       );
       // #5381 会话历史落盘:回合提交推给主进程,由它决定落不落(只有它知道库里有没有)。
       const turnCommitted = createEventStreamHost(acpRuntimeApiContract.turnCommitted);
+      const promptSteered = createEventStreamHost(acpRuntimeApiContract.promptSteered);
       const attachmentStore = new LocalAttachmentStore(attachmentsDir);
       const promptQueueStore = new LocalPromptQueueStore(join(attachmentsDir, 'prompt-queues'));
       const homeDir = os.homedir();
@@ -73,6 +75,7 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         agentHost,
         host: childHost,
         mergeEnvelopes: options.mergeEnvelopes,
+        recoverDelivery: options.recoverDelivery,
         resolveAttachment: async (attachment) => {
           if (attachment.type === 'attachment') {
             const stored = await attachmentStore.get(attachment.id);
@@ -97,14 +100,16 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
             ...(platformAccessSessionId ? { platformAccessSessionId } : {}),
           }),
         onTurnCommitted: (event) => turnCommitted.emit(undefined, event),
+        onPromptSteered: (sessionId) => promptSteered.emit(undefined, { sessionId }),
       } satisfies AcpRuntimeDeps);
 
       scope.add(() => platformSessionClosed.dispose());
       scope.add(() => turnCommitted.dispose());
+      scope.add(() => promptSteered.dispose());
       scope.add(() => acp.dispose());
       return withValidation(
         acpRuntimeApiContract,
-        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted),
+        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted, promptSteered),
         workerValidatePolicy(env)
       );
     },

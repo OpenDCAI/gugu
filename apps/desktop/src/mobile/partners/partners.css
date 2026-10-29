@@ -152,7 +152,7 @@
 
 .gg-partners .gg-partners-error {
   margin: var(--spacing-sm) var(--spacing-lg) 0;
-  color: var(--danger);
+  color: var(--danger-fg);
   font-size: var(--font-body);
   line-height: var(--lh-body);
 }

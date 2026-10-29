@@ -228,6 +228,7 @@ export function createAccountVersionConverger(options: {
           now: now(),
           running: effective,
           switchRequested: request !== null,
+          switchConfirmed: request?.confirmed === true,
           installed,
           busy: current !== undefined && busy(account.dataDir),
           failed: (version) => failed(version, request),
@@ -236,7 +237,8 @@ export function createAccountVersionConverger(options: {
         })
         switch (plan.kind) {
           case 'none':
-            if (plan.clearSwitchRequest && request) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
+            // 人点的「现在重启更新」留着(它自己 10 分钟过期):这个账号已对得上时,它是给守护进程自己的升级看的(server-supervisor.ts isBusy)。
+            if (plan.clearSwitchRequest && request && !request.confirmed) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
             state.clear()
             break
           case 'failed':

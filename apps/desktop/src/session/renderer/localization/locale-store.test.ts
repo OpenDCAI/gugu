@@ -25,7 +25,8 @@ function projectConsumerKeys(): string[] {
   const featuresRoot = fileURLToPath(new URL('../features/', import.meta.url));
   const keys = new Set<string>();
 
-  for (const domain of ['browser', 'projects']) {
+  // 项目目录之外也有项目词条的读者:侧栏的项目行,和示例项目那一块(#709)。
+  for (const domain of ['browser', 'projects', 'sidebar', 'sample-project']) {
     for (const path of projectSourceFiles(join(featuresRoot, domain))) {
       const source = ts.createSourceFile(
         path,

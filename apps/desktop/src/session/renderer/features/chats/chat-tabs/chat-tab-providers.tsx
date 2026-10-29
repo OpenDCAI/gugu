@@ -83,6 +83,8 @@ export const chatTabProvider = createTabProvider<typeof CHAT_TAB_KIND, ChatTabSt
   kind: CHAT_TAB_KIND,
   mount: 'single',
   resourceKey: () => 'chat',
+  // 别的页签的页、对话的名字和右端按钮都由对话画:它一直挂着(没上屏就藏着)。
+  keepMounted: true,
   initialize: stateResource,
   // The chat is the strip's first tab, as a task's conversation is its own: ⌘W, 「关闭全部」 leave it.
   onBeforeClose: () => false,

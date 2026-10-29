@@ -92,7 +92,7 @@ const MEMBER_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'fl
 // @@@6418 群里的行可以点开资料卡;行尾的 ⋯ 管理钮靠 group-hover 显形。
 const MEMBER_ROW_INTERACTIVE_STYLE: React.CSSProperties = { ...MEMBER_ROW_STYLE, cursor: 'pointer' }
 const MEMBER_ROW_ACTIONS_STYLE: React.CSSProperties = { flexShrink: 0, alignSelf: 'center' }
-const MEMBER_LIST_SEARCH_STYLE: React.CSSProperties = { padding: '10px 14px 2px', flexShrink: 0 }
+const MEMBER_LIST_SEARCH_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 2px', flexShrink: 0 }
 const MEMBER_LIST_EMPTY_STYLE: React.CSSProperties = { padding: '24px 14px', textAlign: 'center', fontSize: 'var(--font-body)', color: 'var(--text-tertiary)' }
 const MEMBER_ROW_BODY_STYLE: React.CSSProperties = { minWidth: 0, flex: 1, alignSelf: 'center' }
 const MEMBER_ROW_NAME_LINE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }
@@ -111,9 +111,9 @@ const MEMBER_LIST_TITLE_STYLE: React.CSSProperties = { fontSize: 'var(--font-tit
 // 话题改名那一格:占满标题与右侧动作之间的余量。与本文件其余样式同形走常量 ——
 // ❌ 不就地写内联样式块(check-ui-visual-spec 的那条棘轮是纯文本计数,连注释里的字面量都算)。
 const TOPIC_NAME_EDIT_STYLE: React.CSSProperties = { flex: 1, minWidth: 0 }
-const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_LIST_ERROR_STYLE: React.CSSProperties = { padding: '10px 14px', color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 // 档位没改成的原因:写在那一行的档位钮下面。
-const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger)', fontSize: 'var(--font-caption)' }
+const MEMBER_ROW_ERROR_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger-fg)', fontSize: 'var(--font-caption)' }
 const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
 
 /**
@@ -409,7 +409,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
         data-chat-kind={chatKind}
         style={MEMBER_LIST_PANEL_STYLE}
       >
-        <HeaderSearch mobile={mobile} value={query} onChange={setQuery} placeholder={t('group.memberList.search')} testId="member-list-search">{(searchButton) => head(
+        <HeaderSearch mobile={mobile && chatKind === 'topic'} value={query} onChange={setQuery} placeholder={t('group.memberList.search')} testId="member-list-search">{(searchButton) => head(
           chatKind === 'topic' ? (
             <>
               <span style={MEMBER_LIST_TITLE_STYLE}>{t('group.memberList.titleTopic')}</span>
@@ -432,9 +432,10 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
           </>,
         )}</HeaderSearch>
 
-        {snapshot && !mobile ? (
+        {snapshot && (!mobile || chatKind === 'group') ? (
           <div style={MEMBER_LIST_SEARCH_STYLE}>
             <SearchField
+              className="flex-1"
               data-testid="member-list-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -442,6 +443,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
               clearLabel={t('group.memberList.clearSearch')}
               onClear={() => setQuery('')}
             />
+            {group.inviteAction}
           </div>
         ) : null}
 

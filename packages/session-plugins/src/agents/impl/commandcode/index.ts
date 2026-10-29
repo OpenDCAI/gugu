@@ -12,6 +12,7 @@ import {
   MANAGED_NODE_VERSION,
   buildStandardCommand,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { buildCommandCodeHookConfig } from './hooks';
 import { icon } from './icon';
@@ -39,7 +40,7 @@ export const plugin = definePlugin(
     // 托管安装(npm backend):纯 JS(bin `dist/index.mjs`)+ 47 个运行期依赖。
     // ⚠️ `id` 是**发布出去的那个启动器名**,取厂商文档里的主名 `command-code`;
     //    另外两个别名仍然会被自动探测认出来(用户自己装的那份)。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'command-code',
       // 同一个包的 npm `bin` 发四个名字(`cmd` / `cmdc` / `commandcode` / `command-code`),
       // 用户自己装的那份可能是任意一个;咕咕自己发布的启动器只叫主名。
@@ -47,7 +48,7 @@ export const plugin = definePlugin(
       backend: 'npm',
       package: 'command-code',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     /**
      * agent memory —— Command Code **自己会去读**的记忆文件。
      *

@@ -31,9 +31,11 @@ it('shows the current phone once without advertising remote phone actions', asyn
   await renderWithAppProviders(harness, <AssistantDevicesPage cloudDeviceId={null} />)
   expect(find('assistant-device-this-phone')!.textContent).toContain('Current phone')
   expect(find('assistant-device-local')).toBeNull()
-  expect(find('assistant-device-other')!.getAttribute('role')).not.toBe('button')
   expect(find('assistant-device-other')!.textContent).not.toContain('已授权')
   expect(find('remote-permissions')).toBeNull()
+  // Every device opens its own page (rename lives in its header), even one with no action list to show.
+  await clickElement(find('assistant-device-other')!)
+  expect(find('remote-permissions')!.textContent).toBe('Other phone')
 })
 
 it('lets the phone shell own device detail navigation without an inner back header', async () => {

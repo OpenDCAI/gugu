@@ -28,7 +28,8 @@ import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mjs'
 const DEFAULT_ROOTS = ['apps/desktop/src', 'packages/session-ui/src', 'packages/session-chat-ui/src']
 const DEFAULT_BASELINE = 'scripts/theme-color-baseline.json'
 const EXTENSIONS = new Set(['.css', '.ts', '.tsx'])
-const SKIPPED = /\.(?:test|spec|stories)\.[^/]+$|\/__tests__\/|\/tests\//
+// 测试、stories 与它们的脚手架(stories/ 目录、story-layout)、对拍用的假数据(mock-*.ts):不是产品样式。
+const SKIPPED = /\.(?:test|spec|stories)\.[^/]+$|\/__tests__\/|\/tests\/|\/stories\/|\/story-layout\.css\.ts$|\/mock-[^/]+\.ts$/
 
 /**
  * 本来就该写死颜色的地方。每条都要写理由;❌ 为了让门变绿把一个组件文件加进来 —— 那是债,进基线。
@@ -37,13 +38,16 @@ export const ALLOWED_FILES = [
   { re: /(?:^|\/)styles\/tokens\.css$/, why: '主题 token 的定义处:颜色值本来就写在这里' },
   { re: /\/theme\/__generated__\//, why: 'session-ui 由主题源生成的变量表' },
   { re: /\/theme\/themes\/[^/]+\.theme\.ts$/, why: 'session-ui 各主题的取值表' },
+  { re: /session-ui\/src\/theme\/core\/generate\//, why: 'session-ui 主题生成器:由主题源算出取值(色域换算、缺档补齐),产物就是上面的 __generated__' },
+  { re: /\/loading-indicator\/LoadingIndicator\.css$/, why: '属性选择器 path[fill=\'rgb(…)\'] 匹配的是动画素材里的原始填色字符串,不是在用颜色;实际填色已接到 currentColor' },
   { re: /session-chat-ui\/src\/styles\/theme\.css\.ts$/, why: 'session-chat-ui 主题契约的明暗取值' },
   { re: /\/highlight\/bundled-themes\.ts$/, why: '代码高亮配色(shiki 主题),按主题成对给出' },
   { re: /\/components\/agentAvatar\//, why: 'agent 头像的绘制引擎与服饰调色板:身份色,不随主题变' },
-  { re: /\/BoringAgentAvatar\.tsx$/, why: '头像调色板:身份色' },
+  { re: /\/lib\/agentAvatarPalette\.ts$/, why: 'agent 默认头像(beam)的调色板:身份色,不随主题变' },
   { re: /\/notionistsBlend\.ts$/, why: '头像插画的混色' },
   { re: /\/sharePosterCanvas\.ts$/, why: '分享海报/二维码画在 canvas 上,导出的图必须固定黑白' },
   { re: /\/ChannelBrandIcon\.tsx$/, why: '微信 / 飞书 / 钉钉的品牌色' },
+  { re: /\/lib\/vendor\/cua-cursor-motion\//, why: '@trycua/cursor-motion 原样拷贝(见其 README,改动会让升级失真);Cua 蓝是它的光标品牌色,画在 canvas 上、盖在被控页面的截图上,不跟宿主主题' },
 ]
 
 /** 单色但颜色就是品牌本身的 svg。每条写理由。 */

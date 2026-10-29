@@ -261,7 +261,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
           {letters ? <ContactsAzIndex mobile={mobile} present={new Set(visibleRows.map((row) => getPinyinInitial(displayName(row.entry.contact))))} onPick={jump} /> : null}
         </div>
       </div>
-      {!refreshing && contactsStatus === 'ready' && unavailableSelection ? <p role="alert" className="!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--danger)]">{t('memberPicker.selectionUnavailable')}</p> : null}
+      {!refreshing && contactsStatus === 'ready' && unavailableSelection ? <p role="alert" className="!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--danger-fg)]">{t('memberPicker.selectionUnavailable')}</p> : null}
       {footer}
       {!mobile ? <div className="flex shrink-0 justify-end border-t border-[var(--border-subtle)] !px-5 !py-3">{confirmButton}</div> : null}
     </div>

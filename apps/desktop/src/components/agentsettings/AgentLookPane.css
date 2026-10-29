@@ -2,11 +2,7 @@
    右边是颜色球 / 表情卡。舞台底色、台子、选中环都跟着选中的身体颜色走(--gg-look-color,注册成 <color> 才能平滑过渡)。
    只有这一屏用这些类,不分层 ⇒ 压得过 ui/Button 的工具类(色球、表情卡借 Button 的行为,外形在这里画)。 */
 
-@property --gg-look-color {
-  syntax: '<color>';
-  inherits: true;
-  initial-value: #f3e2c3;
-}
+/* --gg-look-color 的 <color> 注册在 tokens.css(theme batch D):initial-value 只能写字面值。 */
 
 .gg-look-wrap {
   container-type: inline-size;
@@ -31,8 +27,8 @@
   --gg-look-stage-bottom-mix: 18%;
   --gg-look-glow-mix: 92%;
   /* 浅色舞台上白星星看不见:换成暖金色的星屑 */
-  --gg-look-star: oklch(0.82 0.13 80);
-  --gg-look-star-glow: rgb(255 255 255 / 0.9);
+  --gg-look-star: var(--gg-look-star-light);
+  --gg-look-star-glow: var(--gg-look-star-glow-light);
 }
 
 /* ───────────── 舞台 ───────────── */
@@ -61,7 +57,7 @@
   z-index: -1;
   background-image: radial-gradient(circle, color-mix(in oklab, var(--fg) 16%, transparent) 1px, transparent 1.6px);
   background-size: 14px 14px;
-  mask-image: radial-gradient(ellipse 85% 58% at 50% 44%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(ellipse 85% 58% at 50% 44%, black 0%, transparent 78%);
   opacity: 0.6;
 }
 
@@ -318,7 +314,7 @@
 .gg-look-tab.gg-look-tab[aria-selected='true'] {
   background: var(--bg);
   color: var(--fg);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px var(--border);
+  box-shadow: var(--shadow-lift), 0 0 0 1px var(--border);
 }
 
 .gg-look-tab-count {
@@ -383,7 +379,7 @@
   height: 46px;
   border-radius: var(--radius-capsule);
   background:
-    radial-gradient(circle at 32% 27%, rgb(255 255 255 / 0.95) 0 8%, rgb(255 255 255 / 0) 30%),
+    radial-gradient(circle at 32% 27%, var(--gg-look-orb-shine) 0 8%, transparent 30%),
     radial-gradient(circle at 50% 58%, var(--gg-orb) 0 50%, color-mix(in oklab, var(--gg-orb) 80%, black 14%) 100%);
   box-shadow:
     inset 0 -4px 7px color-mix(in oklab, var(--gg-orb) 58%, black 22%),
@@ -657,12 +653,12 @@
   height: 24px;
   border-radius: var(--radius-capsule);
   background: var(--gg-swatch);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .gg-look-swatch[aria-checked='true'] .gg-look-swatch-dot {
   box-shadow:
-    inset 0 0 0 1px rgb(0 0 0 / 0.12),
+    inset 0 0 0 1px var(--border),
     0 0 0 2px var(--bg),
     0 0 0 4px var(--fg);
 }

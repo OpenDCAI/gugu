@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { ChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowCache'
 import { deferred, message } from '../../../support/testHarness'
 type QueryResult = { data: unknown[] | null; error: { message: string } | null }
 const { queryResults, queryCalls, chatDbMock } = vi.hoisted(() => {
@@ -210,6 +211,20 @@ describe('chatMessageRevalidation', () => {
       { overlays: new Map(), mutations: new Map(), presentIds: new Set([queried.id]) },
     )
     expect(next.map((row) => row.id)).toEqual(['queried', 'late-human'])
+  })
+  it('keeps a newly received read receipt when an older overlay response reaches an open chat', () => {
+    const cache = new ChatWindowCache('viewer')
+    const row = message({ id: 'm1', chat_id: 'c1', seq: 1, readers: [] })
+    cache.view('c1')
+    cache.set('c1', [row])
+    const oldResponse = {
+      overlays: new Map([['m1', { reactions: [], delivered: false, delivery_status: null, readers: [], delivery_blocks: [] }]]),
+      mutations: new Map(),
+      presentIds: new Set(['m1']),
+    }
+    cache.update('c1', (rows) => rows.map((item) => ({ ...item, delivered: true, readers: ['agent-a'] })))
+    cache.update('c1', (rows) => applyMessageWindowRevalidation(rows, new Set(['m1']), oldResponse))
+    expect(cache.rows('c1')[0]).toMatchObject({ delivered: true, readers: ['agent-a'] })
   })
   it('still drops an id that this exact request queried and confirmed absent', () => {
     const deleted = message({ id: 'deleted', seq: 1 })

@@ -42,7 +42,8 @@ const navRowStyle: CSSProperties = {
 const navTitleStyle: CSSProperties = { ...settingsRowTitleStyle, flexShrink: 0 }
 const navValueStyle: CSSProperties = {
   flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-  fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  // 行尾的值(「未设置协作规则」、成员数)是信息:可读次级字;❌ text-tertiary(= faint,3.35 / 3.12)。
+  fontSize: 'var(--font-body)', color: 'var(--muted-fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const navValueTextStyle: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const chevronStyle: CSSProperties = { color: 'var(--text-tertiary)', flexShrink: 0 }
@@ -144,7 +145,7 @@ const linkBoxStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-control)', padding: '9px 11px',
 }
 const linkTextStyle: CSSProperties = {
-  flex: 1, minWidth: 0, fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  flex: 1, minWidth: 0, fontSize: 'var(--font-body)', color: 'var(--muted-fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const posterButtonStyle: CSSProperties = { marginTop: 10, width: '100%' }
 

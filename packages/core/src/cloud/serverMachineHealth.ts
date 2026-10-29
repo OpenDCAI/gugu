@@ -9,7 +9,7 @@ import type { DeviceCapabilities } from '../shared/types/chat'
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 13
+export const REMOTE_PROTOCOL_VERSION = 14
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -61,10 +61,23 @@ export const REMOTE_PROTOCOL_VERSION = 13
  * would keep rereading full pages from a new host. Reject both version mismatches through the existing
  * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
  */
-/** 13: Ask settlements use origin instead of host; all clients and hosts update together. */
+/**
+ * 13: Ask settlements use origin instead of host.
+ *
+ * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
+ * 新的一侧使用对方支持的协议字段和 hello 版本；差两档以上才提示更新。下一次加一时，
+ * 两个下沿跟着抬到新号减一。
+ */
+// Protocol 14 removed the saved-login form. The later remote-browser removal keeps this
+// compatibility window; removed RPC methods use the normal unknown-method response.
 export const MIN_CLIENT_PROTOCOL = 13
-/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
+/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
 export const MIN_SERVER_PROTOCOL = 13
+
+/** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
+export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
+  return typeof serverProtocol === 'number' && serverProtocol < own && serverProtocol >= minServer ? serverProtocol : own
+}
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时
