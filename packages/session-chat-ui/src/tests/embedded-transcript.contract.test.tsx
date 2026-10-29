@@ -33,7 +33,8 @@ async function mount(embedded: boolean) {
   host.style.cssText = 'position:fixed;top:0;left:0;width:340px;';
   document.body.appendChild(host);
   const view = createChatView({ context: ctx, state, parent: host, stickToBottom: false, pinUserMessages: false, embedded });
-  state.transcript.history.seed([turn]);
+  // A running reasoning row remains visible; completed reasoning-only history is intentionally hidden.
+  state.transcript.activeTurn.set(turn);
   await until('the thinking row mounts', () => host.querySelector('[data-row-kind="thinking"]') !== null);
   const canvas = host.querySelector<HTMLElement>('[data-chat-canvas]')!;
   await untilStable('the canvas settles', () => canvas.getBoundingClientRect().height);
