@@ -100,4 +100,13 @@ describe('confirmed server update feedback', () => {
     expect(node('update-now')).not.toBeNull()
   })
 
+  it('plain Retry never invokes the confirmed restart and shows the original transport error', async () => {
+    retry.mockRejectedValueOnce(new Error('idle retry transport refused'))
+    await render(server({ state: 'failed', version: target }))
+    await click('match-retry')
+    expect(retry).toHaveBeenCalledExactlyOnceWith('remote')
+    expect(restart).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', expect.stringContaining('idle retry transport refused'))
+  })
+
 })

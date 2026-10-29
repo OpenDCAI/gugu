@@ -78,8 +78,11 @@ export function createServerVersionLifecycle(options: {
       const existing = flights.get(version)
       if (existing) return existing
       // The lease is installed before any await. Both consumers share this exact in-flight operation.
-      const flight = Promise.resolve().then(work).then(() => undefined)
+      let resolve!: () => void
+      let reject!: (error: unknown) => void
+      const flight = new Promise<void>((ok, fail) => { resolve = ok; reject = fail })
       flights.set(version, flight)
+      try { Promise.resolve(work()).then(() => resolve(), reject) } catch (error) { reject(error) }
       try { await flight } finally { if (flights.get(version) === flight) flights.delete(version) }
     },
     switchAccount(data: string, version: string, previous: string | null, at: number): void {
