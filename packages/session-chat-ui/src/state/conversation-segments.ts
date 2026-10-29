@@ -87,6 +87,16 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     const at = conversationEventAt(item);
     const hook = processHookNotice(item);
     if (hook?.hookName === 'Stop') {
+      // A send may have closed before its silence marker. At this Stop boundary
+      // the marker belongs to that sent reply, not to a new empty Stop owner.
+      const beforeSilence = blocks.at(-2);
+      if (segment?.items.length && segment.items.every(part => part.kind === 'message' && part.role === 'assistant'
+        && (!part.text.trim() || isGuguSilence(part.text))) && beforeSilence?.kind === 'segment'
+        && beforeSilence.items.some(part => part.kind === 'message' && part.id.includes(':sent:'))) {
+        beforeSilence.items.push(...segment.items);
+        blocks.pop();
+        segment = beforeSilence;
+      }
       const previous = blocks.at(-1);
       const owner = pendingStop?.owner ?? segment ?? (previous?.kind === 'segment' && !pendingInput ? previous : open());
       if (owner.items.some(conversationSpoken)) owner.fullReply = true;
@@ -124,15 +134,6 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       close(at, item.id);
       blocks.push({ kind: 'input', item });
       pendingInput = false;
-      continue;
-    }
-    // A send already closed its visible reply. Its trailing silence marker belongs
-    // to that reply, rather than creating an empty owner for the following Stop.
-    const previous = blocks.at(-1);
-    if (!segment && !pendingInput && previous?.kind === 'segment'
-      && item.kind === 'message' && item.role === 'assistant'
-      && (!item.text.trim() || isGuguSilence(item.text))) {
-      previous.items.push(item);
       continue;
     }
     const current = open();
