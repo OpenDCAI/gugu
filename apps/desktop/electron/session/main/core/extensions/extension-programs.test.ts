@@ -629,6 +629,22 @@ describe("an extension's own pages call its programs (#6635)", () => {
     expect(seen.args).toEqual({ _meta: { 'gugu/agent': 'user:forged' } });
   }, 30_000);
 
+  it('hands a person page call a task binding without assigning it agent membership', async () => {
+    extensionPrograms.setSource(() => [{ ...page, onGuguNode: true }]);
+    const original = programSurfaces.attachProgramSurface;
+    const handed = vi.fn();
+    const attached = vi.spyOn(programSurfaces, 'attachProgramSurface').mockImplementation((...args) => {
+      const surface = original(...args);
+      const hand = surface.hand.bind(surface);
+      surface.hand = (...input) => { handed(...input); return hand(...input); };
+      return surface;
+    });
+    try {
+      await fromPage('whoami');
+      expect(handed).toHaveBeenCalledWith(expect.any(String), null, [], [], 'task-1', 'person');
+    } finally { attached.mockRestore(); }
+  });
+
   // owner 10-16: a page's program may run on another machine than the page; it is told its session's working copy where
   // it runs, as an agent's call is. Mutation: a page stamp without `gugu/workspaceRoot` fails here.
   it("tells the program the page's session and its working copy on this machine", async () => {

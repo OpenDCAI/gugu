@@ -111,6 +111,22 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('a person\'s stamped page call keeps person membership for files, chats and messages', async () => {
+    granted.add('files:read');
+    granted.add('chat:read');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('person-page', null, [], [], 'person-task', 'person');
+    expect(await call(child, 1100, 'filesList', { place: { chat: BOARD_CHAT } }, 'person-page')).toMatchObject({ ok: true });
+    expect(listAppFiles).toHaveBeenLastCalledWith(expect.not.objectContaining({ asAgent: expect.anything() }), { place: { chat: BOARD_CHAT } });
+    expect(await call(child, 1101, 'chatsList', {}, 'person-page')).toMatchObject({ ok: true });
+    expect(chatsOf).toHaveBeenLastCalledWith({ asAgent: null });
+    expect(await call(child, 1102, 'messagesHistory', { chat: BOARD_CHAT }, 'person-page')).toMatchObject({ ok: true });
+    expect(messagesHistory).toHaveBeenLastCalledWith({ chat: BOARD_CHAT }, { asAgent: null });
+    await release();
+    expect(await call(child, 1103, 'chatsList', {}, 'person-page')).toMatchObject({ ok: false, code: 'denied' });
+    surface.close();
+  });
   it('uses only the current call\'s host-stamped task for a projection, never a task in the arguments or a completed call', async () => {
     granted.add('agents:tools');
     const child = fakeChild();

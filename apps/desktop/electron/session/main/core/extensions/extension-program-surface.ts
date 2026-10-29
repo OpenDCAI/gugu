@@ -48,7 +48,7 @@ export interface ProgramSurface {
    * and chats it handed; the function it returns takes them back when that call ends — resolved once the program let go
    * of the files, its last writes handed to the file service ahead of its Close (F106).
    */
-  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string): () => Promise<void>;
+  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person'): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
   close(): void;
@@ -59,7 +59,7 @@ let lastPageId = 0;
 export function attachProgramSurface(extensionId: string, child: ChildProcess): ProgramSurface {
   const pageId = --lastPageId;
   /** Each call running now, by its id: whose it is, and what it handed. */
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string }>();
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -104,7 +104,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     },
     hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
     // Each host-stamped call has an id; a person's page has a task but no calling agent.
-    ...(callId === undefined ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
+    ...(callId === undefined || calls.get(callId)?.callerKind === 'person' ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
     ...(callId === undefined || !calls.get(callId)?.sessionId ? {} : { callingSession: calls.get(callId)!.sessionId }),
   });
 
@@ -131,8 +131,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
 
   return {
     pageId,
-    hand(callId, agent, files, chats = [], sessionId) {
-      calls.set(callId, { agent, files, chats, sessionId });
+    hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
+      calls.set(callId, { agent, files, chats, sessionId, callerKind });
       return async () => {
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last

@@ -508,7 +508,7 @@ function armIdle(instance: Instance): void {
 }
 
 async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (client: Client) => Promise<T>,
-  call?: { id: string; agent?: string; sessionId?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
+  call?: { id: string; agent?: string; sessionId?: string; callerKind?: 'person'; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
   const key = versionKeyOf(program);
   signal.throwIfAborted();
   let pending = live.has(key) ? Promise.resolve(live.get(key)!) : starting.get(key);
@@ -526,7 +526,7 @@ async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (cli
   try {
     signal.throwIfAborted();
     if (instance.stopping) throw new Error('App program access was revoked');
-    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId) : undefined;
+    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId, call.callerKind ?? 'agent') : undefined;
     return await work(instance.client);
   } finally {
     await release?.();
@@ -631,7 +631,7 @@ export const extensionPrograms: ExtensionPrograms = {
         };
         if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal, sessionId: from.sessionId });
         return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
-          { id, sessionId: from.sessionId, handed: [], handedChats: [] });
+          { id, sessionId: from.sessionId, callerKind: 'person', handed: [], handedChats: [] });
       }
       // Worked by an agent (owner 10-14): its call, as the agent's own tool call is — stamped the same (its session, working
       // copy, model), what it hands checked as that agent, and what the program does in it done as that agent (`gugu/call`).
