@@ -102,6 +102,7 @@ function rectOf(element: Element): Box {
  * 两个框都要:面板收起时是把宽度压到 0 再 overflow-hidden,里面那一格的布局框还是 320 宽 ——
  * 只看它自己的框,页会画在一个早已被裁掉的位置上。所以沿祖先把每一层 overflow 不是 visible
  * 的框都交一遍,得到真正可见的区域;页按露出的区域裁,内容按整格的框摆,不变形。
+ * fixed 全屏格是裁剪边界:格外原分栏的 overflow 不再裁它,格内与根层的裁剪仍然有效。
  * 两边都按视口量,再换算到本层坐标,祖先有 transform 也不歪。
  */
 function boxOf(element: HTMLElement, layer: HTMLElement): { full: Box; clip: Box } {
@@ -113,6 +114,9 @@ function boxOf(element: HTMLElement, layer: HTMLElement): { full: Box; clip: Box
     if (node instanceof Element) {
       const cs = getComputedStyle(node);
       if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') clip = intersect(clip, rectOf(node));
+      // The fixed fullscreen pane escapes its old split block's overflow. Its
+      // resident guest must stop clipping there too, while keeping inner clips.
+      if (node.hasAttribute('data-tab-fullscreen')) break;
     }
     node = node instanceof ShadowRoot ? node.host : node.parentNode;
   }
