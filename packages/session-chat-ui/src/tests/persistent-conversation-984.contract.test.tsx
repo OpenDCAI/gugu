@@ -25,6 +25,7 @@ function mount() {
   const card = (id: string) => host.querySelector<HTMLElement>(`[data-user-card="${id}"]`);
   const settle = () => untilStable('message geometry settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height);
   const show = async (id: string) => {
+    await settle();
     view.scrollToItem(id);
     await until(`the requested bubble ${id} mounts`, () => card(id) !== null);
     await settle();
