@@ -36,3 +36,14 @@ export function dmTranscriptItem(messageId: string, aliases: ReadonlyMap<string,
   for (const [itemId, ids] of aliases) if (itemId !== messageId && ids.includes(messageId)) return itemId
   return aliases.has(messageId) ? messageId : null
 }
+
+/** Native replay and session snapshots can use different turn prefixes; a send receipt stays canonical. */
+export function visibleDmMessageIds(ids: readonly string[], aliases: ReadonlyMap<string, readonly string[]>, rows: readonly MessageItem[]): string[] {
+  const authorized = new Set(rows.map(row => row.id))
+  return ids.flatMap(id => {
+    const known = aliases.get(id)
+    if (known) return known.filter(messageId => authorized.has(messageId))
+    const receipt = /:sent:([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(id)?.[1]
+    return authorized.has(id) ? [id] : receipt && authorized.has(receipt) ? [receipt] : []
+  })
+}

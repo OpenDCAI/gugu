@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import type { ChatView } from '@gugu/session-chat-ui'
 import type { CapturedUnreadEntry } from '@/lib/chatUnreadLocator'
-import { AgentDmReadCursor, dmTranscriptItem } from './agent-dm-read'
+import { AgentDmReadCursor, dmTranscriptItem, visibleDmMessageIds } from './agent-dm-read'
 
 export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, aliases, unreadEntry, markMessageVisible, setFollowingTail, loadMessageAnchor, onError }: {
   chat: ChatItem; shown: boolean; messages: readonly MessageItem[]; aliases: ReadonlyMap<string, readonly string[]>
@@ -53,7 +53,7 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
   useLayoutEffect(() => () => setFollowingTail(undefined), [setFollowingTail])
   const onVisibleItems = useCallback((ids: readonly string[]) => {
     if (!shown || document.visibilityState === 'hidden') return
-    const canonical = ids.flatMap(id => aliases.get(id) ?? (messages.some(row => row.id === id) ? [id] : []))
+    const canonical = visibleDmMessageIds(ids, aliases, messages)
     for (const row of current.cursor.visible(canonical, messages)) markMessageVisible(row)
     if (current.first && canonical.includes(current.first)) unreadEntry?.onSeen()
     reportFollowing()

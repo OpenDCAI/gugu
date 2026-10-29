@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { AgentDmReadCursor, dmTranscriptItem } from '../../../../apps/desktop/src/components/chat/agent-dm-read'
+import { AgentDmReadCursor, dmTranscriptItem, visibleDmMessageIds } from '../../../../apps/desktop/src/components/chat/agent-dm-read'
 import { message } from '../../../support/testHarness'
 
 const rows = Array.from({ length: 8 }, (_, index) => message({ id: `reply-${index + 1}`, seq: index + 1, is_mine: false }))
@@ -26,4 +26,20 @@ it('does not let a resolved hidden delivery notice block the following visible r
   const cursor = new AgentDmReadCursor('resolved-notice', 0)
   cursor.ignore(['resolved-notice'])
   expect(cursor.visible([rows[0].id], rows)).toEqual([rows[0]])
+})
+
+it('matches a visible successful send by its authorized receipt despite a replay turn-prefix change', () => {
+  const id = 'ab8e401c-3c92-441b-a548-54fef697d941'
+  const aliases = new Map([[`session:turn:48:tool:send:sent:${id}`, [id]]])
+  const received = message({ id, seq: 94, is_mine: false })
+  const canonical = visibleDmMessageIds([`session:turn:s61:tool:send:sent:${id}`], aliases, [received])
+  expect(canonical).toEqual([id])
+  expect(new AgentDmReadCursor(id, 93).visible(canonical, [received])).toEqual([received])
+  expect(visibleDmMessageIds([`session:turn:s61:tool:send:sent:${id}`], aliases, [])).toEqual([])
+})
+
+it('skips an unprojected first unread without reporting it visible or blocking later replies', () => {
+  const cursor = new AgentDmReadCursor(rows[0].id, 0)
+  cursor.ignore([rows[0].id])
+  expect(cursor.visible([rows[1].id], rows.slice(0, 2))).toEqual([rows[1]])
 })
