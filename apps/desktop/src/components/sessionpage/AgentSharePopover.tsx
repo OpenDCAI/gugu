@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 // @@@sessionpage TASKPAGE-FUSION 分享 — 会话页点「分享」后的浮层。
@@ -140,7 +141,7 @@ function ShareRowItem({ row, unassigned, copiedLabel, copyLabel }: {
   const copy = async () => {
     if (row.value === null) return
     try {
-      await navigator.clipboard.writeText(row.value)
+      await platform.writeClipboardText(row.value)
       flash(copiedLabel)
     } catch (error) {
       const reason = String((error as Error)?.message ?? error)

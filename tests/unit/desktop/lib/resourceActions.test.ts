@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   link: vi.fn(), open: vi.fn(async () => true), list: vi.fn(), pick: vi.fn(), compose: vi.fn(), navigate: vi.fn(), reveal: vi.fn(), notice: vi.fn(),
   view: { id: 'view' }, clipboard: vi.fn(),
 }))
-vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron', writeClipboardText: mocks.clipboard } }))
 vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ readMobileShell: () => false }))
 vi.mock('../../../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => [] }))
 vi.mock('../../../../apps/desktop/src/components/chat/dispatchAsk', () => ({ pickDispatchTarget: mocks.pick }))

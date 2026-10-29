@@ -5,9 +5,9 @@ import { MobileFileContextMenu } from '@/components/preview/MobileFileContextMen
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
 import { createNode, createReactHarness, clickElement } from '../../../support/testHarness'
 
-const state = vi.hoisted(() => ({ mobile: true, copy: vi.fn(async (_text: string) => {}), toast: vi.fn() }))
+const state = vi.hoisted(() => ({ mobile: true, copy: vi.fn(async (_text: string) => {}), browserCopy: vi.fn(async (_text: string) => {}), toast: vi.fn() }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => state.mobile }))
-vi.mock('@/platform', () => ({ platform: { kind: 'capacitor', writeClipboardText: () => { throw new Error('The phone platform adapter has no clipboard implementation') } } }))
+vi.mock('@/platform', () => ({ platform: { kind: 'capacitor', writeClipboardText: state.copy } }))
 vi.mock('@/components/toastContext', () => ({ useToast: () => ({ toast: state.toast }) }))
 vi.mock('react-i18next', async importOriginal => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en-US' } }) }))
 let harness: ReturnType<typeof createReactHarness>
@@ -36,7 +36,8 @@ const select = () => {
 beforeEach(async () => {
   state.mobile = true
   state.copy.mockClear()
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: state.copy } })
+  state.browserCopy.mockClear()
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: state.browserCopy } })
   state.toast.mockClear()
   quote.mockReset()
   root = document.createElement('aside')
@@ -59,7 +60,7 @@ afterEach(async () => {
 })
 
 describe('mobile file menu uses captured viewer actions', () => {
-  it('copies the captured selection through the same browser clipboard as messages after focus clears it', async () => {
+  it('copies the captured selection through the host after focus clears it', async () => {
     select()
     await hold()
     expect(menuItems().map(node => node.querySelector('.gg-menu-item-label')?.textContent)).toEqual(['Copy', 'Select All', 'Quote Selection', 'Quote File'])
@@ -67,6 +68,7 @@ describe('mobile file menu uses captured viewer actions', () => {
     vi.useRealTimers()
     await clickElement(item('Copy'))
     expect(state.copy).toHaveBeenCalledWith('Precise file selection')
+    expect(state.browserCopy).not.toHaveBeenCalled()
     expect(quote).not.toHaveBeenCalled()
   })
 

@@ -57,7 +57,7 @@ type MachineRpc = ReturnType<typeof machineRpc>
 /** Copy the authorization text; surface a refused clipboard write. */
 async function copyText(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text)
+    await platform.writeClipboardText(text)
     return true
   } catch (error) {
     rendererLogger('actions/PhoneConnectorSetup').error({ error: error }, 'action failed')

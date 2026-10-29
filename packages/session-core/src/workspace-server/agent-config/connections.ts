@@ -14,6 +14,11 @@ export const harnessConnectionTargetSchema = z.object({
   connectionId: z.string().min(1),
 });
 
+/** `stopBusySessions`:被「有会话正在工作」拒过之后，用户点了「关掉并切换」—— 正在工作的也关掉，照切。 */
+export const harnessConnectionSelectSchema = harnessConnectionTargetSchema.extend({
+  stopBusySessions: z.boolean().optional(),
+});
+
 export const createHarnessConnectionSchema = z
   .object({
     providerId: z.enum(['claude', 'codex']),

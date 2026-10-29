@@ -6,6 +6,7 @@ import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlo
 import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
+import { platform } from '../../../../apps/desktop/src/platform'
 import { PHONE_CAPABILITIES } from '../../../../apps/desktop/src/components/appSlot/phoneApps'
 import { grantableBy } from '../../../../apps/desktop/src/session/shared/extensions/attachment-install'
 import { APP_COMPOSE_EVENT, APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -131,11 +132,13 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
   })
 
   it('control: inside a gesture the clipboard is written; outside one, a verb without the mark answers', async () => {
-    const writeText = vi.fn(async (_text: string) => undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const writeText = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const browser = vi.fn().mockRejectedValue(new Error('Write permission denied.'))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: browser }, configurable: true })
     activation.isActive = true
     expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: true })
     expect(writeText).toHaveBeenCalledWith('hi')
+    expect(browser).not.toHaveBeenCalled()
     activation.isActive = false
     expect(await call('setTabTitle', { title: 'Board' })).toMatchObject({ ok: true })
   })

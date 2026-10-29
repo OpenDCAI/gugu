@@ -20,7 +20,7 @@ describe('clipboard rejection feedback', () => {
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
       host = document.createElement('div');
       document.body.appendChild(host);
-      dispose = render(() => <CommandsContext.Provider value={() => ({ onCopyError })}><CopyButton text="message" variant={variant} /></CommandsContext.Provider>, host);
+      dispose = render(() => <CommandsContext.Provider value={() => ({ onCopyError, writeClipboardText: write })}><CopyButton text="message" variant={variant} /></CommandsContext.Provider>, host);
       const button = host.querySelector('button')!;
       button.click();
       expect(write).toHaveBeenCalledOnce(); // The native call still starts in the user gesture.
