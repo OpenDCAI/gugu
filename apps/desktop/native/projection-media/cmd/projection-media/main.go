@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,7 +28,12 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := projection.ServeMedia(ctx, config, encoding, os.Stdin, os.Stdout); err != nil {
+	// An inherited fd 0 can be a blocking, non-pollable os.File. Closing it
+	// while another goroutine reads need not interrupt that syscall. The service
+	// reads a cancellable pipe; this sole stdio pump dies with the helper process.
+	input, feed := io.Pipe()
+	go func() { _, err := io.Copy(feed, os.Stdin); _ = feed.CloseWithError(err) }()
+	if err := projection.ServeMedia(ctx, config, encoding, input, os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

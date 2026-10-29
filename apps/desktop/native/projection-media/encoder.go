@@ -2,14 +2,20 @@ package projection
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
+
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 )
 
 // EncoderConfig comes from the host. Executable is its resolved FFmpeg binary,
@@ -32,16 +38,16 @@ type RTPWriter interface {
 // host transport. A write is encoder admission, not a viewer paint acknowledgement.
 // Size changes require a new encoder and a new host input generation.
 type Encoder struct {
-	input   io.WriteCloser
-	packets *net.UDPConn
-	cancel  context.CancelFunc
-	length  int
-	done    chan struct{}
-	closed  chan struct{}
-	reader  chan struct{}
-	once    sync.Once
-	write   sync.Mutex
-	err     error
+	input  io.WriteCloser
+	output io.ReadCloser
+	cancel context.CancelFunc
+	length int
+	done   chan struct{}
+	closed chan struct{}
+	reader chan struct{}
+	once   sync.Once
+	write  sync.Mutex
+	err    error
 }
 
 func validEncoderConfig(config EncoderConfig) bool {
@@ -61,16 +67,11 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 	if !validEncoderConfig(config) || output == nil {
 		return nil, errors.New("invalid projection encoder configuration")
 	}
-	packets, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		return nil, err
-	}
-	if err = packets.SetReadBuffer(256 * 1024); err != nil {
-		_ = packets.Close()
+	var ssrc [4]byte
+	if _, err := rand.Read(ssrc[:]); err != nil {
 		return nil, err
 	}
 	run, cancel := context.WithCancel(context.Background())
-	address := packets.LocalAddr().(*net.UDPAddr)
 	args := []string{
 		"-hide_banner", "-loglevel", "error", "-nostdin",
 		"-f", "rawvideo", "-pixel_format", "bgra", "-video_size", fmt.Sprintf("%dx%d", config.Width, config.Height),
@@ -80,48 +81,57 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 		"-b:v", strconv.Itoa(config.Bitrate), "-maxrate", strconv.Itoa(config.Bitrate), "-bufsize", strconv.Itoa(config.Bitrate),
 		"-bf", "0", "-g", strconv.Itoa(config.FPS), "-keyint_min", strconv.Itoa(config.FPS),
 		"-x264-params", "repeat-headers=1:scenecut=0", "-fps_mode", "passthrough",
-		"-f", "rtp", "-payload_type", "96", "-rtpflags", "skip_rtcp",
-		fmt.Sprintf("rtp://127.0.0.1:%d?pkt_size=1200", address.Port),
+		"-f", "flv", "-flvflags", "no_duration_filesize", "-flush_packets", "1", "pipe:1",
 	}
 	cmd := exec.CommandContext(run, config.Executable, args...)
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Env = []string{"LANG=C", "LC_ALL=C"}
+	for _, name := range []string{"SystemRoot", "WINDIR"} {
+		if value := os.Getenv(name); value != "" {
+			cmd.Env = append(cmd.Env, name+"="+value)
+		}
+	}
 	diagnostics := &encoderLog{}
 	cmd.Stderr = diagnostics
-	cmd.Stdout = io.Discard
 	input, err := cmd.StdinPipe()
+	var encoded io.ReadCloser
+	if err == nil {
+		encoded, err = cmd.StdoutPipe()
+	}
 	if err == nil {
 		err = cmd.Start()
 	}
 	if err != nil {
 		cancel()
-		_ = packets.Close()
+		if encoded != nil {
+			_ = encoded.Close()
+		}
 		if input != nil {
 			_ = input.Close()
 		}
 		return nil, err
 	}
-	e := &Encoder{input: input, packets: packets, cancel: cancel, length: config.Width * config.Height * 4, done: make(chan struct{}), closed: make(chan struct{}), reader: make(chan struct{})}
+	e := &Encoder{input: input, output: encoded, cancel: cancel, length: config.Width * config.Height * 4, done: make(chan struct{}), closed: make(chan struct{}), reader: make(chan struct{})}
 	stopParent := context.AfterFunc(ctx, func() { e.stop(ctx.Err()) })
 	go func() {
 		defer close(e.reader)
-		packet := make([]byte, 1501)
-		for {
-			n, from, readErr := packets.ReadFromUDP(packet)
-			if readErr != nil {
-				select {
-				case <-e.done:
-				default:
-					e.stop(readErr)
+		packetizer := rtp.NewPacketizer(1200, 96, binary.BigEndian.Uint32(ssrc[:]), &codecs.H264Payloader{}, rtp.NewRandomSequencer(), 90000)
+		readErr := readEncodedFrames(encoded, func(annexB []byte) error {
+			for _, packet := range packetizer.Packetize(annexB, uint32(90000/config.FPS)) {
+				data, err := packet.Marshal()
+				if err != nil {
+					return err
 				}
-				return
+				if err = output.RTP(data); err != nil {
+					return err
+				}
 			}
-			if !from.IP.IsLoopback() || n > 1500 {
-				e.stop(errors.New("invalid encoder RTP packet"))
-				return
-			}
-			if sendErr := output.RTP(packet[:n]); sendErr != nil {
-				e.stop(sendErr)
-				return
-			}
+			return nil
+		})
+		select {
+		case <-e.done:
+		default:
+			e.stop(readErr)
 		}
 	}()
 	go func() {
@@ -146,7 +156,7 @@ func (e *Encoder) stop(err error) {
 		e.err = err
 		close(e.done)
 		_ = e.input.Close()
-		_ = e.packets.Close()
+		_ = e.output.Close()
 		e.cancel()
 	})
 }

@@ -122,6 +122,8 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 		}
 		ticker := time.NewTicker(100 * time.Millisecond)
 		seen := false
+		var lastPixel decodedPixel
+		var lastReceipt EncodedFrame
 		encoded := make(map[uint32]EncodedFrame)
 		for !seen {
 			select {
@@ -133,7 +135,9 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 					t.Fatalf("encoder: %v; Chromium: %s", frameErr, diagnostics.text())
 				}
 				encoded[receipt.Timestamp] = receipt
+				lastReceipt = receipt
 			case pixel := <-pixels:
+				lastPixel = pixel
 				// Canvas reports RGB while the source buffer is BGRA.
 				if receipt, matched := encoded[pixel.Timestamp]; matched && receipt.Sequence != 0 &&
 					pixel.RGB[2-channel] >= 215 && pixel.RGB[(3-channel)%3] <= 15 && pixel.RGB[(4-channel)%3] <= 15 {
@@ -144,7 +148,7 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 				t.Fatal(browserErr)
 			case <-ctx.Done():
 				ticker.Stop()
-				t.Fatalf("browser did not decode color %d: %s", channel, diagnostics.text())
+				t.Fatalf("browser did not decode color %d; last pixel=%+v, last receipt=%+v, encoded=%d: %s", channel, lastPixel, lastReceipt, len(encoded), diagnostics.text())
 			}
 		}
 		ticker.Stop()
