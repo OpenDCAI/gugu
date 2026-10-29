@@ -329,6 +329,9 @@ export function applyUpgradeEvent(event: SshUpgradeEvent | null): void {
   if (event.phase === 'updating') {
     upgrades.set(deviceId, typeof event.percent === 'number' ? event.percent : null)
     setLinkProblem(deviceId, 'updating')
+  } else if (event.phase === 'waitingIdle') {
+    upgrades.delete(deviceId)
+    setLinkProblem(deviceId, 'waitingIdle')
   } else if (event.phase === 'desktopTooOld') {
     // 连接本身没毛病;「请更新这台电脑上的咕咕」由那台机器报的协议窗口说(serverMachineNotices)。
     upgrades.delete(deviceId)
@@ -355,13 +358,19 @@ export function subscribeSshUpgrades(listener: (upgrades: ReadonlyMap<string, nu
  * 请主进程替这台升级(会话页宿主说「太旧」时 / 人点「重试」时;设备连接开出太旧时主进程自己会发起)。
  * 返回此刻是不是在升。`force` = 人点的,不看失败后的冷却。
  */
-export async function requestSshServerUpgrade(deviceId: string, options?: { force?: boolean; /** 由「这台电脑太旧」发起:只换成匹配的版本;没发起(冷却中)不改连接状况。 */ desktopTooOld?: boolean }): Promise<boolean> {
+export async function requestSshServerUpgrade(deviceId: string, options?: {
+  force?: boolean
+  /** 由「这台电脑太旧」发起:只换成匹配的版本;没发起(冷却中)不改连接状况。 */
+  desktopTooOld?: boolean
+  /** 人点了「现在重启更新」:那个账号有 agent 在跑也当场换。 */
+  now?: boolean
+}): Promise<boolean> {
   const electron = bridge()
   if (!electron) return false
   wireEvents(electron)
   let started = false
   try {
-    started = (await electron.invoke(SSH_LINK_CHANNELS.upgrade, { deviceId, force: options?.force === true, desktopTooOld: options?.desktopTooOld === true })) === true
+    started = (await electron.invoke(SSH_LINK_CHANNELS.upgrade, { deviceId, force: options?.force === true, desktopTooOld: options?.desktopTooOld === true, now: options?.now === true })) === true
   } catch {
     started = false
   }

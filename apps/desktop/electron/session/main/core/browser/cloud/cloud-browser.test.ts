@@ -70,7 +70,8 @@ describe('#7199 cloud browser gates', () => {
     const result = b.requestTakeover('browser-task', { reason: 'Finish the visible step' });
     const entry = [...hostAsks.get('browser-task')!.values()][0]!;
     expect(entry.request.origin).toEqual({ source: 'browser-assistance', payload: { kind: 'takeover', text: 'Finish the visible step' } });
-    expect(b.status(null)).not.toHaveProperty('assistance');
+    // 协议 12 的端从浏览器状态读求助(向下兼容一档):与 Ask 同一份,不带会话 id。
+    expect(b.status(null).assistance).toEqual({ ...(entry.request.origin?.payload as object), requestId: entry.request.itemId });
     await respond({ conversationId: 'browser-task', itemId: entry.request.itemId, kind: 'permission', optionId: 'done', by: 'mobile' });
     await expect(result).resolves.toMatchObject({ ok: true });
     expect(b.toolStarting('browser-task').ok).toBe(true);

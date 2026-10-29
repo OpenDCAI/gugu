@@ -1,10 +1,13 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
+import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels';
+import type { DeviceStatus } from '@gugu/core/shared/types/chat';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -408,13 +411,16 @@ async function storedOnOf(token: string, rows: readonly ItemRow[], identities: I
     const mine = personId(policy.host_account_id) === personId(actor);
     const [owner] = await identities(token, [policy.host_account_id]);
     let machine: string | null = null;
+    let online: boolean | undefined;
     if (mine) {
       const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
-        .from('gugu_devices').select('label').eq('device_id', policy.host_device_id).maybeSingle();
+        .from('gugu_devices').select('label, status').eq('device_id', policy.host_device_id).maybeSingle();
       if (device.error) throw new AppFileError('failed', device.error.message);
-      machine = (device.data as { label: string } | null)?.label ?? null;
+      const row = device.data as { label: string; status?: string } | null;
+      machine = row?.label ?? null;
+      if (typeof row?.status === 'string') online = isDeviceOnline(row.status as DeviceStatus);
     }
-    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine });
+    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine, ...(online === undefined ? {} : { online }) });
   }));
   return found;
 }
@@ -1001,13 +1007,23 @@ export function createAppFiles(platform: FilesPlatform) {
      * temporary period, counted from now — or kept until someone deletes it. Only its uploader changes it (`denied`); a file
      * with no cloud copy has nothing to keep (`invalid`).
      */
-    async keep(surface: FileSurface, args: { ref: ChatFileRef; how: unknown }): Promise<void> {
-      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(file, how): how is 'temporary' or 'permanent'");
+    async keep(surface: FileSurface, args: { refs: readonly ChatFileRef[]; how: unknown }): Promise<{ changed: number }> {
+      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(files, how): how is 'temporary' or 'permanent'");
+      if (!Array.isArray(args.refs) || args.refs.length === 0) throw new AppFileError('invalid', 'files.keep(files, how): give one file or more');
       const { token, userId } = await platform.account();
-      const { row } = await resolve(surface, { token, userId }, args.ref);
-      if (row.kind === 'folder') throw notAFile(row);
-      const { error } = await chatClient(token).rpc('file_storage_mark_as', { p_refs: [{ item_id: row.id }], p_action: args.how, p_as: surface.asAgent ?? userId });
-      if (error) throw new AppFileError(codeOf(error), error.message);
+      const rows = await Promise.all(args.refs.map(async (ref) => (await resolve(surface, { token, userId }, ref)).row));
+      const folder = rows.find((row) => row.kind === 'folder');
+      if (folder) throw notAFile(folder);
+      // One call per 500 (the door's most); a refusal is the whole call's — the caller hands only its own uploads.
+      let changed = 0;
+      for (let at = 0; at < rows.length; at += 500) {
+        const { data, error } = await chatClient(token).rpc('file_storage_mark_as', {
+          p_refs: rows.slice(at, at + 500).map((row) => ({ item_id: row.id })), p_action: args.how, p_as: surface.asAgent ?? userId,
+        });
+        if (error) throw new AppFileError(codeOf(error), error.message);
+        changed += typeof data === 'number' ? data : 0;
+      }
+      return { changed };
     },
 
     /** Rename in place: only its name changes (真源 §2.5) — a move that stays in its folder. The folder App's edit(item_id, name) for an agent. */
@@ -1164,10 +1180,14 @@ export function createAppFiles(platform: FilesPlatform) {
      * Every size is checked before the first byte goes. Not a transaction across files: if one
      * fails, the ones before it stay, and the rejection names what did not get in.
      */
-    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown } = {}): Promise<AppFileEntry[]> {
+    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown; keep?: unknown } = {}): Promise<AppFileEntry[]> {
       const { token, userId } = await platform.account();
       const sourceMessageIds = sourceMessageIdsOf(as.sourceMessageIds);
       const folder = folderOf(as.folder);
+      // 临时 / 保留: how long a stored copy stays (the server marks it as the uploader marks it later). A text file is a live
+      // document, not a stored copy: nothing to mark.
+      if (as.keep !== undefined && !FILE_KEEPS.includes(as.keep as FileKeep)) throw new AppFileError('invalid', "keep is 'temporary' or 'permanent'");
+      const keep = as.keep as FileKeep | undefined;
       for (const file of files) {
         if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
           throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
@@ -1191,7 +1211,7 @@ export function createAppFiles(platform: FilesPlatform) {
             const endpoint = configuredEndpoint(token);
             const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
             return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
-              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType }) as unknown as ItemRow;
+              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType, ...(keep ? { keep } : {}) }) as unknown as ItemRow;
           };
           const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
           if (published) { rows.push(published); continue; }

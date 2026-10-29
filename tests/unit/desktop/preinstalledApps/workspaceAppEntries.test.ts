@@ -213,17 +213,17 @@ describe('workspace App: what the old workspace panel did', () => {
     for (const li of app().entries) {
       const id = li.getAttribute('data-id')!
       rowMore(id).click()
-      expect(offered()).toEqual(['下载', ...(id === 'photo' ? ['在聊天中定位'] : []), '复制链接', '用别的 App 打开'])
+      expect(offered()).toEqual(['下载', ...(id === 'photo' ? ['在聊天中定位'] : []), '复制链接', '详情', '用别的 App 打开'])
     }
     pressEscape()
     contextChanged({ ...context })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
     rowMore('cfg').click()
-    expect(offered()).toEqual(['下载', '复制链接', '用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
     pressEscape()
     // owner 10-18: delete is offered only where the folder says this person may (entry.canDelete) — 'old' does not say so.
     rowMore('old').click()
-    expect(offered()).toEqual(['下载', '复制链接', '用别的 App 打开', '改名', '移动到…'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…'])
     pressEscape()
   })
 })
@@ -286,12 +286,12 @@ describe('workspace App as a file manager: the host picks the App', () => {
     rowMore('cfg').click()
     menuItem('删除').click()
     expect($('menu').hidden, 'the menu stays open for the question').toBe(false)
-    expect(offered()).toEqual(['下载', '复制链接', '用别的 App 打开', '改名', '移动到…', '确认删除'])
+    expect(offered()).toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '确认删除'])
     $('filter').dispatchEvent(new Event('pointerdown', { bubbles: true })) // a press elsewhere
     expect($('menu').hidden).toBe(true)
     expect(gugu.files.remove).not.toHaveBeenCalled()
     rowMore('cfg').click()
-    expect(offered(), 'the question is taken back').toEqual(['下载', '复制链接', '用别的 App 打开', '改名', '移动到…', '删除'])
+    expect(offered(), 'the question is taken back').toEqual(['下载', '复制链接', '详情', '用别的 App 打开', '改名', '移动到…', '删除'])
     menuItem('删除').click()
     menuItem('确认删除').click()
     expect($('menu').hidden).toBe(true)

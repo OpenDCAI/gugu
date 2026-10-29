@@ -105,7 +105,8 @@ export const plugin = definePlugin(
     },
     // 托管安装:`@github/copilot` 的 npm 包只是个 loader,程序体在
     // `@github/copilot-<platform>-<arch>` 里(六格齐全,归档里是可执行文件 `copilot`)。
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「GitHub Copilot CLI 1.0.105.」(下一行是 update 提示,包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'copilot',
       package: '@github/copilot',
       executables: {
@@ -113,7 +114,7 @@ export const plugin = definePlugin(
         'linux-x64': 'copilot', 'linux-arm64': 'copilot',
         'win32-x64': 'copilot.exe', 'win32-arm64': 'copilot.exe',
       },
-    }),
+    }), versionLine: /^GitHub Copilot CLI / },
     mcp: {
       kind: 'supported',
       scope: 'global',

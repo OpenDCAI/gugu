@@ -50,7 +50,7 @@ export function AliasSheet({ name, alias, avatarUrl, seed, group = false, onSave
         </div>
         <input
           data-testid={AUTOMATION_TEST_IDS.contactAliasSheetInput}
-          className="box-border h-[var(--control-h-xl)] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-transparent px-3 py-0 text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-primary)] outline-none [font-family:inherit] placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] max-[719px]:h-[var(--control-h-touch)]"
+          className="box-border h-[var(--control-h-xl)] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-transparent px-3 py-0 text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-primary)] outline-none [font-family:inherit] placeholder:text-[var(--muted-fg)] focus:border-[var(--border-strong)] max-[719px]:h-[var(--control-h-touch)]"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void save() }}
@@ -60,7 +60,7 @@ export function AliasSheet({ name, alias, avatarUrl, seed, group = false, onSave
           autoFocus
           disabled={saving}
         />
-        {error ? <div role="alert" className="text-sm text-[var(--danger)]">{error}</div> : null}
+        {error ? <div role="alert" className="text-sm text-[var(--danger-fg)]">{error}</div> : null}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             {t('common.cancel')}

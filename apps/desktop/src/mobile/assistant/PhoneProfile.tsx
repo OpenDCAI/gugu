@@ -12,6 +12,9 @@ import { Avatar } from '@/components/Avatar'
 import { Markdown } from '@/components/markdown/Markdown'
 import { AssistantSettingsPage } from '@/components/assistant/AssistantSettingsPage'
 import { AssistantDevicesPage } from '@/components/devices/AssistantDevicesPage'
+import { DeviceRenameField } from '@/components/devices/DeviceRenameField'
+import { IconButton } from '@/components/ui/IconButton'
+import { useDeviceRename } from '@/hooks/useDeviceRename'
 import { ChevronRight, Link, Monitor, Pencil } from '@/lib/icons'
 import { AssistantDiaryDetail, AssistantDiaryList } from '@/session/renderer/features/assistant/assistant-diary'
 import { AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
@@ -40,6 +43,7 @@ export function PhoneProfile(props: PhonePageProps) {
   const persona = usePhonePersona(machine)
   const connectors = !sub || sub === 'channels' || sub === 'connectors' || !!sub.startsWith('connector:')
   const integrations = usePhoneIntegrations(machine, connectors)
+  const deviceRename = useDeviceRename()
   if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
   if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
@@ -62,9 +66,21 @@ export function PhoneProfile(props: PhonePageProps) {
     const opened = machine?.device
     const title = openedDeviceId === 'this-phone' || (machine?.current && opened && isPhoneDevice(opened))
       ? settings('devices.assistantPage.phoneTitle') : opened?.label ?? t('library.devices')
+    // 设备页的名字在手机这一页的页头改(页头归手机壳,里面的设备页 embedded 不画页头):同一个改名框、同一条落库路径。
+    const renaming = !!opened && deviceRename.editingId === opened.device_id
+    const renameFailed = renaming ? deviceRename.failedFor(opened.device_id) : ''
     return (
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
-        <PageHead title={title} />
+        {renaming && opened
+          ? <div className="ta-page-head"><div className="min-w-0 flex-1">
+            <DeviceRenameField label={opened.label} onSave={(next) => void deviceRename.save(opened, next)} onCancel={deviceRename.cancel} />
+            {renameFailed && <p className="ta-page-sub text-[var(--danger)]">{renameFailed}</p>}
+          </div></div>
+          : <PageHead title={title} action={opened && (
+            <IconButton aria-label={settings('devices.menu.rename')} title={settings('devices.menu.rename')} data-testid="settings-device-actions-rename" onClick={() => deviceRename.start(opened)}>
+              <Pencil />
+            </IconButton>
+          )} />}
         <div className="ta-skin">
           <AssistantDevicesPage cloudDeviceId={cloudDeviceId} openedDeviceId={openedDeviceId} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
         </div>

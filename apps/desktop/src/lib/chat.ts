@@ -194,25 +194,6 @@ function mapGroupChatSettingsRow(row: GroupChatSettingsRow): GroupChatSettings {
     agent_flood_threshold_effective: row.agent_flood_threshold_effective ?? null,
   }
 }
-function normalizeAgentRuntimeOpenError(error: unknown): string {
-  const raw = String((error as Error)?.message ?? error)
-  if (raw.includes('Local agent not found for')) {
-    return i18n.t('chatService.runtimeOpen.localMissing', { ns: 'messaging' })
-  }
-  if (raw.includes('tmux group session not found')) {
-    return i18n.t('chatService.runtimeOpen.staleTmux', { ns: 'messaging' })
-  }
-  if (raw.includes('Agent runtime target unavailable')) {
-    return i18n.t('chatService.runtimeOpen.unavailable', { ns: 'messaging' })
-  }
-  if (raw.includes('Agent runtime container unavailable')) {
-    return i18n.t('chatService.runtimeOpen.incomplete', { ns: 'messaging' })
-  }
-  if (raw.includes('connect ENOENT') && raw.includes('cmux.sock')) {
-    return i18n.t('chatService.runtimeOpen.cmuxUnavailable', { ns: 'messaging' })
-  }
-  return raw.replace(/^Error invoking remote method 'agent-runtime:open(-remote)?': Error: /, '')
-}
 function mapGroupCollabAgents(
   members: GroupMemberItem[],
   agentStates: GroupCollabAgentStateRow[],
@@ -903,32 +884,6 @@ export const chatService = {
   // #1099: chatService.wakeAgent 已删 —— ACP 下 agent=spawn+stdio,设备在线即可触达、发消息自动启动
   // 会话,不存在 terminal 时代「先唤醒」机制。后端 agent.wake 命令链(deviceCommands/deviceCommandRuntime)
   // 一并随 #966 退役。
-
-  async openAgentRuntime(agentUserId: string | null | undefined): Promise<void> {
-    if (!agentUserId) throw new Error(i18n.t('chatService.runtimeOpen.removed', { ns: 'messaging' }))
-    try {
-      const deviceId = (await readDisplayIdentities([agentUserId]))[0]?.device_id ?? null
-      const localDeviceId = (await platform.getLocalDeviceSelfSnapshot?.())?.device_id ?? null
-      // @@@local-device-truth (#777) - route by KNOWN facts only. The agent's device_id is a known
-      // cloud fact; this machine's own device_id may be momentarily unknown (host hasn't ticked).
-      // NEVER treat "I don't know who I am" as "I am the agent's machine" — the old
-      // `!localDeviceId → local` fallback misrouted remote agents (e.g. architect on VPS) to a local
-      // open → "Local agent not found". Only open locally when the two ids are confirmed EQUAL; an
-      // agent with a known device that isn't (or can't be confirmed as) this machine routes remote.
-      if (!deviceId) {
-        throw new Error(i18n.t('chatService.runtimeOpen.unbound', { ns: 'messaging' }))
-      }
-      if (deviceId === localDeviceId) {
-        await platform.openAgentRuntime(agentUserId)
-        return
-      }
-      // ACP 减法：远程打开 = 在另一台设备上 SSH attach tmux 的旧终端视角，ACP 路径不再提供。
-      // agent 跑在它绑定的设备上，运行态在本机 app 内通过 ACP 流式呈现，无需打开远程终端窗口。
-      throw new Error(i18n.t('chatService.runtimeOpen.remoteUnsupported', { ns: 'messaging' }))
-    } catch (err) {
-      throw new Error(normalizeAgentRuntimeOpenError(err))
-    }
-  },
 
   async getDeviceCommand(commandId: string): Promise<DeviceCommand | null> {
     return getCoreDeviceCommand(deviceCommandTableClient(), commandId)

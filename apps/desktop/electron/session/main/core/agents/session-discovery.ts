@@ -390,7 +390,8 @@ export async function assertLocalHarnessLaunchable(
       import('./session-runtime-compatibility'),
       import('@gugu/session-core/exec'),
     ])
-  const descriptor = getPlugin(pluginId).capabilities.sessionBundle
+  const plugin = getPlugin(pluginId)
+  const descriptor = plugin.capabilities.sessionBundle
   const runContext = await resolveLocalAgentRunContext(pluginId, { role: 'tui' })
   if (runContext.cli.kind === 'unresolved') throw new Error(runContext.cli.message)
   const surfaces = descriptor.surfaces.includes('app-server') ? (['tui', 'app-server'] as const) : (['tui'] as const)
@@ -400,6 +401,7 @@ export async function assertLocalHarnessLaunchable(
       surface,
       descriptor,
       executable: runContext.cli.path,
+      versionLine: plugin.capabilities.hostDependency.versionLine,
       executionContext: localLaunchProbeContext,
       runtimeExecutable: runContext.runtimeExecutable,
       windowsShimReader: diskWindowsShimReader,

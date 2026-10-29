@@ -119,12 +119,13 @@ export const plugin = definePlugin(
     // 这类辅助件 —— 作为 optionalDependencies 由 aube 一并装好,正是 npm 装法的形状。
     // (2026-08 那条「npmmirror 还停在老启动器版」的注记不再是装法判据:镜像落后与否由源菜单
     //  逐个现查,装的是那个源上的那个版本。)
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「zero 0.10.0」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'zero',
       backend: 'npm',
       package: '@gitlawb/zero',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: /^zero / },
     // agent memory —— zero 项目级收 AGENTS.md 系,个人级用自己的专名文件 ZERO.md。
     // 出处:官方仓 README(https://github.com/Gitlawb/zero)的 Project guidance 一段:
     //  ·「Zero appends project-specific guidance to the system prompt from the first `AGENTS.md`,

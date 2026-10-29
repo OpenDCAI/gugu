@@ -84,7 +84,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
   if (opened) return <DeviceActionsPage panelNavigation={panelNavigation} device={opened} configurations={openedMachine?.configurations} isThisDevice={opened.is_current_device === true} embedded={!!onOpenDevice} onBack={onOpenDevice ? undefined : () => setOpen(null)} />
 
   const groupNames = (groups: readonly string[]) => groups.map((g) => groupText.name(g)).join('、')
-  /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说、也不能点。 */
+  /** 这台开了哪几项;没登记动作清单(老版本、Windows / Linux 上的咕咕)= null,这一行就不说。 */
   const grants = (device: Device): string | null => {
     if (device.is_current_device && !isPhoneDevice(device)) {
       if (!thisActions) return t('devices.assistantPage.reading')
@@ -101,7 +101,7 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
     const summary = isPhoneDevice(device) ? null : grants(device)
     const configurationCount = deviceMachineFor(machines, device.device_id)!.configurations.length
     return <DeviceItem key={machineKeyOf(device)} device={device} kind={deviceKind(device, cloudId)} summary={summary}
-      configurationCount={configurationCount} onOpen={summary !== null || configurationCount > 1 ? () => setOpen(device.device_id) : undefined} />
+      configurationCount={configurationCount} onOpen={() => setOpen(device.device_id)} />
   }
   const showComputer = thisComputer && (!computer || activeKeys.has(computer.key))
   const showPhone = thisPhone && (!phone || activeKeys.has(phone.key))
@@ -136,7 +136,7 @@ function DeviceItem({
   kind: DeviceRowKind
   summary: string | null
   configurationCount: number
-  onOpen?: () => void
+  onOpen: () => void
 }) {
   const { t } = useTranslation('settings')
   const lit = device.is_online
@@ -167,7 +167,7 @@ function DeviceItem({
           <span className="min-w-0">{[status, showKind ? t(`devices.kind.${kind}`) : null, summary, configurationCount > 1 ? t('devices.configurationCount', { count: configurationCount }) : null].filter(Boolean).join(' · ')}</span>
         </span>
       )}
-      control={(availability || onOpen) ? (
+      control={(
         <span className="flex items-center gap-2">
           {availability && (
             <Chip
@@ -177,9 +177,9 @@ function DeviceItem({
               {t(availability === 'allDay' ? 'devices.assistantPage.allDay' : 'devices.assistantPage.notAllDay')}
             </Chip>
           )}
-          {onOpen && <ChevronRight size={16} />}
+          <ChevronRight size={16} />
         </span>
-      ) : undefined}
+      )}
       onClick={onOpen}
     />
   )

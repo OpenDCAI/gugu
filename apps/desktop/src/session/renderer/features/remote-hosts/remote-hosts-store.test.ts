@@ -164,7 +164,6 @@ describe('没连着的机器照账号上记着的那份', () => {
     rootPath: '/srv/repo',
     createdAt: '2026-10-01T08:00:00.000Z',
     chatId: 'chat-repo',
-    groupRepresentative: true,
     folders: [{ workspaceId: 'ws-acct-root', kind: 'root' as const, path: '/srv/repo', attachedAt: null }],
     ...overrides,
   });
@@ -189,14 +188,13 @@ describe('没连着的机器照账号上记着的那份', () => {
       });
       expect(machineRegistry.machineOf('acct-proj-1')).toBe('dev-acct-1');
       expect(projectGroupsStore.chatIdOf('acct-proj-1')).toBe('chat-repo');
-      expect(projectGroupsStore.isRepresentative('acct-proj-1')).toBe(true);
       expect(store.homeDir('dev-acct-1')).toBe('/home/alice');
       expect(store.accountFolders('dev-acct-1', 'acct-proj-1')?.map((folder) => [folder.workspaceId, folder.kind, folder.branch])).toEqual([
         ['ws-acct-root', 'root', null],
       ]);
 
       // 那台机器离线时在它上面删了这个项目、建了另一个(它记到账号上,设备列表跟着刷新):这一端原地跟上。
-      listed = [{ ...offline, projects: [record({ localProjectId: 'acct-proj-2', name: 'next', chatId: null, groupRepresentative: false })] }];
+      listed = [{ ...offline, projects: [record({ localProjectId: 'acct-proj-2', name: 'next', chatId: null, })] }];
       listeners.forEach((listener) => listener());
       expect(appState.projects.projects.has('acct-proj-1')).toBe(false);
       expect(appState.projects.projects.get('acct-proj-2')?.data?.name).toBe('next');
@@ -272,7 +270,7 @@ describe('没选项目 = 那台机器的主目录项目', () => {
     await expect(store.ensureHomeProject('dev-home-1')).resolves.toBe('dev-home-1-project-home');
     expect(create).toHaveBeenCalledWith(
       { type: 'local', machine: 'dev-home-1' },
-      expect.objectContaining({ mode: 'pick', path: '/home/alice', allowNonGit: true })
+      expect.objectContaining({ mode: 'pick', path: '/home/alice', allowNonGit: true, automatic: true })
     );
     create.mockRestore();
     mount.mockRestore();

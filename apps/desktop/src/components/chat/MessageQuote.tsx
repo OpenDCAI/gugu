@@ -35,7 +35,8 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
       overflow: 'hidden',
       borderLeft: `3px solid ${msg.is_mine ? 'var(--bubble-quote-bar-mine)' : 'var(--bubble-quote-bar-other)'}`,
       paddingLeft: '7px',
-      maxWidth: '180px',
+      // 气泡比 180 窄时跟着气泡收(窄格里冲出气泡边)。
+      maxWidth: 'min(180px, 100%)',
     }}>
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />

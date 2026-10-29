@@ -13,6 +13,7 @@ import {
   MANAGED_NODE_VERSION,
   buildStandardCommand,
   miseDependency,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { qwenScopedMcpAdapter } from './mcp-scopes';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
@@ -117,12 +118,12 @@ export const plugin = definePlugin(
     },
     // 托管安装(npm backend):纯 JS 入口(bin `cli-entry.js`),原生件(node-pty / clipboard)
     // 作为平台 optionalDependencies 由 aube 按本机挑。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'qwen',
       backend: 'npm',
       package: '@qwen-code/qwen-code',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     mcp: {
       kind: 'supported',
       scope: 'global',

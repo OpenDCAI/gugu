@@ -33,10 +33,10 @@ export async function attachPhoneProjectFolder(input: {
     const sessions = await rpc.sessions.getSessionsForProject(merge.id)
     if (sessions.length && !await input.confirmMerge(merge.name, sessions.length)) return null
   }
-  const representative = input.devices.find((row) => row.device_id === project.homeOf(project.rowId)?.deviceId)
-  if (!representative) throw new Error('project machine not found')
+  const rowDevice = input.devices.find((row) => row.device_id === project.homeOf(project.rowId)?.deviceId)
+  if (!rowDevice) throw new Error('project machine not found')
   const deps: LinkFolderDeps = {
-    ensureGroup: (id) => projectRpcOn(representative).projects.ensureProjectGroup(id),
+    ensureGroup: (id) => projectRpcOn(rowDevice).projects.ensureProjectGroup(id),
     createProjectOn: async () => {
       const result = await rpc.projects.createProject({ type: 'local', id: crypto.randomUUID(), path, name: project.name, createDirectory: false, allowNonGit: true })
       if (!result.success) throw new Error('message' in result.error ? result.error.message : result.error.type)

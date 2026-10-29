@@ -5,8 +5,6 @@ import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-titl
 import { rendererLogger } from '@/lib/log';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
-import { useDirectoryDevices } from '@/session/shared/remote-sessions/session-directory';
-import { assistantTaskDeviceLabel } from './assistant-task-directory';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -91,7 +89,6 @@ const TaskLists = observer(function TaskLists({ context }: AssistantPageProps) {
 
 /** 账号级派活账本;执行设备离线或目录撤下不影响任务记录。 */
 const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
-  const devices = useDirectoryDevices();
   const { t } = useTranslation('assistant');
   const ownerId=useAssistantWorkOwnerId();
   const read=useAssistantWorkTasks(ownerId,context.assistant.id);
@@ -99,7 +96,6 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
       : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
         {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
-          detail={assistantTaskDeviceLabel(devices,task.deviceId)}
           trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
           chevron={false} onClick={() => openAssistantPanelTask({assistantId:context.assistant.id},task)} />)}
       </AssistantSection>)}

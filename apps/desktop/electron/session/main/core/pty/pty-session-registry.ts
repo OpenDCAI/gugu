@@ -255,6 +255,11 @@ export class PtySessionRegistry {
     return { buffer: snapshot.data, live: snapshot.live, size: snapshot.size };
   }
 
+  /** 这条 PTY 屏上最后 `lines` 行看得见的字;没有这块屏 = 空。 */
+  screenText(ptySessionId: string, lines: number): Promise<string[]> {
+    return this.screens.get(ptySessionId)?.text(lines) ?? Promise.resolve([]);
+  }
+
   /** 只有此刻这一屏(不带回滚)的快照:别的电脑上看着的终端落后太多时,用它代替积压的输出(remote-pty-pacer.ts)。 */
   screenSnapshot(ptySessionId: string): Promise<PtyScreenSnapshot | null> {
     return this.currentSnapshot(ptySessionId, { scrollback: 0 });

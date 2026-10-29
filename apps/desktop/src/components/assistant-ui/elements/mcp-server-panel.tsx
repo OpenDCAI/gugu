@@ -20,10 +20,10 @@ export interface McpServer {
 }
 
 const DOT: Record<McpServerStatus, string> = {
-  connected: "bg-emerald-500",
+  connected: "bg-[var(--ok)]",
   connecting: "bg-foreground/30 animate-pulse",
-  "needs-auth": "bg-amber-500",
-  failed: "bg-red-500",
+  "needs-auth": "bg-[var(--warn)]",
+  failed: "bg-[var(--danger)]",
 };
 
 const LABEL: Record<McpServerStatus, string> = {
@@ -96,6 +96,7 @@ export function McpServerPanel({
               </span>
               <span
                 aria-hidden
+                data-mcp-dot={server.status}
                 className={cn(
                   "size-1.5 shrink-0 rounded-full",
                   DOT[server.status],
@@ -117,7 +118,7 @@ export function McpServerPanel({
                     <button
                       type="button"
                       onClick={() => onAuthorize?.(server.id)}
-                      className="ms-auto rounded-[var(--radius-control)] bg-amber-500/15 px-2 py-0.5 text-[length:var(--font-caption)] font-medium text-amber-700 transition-[background-color,scale] duration-150 hover:bg-amber-500/25 active:scale-[0.96] dark:text-amber-300"
+                      className="ms-auto rounded-[var(--radius-control)] bg-[var(--warn-tint)] px-2 py-0.5 text-[length:var(--font-caption)] font-medium text-[var(--warn-fg)] transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_srgb,var(--warn)_24%,transparent)] active:scale-[0.96]"
                     >
                       Authorize
                     </button>

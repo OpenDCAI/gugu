@@ -3,7 +3,7 @@ import { useAgentIcon } from '../stores/use-agents';
 import { PluginIcon } from './plugin-icon';
 
 /** Plate for a vendor that has not declared one: a dark plate with the mark knocked out to white. */
-const FALLBACK_PLATE = { color: '#2B2A28', mark: 'white' as const };
+const FALLBACK_PLATE = { color: 'var(--app-icon-fallback-plate)', mark: 'white' as const };
 
 /**
  * An agent drawn as an app icon (#6157): the vendor's colour fills a rounded square, the mark

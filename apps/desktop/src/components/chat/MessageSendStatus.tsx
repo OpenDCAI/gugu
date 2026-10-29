@@ -58,7 +58,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer',
             background: 'transparent', padding: '1px 4px', borderRadius: 'var(--radius-control)', flexShrink: 0,
-            color: 'var(--danger)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
+            color: 'var(--danger-fg)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
           }}
         >
           <svg width="13" height="13" viewBox="0 0 15 15" fill="none" style={{ display: 'block' }}>

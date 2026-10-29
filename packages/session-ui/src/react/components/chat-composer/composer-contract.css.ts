@@ -131,9 +131,9 @@ globalStyle(':where(.emlight)', {
     '--composer-effort-text': 'var(--composer-accent-text, color(display-p3 0.15 0.5 0.37))',
     // ⚠️ 圆钮要**纯白**,不是强调色的最浅档:它同时压在轨道(#EBEBEB)和填充上,
     // 与轨道只差 5% 亮度的浅绿在浅色主题下几乎看不见(实测第一版就是一团糊)。
-    '--composer-effort-knob': 'var(--composer-knob, color(display-p3 1 1 1))',
-    '--composer-effort-track': 'var(--composer-track, color(display-p3 0.922 0.922 0.922))',
-    '--composer-effort-track-hover': 'var(--composer-track-hover, color(display-p3 0.878 0.878 0.878))',
+    '--composer-effort-knob': 'var(--composer-knob)',
+    '--composer-effort-track': 'var(--composer-track)',
+    '--composer-effort-track-hover': 'var(--composer-track-hover)',
 
     // Destructive / stop button + ghost-destructive
     [vars.foregroundDestructive]:
@@ -213,9 +213,9 @@ globalStyle(':where(.emdark)', {
     // ⚠️ 暗色下**同样是纯白**。取强调色最浅档(jade 阶梯 12 的暗色值)看着顺眼,但它与填充
     // 同色系、只差 2.43:1,压上去像填充上鼓起来的一个泡,不像一颗独立的圆钮;纯白对暗轨道
     // 10.3:1、对填充 3.15:1,还多一个色相跳变。上游在深色下用的也是白。
-    '--composer-effort-knob': 'var(--composer-knob, color(display-p3 1 1 1))',
-    '--composer-effort-track': 'var(--composer-track, color(display-p3 0.184 0.184 0.184))',
-    '--composer-effort-track-hover': 'var(--composer-track-hover, color(display-p3 0.224 0.224 0.224))',
+    '--composer-effort-knob': 'var(--composer-knob)',
+    '--composer-effort-track': 'var(--composer-track)',
+    '--composer-effort-track-hover': 'var(--composer-track-hover)',
 
     // Destructive / stop button + ghost-destructive
     [vars.foregroundDestructive]:

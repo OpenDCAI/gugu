@@ -49,17 +49,14 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
       kind: device?.hostKind === 'desktop' ? 'computer' : 'server',
     };
   };
-  const machineOfProject = (id: string): FolderCardMachine => {
-    const deviceId = machineRegistry.machineOf(id);
-    return deviceId ? describeMachine(deviceId) : thisComputer;
-  };
+  const machineOf = (deviceId: string | null): FolderCardMachine => (deviceId ? describeMachine(deviceId) : thisComputer);
   // 「+」能挂到的机器:这台电脑 + 名下每台机器(此刻连不上的列着、灰掉)。
   const attachMachines: AttachMachine[] = [thisComputer, ...[...remoteHostsStore.hosts.keys()].map(describeMachine)];
   const projectMachines = [...new Map(memberIds.map((id) => {
     const deviceId = machineRegistry.machineOf(id) ?? null;
     return [deviceId, deviceId ? describeMachine(deviceId) : thisComputer] as const;
   })).values()];
-  const scope = useProjectDeviceScope(rowId, projectMachines);
+  const scope = useProjectDeviceScope(projectGroupsStore.chatIdOf(rowId) ?? rowId, rowId, projectMachines);
   const scopedFolders = foldersInScope(folders, scope.selected, (id) => machineRegistry.machineOf(id) ?? null);
   // 新会话开在哪:卡片 / 托盘上选中的那个文件夹所属的本地项目(可能在别的机器上);没选 = 这一页的项目。
   const targetProjectId = scopedFolders.chosen?.projectId ?? projectId;
@@ -67,7 +64,8 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
   // 发送要它的会话列表,「在…中打开」要它的路径。
   useEnsureMounted([projectId, targetProjectId]);
   useEffect(() => remoteHostsStore.start(), []);
-  const executionDevice = machineRegistry.machineOf(targetProjectId);
+  // 在哪台上开工:选中的那个文件夹自己记着(folder.deviceId);没选 = 这一页的项目所在的那台。
+  const executionDevice = scopedFolders.chosen ? scopedFolders.chosen.deviceId : machineRegistry.machineOf(targetProjectId) ?? null;
   const machineContext = useMachineCreateContext(executionDevice ? {
     deviceId: executionDevice, projectId: targetProjectId,
     projectPath: getProjectStore(targetProjectId)?.data?.path ?? null,
@@ -260,12 +258,13 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
       projectName={displayName}
       folders={{ ...folders, chosen: scopedFolders.chosen, choose: (workspaceId) => {
         const folder = folders.folders?.find((item) => item.workspaceId === workspaceId);
-        if (folder) scope.include(machineRegistry.machineOf(folder.projectId) ?? null);
+        if (folder) scope.include(folder.deviceId);
         folders.choose(workspaceId);
         onChosen?.();
       } }}
       memberIds={memberIds}
-      machineOf={machineOfProject}
+      machines={projectMachines.map((machine) => machine.id)}
+      machineOf={machineOf}
       attachMachines={attachMachines}
       onAttach={pickAndAttach}
       onAddMachine={remoteHostsStore.canAddMachine ? () => remoteHostsStore.openAddMachine() : undefined}
@@ -275,7 +274,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
   );
   return {
     rowId, displayName, folders, scope, scopedFolders, targetProjectId, machineContext, projectMachines,
-    machineOfProject, pickAndAttach, card,
+    machineOf, pickAndAttach, card,
   };
 }
 

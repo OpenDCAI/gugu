@@ -11,14 +11,14 @@ function lookup(machines: Record<string, string>, homes: Record<string, string>)
   };
 }
 
-describe('别的机器的主目录项目(#6264 behavior gugu-server:别的机器上的会话一律属于那台机器上的某个项目)', () => {
+describe('别的机器的主目录那一行(#609 起只剩个人助理那台,#7199)', () => {
   it('已有同路径的项目就是主目录项目(末尾斜杠不算差别)', () => {
     expect(findHomeProject([{ id: 'a', path: '/srv/app' }, { id: 'h', path: '/home/alice/' }], '/home/alice')?.id).toBe('h');
     expect(findHomeProject([{ id: 'a', path: '/srv/app' }], '/home/alice')).toBeNull();
     expect(findHomeProject([{ id: 'a', path: '/srv/app' }], null)).toBeNull();
   });
 
-  it('那台机器的任务工作区并进它的主目录项目那一行显示,❌ 单列、❌ 进「任务」', () => {
+  it('#609 普通的别的机器:没有「~」那一行,任务工作区与主目录项目都不并、不代位(它们是 workspace,会话进「任务」)', () => {
     const layout = machineHomeLayout(
       [
         { id: 'home-d22', path: '/root' },
@@ -27,23 +27,12 @@ describe('别的机器的主目录项目(#6264 behavior gugu-server:别的机器
       ],
       lookup({ 'home-d22': 'd22', 'app-d22': 'd22', [SESSION_HOME]: 'd22' }, { d22: '/root' })
     );
-    expect([...layout.homeRows]).toEqual(['home-d22']);
-    expect(layout.folded.get('home-d22')).toEqual([SESSION_HOME]);
-    expect(layout.rowOf.get(SESSION_HOME)).toBe('home-d22');
+    expect(layout.homeRows.size).toBe(0);
     expect(layout.standIns.size).toBe(0);
-  });
-
-  it('那台机器还没有主目录项目:任务工作区代位成「~」那一行(读取时归属,不建、不挪)', () => {
-    const layout = machineHomeLayout(
-      [{ id: SESSION_HOME, path: '/root/.config/咕咕/task-home' }],
-      lookup({ [SESSION_HOME]: 'd22' }, { d22: '/root' })
-    );
-    expect([...layout.homeRows]).toEqual([SESSION_HOME]);
-    expect(layout.standIns.get(SESSION_HOME)).toBe('d22');
     expect(layout.rowOf.size).toBe(0);
   });
 
-  it('#7199 个人助理住的那台:上面的项目全并进一行(按它归组),❌ 一个项目一组;对照:别的机器照旧只并任务工作区', () => {
+  it('#7199 个人助理住的那台:上面的项目全并进一行(按它归组),❌ 一个项目一组;对照:别的机器不并', () => {
     const projects = [
       { id: 'home-cloud', path: '/home/wuying' },
       { id: 'proj-cloud', path: '/home/wuying/云电脑' },
@@ -56,7 +45,7 @@ describe('别的机器的主目录项目(#6264 behavior gugu-server:别的机器
       ...lookup(machines, { cloud: '/home/wuying', d22: '/root' }),
       foldAll: (deviceId) => deviceId === 'cloud',
     });
-    expect([...layout.homeRows].sort()).toEqual(['home-cloud', 'home-d22']);
+    expect([...layout.homeRows]).toEqual(['home-cloud']);
     expect(layout.folded.get('home-cloud')).toEqual(['task-home~cloud', 'proj-cloud']);
     expect(layout.rowOf.get('proj-cloud')).toBe('home-cloud');
     expect(layout.rowOf.has('app-d22')).toBe(false);

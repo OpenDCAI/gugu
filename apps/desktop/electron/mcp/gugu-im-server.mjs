@@ -2099,20 +2099,42 @@ async function publishOnHost(args, deps, chatId, message, next) {
 const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/
 
 /**
+ * The machine that keeps a project chat's files, as people know it: its name and whose computer it is (the name is in
+ * file_project_policy_for, or already in a handoff's answer), the way a project file's mark names it to the chat's members.
+ */
+async function hostMachineOf(deps, chatId, known = null) {
+  const policy = known?.host_account_id ? known : await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
+  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
+  const label = typeof policy?.host_label === 'string' && policy.host_label.trim() ? policy.host_label.trim() : null
+  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
+  const ownerName = owner?.display_name || null
+  const computer = ownerName ? `${ownerName}'s computer` : 'another computer', computerZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
+  return label ? { en: `"${label}" (${computer})`, zh: `「${label}」（${computerZh}）` } : { en: computer, zh: computerZh }
+}
+
+/**
  * The refusal said for people: whose computer keeps this project chat's files, that only an agent there can add or change
  * them, and that nothing was sent — never the layers' words for it ("published by the host").
  */
 async function keptOnHostRefusal(deps, chatId, fileName) {
-  const policy = await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
-  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
-  // The machine is named by its owner, as a project file's mark names it to the chat's other members.
-  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
-  const ownerName = owner?.display_name || null
-  const machine = ownerName ? `${ownerName}'s computer` : 'another computer'
-  const machineZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
-  return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine}, `
+  const machine = await hostMachineOf(deps, chatId)
+  return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine.en}, `
     + `and only an agent on that computer can add or change them here.\n`
-    + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machineZh}上，只有那台电脑上的 agent 能在这里添加或修改。`
+    + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machine.zh}上，只有那台电脑上的 agent 能在这里添加或修改。`
+}
+
+/**
+ * #791: the publisher handed a next version to the machine that keeps the file, and that machine did not write it (offline,
+ * or not in time): which machine, that the changed copy is where it was, and what to do.
+ */
+async function handoffRefusal(deps, chatId, args, outcome) {
+  const fileName = resolveUploadName(args), machine = await hostMachineOf(deps, chatId, outcome)
+  const why = outcome.status === 'host_offline'
+    ? { en: `${machine.en} keeps this project chat's files and is offline`, zh: `这个项目群的文件存在${machine.zh}上，它现在离线` }
+    : { en: `${machine.en} keeps this project chat's files and did not take the new version in time`, zh: `这个项目群的文件存在${machine.zh}上，它没有及时收下新版本` }
+  return `message_send_file: ${fileName} was not sent, and nothing was changed: ${why.en}. Your changed copy is still at ${args.file_path}. `
+    + `Send it again with file ${args.file} once that computer is online, or ask an agent on that computer to make the change.\n`
+    + `${fileName} 没有发出去，什么都没改：${why.zh}。改好的副本还在 ${args.file_path}。等那台电脑上线以后用同一个 file（${args.file}）再发一次，或者请那台电脑上的 agent 来改。`
 }
 
 /** A next version that started from a version the file is no longer at: nothing was sent, and what to do. */
@@ -2256,6 +2278,7 @@ async function handleFile(args, deps) {
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
       const said = String(error?.message ?? error)
+      if (error?.name === 'NextVersionHandoffRefused') throw new Error(await handoffRefusal(deps, chatId, args, error.outcome))
       if (KEPT_ON_HOST.test(said)) throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
       if (folderFile && /File revision conflict/.test(said)) throw new Error(newerVersionRefusal(args.file, folderFile.version))
       throw error
@@ -2279,6 +2302,8 @@ async function handleFile(args, deps) {
         ...thread,
         // 那个文件的下一版:起点版本对不上(有人先存了新版)服务端就拒,什么都不写。
         ...(folderFile ? { item_id: folderFile.itemId, expected_version: folderFile.version } : {}),
+        // 临时 / 保留:这份上传的副本留多久,和人在 ⋯ 里改的是同一个标记。不给就照这个群的规矩。
+        ...(args.temporary === true ? { keep: 'temporary' } : {}),
       }
       message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch(async (error) => {
         if (error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message)) throw new Error(await keptOnHostRefusal(deps, chatId, fileName))
@@ -2483,12 +2508,13 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n> link (no bytes copied); with file_path, your changed copy as its next version from n. file_path alone: a new file.',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n>; with file_path, next version. file_path alone: new file; temporary: cloud copy expires.',
     schema: z.object({
       file: z.string().optional(),
       file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
+      temporary: z.boolean().optional(),
       to_user_ids: toUserIdsSchema,
       chat_id: chatIdSchema,
     }),

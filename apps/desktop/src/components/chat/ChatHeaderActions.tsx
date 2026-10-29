@@ -17,6 +17,7 @@ import { useChatAppPins } from './useChatAppPins'
 import { useHeaderAppCapacity } from './useHeaderAppCapacity'
 import { ChatDetailsMenuItems } from './ChatDetailsMenuItems'
 import { GroupTopicsMenuItem } from './GroupTopicsMenuItem'
+import { useStripNarrow } from '../../session/renderer/features/tabs/tab-strip-narrow'
 
 
 // #1234 消息头右上的 action icon。
@@ -75,7 +76,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const { activeChatId } = useChatStore('activeChatId')
   const folderName = useChatFolderName(activeChatId) // 群文件夹 / 文件夹 (chatFolderName.ts)
   const openFolder = onOpenFolder
-  const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。
+  // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。会话页里一块的页签条窄了(data-strip-narrow)也这样收,
+  // ❌ 让这排钮顶出这一块、压到旁边那块或窗口按钮上。
+  const stripNarrow = useStripNarrow(moreButtonRef)
+  const compactRoom = Boolean((mobile || stripNarrow) && isRoomChat)
   const groupId = isGroupChat ? activeChatId : null
   const pins = useChatAppPins(groupId)
   const apps = installedExtensionsStore.chatOpenableApps

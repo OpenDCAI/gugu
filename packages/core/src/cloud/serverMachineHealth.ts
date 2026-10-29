@@ -61,10 +61,22 @@ export const REMOTE_PROTOCOL_VERSION = 13
  * would keep rereading full pages from a new host. Reject both version mismatches through the existing
  * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
  */
-/** 13: Ask settlements use origin instead of host; all clients and hosts update together. */
-export const MIN_CLIENT_PROTOCOL = 13
-/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 13
+/**
+ * 13: Ask settlements use origin instead of host.
+ *
+ * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
+ * 新宿主照旧带上 12 读的字段(Settlement.host、浏览器状态里的 assistance),新桌面收进来时把 12 的字段读成新名
+ * (settlementFromWire),开窗时按那台机器的协议报 hello(`helloProtocol`):12 的老宿主见到 13 会当成版本信号、
+ * 要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。下一次加一时,两个下沿跟着抬到新号减一。
+ */
+export const MIN_CLIENT_PROTOCOL = 12
+/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
+export const MIN_SERVER_PROTOCOL = 12
+
+/** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
+export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
+  return typeof serverProtocol === 'number' && serverProtocol < own && serverProtocol >= minServer ? serverProtocol : own
+}
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时

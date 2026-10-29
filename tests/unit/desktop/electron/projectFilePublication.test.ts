@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createProjectFilePublisher } from '../../../../apps/desktop/electron/projectFilePublication'
 import { readProjectFile, rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
 const copyFault = vi.hoisted(() => ({ mode: '' }))
+const handoff = vi.hoisted(() => ({ outcome: {} as Record<string, unknown>, calls: [] as unknown[][] }))
+vi.mock('@gugu/core/cloud/fileVersionHandoff', async original => ({
+  ...await original<typeof import('@gugu/core/cloud/fileVersionHandoff')>(),
+  handOffNextVersion: async (...args: unknown[]) => { handoff.calls.push(args); return handoff.outcome },
+}))
 vi.mock('node:fs/promises', async original => {
   const fs = await original<typeof import('node:fs/promises')>()
   return { ...fs, copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
@@ -123,16 +128,19 @@ describe('external selections become durable project-owned copies through the sa
 })
 const publishedPaths = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish').map(([, args]) => args.p_path as string)
 afterEach(async () => { expect(home.startsWith(join(tmpdir(), 'gugu-file-publication-153-'))).toBe(true); await rm(home, { recursive: true, force: true }) })
-function fixture(proactive = false) {
+let handoffAnswer: Record<string, unknown> = {}
+function fixture(proactive = false, host = { host_device_id: 'device', host_project_id: 'project' } as Record<string, unknown> | null) {
   let accountId = 'owner'
   const rpc = vi.fn(async (name: string, _args: Record<string, unknown>): Promise<unknown> => {
-    if (name === 'file_project_policy_for') return { host_device_id: 'device', host_project_id: 'project', proactive_upload: proactive }
+    if (name === 'file_project_policy_for') return host && { ...host, proactive_upload: proactive }
     if (name === 'file_device_publish') return { item_id: 'item', ...(_args.p_message ? { message: { id: 'message', file_item_id: 'item', file_version: 1 } } : {}) }
+    if (name === 'file_version_handoff_publish') return handoffAnswer
     if (name === 'workspace_get_as') return [row]
     throw new Error(`Unexpected RPC ${name}`)
   })
   const store = vi.fn(async () => row)
-  const publish = createProjectFilePublisher({ identity: async () => ({ accountId, deviceId: 'device' }), root: async () => root, rpc, env })
+  const publish = createProjectFilePublisher({ identity: async () => ({ accountId, deviceId: 'device' }), root: async () => root, rpc, env,
+    endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
   return { publish, rpc, store, account: (value: string) => { accountId = value } }
 }
 describe('project file publication runs before document conversion or cloud upload', () => {
@@ -217,5 +225,66 @@ describe('project file publication runs before document conversion or cloud uplo
     await expect(f.publish('group', file, null, 'owner', f.store)).rejects.toThrow('account changed')
     const mapping = await readFile(join(home, 'taskpage-project-groups.json'), 'utf8')
     expect(mapping).not.toContain('"sha256"')
+  })
+})
+
+// #791: a member's copy handed to this host is kept in the project like any upload and written as their next version.
+describe('a handed-over next version', () => {
+  it('keeps the bytes in the project and writes them through the handoff, with its message, even when uploads are proactive', async () => {
+    handoffAnswer = { status: 'published', item_id: 'item', version: 2, message: { id: 'm2', sender_user_id: 'agent-b', file_item_id: 'item', file_version: 2 } }
+    for (const proactive of [false, true]) {
+      const f = fixture(proactive)
+      expect(await f.publish('group', file, null, 'owner', undefined, { handoff: 'h1' })).toEqual({ ...row, message: handoffAnswer.message })
+      const call = f.rpc.mock.calls.find(([name]) => name === 'file_version_handoff_publish')![1]
+      expect(call).toEqual({ p_id: 'h1', p_path: expect.stringMatching(/^\.gugu\/attachments\/[0-9a-f-]{36}\/file\.bin$/), p_sha: createHash('sha256').update(data).digest('hex'), p_size: 3 })
+      expect(await readFile(join(root, String(call.p_path)))).toEqual(Buffer.from(data))
+      expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
+      expect(f.store).not.toHaveBeenCalled()
+    }
+  })
+  it('a handoff settled without a version (withdrawn, or the file moved on) is not reported as written', async () => {
+    for (const status of ['conflict', 'cancelled', 'expired']) {
+      handoffAnswer = { status, item_id: 'item', current_version: 3 }
+      await expect(fixture().publish('group', file, null, 'owner', undefined, { handoff: 'h1' })).rejects.toThrow(`Next version handoff ${status}`)
+    }
+  })
+})
+
+// #791: on a machine that does not keep the project chat's files, a next version is handed to the one that does.
+describe('a next version from another machine', () => {
+  const next = { itemId: 'item', expectedVersion: 1 }, elsewhere = { host_device_id: 'other-machine', host_project_id: 'project' }
+  const message = { message_id: 'm2', chat_id: 'group', sender_user_id: 'agent', to_user_ids: ['u1'], thread_root_id: null, file_name: 'file.bin', content_type: file.contentType }
+  beforeEach(() => { handoff.calls = []; handoff.outcome = { status: 'published', version: 2, message_id: 'm2' } })
+  it('not bound here: the bytes are handed over as the actor\'s next version, and the new version and message come back', async () => {
+    const f = fixture(false, elsewhere)
+    const unbound = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null, rpc: f.rpc, env,
+      endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
+    expect(await unbound('group', file, null, 'agent', undefined, { message, next })).toEqual({ ...row, message: { id: 'm2', chat_id: 'group', file_item_id: 'item', file_version: 2 } })
+    const [, request] = handoff.calls[0] as [unknown, Record<string, unknown>]
+    expect(request).toMatchObject({ itemId: 'item', expectedVersion: 1, fileName: 'file.bin', contentType: file.contentType, as: 'agent',
+      message: { message_id: 'm2', to_user_ids: ['u1'], thread_root_id: null } })
+    expect(Buffer.from(request.bytes as Uint8Array)).toEqual(Buffer.from(data))
+    expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
+  })
+  it('bound here but another machine keeps the files: handed over too', async () => {
+    const f = fixture(false, elsewhere)
+    expect(await f.publish('group', file, null, 'agent', undefined, { next })).toMatchObject({ message: { file_version: 2 } })
+    expect(handoff.calls).toHaveLength(1)
+  })
+  it('a chat that keeps no files on a host, or a new file: not handed over (the ordinary upload decides)', async () => {
+    const plain = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null,
+      rpc: fixture(false, null).rpc, env: { GUGU_HOME: join(home, 'elsewhere') }, endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
+    expect(await plain('group', file, null, 'agent', undefined, { next })).toBeNull()
+    await expect(fixture(false, elsewhere).publish('group', file, null, 'agent')).rejects.toThrow('Only the bound file host')
+    expect(handoff.calls).toEqual([])
+  })
+  it('a copy of an older version is the ordinary conflict; the host offline or not in time is said as such', async () => {
+    handoff.outcome = { status: 'conflict', current_version: 3 }
+    await expect(fixture(false, elsewhere).publish('group', file, null, 'agent', undefined, { next })).rejects.toThrow('File revision conflict')
+    for (const status of ['host_offline', 'timeout']) {
+      handoff.outcome = { status, host_label: 'Studio Mac', host_account_id: 'owner' }
+      const refused = await fixture(false, elsewhere).publish('group', file, null, 'agent', undefined, { next }).catch((e: Error) => e)
+      expect(refused).toMatchObject({ name: 'NextVersionHandoffRefused', outcome: handoff.outcome })
+    }
   })
 })

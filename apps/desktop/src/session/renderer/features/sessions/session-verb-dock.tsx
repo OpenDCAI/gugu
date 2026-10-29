@@ -28,14 +28,17 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
   onCarried: () => void;
 }) {
   const { translate } = useSessionMessages();
+  const agent = useDefaultTaskAgent();
+  const label = translate('taskDispatch.task');
   const pick = (verb: ComposerVerb) => {
     setComposerVerb(sessionVerbKey(sessionId), verb, draft);
     if (draft.trim()) onCarried();
   };
+  // 窄到底排最后一档时字收掉、只剩那枚标(chat-composer.css 的 composer-foldable-label);没有标就不收。
   return (
     <>
-      <Button variant="ghost" size="sm" data-testid="session-verb-task" title={translate('taskDispatch.task')} onClick={() => pick('task')}>
-        <DefaultTaskAgentMark />{translate('taskDispatch.task')}
+      <Button variant="ghost" size="sm" data-testid="session-verb-task" aria-label={label} title={label} onClick={() => pick('task')}>
+        <DefaultTaskAgentMark /><span data-slot={agent ? 'composer-foldable-label' : undefined}>{label}</span>
       </Button>
     </>
   );

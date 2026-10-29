@@ -203,6 +203,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   projectName,
   folders: state,
   memberIds = [projectId],
+  machines,
   machineOf,
   attachMachines,
   onAttach,
@@ -216,8 +217,10 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   folders: ProjectFoldersState;
   /** 这个项目在各台机器上的本地项目(#7341 第二步:绑在同一个项目群上);没合并 = 只有 projectId。 */
   memberIds?: readonly string[];
-  /** 某个本地项目在哪台机器上(卡面与每页纸标机器用)。 */
-  machineOf: (projectId: string) => FolderCardMachine;
+  /** 这个项目涉及的机器(null = 这台电脑;卡面标它们)。 */
+  machines: readonly (string | null)[];
+  /** 一台机器的样子(卡面与每页纸标机器用;每页纸读它自己的 folder.deviceId)。 */
+  machineOf: (deviceId: string | null) => FolderCardMachine;
   /** 「+」能挂到哪几台机器上:一台就直接挑文件夹,多台先选机器。 */
   attachMachines: readonly AttachMachine[];
   onAttach: (machine: string | null) => void;
@@ -257,9 +260,9 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     .filter((entry) => members.has(entry.projectId))
     .map((entry) => [entry.sessionId, entry] as const)).values()];
   // 卡面列这个项目涉及的机器(同名去重),纸上标各自那一台;那台此刻答不上(只列着上次读到的)就标离线。
-  const machinesShown = [...new Map(memberIds.map((id) => machineOf(id)).map((m) => [m.id === undefined ? m.label : m.id ?? 'local', m] as const)).values()];
+  const machinesShown = [...new Map(machines.map((deviceId) => [deviceId ?? 'local', machineOf(deviceId)] as const)).values()];
   const paperMachine = (folder: ShownFolder): FolderCardMachine => {
-    const m = machineOf(folder.projectId);
+    const m = machineOf(folder.deviceId);
     return folder.offline ? { ...m, online: false } : m;
   };
   const runningIds = new Set(sessions.filter((entry) => entry.group === 'working').map((entry) => entry.sessionId));

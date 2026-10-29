@@ -1,5 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { createContext, useContext, type ReactNode } from 'react';
+import { BrowserUseAutoOpen } from '@/components/browserUse/BrowserUseAutoOpen';
 import type { PageSessionsStore } from '@renderer/features/sessions/page-sessions-store';
 import {
   getPageSessions,
@@ -36,6 +37,8 @@ export const SessionViewWrapper = observer(function SessionViewWrapper({
   return (
     <SessionViewContext.Provider value={{ projectId, sessionId, workspaceId }}>
       {children}
+      {/* 任务在咕咕 server 上、它的浏览器开始干活:Browser Use 页签替人加到页签条上一次(不切过去)。 */}
+      <BrowserUseAutoOpen sessionId={sessionId} />
     </SessionViewContext.Provider>
   );
 });

@@ -1,7 +1,7 @@
 // 远程隧道(owner 2026-10-15「这个功能应该先被启用」):中转坐标、frpc 配置与日志、内嵌 SSH 服务端(用系统 ssh 真连)、
 // 桌面那一头的状态机、渲染层的判据。整体说明见 packages/core/src/cloud/remoteTunnel.ts。
 import { spawn } from 'node:child_process'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
@@ -505,6 +505,36 @@ describe('桌面那一头:状态机', () => {
     }
   }
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  it('重启即收掉本 profile 的遗留访问端和配置,不必再次请求那台机器,别的 profile 不动', async () => {
+    const { deps: d } = deps()
+    const dir = d.stateDir()
+    const config = path.join(dir, 'frpc-offline-device.toml')
+    const other = path.join(dir, 'other-profile')
+    fs.mkdirSync(other)
+    fs.writeFileSync(config, 'synthetic relay configuration')
+    fs.writeFileSync(path.join(other, 'frpc-other.toml'), 'another profile')
+    fs.writeFileSync(path.join(dir, 'tunnel_known_hosts'), 'keep known hosts')
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', config], { stdio: 'ignore' })
+    const exited = once(child, 'exit')
+    try {
+      await once(child, 'spawn')
+      fs.writeFileSync(`${config}.pid`, String(child.pid))
+      const cloud = vi.fn(d.callCloud)
+      const machines = createTunnelMachines({ ...d, callCloud: cloud })
+      expect(fs.existsSync(config)).toBe(false)
+      expect(fs.existsSync(`${config}.pid`)).toBe(false)
+      expect(fs.readFileSync(path.join(other, 'frpc-other.toml'), 'utf8')).toBe('another profile')
+      expect(fs.readFileSync(path.join(dir, 'tunnel_known_hosts'), 'utf8')).toBe('keep known hosts')
+      expect(cloud).not.toHaveBeenCalled()
+      expect(machines.state().ready).toEqual([])
+      expect(await exited).toEqual([null, 'SIGTERM'])
+      machines.closeAll()
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   it('问到 → 起访问端 → ssh 通了才算连上;给出经 127.0.0.1:端口 的 SshTarget', async () => {
     const { deps: d, configs } = deps()

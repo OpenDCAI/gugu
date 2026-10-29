@@ -34,7 +34,7 @@ const AGENT_FLOOD_BODY_STYLE: React.CSSProperties = {
 const AGENT_FLOOD_UNDO_CLASS = 'gg-agent-flood-undo inline h-auto min-h-0 w-auto border-0 bg-transparent p-0 align-baseline'
 const AGENT_FLOOD_UNDONE_STYLE: React.CSSProperties = { marginLeft: 4, color: 'var(--text-tertiary)' }
 // 两条失败行(撤回失败 / 台账读不出)版式本来就一模一样 ⇒ 同一个常量。
-const AGENT_FLOOD_ERROR_LINE_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger)' }
+const AGENT_FLOOD_ERROR_LINE_STYLE: React.CSSProperties = { marginTop: 4, color: 'var(--danger-fg)' }
 
 export type AgentFloodSystemNoticeProps = {
   /** 那条 content_type='system' 的消息 */

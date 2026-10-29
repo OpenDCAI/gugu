@@ -58,9 +58,12 @@ export function DeviceRemoveDialog({
   failed,
   onCancel,
   onConfirm,
+  replacedBy = null,
 }: {
   device: Device
   removesVersion?: boolean
+  /** The online row this one may have been replaced by: said again here, with what goes with it. */
+  replacedBy?: Device | null
   model: DeviceRowModel
   agents: BoundAgentsState
   onCascadeChange: (value: boolean) => void
@@ -89,7 +92,9 @@ export function DeviceRemoveDialog({
       <div className="flex flex-col gap-3 overflow-y-auto p-[18px]">
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t(`${scope}.title`, target)}</div>
         {!removesVersion && device.tier && <div className={body}>{t('devices.configurations')} · {deviceVersionLabel(device.tier,t)}</div>}
+        {replacedBy && <div className={body} data-testid="settings-device-remove-replaced">{t('devices.replaced.confirm', { name: replacedBy.label })}</div>}
         <div className={`${body} text-[var(--muted-fg)]`}>{consequence}</div>
+        {replacedBy && <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.replaced.cascade')}</div>}
         {model.kind === 'server' && !device.is_online && (
           <div className={`${body} text-[var(--muted-fg)]`}>{t(`${scope}.serverOffline`)}</div>
         )}
@@ -97,7 +102,7 @@ export function DeviceRemoveDialog({
           <div className={`${body} text-[var(--muted-fg)]`}>{t(`${scope}.sshNote`)}</div>
         )}
         <BoundAgentsConfirm state={agents} onCascadeChange={onCascadeChange} removesVersion={removesVersion} />
-        {failed && <div className={`${body} text-[var(--danger)]`}>{failed}</div>}
+        {failed && <div className={`${body} text-[var(--danger-fg)]`}>{failed}</div>}
         <div className="flex justify-end gap-2">
           <Button size="sm" onClick={onCancel}>{t('devices.cancel')}</Button>
           <Button size="sm" variant="danger" disabled={removing || boundAgentsBlock(agents)} onClick={onConfirm}>

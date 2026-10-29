@@ -58,10 +58,10 @@ export const sidebarHeaderDropTargetClass =
  * 这里落在 14 档(text-sm)。三个分区头引用同一个常量,❌ 各写一遍手抄同一串覆盖类:
  * 手抄三份正是「项目」曾经掉队成 12px、和「任务」的 14px 不一致的成因(见 projects-group-label)。
  */
-export const sidebarGroupTitleClass = 'font-medium text-sm text-foreground-passive';
+export const sidebarGroupTitleClass = 'font-medium text-sm text-foreground-muted';
 
 /** 标题旁的数量(状态分组「需要你 3」、收起的分区头「置顶 3」)。@@@sidebar-type-scale — 归 12(text-xs)。 */
-export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foreground-passive select-none';
+export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foreground-muted select-none';
 
 /**
  * 分区头右侧的小图标钮(排序 / 新建项目 / 新建任务)与顶条折叠钮共用的一种视觉。
@@ -70,13 +70,14 @@ export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foregro
  * **hover 底色取 `background-tertiary-*`**,即侧栏那一族 —— 改动前它们 hover 到
  * `background-1`(主壳那一族),画在 `bg-background-tertiary` 的侧栏上是另一个产品的按钮。
  *
- * @@@sidebar-ink-tiers — 静止态字色是 `foreground-passive`,与它同一行的分区头标签同档。
+ * @@@sidebar-ink-tiers — 静止态字色是 `foreground-muted`,与它同一行的分区头标签同档(10-28 从 passive 提上来:
+ * passive = --faint-fg,标题和这排图标在侧栏上只有 2.96〜3.89:1;muted 5.22〜6.10,仍比行字浅一档)。
  * 上一轮把标签从 tertiary-passive(#7B7B7B)提到 passive(#9A9AA2)时漏了这些图标,结果
  * **图标比它自己的标题还深**:标签退成了背景,图标没退,一行里两个层级。
  * hover/展开仍到 `foreground-tertiary`(最深),交互反馈没丢。
  */
 export const sidebarHeaderIconButtonClass =
-  'flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-passive transition-colors hover:bg-row-hover hover:text-foreground-tertiary active:bg-row-press aria-expanded:bg-row-selected aria-expanded:hover:bg-row-selected aria-expanded:active:bg-row-selected aria-expanded:hover:state-hover-layer aria-expanded:active:state-press-layer aria-expanded:text-foreground-tertiary [&_svg]:size-4';
+  'flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-muted transition-colors hover:bg-row-hover hover:text-foreground-tertiary active:bg-row-press aria-expanded:bg-row-selected aria-expanded:hover:bg-row-selected aria-expanded:active:bg-row-selected aria-expanded:hover:state-hover-layer aria-expanded:active:state-press-layer aria-expanded:text-foreground-tertiary [&_svg]:size-4';
 
 /**
  * 行尾键帽的显隐 —— 指针落到这一行(或键盘停在这一行)才淡入,静止态不画。

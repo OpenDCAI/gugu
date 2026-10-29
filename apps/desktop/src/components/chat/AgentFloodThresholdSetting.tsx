@@ -35,7 +35,7 @@ const HINT_STYLE: CSSProperties = {
 }
 const VALUE_STYLE: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', flexShrink: 0 }
 const INPUT_STYLE: CSSProperties = {
-  width: 64, textAlign: 'right', border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-md)',
+  width: 64, textAlign: 'right', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-control)',
   padding: '4px 8px', fontSize: 'var(--font-body)', color: 'var(--text-primary)',
   background: 'var(--bg-elevated)', outline: 'none', fontFamily: 'inherit', flexShrink: 0,
 }

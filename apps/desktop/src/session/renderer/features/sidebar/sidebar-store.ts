@@ -12,7 +12,8 @@ import {
 import { type ProjectStore } from '@renderer/features/projects/stores/project';
 import type { ProjectManagerStore } from '@renderer/features/projects/stores/project-manager';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import { isImplicitSessionHomeProject, isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
+import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import {
   EMPTY_MACHINE_HOME_LAYOUT,
   HOME_PROJECT_LABEL,
@@ -144,8 +145,8 @@ export type SidebarMachines = {
   isAssistantHome?(deviceId: string): boolean;
   /** #7341 这个本地项目绑的项目群;绑在同一个群上的本地项目 = 同一个项目(合成一行)。 */
   projectGroupOf?(projectId: string): string | undefined;
-  /** Which project on this machine owns the group's visible row. */
-  projectGroupRepresentativeOf?(projectId: string): boolean;
+  /** 那台机器此刻连着(同群合成一行时,行落在连着的那台上,见 groupRowOrder)。 */
+  connected?(deviceId: string): boolean;
 };
 
 /** 一条别的机器上的会话(侧栏远程行画它)。 */
@@ -261,14 +262,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * 还没进手动次序的新项目排最前(新建即可见)。
    */
   get sidebarProjects(): SidebarProjectRef[] {
-    // The app-owned task-home project is only an execution context for projectless
-    // standalone tasks. Those conversations belong in the Tasks section, while
-    // the backing project itself must never leak into the Projects section/picker.
-    // #6264 别的机器上的任务工作区不单列:并进那台机器的主目录项目(「~」),还没有主目录项目时由它代位。
-    const { standIns, rowOf } = this.homeLayout;
-    // 被并进别的行的项目(任务工作区、个人助理那台上的其余项目)不单列。
+    // #609 workspace(任务工作区、主目录等咕咕自己要用的目录;哪台机器上的都算)不是项目:不单列,会话在「任务」里。
+    // 例外只有个人助理那台并成的那一行(#7199)。被并进别的行的项目不单列。
+    const { homeRows, rowOf } = this.homeLayout;
     const all: SidebarProjectRef[] = Array.from(this.projectManager.projects.values())
-      .filter((project) => (!isImplicitSessionHomeProject(project) || standIns.has(project.id)) && !rowOf.has(project.id))
+      .filter((project) => (!isWorkspaceProject(project) || homeRows.has(project.id)) && !rowOf.has(project.id))
       .filter((project) => project.id !== this.assistantHomeProjectId)
       .sort((a, b) => this.compareSidebarProjects(a, b))
       .map((project) => ({ kind: 'local', id: project.id, project }));
@@ -409,9 +407,10 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const machines = this.machines;
     if (!machines?.projectGroupOf) return EMPTY_PROJECT_GROUP_LAYOUT;
     return projectGroupLayout(
-      Array.from(this.projectManager.projects.values(), (p) => ({
-        id: p.id, machine: machines.machineOf(p.id), representative: machines.projectGroupRepresentativeOf?.(p.id),
-      })),
+      Array.from(this.projectManager.projects.values(), (p) => {
+        const machine = machines.machineOf(p.id);
+        return { id: p.id, machine, online: machine === null || machines.connected?.(machine) === true, createdAt: p.createdAt };
+      }),
       (id) => machines.projectGroupOf?.(id)
     );
   }
@@ -433,16 +432,15 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * 侧栏上另有一行与它同名(那一行带上路径区分,spec session-page-remote)。只算自己成一行的:并进某一行的项目
-   * (别的机器上的同一个项目,#7341;并进主目录的任务工作区)在侧栏上不单独出现,谈不上分不清。
+   * 侧栏上另有一行与它同名(那一行带上路径区分,spec session-page-remote)。只算画出来的项目行:并进某一行的项目
+   * (别的机器上的同一个项目,#7341)与 workspace(#609)在侧栏上不单独出现,谈不上分不清。
    */
   hasNameTwin(projectId: string): boolean {
-    const name = this.projectManager.projects.get(projectId)?.name;
-    if (name === undefined) return false;
-    for (const [id, other] of this.projectManager.projects) {
-      if (id !== projectId && this.rowProjectIdOf(id) === id && other.name === name) return true;
-    }
-    return false;
+    return this.nameTwins.has(projectId);
+  }
+
+  get nameTwins(): ReadonlySet<string> {
+    return nameTwinIds(this.sidebarProjects.map((ref) => ({ id: ref.id, name: ref.project.name })));
   }
 
   /** 这个项目的会话显示在哪一行下(被并进主目录项目的任务工作区 → 那一行;其余就是它自己)。 */
@@ -459,7 +457,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       if (machine && this.machines?.isAssistantHome?.(machine)) return this.machines.label(machine) ?? HOME_PROJECT_LABEL;
       return HOME_PROJECT_LABEL;
     }
-    return this.projectManager.projects.get(row)?.name ?? null;
+    // #609 workspace 不是项目,没有项目名可标(本机的任务工作区从前会标出「任务工作区」)。
+    const project = this.projectManager.projects.get(row);
+    return project && !isWorkspaceProject(project) ? project.name ?? null : null;
   }
 
   /** 挂在父会话下的行要标的项目名:与父会话不在同一个项目行时才有(与机器标记同一条「跟上面那一行比」)。 */
@@ -714,7 +714,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const placed = this.placement.rowOfSession.get(sessionId);
     if (placed !== undefined) return placed === SESSIONS_SECTION ? null : placed;
     const row = this.rowProjectIdOf(projectId);
-    return isImplicitSessionHomeProject({ id: projectId }) && !this.homeLayout.homeRows.has(row) ? null : row;
+    return this.isTasksProject(this.projectManager.projects.get(projectId) ?? { id: projectId }) ? null : row;
   }
 
   /** 一行自己的会话:这个项目的,加上并进这一行的项目的(那台机器的任务工作区)。 */
@@ -1026,10 +1026,19 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   /** 独立会话及助理家里的执行者。隐藏家目录项目行时,不能连同其中的任务一起摘掉。 */
   private standaloneOwnEntries(): SidebarSessionEntry[] {
     return [...this.projectManager.projects.values()]
-      .filter((project) => !this.isRemote(project.id)
-        && (isImplicitSessionHomeProject(project) || project.id === this.assistantHomeProjectId))
+      .filter((project) => this.isTasksProject(project))
       .flatMap((project) => this.projectSessionEntries(project))
       .sort((a, b) => b.time - a.time);
+  }
+
+  /**
+   * #609 会话列在「任务」里的项目:每台机器上的 workspace(并进个人助理那一行的除外),加本机助理的家。
+   * 「任务」是一张平铺的表,❌ 按机器分组。
+   */
+  private isTasksProject(project: { id: string; data?: { kind?: string } | null }): boolean {
+    const { homeRows, rowOf } = this.homeLayout;
+    if (homeRows.has(project.id) || rowOf.has(project.id)) return false;
+    return isWorkspaceProject(project) || (!this.isRemote(project.id) && project.id === this.assistantHomeProjectId);
   }
 
   togglePinnedCollapsed(): void {

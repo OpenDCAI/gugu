@@ -102,6 +102,7 @@ async function resolveImportProject(workingDirectory: string) {
     allowNonGit: true,
     reuseExisting: true,
     exactPath: !isRepositoryRoot,
+    automatic: true,
   });
   if (!created.success) {
     throw new Error(describeCreateProjectError(created.error.type, workingDirectory));

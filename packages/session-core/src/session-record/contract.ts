@@ -30,6 +30,16 @@ export type { SessionLiveReply } from './live-reply';
 export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install', 'browser-assistance'] as const;
 export type AskSource = (typeof ASK_SOURCES)[number];
 export type AskOrigin = { source: AskSource; payload?: unknown };
+
+/**
+ * 协议 12 的宿主把 `origin` 叫 `host`(`{kind, payload}`,97ca6e73 改名):新的一端收进来时照新名读 ——
+ * 两边差一档时由新的一侧降级(serverMachineHealth.ts「向下兼容一档」),❌ 让装 App / agent 提问画成光秃秃的权限卡。
+ */
+export function settlementFromWire<T extends { origin?: AskOrigin }>(settlement: T): T {
+  const legacy = (settlement as { host?: { kind?: unknown; payload?: unknown } }).host;
+  if (settlement.origin || !legacy || !(ASK_SOURCES as readonly unknown[]).includes(legacy.kind)) return settlement;
+  return { ...settlement, origin: { source: legacy.kind as AskSource, payload: legacy.payload } };
+}
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';
 
@@ -237,6 +247,11 @@ export type Settlement = {
   resultRecorded?: boolean;
   /** D-31 宿主替 agent 问的那一种(装 App):端上画它自己的卡,答案经 `respond` 交回宿主。 */
   origin?: AskOrigin;
+  /**
+   * 协议 12 的端读的旧名(`origin` 之前叫 `host: {kind, payload}`,只给宿主替 agent 问的那两种):新宿主照旧带上,
+   * 老桌面 / 老手机连上来时装 App、agent 提问照旧画成自己的卡(向下兼容一档,新的一侧负责降级)。新端只读 `origin`。
+   */
+  host?: { kind: 'app-install' | 'agent-question'; payload?: unknown };
   state: SettlementState;
   optionId: string | null;
   resolvedBy: string | null;
@@ -587,7 +602,8 @@ export type SessionpageSessionReloadModelRequest = {
   modelSource: 'platform' | 'own';
 };
 
-export type SessionpageProjectSummary = { id: string; name: string; path: string };
+/** `kind: 'workspace'`(#609):咕咕自己要用的目录(任务工作区、替人登记的 ~),不是项目 —— 它的会话列在「任务」里。 */
+export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
   conversationId: string;
