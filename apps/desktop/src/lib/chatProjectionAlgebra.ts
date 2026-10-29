@@ -211,8 +211,11 @@ export function operationKeys(operation: ProjectionOperation): EntityKey[] {
     case 'message_created':
     case 'message_deleted':
     case 'reaction_changed':
-    case 'delivery_changed':
       return chatKeys()
+    case 'delivery_changed':
+      // 投递只改这条消息还算不算「等 agent 接走」⇒ 预览与未读可能变,会话行(最后一条、序号)不变。
+      if (!chatId) throw new Error(`${event} revision requires chat_id`)
+      return [entityKey('preview', chatId), entityKey('unread', chatId)]
     case 'chat_members_changed':
       if (!chatId) throw new Error(`${event} revision requires chat_id`)
       // 成员行变化不改 chat 行 ⇒ 不顺带重读它。「已存在的会话刚被发布进我的收件箱」那一路
