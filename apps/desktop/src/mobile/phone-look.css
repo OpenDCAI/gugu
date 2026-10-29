@@ -147,8 +147,9 @@
    输入框本身用实色卡面;它所在那一行(底部那一摞的最后一格,不含上面的运行条)垫一条九成不透明的磨砂底,
    横向铺满屏宽、往下盖到安全区。电脑上那一摞照旧透明(owner 10-25),只在手机壳里垫。
    最后一条消息不被挡:消息流末尾按 --chat-dock-h 让位(ChatBottomDock),这条底在那一摞里面,不另占高。 */
-[data-phone-shell] [data-chat-bottom-dock] > :last-child { position: relative; }
-[data-phone-shell] [data-chat-bottom-dock] > :last-child::before {
+/* Agent 私聊的共享转录使用自己的输入槽,沿用同一条手机底色。 */
+[data-phone-shell] :is([data-chat-bottom-dock], [data-agent-conversation] [data-chat-composer-placement='bottom']) > :last-child { position: relative; }
+[data-phone-shell] :is([data-chat-bottom-dock], [data-agent-conversation] [data-chat-composer-placement='bottom']) > :last-child::before {
   content: '';
   position: absolute;
   z-index: -1;

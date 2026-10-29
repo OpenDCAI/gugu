@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { ChatBottomDock } from '@/components/chat/ChatBottomDock'
+import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view'
+import { loadChatUi } from '@renderer/lib/chat/chat-transcript'
 import { LocalizationProvider } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
@@ -107,4 +109,42 @@ it.each(['dark', 'light'] as const)('%s: the phone composer row has a solid back
   const bandTop = dock.lastElementChild!.getBoundingClientRect().top - host.getBoundingClientRect().top
   list.style.marginTop = `${((bandTop - 24) % 48 + 48) % 48}px`
   await page.screenshot({ path: `phone-composer-backing-${theme}.png` })
+})
+
+
+it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the phone backing without changing desktop', async (theme) => {
+  await page.viewport(390, 844)
+  if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
+  const { createChatContext, createChatState } = await loadChatUi()
+  const context = createChatContext()
+  const state = createChatState(context)
+  host = document.body.appendChild(document.createElement('div'))
+  host.setAttribute('data-phone-shell', '')
+  host.setAttribute('data-ta-scope', '')
+  host.style.cssText = 'position:relative;width:390px;height:600px;overflow:hidden;background:var(--bg)'
+  root = createRoot(host)
+  try {
+    root.render(
+      <LocalizationProvider>
+        <AgentConversationView context={context} state={state} composerPlacement="bottom"
+          style={{ position: 'absolute', inset: 0 }}
+          composerContent={<ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat />} />
+      </LocalizationProvider>,
+    )
+    await until('the shared phone composer has mounted', () => !!host?.querySelector('[data-chat-composer-placement="bottom"] [contenteditable]'))
+    const layer = host.querySelector<HTMLElement>('[data-chat-composer-placement="bottom"]')!
+    const row = layer.lastElementChild!
+    const band = getComputedStyle(row, '::before')
+    expect(band.content, 'the shared slot receives the phone backing').toBe('""')
+    expect(alphaOf(band.backgroundColor)).toBeGreaterThanOrEqual(0.85)
+    expect(Number.parseFloat(band.width), 'the backing covers the whole phone width').toBe(390)
+    expect(row.getBoundingClientRect().height).toBeGreaterThan(0)
+    host.removeAttribute('data-phone-shell')
+    expect(getComputedStyle(row, '::before').content, 'desktop keeps its transparent positioning layer').toBe('none')
+  } finally {
+    root.unmount()
+    root = null
+    state.dispose()
+    context.dispose()
+  }
 })
