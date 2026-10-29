@@ -63,15 +63,28 @@ it('returns an unadmitted reservation to the next delivery', async () => {
   expect((await journal.prepare()).text).toBe(rejected.text)
 })
 
-it('never treats a failed read as deletion or advances a version; recovery sends the accumulated changes', async () => {
+it('never treats a failed read as deletion, and does not hold back the groups that were read', async () => {
   const { journal, saved } = await fixture()
-  await journal.observe([...snapshot({ memory: [] }), JSON.stringify({ source: 'projects', status: 'unavailable' })])
-  expect((await journal.prepare()).text).toBe('')
-  expect(saved().version).toBe(0); expect(saved().delivered).toBe(0)
-  await journal.observe(snapshot({ memory: [] }))
+  // One device's projects could not be read; its memory deletion was read.
+  await journal.observe([...snapshot({ memory: [] }).filter(line => !line.includes('"source":"projects"')),
+    JSON.stringify({ source: 'projects', device: 'device:mac', status: 'unavailable' })])
   const delta = await journal.prepare()
-  expect(delta.text).toContain('old.md'); await delta.accepted()
-  expect(saved().delivered).toBe(1)
+  expect(delta.text).toContain('old.md')
+  expect(delta.text).not.toContain('项目')
+  expect(saved().groups['项目:mac']?.items.old).toBeDefined()
+  await delta.accepted()
+  expect(saved().delivered).toBe(saved().version)
+  // The source recovers unchanged: nothing to report.
+  await journal.observe(snapshot({ memory: [] }))
+  expect((await journal.prepare()).text).toBe('')
+})
+
+it('never reports devices removed when device discovery itself failed', async () => {
+  const { journal, saved } = await fixture()
+  await journal.observe([...snapshot().filter(line => !line.includes('"device_id"')),
+    JSON.stringify({ source: 'session_devices', status: 'unavailable' })])
+  expect((await journal.prepare()).text).toBe('')
+  expect(saved().groups.devices?.items.mac).toBeDefined()
 })
 
 it('rebuilds the full baseline after compact without replaying older events', async () => {
@@ -95,11 +108,67 @@ it('summarizes more than twenty changes and oversized names under 1500 character
   expect((await journal.prepare()).text.length).toBeLessThanOrEqual(1500)
 })
 
+it('tells an already-running assistant once that a connection is only for linking issues', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['github'] }))
+  await (await journal.prepare()).accepted()
+  const marked = snapshot({ apps: ['github'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'github:default', name: 'github', modifiedAt: stamp, note: '只用来关联 issue，助理不能直接用' }] })
+    : line)
+  await journal.observe(marked)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('只用来关联 issue，助理不能直接用')
+  await notice.accepted()
+  await journal.observe(marked)
+  expect((await journal.prepare()).text).toBe('')
+})
+
+it('tells an already-running assistant once when a connected application gains its delegation route', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['feishu'] }))
+  await (await journal.prepare()).accepted()
+  // After a server upgrade the same connection carries how to use it; a resumed session only learns it from this notice.
+  const routed = snapshot({ apps: ['feishu'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'feishu:default', name: 'feishu', modifiedAt: stamp,
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] } }] })
+    : line)
+  await journal.observe(routed)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('飞书已连接，要用就派任务')
+  expect(notice.text).toContain('lark-calendar')
+  expect(notice.text).toContain('session_spawn')
+  await notice.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
+it('still tells a resumed assistant the route of an application connected from the panel', async () => {
+  const { journal } = await fixture()
+  // The panel's receipt arrives first and knows only that Feishu is saved.
+  await journal.notice('connected', { resource: 'integrations', id: 'feishu', operation: 'saved', deviceId: 'device:mac', after: { name: '飞书' } })
+  await (await journal.prepare()).accepted()
+  // The next index read is the first to report how it is used (#881: this was taken for the receipt's echo).
+  const routed = snapshot({ apps: ['feishu'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'feishu:default', name: '飞书', modifiedAt: stamp,
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] } }] })
+    : line)
+  await journal.observe(routed)
+  const route = await journal.prepare()
+  expect(route.text).toContain('飞书已连接，要用就派任务')
+  expect(route.text).toContain('lark-calendar')
+  expect(route.text).toContain('session_spawn')
+  await route.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('includes a configured application on the next message and disconnects it once', async () => {
   const { journal } = await fixture()
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })
   const connected = await journal.prepare()
   expect(connected.text).toContain('钉钉'); expect(connected.text).toContain('连接应用')
+  // A CLI application connected mid-session is used through a delegated task, not the catalog alone.
+  expect(connected.text).toContain('session_spawn')
   await connected.accepted()
   // A repeated cloud receipt and the authoritative refresh are not two new events.
   await journal.notice('connected', { resource: 'integrations', id: 'dingtalk', operation: 'saved', deviceId: 'device:mac', after: { name: '钉钉' } })

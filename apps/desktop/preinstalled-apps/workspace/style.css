@@ -1,5 +1,6 @@
 /* ui.css supplies the host's typography, controls, lists and palette; only this App's layout lives here. */
 html, body { height: 100%; }
+:root { --em-icon-xl: 36px; }
 body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
 body.no-list .files, body.show-doc .files { display: none; }
 body:not(.show-doc):not(.no-list) .doc { display: none; }
@@ -7,6 +8,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 /* One two-line list at every width. */
 .files { display: flex; flex-direction: column; min-height: 0; }
 .files-head { flex-wrap: nowrap; padding: var(--em-spacing-lg); flex: none; }
+.select-files { display: none; }
+.files.has-picks .files-head { display: none; }
 .filter { flex: 1; width: 0; min-width: 0; }
 .file-list { margin: 0; padding: 0 var(--em-spacing-md) var(--em-spacing-md); gap: var(--em-spacing-xs); overflow: auto; flex: 1; min-height: 0; }
 .file-open {
@@ -14,8 +17,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
   grid-template-columns: var(--em-icon-md) minmax(0, 1fr); column-gap: var(--em-spacing-md); row-gap: 2px; align-items: center;
   padding: var(--em-spacing-xs) 0; border: 0; background: none; text-align: start; font-weight: 400;
 }
-.file-title { display: contents; }
-.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.file-title { display: flex; align-items: center; gap: var(--em-spacing-xs); grid-column: 2; min-width: 0; }
+.file-name { flex: 1; min-width: 0; font-size: var(--em-font-title); line-height: var(--em-lh-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .file-mark { grid-row: span 2; width: var(--em-icon-md); height: var(--em-icon-md); flex: none; object-fit: contain; color: var(--em-foreground-muted); }
 .file-meta { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); }
 .file-meta { display: flex; gap: 0; min-width: 0; }
@@ -27,7 +30,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 /* A file's mark: its suffix on a square coloured by its family (list.js markOf). */
 .file-badge {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--em-color-white);
-  font-size: 8.5px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: var(--em-file-generic);
+  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: .02em; overflow: hidden; background: var(--em-file-generic);
 }
 .file-badge[data-family='pdf'] { background: var(--em-file-pdf); }
 .file-badge[data-family='word'] { background: var(--em-file-word); }
@@ -40,19 +43,19 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file-badge[data-family='code'] { background: var(--em-file-code); }
 .file-badge[data-family='text'] { background: var(--em-file-text); }
 
-/* At a row's end: how long its cloud copy has left (faint, owner 10-28), and the machine it stays on. */
-/* Denser rows (owner 10-28): a 28px mark, two lines, 6px around — about 52px a file. */
+/* The row keeps its time; activity, size and host names stay in hover and Details. */
 .file-list { gap: 2px; }
-.file { padding-block: 6px; }
-.file .file-open { padding-block: 0; padding-inline-end: var(--em-spacing-xs); grid-template-columns: 28px minmax(0, 1fr); }
-.file .file-mark { width: 28px; height: 28px; }
-.file[data-folder] .file-mark { width: 22px; height: 22px; justify-self: center; }
-.file-marks { flex: none; display: flex; align-items: center; gap: var(--em-spacing-xs); max-width: 45%; min-width: 0; }
+.file { position: relative; padding-block: calc(var(--em-row-pad) - var(--em-spacing-xs)); min-height: 56px; }
+.file .file-open { padding-block: 0; padding-inline-end: var(--em-spacing-xs); grid-template-columns: var(--em-icon-xl) minmax(0, 1fr); }
+.file .file-mark { width: var(--em-icon-xl); height: var(--em-icon-xl); }
+.file[data-folder] .file-mark { width: 28px; height: 28px; justify-self: center; }
+.file-cell[data-cell='size'] { display: none; }
+.file[data-folder] .file-cell[data-cell='size'] { display: block; }
+.file-marks { flex: none; display: flex; align-items: center; gap: var(--em-spacing-xs); max-width: 35%; min-width: 0; }
 .file-keep, .file-host { font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-passive, var(--em-foreground-muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-keep[data-soon] { color: var(--em-foreground-muted); }
-.file-host { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
-.file-host gugu-icon { width: 12px; height: 12px; flex: none; }
-.file-host > span { overflow: hidden; text-overflow: ellipsis; max-width: 10em; }
+.file-host { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.file-host gugu-icon { width: 12px; height: 12px; }
 
 /* Which kind, and the order: a row of segments and the order's button, under the search. */
 .files-tools { display: flex; align-items: center; gap: var(--em-spacing-sm); padding: 0 var(--em-spacing-lg) var(--em-spacing-sm); flex: none; min-width: 0; }
@@ -75,8 +78,7 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 /* A picture where there is one (an image with a cloud copy): the suffix square becomes it. */
 .file-badge.has-thumb { background-size: cover; background-position: center; color: transparent; }
 .file[data-offline] { opacity: .6; }
-.file-host[data-online='true']::after, .file-host[data-online='false']::after { content: ''; flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--em-foreground-success); }
-.file-host[data-online='false']::after { background: var(--em-foreground-muted); }
+.file-host[data-online='false']::after { content: ''; flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--em-foreground-muted); }
 
 /* The grid (images and videos): square pictures, the name under them; sections and folders across the whole width. */
 .file-list.as-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--em-spacing-sm); align-content: start; }
@@ -84,26 +86,21 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file.cell { position: relative; display: block; padding: 0; }
 .file.cell .file-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; grid-template-columns: none; }
 .file.cell .cell-picture { position: relative; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--em-radius-control); font-size: 13px; }
-.file.cell .file-name { font-size: var(--em-font-caption); font-weight: 400; color: var(--em-foreground-muted); }
+.file.cell .file-name { flex: none; max-width: 100%; font-size: var(--em-font-caption); font-weight: 400; color: var(--em-foreground-muted); }
 .cell-play { position: absolute; inset: 0; margin: auto; width: 28px; height: 28px; color: var(--em-color-white); opacity: .85; }
 .cell-keep { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
 .cell-host { position: absolute; bottom: 26px; left: 6px; padding: 1px 6px; border-radius: var(--em-radius-capsule); background: color-mix(in srgb, var(--em-background) 85%, transparent); }
-/* The cell's ⋯ stays small on a touch screen too (ui.css gives buttons a finger's size there): it sits on the picture. */
-.file.cell .row-more { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; min-width: 0; min-height: 0; padding: 0; line-height: 1; background: color-mix(in srgb, var(--em-background) 85%, transparent); }
-
-/* 多选: a file's box sits on its mark — drawn on hover, and on every row while anything is picked. */
-.file { position: relative; }
-.file-pick { position: absolute; z-index: 2; left: 8px; top: 50%; width: 28px; height: 28px; margin-top: -14px; padding: 0; border: 0; border-radius: 6px; background: none; opacity: 0; }
-.file-pick::before { content: ''; position: absolute; inset: 6px; border: 1.5px solid var(--em-border-strong, var(--em-foreground-muted)); border-radius: 4px; background: var(--em-background); }
-.file-pick[aria-checked='true']::before { border-color: var(--em-accent-11); background: var(--em-accent-11); }
-.file-pick[aria-checked='true']::after { content: ''; position: absolute; left: 11px; top: 8px; width: 5px; height: 9px; border: solid var(--em-background); border-width: 0 2px 2px 0; transform: rotate(45deg); }
-.file:hover .file-pick, .file-list.picking .file-pick, .file-pick:focus-visible { opacity: 1; }
-.file:hover .file-pick + .file-open .file-mark, .file-list.picking .file:not(.cell) .file-mark { visibility: hidden; }
-.file.picked { background: color-mix(in srgb, var(--em-accent-11) 10%, transparent); }
-.file.cell .file-pick { top: 6px; left: 6px; margin-top: 0; }
-.file.cell .file-pick + .file-open .file-mark { visibility: visible; }
-@media (hover: none) { .file:hover .file-pick { opacity: 0; } .file-list.picking .file-pick { opacity: 1; } }
-.pick-bar { position: fixed; z-index: 12; left: 50%; bottom: var(--em-spacing-lg); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; max-width: calc(100vw - 16px); padding: 4px 6px 4px var(--em-spacing-md); border-radius: var(--em-radius-control); background: var(--em-foreground); color: var(--em-background); box-shadow: var(--em-shadow-lift); font-size: var(--em-font-caption); overflow-x: auto; }
+/* Desktop selection is the whole row; the phone's selection checkbox has its own column. */
+.file-pick { display: none; }
+.pick-all, .file-pick { flex: none; position: relative; width: 22px; height: 22px; min-height: 0; padding: 0; border: 0; background: none; }
+.pick-all::before, .file-pick::before { content: ''; position: absolute; inset: 3px; border: 1px solid var(--em-foreground-muted); border-radius: 4px; }
+.pick-all[aria-checked='true']::before, .file-pick[aria-checked='true']::before { background: var(--em-foreground); border-color: var(--em-foreground); }
+.pick-all[aria-checked='true']::after, .file-pick[aria-checked='true']::after { content: ''; position: absolute; left: 8px; top: 5px; width: 4px; height: 8px; border: solid var(--em-background); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.pick-all[aria-checked='mixed']::after { content: ''; position: absolute; inset: 10px 6px; background: var(--em-foreground); }
+.file.picked { background: var(--em-selected); }
+.file-open:focus-visible { outline: none; }
+.file:has(.file-open:focus-visible) { outline: 2px solid var(--em-focus-ring); outline-offset: -2px; }
+.pick-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; margin: var(--em-spacing-lg); padding: 4px var(--em-spacing-sm); border-radius: var(--em-radius-control); background: var(--em-selected); color: var(--em-foreground); font-size: var(--em-font-caption); }
 .pick-bar[hidden] { display: none; }
 .pick-bar button { border: 0; background: none; color: inherit; white-space: nowrap; min-height: 28px; padding: 0 var(--em-spacing-sm); }
 .pick-bar button:disabled { opacity: .4; }
@@ -132,30 +129,46 @@ img.details-picture { object-fit: contain; }
 /* Wide (an expanded tab): the rows line up as a table, and the details sit beside the list. */
 .files { container-type: inline-size; }
 @container (min-width: 720px) {
-  .table-head { display: grid; grid-template-columns: 28px minmax(0, 1fr) 140px 130px 80px 160px; column-gap: var(--em-spacing-md); padding: 0 8px 4px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border); }
-  .table-head > [data-cell='name'] { grid-column: 2; }
-  .table-head > button { border: 0; background: none; padding: 0; min-height: 0; text-align: start; font: inherit; color: inherit; }
+  .table-head { display: grid; grid-template-columns: 22px 24px minmax(0, 1fr) 130px 80px; column-gap: var(--em-spacing-md); align-items: center; padding: 0 8px 4px; font-size: var(--em-font-caption); color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border); }
+  .table-head > [data-cell='name'] { grid-column: 3; }
+  .table-head > button:not(.pick-all) { border: 0; background: none; padding: 0; min-height: 0; text-align: start; font: inherit; color: inherit; }
   .table-head > [aria-current='true'] { color: var(--em-foreground); font-weight: 600; }
-  .file:not(.cell) { display: grid; grid-template-columns: minmax(0, 1fr) 160px 28px; padding-block: 4px; }
-  .file:not(.cell) .file-open { grid-template-columns: 28px minmax(0, 1fr) 140px 130px 80px; align-items: center; }
-  .file:not(.cell) .file-mark { grid-row: auto; }
+  .file:not(.cell) { padding-block: 4px; padding-inline-start: 38px; min-height: var(--em-control-h-touch); }
+  .file:not(.cell) .file-open { grid-template-columns: 24px minmax(0, 1fr) 130px 80px; align-items: center; padding-inline-end: 0; }
+  .file:not(.cell) .file-name { font-size: var(--em-font-body); line-height: var(--em-lh-body); }
+  .file:not(.cell) .file-mark { width: 24px; height: 24px; grid-row: auto; }
+  .file:not(.cell) .file-badge { font-size: 8.5px; }
   .file:not(.cell) .file-meta { display: contents; }
   .file:not(.cell) .file-cell::before { content: none; }
-  .file:not(.cell) .file-cell { grid-row: 1; font-size: var(--em-font-caption); color: var(--em-foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file:not(.cell) .file-cell[data-cell='who'] { grid-column: 3; }
-  .file:not(.cell) .file-cell[data-cell='when'] { grid-column: 4; }
-  .file:not(.cell) .file-cell[data-cell='size'] { grid-column: 5; }
+  .file:not(.cell) .file-cell { display: block; grid-row: 1; font-size: var(--em-font-caption); color: var(--em-foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file:not(.cell) .file-cell[data-cell='when'] { grid-column: 3; }
+  .file:not(.cell) .file-cell[data-cell='size'] { grid-column: 4; }
   .file:not(.cell) .file-meta > .file-path { grid-column: 2; grid-row: 2; }
-  .file:not(.cell) .file-marks { grid-column: 2; max-width: none; }
-  .file:not(.cell) .row-more { grid-column: 3; }
 }
 /* The phone (a narrow pane): taller rows, the kinds and filters scroll sideways, the bar spans the bottom, the details are
    a sheet that slides away. */
-@media (max-width: 520px) {
-  .file:not(.cell) { min-height: 60px; }
+@media (hover: none) and (pointer: coarse) {
+  :root { --em-icon-xl: 40px; }
+  .select-files { display: inline-block; }
+  .files.has-picks .files-head { display: flex; }
+  .file:not(.cell) { min-height: 64px; padding-block: var(--em-row-pad); }
+  .selecting .file { display: flex; align-items: center; gap: var(--em-spacing-sm); }
+  .selecting .file-pick { display: inline-block; width: 44px; height: 44px; }
+  .file-pick::before { inset: 11px; border-radius: 50%; }
+  .file-pick[aria-checked='true']::after { left: 19px; top: 16px; }
+  .file-pick::after { pointer-events: none; }
+  .file-list.selecting.as-grid .cell { display: grid; grid-template-columns: 44px minmax(0, 1fr); }
+  .menu.file-context { inset: auto 0 0; width: auto; min-width: 0; max-height: 55vh; overflow-y: auto; border-radius: var(--em-radius-xl) var(--em-radius-xl) 0 0; padding: var(--em-spacing-sm) var(--em-spacing-sm) calc(var(--em-spacing-sm) + env(safe-area-inset-bottom, 0px)); }
+  .menu.file-context::before { content: ''; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); margin: 0 auto var(--em-spacing-sm); }
+  .menu-file { display: flex; align-items: center; gap: var(--em-spacing-sm); padding: var(--em-spacing-sm); border-bottom: 1px solid var(--em-border); }
+  .menu-file .file-mark { width: var(--em-icon-xl); height: var(--em-icon-xl); }
+  .menu-file-words { display: flex; flex-direction: column; min-width: 0; }
+  .menu-file strong, .menu-file small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-file small { color: var(--em-foreground-muted); }
+  .menu.file-context button { min-height: var(--em-control-h-touch); }
   .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chip { flex: none; }
-  .pick-bar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; flex-wrap: wrap; justify-content: center; overflow-x: visible; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .pick-bar { order: 1; margin: 0; left: 0; right: 0; bottom: 0; transform: none; max-width: none; border-radius: 0; justify-content: center; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
   .details { padding-top: var(--em-spacing-sm); }
   .details::before { content: ''; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--em-border); }
   .file-list.as-grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
@@ -171,10 +184,13 @@ img.details-picture { object-fit: contain; }
 .menu > .menu-separator { flex: none; width: auto; height: 1px; min-height: 0; padding: 0; margin: var(--em-spacing-xs) var(--em-spacing-sm); border-radius: 0; background: var(--em-border); }
 .menu-choice::before { content: ''; display: inline-block; width: 1.2em; }
 .menu-choice[aria-checked='true']::before { content: '✓'; }
+/* Retention opens beside the existing menu on desktop; mobile uses the same menu's back/More pages. */
+.menu .menu-group { position: relative; padding: 0; min-height: 0; }
+.menu-group > button { padding: var(--em-row-pad); width: 100%; border: 0; background: none; text-align: start; }
+.menu-submenu { position: absolute; left: 100%; top: 0; width: var(--submenu-width); padding: var(--em-spacing-xs); box-shadow: var(--em-shadow-lift); display: none; }
+.menu.submenu-left .menu-submenu { left: auto; right: 100%; }
+.menu-group:hover > .menu-submenu, .menu-group:focus-within > .menu-submenu { display: flex; }
 .menu button:disabled { opacity: .5; cursor: default; }
-.row-more { visibility: hidden; }
-.file:hover .row-more, .file:focus-within .row-more, .row-more[aria-expanded='true'] { visibility: visible; }
-@media (hover: none) { .row-more { visibility: visible; } }
 .rename-input { flex: 1; min-width: 0; }
 .empty { margin: var(--em-spacing-lg); color: var(--em-foreground-muted); }
 

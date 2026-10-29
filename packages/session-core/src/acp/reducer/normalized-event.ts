@@ -1,41 +1,43 @@
 /**
  * The internal normalized event type consumed by the AcpTranscriptParser reducer.
  *
- * NormalizedEvent is a delta/chunk — it represents a single ACP notification
- * after baseline decoding and optional provider enrichment. It is NEVER stored,
- * transported, or exported to consumers; it is the parser's private intermediate
- * type between the baseline decoder, optional EnrichHook, and the item fold.
+ * NormalizedEvent is a decoded domain delta, shared by transport and native
+ * history ingress. The reducer never inspects a protocol notification.
+ * TranscriptItem is the accumulated materialized state.
  *
  * Contrast with TranscriptItem (accumulated materialized state).
  */
 
 import type {
-  AvailableCommand,
   SessionConfigOption,
-  SessionUpdate,
   ToolCallLocation,
 } from '@agentclientprotocol/sdk';
 import type { AttachmentRef } from '../models/attachments';
-import type { SessionUsage } from '../models/config';
+import type { SessionCommandDefinition, SessionUsage } from '../models/config';
 import type { PlanEntryInput } from '../models/plan';
 import type { SessionNoticeCode } from '../models/turns/session-notice';
 import type { TranscriptTurnTrigger } from '../models/turns/turn';
 import type { ToolImage } from '../models/turns/tool-calls';
-import type { TerminalExit } from '../models/terminals';
-
-export type NormalizedDiff = {
-  path: string;
-  oldText: string | null;
-  newText: string;
-};
+import type { TerminalExit, TerminalState } from '../models/terminals';
+import type { EntityContent, EntityMeta } from '../models/entity-content';
+import type { SessionTerminalUpdate, SessionTerminalChunk } from '../session-protocol';
 
 export type NormalizedToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export type NormalizedToolLocation = Pick<ToolCallLocation, 'path' | 'line'>;
 
 export type NormalizedEvent =
+  | { kind: 'interrupted_for_message' }
+  | { kind: 'prompt_result'; requestId: string; _meta?: Readonly<Record<string, unknown>> | null;
+      error?: import('@gugu/session-shared').SerializedError }
+  | { kind: 'terminal_update'; terminal: SessionTerminalUpdate }
+  | { kind: 'terminal_chunk'; terminal: SessionTerminalChunk }
+  | { kind: 'terminal_snapshots'; terminals: readonly TerminalState[] }
   | {
       kind: 'message';
+      content?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
       role: 'user' | 'assistant';
       /**
        * Provider-assigned message id. Null when the provider omitted it; the reducer
@@ -53,24 +55,28 @@ export type NormalizedEvent =
     }
   | {
       kind: 'thinking';
+      content?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
       messageId: string | null;
       text: string;
     }
   | {
       kind: 'tool_call';
+      contentBlocks?: EntityContent[] | null;
+      _meta?: EntityMeta | null;
       toolCallId: string;
       title: string;
-      /** 供应商自己的工具名,标题是显示名时由 EnrichHook 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
+      /** 供应商自己的工具名,标题是显示名时由 transport decoding 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
       toolName?: string;
       /** ACP ToolKind passthrough ('edit', 'execute', 'read', 'think', ...). */
       toolKind: string | null;
       status: NormalizedToolStatus | null;
       /**
        * Parent tool call id for nested subagent invocations.
-       * Null in the baseline; providers promote vendor _meta via EnrichHook.
+       * Null in the baseline; providers promote vendor _meta via transport decoding.
        */
       parentToolCallId: string | null;
-      diffs: NormalizedDiff[];
       locations: NormalizedToolLocation[];
       inputSummary?: string;
       /** Serialized ACP `rawInput` — the arguments handed to the tool. */
@@ -98,7 +104,7 @@ export type NormalizedEvent =
        * Absent in the baseline: ACP has no field for it on a tool call — the
        * protocol's own route is a client-owned terminal, which an agent has to
        * ask for. Agents that instead run the command themselves report the exit
-       * in vendor `_meta`, and promote it here through EnrichHook, exactly the
+       * in vendor `_meta`, and promote it here through transport decoding, exactly the
        * way `parentToolCallId` is promoted.
        */
       exitStatus?: TerminalExit;
@@ -218,10 +224,6 @@ export type NormalizedEvent =
       /**
        * 一个**后台任务**开跑了(`async_task_spawned`,#5117)。
        *
-       * 这一族只在谈成 AIR `asyncTasks` 能力后才会来:适配器的这条 lane 由
-       * `clientSupportsAsyncTasks(clientCapabilities)` 把关,不声明就整条不发。
-       * ⇒ 这三个变体缺席**不等于**「没有后台任务」,可能只是没握手。
-       *
        * ⚠️ 它和 `subagent` 是**两种东西**,别合并:后台任务是「跑一条命令」,子智能体是
        * 「派一个人」。协议也把它们分在两条 lane 上,连取消的方法都不同(见 `canStop`)。
        */
@@ -338,31 +340,36 @@ export type NormalizedEvent =
     }
   | {
       kind: 'tool_update';
+      contentBlocks?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
+      /** Native result contained a completed, nonempty answer map before display formatting. */
+      recordedAnswers?: boolean;
       toolCallId: string;
-      title: string | null;
+      title?: string | null;
       /** 同 tool_call 的 `toolName`。 */
-      toolName?: string;
-      toolKind: string | null;
-      status: NormalizedToolStatus | null;
-      parentToolCallId: string | null;
-      diffs: NormalizedDiff[];
+      toolName?: string | null;
+      toolKind?: string | null;
+      status?: NormalizedToolStatus | null;
+      parentToolCallId?: string | null;
       /** Undefined leaves the prior collection unchanged; null or [] clears it. */
       locations?: NormalizedToolLocation[] | null;
-      outputText?: string;
+      outputText?: string | null;
       /** As on `tool_call`; undefined leaves the prior pictures unchanged. */
-      images?: ToolImage[];
+      images?: ToolImage[] | null;
       /** Serialized ACP `rawInput` — the arguments handed to the tool. */
-      rawInput?: string;
+      rawInput?: string | null;
+      inputSummary?: string | null;
       /** Serialized ACP `rawOutput` — the tool's own return value. */
-      rawOutput?: string;
-      terminalId?: string;
+      rawOutput?: string | null;
+      terminalId?: string | null;
       /**
        * How the command's process ended.
        *
        * Absent in the baseline: ACP has no field for it on a tool call — the
        * protocol's own route is a client-owned terminal, which an agent has to
        * ask for. Agents that instead run the command themselves report the exit
-       * in vendor `_meta`, and promote it here through EnrichHook, exactly the
+       * in vendor `_meta`, and promote it here through transport decoding, exactly the
        * way `parentToolCallId` is promoted.
        */
       /**
@@ -377,8 +384,12 @@ export type NormalizedEvent =
     }
   | {
       kind: 'plan';
+      planId?: string;
+      body?: EntityContent;
+      _meta?: EntityMeta | null;
       entries: PlanEntryInput[];
     }
+  | { kind: 'plan_remove'; planId: string }
   | {
       /** Full config option array from config_option_update. */
       kind: 'config';
@@ -405,7 +416,7 @@ export type NormalizedEvent =
   | {
       /** Full available command list from available_commands_update. */
       kind: 'commands';
-      commands: ReadonlyArray<AvailableCommand>;
+      commands: ReadonlyArray<SessionCommandDefinition>;
     }
   | {
       /** Usage figures from usage_update. */
@@ -485,14 +496,6 @@ export type NormalizedEvent =
        * ⚠️ 不是转录里的东西,也不属于哪一轮:谁开的工都一样 —— cell 拿它判「在不在跑」,别处不碰。
        */
       kind: 'agent_state';
-      state: 'running' | 'requires_action' | 'idle';
-    }
+      summary?: string;
+    } & import('../session-protocol').SessionForegroundState
   | { kind: 'ignored' };
-
-/**
- * An optional enrichment hook that runs after baseline decoding.
- * Receives the decoded NormalizedEvent and the original raw SessionUpdate so
- * it can promote vendor _meta fields (e.g. parentToolCallId) into first-class
- * fields. Return the event unchanged if no enrichment is needed.
- */
-export type EnrichHook = (event: NormalizedEvent, raw: SessionUpdate) => NormalizedEvent;

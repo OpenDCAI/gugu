@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import { noopLogger } from '@gugu/session-shared/logger';
-import { FakeAcpAgent } from '../acp-test-support';
-import { SessionCell } from './cell';
+import { FakeAcpAgent, requestActivityCell } from '../acp-test-support';
 import { deferred } from '../../../../../tests/support/testHarness';
 
 const owner = 'owner';
@@ -18,21 +17,21 @@ function fixture(extra: Record<string, unknown> = {}) {
   const agent = new FakeAcpAgent();
   const old = deferred<{ stopReason: 'cancelled' | 'end_turn' }>();
   agent.prompt.mockReturnValueOnce(old.promise);
-  const cell = new SessionCell({
-    sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native', agent: agent.observed(),
+  const cell = requestActivityCell(agent, {
+    sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native',
     resolveAttachment: async () => { throw Error('No fixture attachments'); }, mergeEnvelopes: mergeDeliveryEnvelopes,
     logger: noopLogger, assistantOwnerId: owner, queuedPromptsPersisted: () => true, ...extra,
   });
   cell.applySessionReady();
   const first = cell.promptDetached({ origin: 'communication', text: delivery(sourceId) });
-  // Trial admission waits for an actual ACP notification, not just a prompt call.
-  void agent.called('prompt').then(() => cell.noteProviderUpdate());
+  // Admission is the provider's first event for the request.
+  void agent.called('prompt').then(() => cell.push({ kind: 'thinking', messageId: 'started', text: 'Reading the message.' }));
   const sent = (input: Record<string, unknown> = {}, status: 'completed' | 'failed' = 'completed') => {
     cell.push({ kind: 'tool_call', toolCallId: 'send', title: 'mcp__gugu__message_send', toolName: 'mcp__gugu__message_send',
-      toolKind: 'other', status: 'in_progress', parentToolCallId: null, diffs: [], locations: [],
+      toolKind: 'other', status: 'in_progress', parentToolCallId: null, locations: [],
       rawInput: JSON.stringify({ chat_id: chat, text: 'Already delivered', reply_to_message_id: 'msg:' + sourceId, ...input }) });
     cell.push({ kind: 'tool_update', toolCallId: 'send', title: null, toolKind: null, status,
-      parentToolCallId: null, diffs: [], outputText: `replied (id=msg:${receiptId})` });
+      parentToolCallId: null, outputText: `replied (id=msg:${receiptId})` });
   };
   return { cell, agent, old, first, sent };
 }
@@ -95,7 +94,7 @@ describe('new owner input after an assistant reply', () => {
     await f.first.admission;
     await f.agent.called('prompt');
     f.sent();
-    const tool = { toolCallId: 'read', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'read', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, locations: [] };
     f.cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
     await f.cell.promptDetached({ origin: 'communication', text: delivery('next') }).admission;
     expect(f.agent.cancel).not.toHaveBeenCalled();
@@ -109,7 +108,7 @@ describe('new owner input after an assistant reply', () => {
 
   it('abandons a yield if an old-turn tool starts during queue persistence', async () => {
     let armed = false;
-    const tool = { toolCallId: 'late', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'late', title: 'Read', toolKind: 'read' as const, parentToolCallId: null, locations: [] };
     const f: ReturnType<typeof fixture> = fixture({ callbacks: { onSessionStateChanged: () => {
       if (!armed || !f.cell.sessionState.queuedPrompts.length) return;
       armed = false;

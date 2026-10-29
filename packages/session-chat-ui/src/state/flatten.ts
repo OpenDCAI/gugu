@@ -86,7 +86,6 @@ export function isDeliveredFromAgent(item: ChatItem): boolean {
   return isDeliveryEnvelope((item as ChatMessage).text);
 }
 
-
 /**
  * 这一轮的原始用户指令，给 turn-outcome 行的「取回指令」用。
  *
@@ -116,7 +115,6 @@ export type ItemNode = {
   item: ChatItem;
   children: ItemNode[];
 };
-
 
 // ── flattenTier ───────────────────────────────────────────────────────────────
 
@@ -399,14 +397,20 @@ export function flattenTier(
         const steps = () => {
           if (!expanded) return;
           const folds = [{ id: block.id, stored: !block.live }];
-          const folded = block.live && ops.length > 3 ? ops.length - 3 : 0;
-          const earlier = `${block.id}:earlier`;
-          if (folded) {
-            processItem({ kind: 'tool-run', id: earlier, turnId: turn.id, stepCount: folded,
-              label: ctx.translate('transcript.processEarlierParts', { count: folded }) }, folds);
-            if (ctx.revealAllFolds || ctx.isTurnProcessExpanded?.(earlier)) emitOps(ops.slice(0, folded), turn.id, [...folds, { id: earlier, stored: true }]);
+          const start = out.length;
+          emitOps(ops, turn.id, folds);
+          if (!ctx.revealAllFolds && out.length > start) {
+            // One bounded viewport owns all expanded process steps. Keep their existing renderers,
+            // folding and measured seams inside it; the reply remains outside.
+            const units = out.splice(start);
+            const gapBefore = units[0].gapBefore;
+            units[0] = { ...units[0], gapBefore: 0 };
+            const id = `${block.id}:steps`;
+            out.push({ id, itemId: id, groupId: id, groupRole: 'solo', gapBefore,
+              kind: 'conversation-process-steps', data: { id, live: block.live, units },
+              children: units, conversationProcessOwner: conversationOwner });
+            lastKind = 'conversation-process-steps';
           }
-          emitOps(ops.slice(folded), turn.id, folds);
         };
         conversationOwner = output.reply ? `${block.id}:head` : block.id;
         if (output.reply) {
@@ -486,7 +490,7 @@ export function flattenTier(
     if (!ctx.active) {
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
-      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id, ctx.caches.computeDiff);
+      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
       if (summary) processItem(summary);
     }
 
@@ -554,7 +558,6 @@ export function flattenTier(
   return out;
 }
 
-
 /** 一段连续工具调用的摘要行 id：锚在段首那一行上（段首不变，展开状态就跟着不丢）。 */
 export function toolRunId(turnId: string, firstItemId: string): string {
   return `${turnId}:run:${firstItemId}`;
@@ -587,7 +590,6 @@ export function turnDiscardedId(turnId: string): string {
 export function turnOutcomeDetailId(turnId: string): string {
   return `${turnId}:outcome-detail`;
 }
-
 
 // ── UnitsView ─────────────────────────────────────────────────────────────────
 

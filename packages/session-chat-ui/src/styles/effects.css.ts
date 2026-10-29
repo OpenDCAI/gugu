@@ -132,6 +132,13 @@ export const textShimmerLightInk = style({
   WebkitTextFillColor: `var(--text-shimmer-light, ${vars.fgMuted})`,
 });
 
+/** Shared with the host message viewport; paint only, never intercept selection or scrolling. */
+export const viewportTopFade = {
+  height: 16,
+  pointerEvents: 'none',
+  background: 'linear-gradient(to bottom, var(--chat-bg), transparent)',
+} as const;
+
 // ── fade-overlay-top ──────────────────────────────────────────────────────────
 
 export const fadeOverlayTop = style({

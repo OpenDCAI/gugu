@@ -96,15 +96,6 @@ export function makeParentId(turnId: string, parentToolCallId: string | null): s
 }
 
 /**
- * Stable diff item id.
- * Format: `${toolId}:${path}`
- * One diff item per changed file within a single tool call.
- */
-export function makeDiffId(toolId: string, path: string): string {
-  return `${toolId}:${path}`;
-}
-
-/**
  * Stable plan item id — one plan per turn.
  * Format: `${turnId}:plan`
  */

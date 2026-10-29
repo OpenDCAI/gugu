@@ -4,11 +4,22 @@ import { dirname, join } from 'node:path'
 
 type Row = Record<string, unknown>
 type Kind = '设备' | '项目' | '能力' | '设备资料' | '记忆' | '定时' | '连接应用'
+// The assistant has no shell: a connected CLI application is used through a delegated task.
+const INTEGRATION_READ = 'catalog_list；命令行应用派任务（session_spawn）'
+/** A connection's state includes how the assistant may use it, so a resumed session hears about a new or changed route. */
+function integrationState(use: unknown, note: unknown): string {
+  const route = use && typeof use === 'object' ? use as Row : undefined
+  const skills = Array.isArray(route?.task_skills) ? route.task_skills.map(text).filter(Boolean) : []
+  return route?.note ? [text(route.note), ...(skills.length ? [`任务技能：${skills.join('、')}`] : [])].join('；') : text(note) || 'configured'
+}
 type Item = { name: string; state: string; scope: string; accounts?: string[] }
 type Group = { kind: Kind; read: string; items: Record<string, Item> }
 type Event = { version: number; kind: Kind; operation: '+' | '-' | '~'; name: string; scope: string; read: string; state: string; trusted?: true }
 type State = { owner: string; version: number; delivered: number; acknowledged: number[]; healthy: boolean; groups: Record<string, Group>; events: Event[]; notices: string[]; hints: string[] }
 const services = new Map<string, ReturnType<typeof createResourceChanges>>()
+// A reserved notice belongs to its turn until that turn reports sent or released (#881: a 30 s hold
+// expired under a long answer and the notice went out twice). This only frees one that never reports.
+const HOLD_MS = 10 * 60_000
 const json = (value: unknown) => (JSON.stringify(value) ?? 'null').replace(/[<>&\u2028\u2029]/g,
   c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 const text = (value: unknown) => typeof value === 'string' ? value : ''
@@ -44,7 +55,8 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
   const groups: Record<string, Group> = {}
   const home = rows.find(row => row.device_id && row.this_machine)?.device_id
   const devices: Group = { kind: '设备', read: 'session_devices', items: {} }
-  groups.devices = devices
+  // A failed device discovery leaves the device list unknown, not empty.
+  if (!rows.some(row => row.status === 'unavailable' && (row.source === 'session_devices' || row.source === 'device_actions'))) groups.devices = devices
   for (const row of rows) {
     if (row.device_id) devices.items[key(row.device_id)] = { name: safeName(row.label) || key(row.device_id), scope: row.this_machine ? key(row.device_id) : '',
       state: json([row.online, row.task_runtime ?? null]) }
@@ -53,7 +65,7 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
     const source = text(row.source)
     const type = ({ projects: ['项目', 'project_list'], library_capabilities: ['能力', 'library_read'],
       library_devices: ['设备资料', 'library_read'], assistant_memory: ['记忆', 'Read'],
-      assistant_schedules: ['定时', 'schedule_list'], integrations: ['连接应用', 'catalog_list / Read'] } as const)[source]
+      assistant_schedules: ['定时', 'schedule_list'], integrations: ['连接应用', INTEGRATION_READ] } as const)[source]
     if (!type) continue
     const group: Group = { kind: type[0], read: type[1], items: {} }
     for (const raw of row.items) {
@@ -64,7 +76,7 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
       if (!id) continue
       group.items[id] = { name: safeName(item.name ?? item.title) || id, scope,
         ...(source === 'integrations' ? { accounts: [...new Set([...(group.items[id]?.accounts ?? []), account ?? 'default'])].sort() } : {}),
-        state: source === 'integrations' ? 'configured' : source === 'assistant_memory' ? text(item.modifiedAt)
+        state: source === 'integrations' ? integrationState(item.use, item.note) : source === 'assistant_memory' ? text(item.modifiedAt)
           : source === 'projects' ? text(item.path) : source === 'assistant_schedules'
             ? json([item.active, item.enabled, item.at, item.cron, item.tz, item.title]) : text(item.modifiedAt) }
     }
@@ -102,7 +114,8 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
   const initialize = (groups: Record<string, Group>): State => ({ owner, version: 0, delivered: 0, acknowledged: [], healthy: true, groups, events: [], notices: [], hints: [] })
   function append(group: Group, operation: Event['operation'], item: Item, previous?: Item, trusted = false) {
     let status = operation === '+' ? '新增' : operation === '-' ? '移除' : '已修改'
-    if (group.kind === '连接应用') status = operation === '-' ? '已断开' : '已保存'
+    // A route says how to use the application; the bare receipt only that it is saved.
+    if (group.kind === '连接应用') status = operation === '-' ? '已断开' : item.state !== 'configured' ? item.state : '已保存'
     if (group.kind === '设备' && operation === '~') {
       const online = (entry?: Item) => { const row = entry ? JSON.parse(entry.state) : null; return Array.isArray(row) ? row[0] === true ? '在线' : '离线' : '状态已变更' }
       status = online(previous) === online(item) ? '任务运行时已变更' : `${online(previous)}→${online(item)}`
@@ -121,17 +134,22 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
     observe: (lines: readonly string[], expectedVersion?: number) => serial(async () => {
       const identity = lines.filter(line => line.startsWith('{')).map(line => JSON.parse(line)).find(row => row.account)?.account
       if (identity && identity !== `user:${owner}`) throw new Error('Assistant resource account changed')
-      const groups = resourceGroups(lines)
+      // Only the groups that were read are compared: an unread source keeps its rows (never a deletion)
+      // and does not hold back the others (#881: one device's failed library read froze every change).
+      const groups = resourceGroups(lines, true)!
       await state()
       if (expectedVersion !== undefined && value && value.version !== expectedVersion) return undefined
-      if (!groups) { value ??= initialize(resourceGroups(lines, true) ?? {}); value.healthy = false; await persist(); return undefined }
       if (!value) value = initialize(groups)
       else {
         for (const [id, next] of Object.entries(groups)) {
           const previous = value.groups[id]
           for (const itemId of new Set([...Object.keys(previous?.items ?? {}), ...Object.keys(next.items)])) {
             const before = previous?.items[itemId], after = next.items[itemId], hint = `${id}:${itemId}`
-            if (value.hints.includes(hint)) { value.hints = value.hints.filter(item => item !== hint); continue }
+            if (value.hints.includes(hint)) {
+              value.hints = value.hints.filter(item => item !== hint)
+              // A panel receipt knows no route: the read that first reports one still announces it (#881).
+              if (!(next.kind === '连接应用' && before && after && before.state !== after.state)) continue
+            }
             if (json(before) === json(after)) continue
             append(next, !before ? '+' : !after ? '-' : '~', after ?? before!, before)
           }
@@ -149,7 +167,7 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
       if (value.notices.includes(operationId)) return true
       const type = ({ devices: ['设备', 'session_devices'], projects: ['项目', 'project_list'], capabilities: ['能力', 'library_read'],
         'device-notes': ['设备资料', 'library_read'], memory: ['记忆', 'Read'], schedules: ['定时', 'schedule_list'],
-        integrations: ['连接应用', 'catalog_list / Read'] } as const)[text(notice.resource)]
+        integrations: ['连接应用', INTEGRATION_READ] } as const)[text(notice.resource)]
       if (!type) return false
       const scope = key(notice.deviceId), groupId = type[0] === '设备' ? 'devices' : `${type[0]}:${scope}`
       const group = value.groups[groupId] ??= { kind: type[0], read: type[1], items: {} }
@@ -162,7 +180,8 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
         ? account ? (previous?.accounts ?? []).filter(id => id !== account) : []
         : [...new Set([...(previous?.accounts ?? []), account ?? 'default'])].sort() : undefined
       const item: Item = { name: safeName(after.name ?? after.title ?? after.label ?? after.displayName) || previous?.name || itemId, scope,
-        state: type[0] === '连接应用' ? 'configured' : json(after), ...(accounts ? { accounts } : {}) }
+        // A panel receipt knows no route; keep the one the last index read reported.
+        state: type[0] === '连接应用' ? previous?.state ?? 'configured' : json(after), ...(accounts ? { accounts } : {}) }
       const removed = notice.operation === 'removed' && (!accounts || !accounts.length)
       if (removed) delete group.items[itemId]
       else group.items[itemId] = item
@@ -187,9 +206,10 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
       const events = value.events.filter(event => (value!.healthy || event.trusted) && !reserved.has(event.version) && !value!.acknowledged.includes(event.version))
       if (!events.length) return { text: '', accepted: async () => {}, rejected: async () => {} }
       const token = randomUUID(), versions = events.map(event => event.version)
-      claims.set(token, { versions, until: Date.now() + 30_000 })
+      claims.set(token, { versions, until: Date.now() + HOLD_MS })
       return { text: renderResourceChanges(events, versions[0]! - 1, versions.at(-1)!),
-        accepted: () => serial(async () => { if (claims.delete(token)) { settle(versions); await persist() } }),
+        // Sent is sent, even if the hold had already lapsed.
+        accepted: () => serial(async () => { claims.delete(token); settle(versions); await persist() }),
         rejected: () => serial(async () => { claims.delete(token) }),
       }
     }),

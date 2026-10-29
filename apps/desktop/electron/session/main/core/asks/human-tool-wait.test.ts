@@ -21,8 +21,7 @@ import { ask, hostAsks, resetAsks } from './ask';
 import { humanToolPending, restoreHumanToolResults, runHumanTool, stopHumanToolWaits, yieldHumanToolWaits } from './human-tool-wait';
 import { readHumanToolRecords, saveHumanToolRecord } from './human-tool-results';
 import { askInstallInSession } from '../extensions/consent-in-session';
-import { SessionCell } from '../../../../../../../packages/session-runtime/src/acp-agents/session/cell';
-import { FakeAcpAgent } from '../../../../../../../packages/session-runtime/src/acp-agents/acp-test-support';
+import { FakeAcpAgent, requestActivityCell } from '../../../../../../../packages/session-runtime/src/acp-agents/acp-test-support';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { syncAsked } from '../session-timeline/service';
 import { runAppAction } from '../../../../mcp/app-tool-host';
@@ -225,8 +224,8 @@ describe('a human request outlives only its steered tool waiter', () => {
       return { outcome: 'injected' };
     });
     agent.prompt = vi.fn(async () => { await tool; consumed.push(...admitted); return { stopReason: 'end_turn' as const }; });
-    const cell = new SessionCell({ sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native',
-      agent, supportsSteering: true, resolveAttachment: vi.fn(), logger: noopLogger,
+    const cell = requestActivityCell(agent, { sessionId: 'session', projectId: 'project', providerId: 'claude', acpSessionId: 'native',
+      supportsSteering: true, resolveAttachment: vi.fn(), logger: noopLogger,
       callbacks: { onPromptSteered: () => yieldHumanToolWaits('session') } });
     cell.applySessionReady();
     const turn = cell.prompt({ text: 'delegated task', origin: 'typed' }); await drain();

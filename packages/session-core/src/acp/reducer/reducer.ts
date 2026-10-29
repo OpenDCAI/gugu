@@ -1,32 +1,9 @@
-/**
- * Pure parser state reducer.
- *
- * State is now composite — it holds the transcript slice (committed turns +
- * active turn) and the session slices (config, usage, title) side by side.
- * A single reduce() call routes each NormalizedEvent to the appropriate slice:
- *
- *   transcript kinds (message / thinking / tool_call / tool_update / plan)
- *     → turn boundary logic + item fold (unchanged from before).
- *
- *   session kinds (config / mode_selected / commands / usage / title)
- *     → slice update, no turn boundary side-effect.
- *
- *   ignored → no-op on all slices.
- *
- *   turn_end / replay_end → finalize + commit the active transcript turn.
- *
- * Turn boundary rules (transcript only):
- *   OPEN (implicit):  a new user message (new item id) → close active + open.
- *   OPEN (lazy):      agent content with no active turn → open.
- *   CLOSE (explicit): 'turn_end' / 'replay_end' input → closeActive.
- *   CLOSE (implicit): next new user message while a turn is active → closeActive + open.
- */
+/** Pure domain-event reducer for transcript, configuration and session entities. */
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentState, AgentStatus } from '../models/agents';
 import type { SessionCommand, SessionConfigState, SessionUsage } from '../models/config';
 import { initialSessionConfigState } from '../models/config';
-import { SESSION_PLAN_ID, type PlanState } from '../models/plan';
+import { SESSION_PLAN_ID, type SessionPlans } from '../models/plan';
 import type {
   TranscriptItem,
   TranscriptThinking,
@@ -37,11 +14,12 @@ import type {
   TranscriptTurn,
 } from '../models/turns';
 import { deriveConfigGroups } from './config-derive';
-import { decodeSessionUpdate } from './decode';
 import { makeMessageId, makeThinkingId, makeTurnId } from './ids';
 import { foldItem, finalizeItems, type FoldEvent } from './item-fold';
 import { projectSubagentProgress } from './subagent-progress';
-import type { EnrichHook, NormalizedEvent } from './normalized-event';
+import type { NormalizedEvent } from './normalized-event';
+import { findEntityOwner } from './entity-owner';
+import { withReferencedTerminals } from '../models/terminals';
 
 type SynthesizedSegmentKind = 'message:user' | 'message:assistant' | 'thinking';
 
@@ -65,7 +43,7 @@ export interface ParserState {
   pendingModeId: string | null;
   segment: SegmentState;
   agents: AgentState[];
-  plan: PlanState | null;
+  plan: SessionPlans | null;
   /**
    * True between `replay_start` and `replay_end`.
    *
@@ -79,11 +57,10 @@ export interface ParserState {
 }
 
 export type ReducerInput =
-  | { kind: 'update'; update: SessionUpdate; at: number }
   | { kind: 'event'; event: NormalizedEvent; at: number }
   | { kind: 'replay_start'; at: number }
   | { kind: 'replay_end'; at: number; outcome?: TranscriptTurnOutcome }
-  | { kind: 'turn_end'; at: number; outcome?: TranscriptTurnOutcome }
+  | { kind: 'turn_end'; at: number; outcome?: TranscriptTurnOutcome; foreground?: TranscriptTurn['foreground'] }
   /**
    * 回合已经落定之后才到的 agent 内容 —— 归**刚落定的那一轮**,作为它的尾巴。
    *
@@ -110,7 +87,6 @@ export type ReducerInput =
 
 export interface ReducerDeps {
   sessionId: string;
-  enrich?: EnrichHook;
 }
 
 export function initialState(): ParserState {
@@ -320,7 +296,7 @@ function materializeEvent(
     }
 
     const closed = closeSynthesizedSegment(transcript, segment, at);
-    if (event.kind === 'thinking' && closed.transcript.active) {
+    if (event.kind === 'thinking' && event.contentMode === undefined && closed.transcript.active) {
       return {
         ...closed,
         event: {
@@ -380,10 +356,6 @@ function toAgentStatus(
 /**
  * 后台任务的原生 lane(`async_task_*`)→ 那张命令卡(#5117)。
  *
- * 这是**谈成 AIR `asyncTasks` 之后**才有的路。以前同样的信息靠仓里给适配器打的补丁伪造
- * 一条 `_meta.claudeCode.taskStarted` 塞进来,而那条补丁认不出归属:它拿子会话里的
- * `tool_use_id` 发到根会话,根转录不认识 ⇒ 凭空多一行、停也停不中。现在归属由协议给。
- *
  * ⚠️ **`toolCallId` 缺席 = 还不知道,不是「没有父调用」**(协议原文:correlation becomes
  * known after spawn)。所以缺席时什么都不做,等后续 progress/state 带上它再落地 ——
  * ❌ 别为了「先显示出来」造一条顶层行,那正是 #5117 里那条凭空多出来的卡。
@@ -430,13 +402,8 @@ function resolveAsyncTask(
     return {
       kind: 'tool_update',
       toolCallId,
-      title: null,
-      toolKind: null,
       // 派发那次调用**在派发时就已经完成**了,「它还在后台跑」是另一件事。
       // ❌ 别把它改回 in_progress:那会让那次调用永远转圈。
-      status: null,
-      parentToolCallId: null,
-      diffs: [],
       backgroundTaskId: event.asyncTaskId,
     };
   }
@@ -448,35 +415,14 @@ function resolveAsyncTask(
   return {
     kind: 'tool_update',
     toolCallId,
-    title: null,
-    toolKind: null,
     // 被叫停 = 没跑完,按失败落定,原因在 outputText 里(与 resolveTaskNotification 同一约定)。
     status: event.state === 'stopped' ? 'failed' : event.state,
-    parentToolCallId: null,
-    diffs: [],
     backgroundTaskDone: true,
     ...(event.summary !== undefined ? { outputText: event.summary } : {}),
   };
 }
 
-/**
- * 会话号是子智能体的**唯一身份**;派它出去的那次 Agent 调用只是别名(#5117)。
- *
- * 真机 2026-09-06 原始 ACP 日志(谈成 `clientCapabilities.subagents` 之后):
- *   ① `subagent_spawned{subagentSessionId:a0fc…, name:回传口令}`
- *   ② 1ms 后 Agent 那次调用的 `tool_call_update{toolCallId:call_01a0…, toolResponse.agentId:a0fc…}`
- *   ③ `subagent_state_update{subagentSessionId:a0fc…, state:completed}`
- * ②的 `agentId` 与①的会话号是**同一个值**(0.75.1 `nextChildSessionId` 首代直接用 taskId)。
- * 不认亲时①②各立一行、登记册按 agentId 合成一条但 toolCallId 被②改写,③于是配给了②那行,
- * ①那行永远挂着 ——「派出了 2 个、1 个跑完了」。
- *
- * 这里做两件事,都只查登记册,❌ 不猜:
- *   · `subagent` 事件的 `agentId` 是某个已知会话号 ⇒ 它说的就是那一行,把 toolCallId 归一到
- *     会话号,原来的 toolCallId 记成别名;
- *   · 任何事件的 `parentToolCallId` 是某个别名 ⇒ 归一到会话号(子会话上的工具调用带的是
- *     `_meta.claudeCode.parentToolUseId` = Agent 的 tool_use id)。
- * 没谈成能力时登记册里没有会话号,这里恒等 —— 老形态一个字节不变。
- */
+/** Join native launch-result identities to registered child entities; never infer from prose. */
 function canonicalizeSubagentIdentity(
   event: NormalizedEvent,
   agents: readonly AgentState[]
@@ -513,6 +459,31 @@ function reduceSubagentStream(
   const launch = active && findToolCallNode(active.items, owner.toolCallId) ? active
     : s.transcript.committed.find((turn) => findToolCallNode(turn.items, owner.toolCallId));
 
+  if (inner.kind === 'agent_state') {
+    const ids = { toolCallId: owner.toolCallId, agentId: owner.agentId, subagentSessionId: stream.subagentSessionId };
+    const event: NormalizedEvent = inner.state === 'running' || inner.state === 'requires_action'
+      ? { kind: 'subagent_update', ...ids, status: 'in_progress' }
+      : { kind: 'subagent_done', ...ids,
+          status: inner.state === 'unknown' ? 'disconnected' : inner.state === 'idle' && inner.stopReason === 'cancelled' ? 'stopped'
+            : inner.state === 'idle' && inner.stopReason === 'error' ? 'failed' : 'completed',
+          ...(inner.state === 'idle' && inner.summary !== undefined ? { summary: inner.summary } : {}) };
+    return reduce(s, { kind: 'event', event, at }, deps);
+  }
+  if (inner.kind === 'config') {
+    const model = inner.options.find(option => option.category === 'model')?.currentValue;
+    return typeof model === 'string' ? { ...s,
+      agents: s.agents.map(agent => agent === owner ? { ...agent, model } : agent) } : s;
+  }
+  if (inner.kind === 'message' && inner.role === 'user') {
+    if (!launch) return s;
+    const previous = findToolCallNode(launch.items, owner.toolCallId);
+    const rawInput = inner.contentMode === 'append' ? (previous && 'rawInput' in previous && typeof previous.rawInput === 'string' ? previous.rawInput : '') + inner.text : inner.text;
+    const items = foldItem(launch.items, { kind: 'subagent', toolCallId: owner.toolCallId,
+      status: null, parentToolCallId: null, rawInput }, launch.id, at, s.replaying ? undefined : at);
+    const updated = { ...launch, items };
+    return { ...s, transcript: { active: launch === active ? updated : active,
+      committed: launch === active ? s.transcript.committed : s.transcript.committed.map(turn => turn === launch ? updated : turn) } };
+  }
   if (inner.kind === 'message' || inner.kind === 'thinking') {
     if (inner.kind === 'message' && inner.role !== 'assistant') return s;
     const field = inner.kind === 'thinking' ? 'reasoning' : 'output';
@@ -568,17 +539,14 @@ function resolveTaskNotification(
   return {
     kind: 'tool_update',
     toolCallId: event.toolCallId,
-    title: null,
-    toolKind: null,
     // 后台命令被叫停(stop_task → stopped):它没跑完,那张命令卡按失败落定,原因在 outputText 里。
     //
     // 失联(disconnected)则**不写状态**:ACP 的工具状态只有 pending/in_progress/completed/
-    // failed 四个,失联一个都不是。这里 `null` 的约定是「保持不变」⇒ 如实表达「不知道」。
+    // failed 四个,失联一个都不是。这里字段缺席表示「保持不变」⇒ 如实表达「不知道」。
     // ❌ 别顺手写成 failed —— 那是把「不知道」断言成「知道它砸了」。
     status:
-      event.status === 'stopped' ? 'failed' : event.status === 'disconnected' ? null : event.status,
-    parentToolCallId: call.parentToolCallId ?? null,
-    diffs: [],
+      event.status === 'stopped' ? 'failed' : event.status === 'disconnected' ? undefined : event.status,
+    ...(call.parentToolCallId !== undefined ? { parentToolCallId: call.parentToolCallId } : {}),
     // 它不再在跑 —— 面板上那张「后台命令」卡据此撤下(#5117)。
     backgroundTaskDone: true,
     ...(event.summary !== undefined ? { outputText: event.summary } : {}),
@@ -696,13 +664,14 @@ function updateAgentSlice(
     return agents;
   }
 
-  const agentId = notified?.agentId ?? ('agentId' in event ? event.agentId : undefined) ?? ('toolCallId' in event ? event.toolCallId : undefined);
+  let agentId = notified?.agentId ?? ('agentId' in event ? event.agentId : undefined) ?? ('toolCallId' in event ? event.toolCallId : undefined);
   if (!agentId) return agents;
 
   const toolCallId = notified?.toolCallId ?? ('toolCallId' in event ? event.toolCallId : undefined) ?? agentId;
   const idx = agents.findIndex(
     (agent) => agent.agentId === agentId || agent.toolCallId === toolCallId
   );
+  if (!('agentId' in event) && idx >= 0) agentId = agents[idx].agentId;
   const status = toAgentStatus(notified?.status ?? ('status' in event ? (event.status ?? null) : null));
   const completedAt =
     status === 'completed' || status === 'failed' || status === 'stopped'
@@ -722,7 +691,7 @@ function updateAgentSlice(
     // 面板上一张卡都留不住。⇒ 后台派发一律先记成 running,等真信号(完成通知 /
     // SessionOutput 收割)把它推到 completed/failed。
     // 同步的那种没有这个分裂:调用完成就是它干完了。
-    const launchStatus = event.background === true ? 'running' : status;
+    const launchStatus = (event.background ?? (idx >= 0 ? agents[idx].background : false)) === true ? 'running' : status;
     const launchCompletedAt = launchStatus === 'running' ? {} : completedAt;
     const next: AgentState = {
       ...(idx >= 0 ? agents[idx] : {}),
@@ -779,19 +748,23 @@ function updateAgentSlice(
 }
 
 function updatePlanSlice(
-  plan: PlanState | null,
+  plans: SessionPlans | null,
   event: NormalizedEvent,
   at: number
-): PlanState | null {
-  if (event.kind !== 'plan') return plan;
-  return {
-    id: SESSION_PLAN_ID,
-    entries: event.entries.map((entry, index) => ({
-      id: `${SESSION_PLAN_ID}:entry:${index}`,
-      ...entry,
-    })),
-    updatedAt: at,
-  };
+): SessionPlans | null {
+  if (event.kind === 'plan_remove') {
+    if (!plans || !(event.planId in plans)) return plans;
+    const next = { ...plans };
+    delete next[event.planId];
+    return Object.keys(next).length ? next : null;
+  }
+  if (event.kind !== 'plan') return plans;
+  const id = event.planId ?? SESSION_PLAN_ID;
+  return { ...plans, [id]: {
+    id, entries: event.entries.map((entry, index) => ({ id: `${id}:entry:${index}`, ...entry })),
+    ...(event.body !== undefined ? { body: event.body } : {}),
+    ...(event._meta !== undefined ? { _meta: event._meta } : {}), updatedAt: at,
+  } };
 }
 
 function assertTurnInvariants(turn: TranscriptTurn): void {
@@ -927,12 +900,16 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   }
 
   if (input.kind === 'turn_end') {
-    const transcript = closeActive(
+    let transcript = closeActive(
       s.transcript,
       input.at,
       input.outcome,
       s.replaying ? undefined : input.at
     );
+    if (input.foreground && transcript !== s.transcript) {
+      transcript = { ...transcript, committed: transcript.committed.map((turn, index) =>
+        index === transcript.committed.length - 1 ? { ...turn, foreground: input.foreground } : turn) };
+    }
     // 段计数**留给这一轮的尾巴**(`tail`):收口只封住当前开着的段,下一条尾巴拿新号。
     // 新一轮开起来时(用户消息 / 懒开)才从零数。
     const segment = closeSynthesizedSegment(s.transcript, s.segment, input.at).segment;
@@ -958,13 +935,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     return { ...folded, transcript };
   }
 
-  const decoded =
-    input.kind === 'event'
-      ? input.event
-      : deps.enrich
-        ? deps.enrich(decodeSessionUpdate(input.update), input.update)
-        : decodeSessionUpdate(input.update);
-  const event = canonicalizeSubagentIdentity(decoded, s.agents);
+  const event = canonicalizeSubagentIdentity(input.event, s.agents);
 
   if (event.kind === 'subagent_done' && event.subagentSessionId) {
     const previous = s.agents.find((agent) => agent.subagentSessionId === event.subagentSessionId);
@@ -972,6 +943,23 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   }
 
   if (event.kind === 'subagent_stream') return reduceSubagentStream(s, event, input.at, deps);
+
+  const owner = findEntityOwner(s.transcript, event);
+  if (owner && owner !== s.transcript.active) {
+    const items = foldItem(owner.items, event as FoldEvent, owner.id, input.at);
+    return { ...s, plan: updatePlanSlice(s.plan, event, input.at), transcript: { ...s.transcript, committed: s.transcript.committed.map(turn => turn === owner ? { ...owner, items } : turn) } };
+  }
+
+  if (event.kind === 'plan_remove') {
+    const remove = (turn: TranscriptTurn): TranscriptTurn => {
+      const items = turn.items.filter(item => item.kind !== 'create-plan-tool-call' || item.planId !== event.planId);
+      return items.length === turn.items.length ? turn : { ...turn, items };
+    };
+    return { ...s, plan: updatePlanSlice(s.plan, event, input.at), transcript: {
+      committed: s.transcript.committed.map(remove),
+      active: s.transcript.active ? remove(s.transcript.active) : null,
+    } };
+  }
 
   switch (event.kind) {
     case 'config': {
@@ -1040,8 +1028,17 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     case 'title':
       return { ...s, title: event.title };
     case 'agent_state':
+    case 'prompt_result':
+    case 'interrupted_for_message':
+    case 'terminal_update':
+    case 'terminal_chunk':
     case 'ignored':
       return s;
+    case 'terminal_snapshots': {
+      const committed = s.transcript.committed.map(turn => withReferencedTerminals(turn, event.terminals));
+      return committed.some((turn, index) => turn !== s.transcript.committed[index])
+        ? { ...s, transcript: { ...s.transcript, committed } } : s;
+    }
     case 'subagent_update': {
       // ⚠️ 只更新登记册,**从不回头去改转录里那一行**。
       //
@@ -1197,6 +1194,6 @@ function backgroundCommandDone(
     toolCallId: event.toolCallId,
     name: typeof title === 'string' ? title : '',
     outcome: event.status === 'failed' ? 'failed' : 'completed',
-    ...(event.outputText !== undefined ? { summary: event.outputText } : {}),
+    ...(event.outputText != null ? { summary: event.outputText } : {}),
   };
 }

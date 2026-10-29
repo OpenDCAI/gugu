@@ -20,12 +20,7 @@ export function recentActionName(node: ToolNode): string | null {
   if (node.kind === 'mcp-tool-call') return toolDisplayName(node) || 'MCP'
   if (node.kind === 'spawn-subagent-tool-call') return 'Subagent'
   if (node.kind === 'create-plan-tool-call') return 'Plan'
-  if (
-    node.kind === 'create-file-tool-call' ||
-    node.kind === 'modify-file-tool-call' ||
-    node.kind === 'delete-file-tool-call'
-  )
-    return 'Edit'
+  if (node.kind === 'patch-tool-call') return 'Edit'
   if (node.kind === 'unknown-tool-call') return node.name || null
   return null
 }

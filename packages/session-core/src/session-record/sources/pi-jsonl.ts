@@ -1,6 +1,7 @@
 import { isAbsolute, join } from 'node:path';
 
-import type { ContentBlock, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
+import type { RecordContentBlock as ContentBlock } from './shared';
 
 import type { RecordBoundary, RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import { findUnder, isFile } from './find-file';
@@ -8,8 +9,10 @@ import {
   SessionRecordNotFoundError,
   asRecord,
   boundaryEntry,
+  messageEvent,
   parseTimestamp,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -65,23 +68,21 @@ function decode(entry: TreeNode): RecordEntry[] {
 
   if (message.role === 'user') {
     blocksOf(message.content).forEach((block, index) => {
-      out.push({ key: key(index), ...stamp, update: { sessionUpdate: 'user_message_chunk', content: block, messageId: key(0) } });
+      out.push({ key: key(index), ...stamp, event: messageEvent('user', block, key(0)) });
     });
     return out;
   }
 
   if (message.role === 'toolResult') {
     const toolCallId = typeof message.toolCallId === 'string' ? message.toolCallId : entry.id;
-    const content = blocksOf(message.content).map((block) => ({ type: 'content' as const, content: block }));
+    const blocks = blocksOf(message.content);
     out.push({
       key: key(0),
       ...stamp,
-      update: {
-        sessionUpdate: 'tool_call_update',
-        toolCallId,
-        status: message.isError === true ? 'failed' : 'completed',
-        ...(content.length > 0 ? { content } : {})
-      }
+      event: toolCallResult(toolCallId, message.isError === true ? 'failed' : 'completed', {
+        text: blocks.filter((block) => block.type === 'text').map((block) => block.text).join('\n'),
+        images: blocks.filter((block) => block.type === 'image'),
+      })
     });
     return out;
   }
@@ -89,20 +90,20 @@ function decode(entry: TreeNode): RecordEntry[] {
   if (message.role !== 'assistant') return [];
   const blocks = Array.isArray(message.content) ? message.content : [];
   blocks.forEach((value, index) => {
-    const update = assistantBlock(asRecord(value), key(index));
-    if (update) out.push({ key: key(index), ...stamp, update });
+    const event = assistantBlock(asRecord(value), key(index));
+    if (event) out.push({ key: key(index), ...stamp, event });
   });
   const boundary = boundaryOf(message.stopReason, blocks.some((block) => asRecord(block)?.type === 'toolCall'));
   if (boundary) out.push(boundaryEntry(`pi:${entry.id}`, at, boundary));
   return out;
 }
 
-function assistantBlock(block: Record<string, unknown> | null, messageId: string): SessionUpdate | null {
+function assistantBlock(block: Record<string, unknown> | null, messageId: string): NormalizedEvent | null {
   if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
-    return { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: block.text }, messageId };
+    return { kind: 'message', role: 'assistant', messageId, text: block.text };
   }
   if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
-    return { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: block.thinking }, messageId };
+    return { kind: 'thinking', messageId, text: block.thinking };
   }
   if (block?.type === 'toolCall' && typeof block.id === 'string') {
     const name = typeof block.name === 'string' ? block.name : 'tool';

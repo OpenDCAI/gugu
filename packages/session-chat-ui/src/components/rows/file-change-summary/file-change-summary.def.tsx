@@ -36,11 +36,7 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
     const commands = useCommands()
     const single = () => isSingle(props.data)
     const files = () => single() || props.ctx.viewState.isCollapsed(props.data.id)
-    const totals = () =>
-      props.data.files.reduce(
-        (sum, file) => ({ adds: sum.adds + file.adds, dels: sum.dels + file.dels }),
-        { adds: 0, dels: 0 }
-      )
+    const totals = () => ({ adds: props.data.adds, dels: props.data.dels })
     const label = () =>
       props.data.files.length === 1
         ? t('transcript.editedFile', { name: basename(props.data.files[0].path) })
@@ -55,10 +51,10 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
             <div class={css.ellipsis} title={label()}>
               {label()}
             </div>
-            <div class={css.stats}>
+            <Show when={totals().adds !== null && totals().dels !== null}><div class={css.stats}>
               <span class={css.adds}>+{totals().adds}</span>
               <span class={css.dels}>−{totals().dels}</span>
-            </div>
+            </div></Show>
           </div>
           <Show when={!single() && !files()}>
             <button
@@ -91,10 +87,10 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
                   >
                     {file.path}
                   </button>
-                  <span class={css.stats}>
+                  <Show when={file.adds !== null && file.dels !== null}><span class={css.stats}>
                     <span class={css.adds}>+{file.adds}</span>
                     <span class={css.dels}>−{file.dels}</span>
-                  </span>
+                  </span></Show>
                 </div>
             )}
           </For>

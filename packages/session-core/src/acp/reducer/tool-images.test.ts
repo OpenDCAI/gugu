@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
  * 148 10-14(旁观的活画面,②):工具交回来的图留在转录里。
  *
@@ -17,8 +18,8 @@ const text = (value: string) => ({ type: 'content', content: { type: 'text', tex
 
 function itemAfter(updates: object[]): ToolCallItem {
   const parser = new AcpTranscriptParser({ sessionId: 's' });
-  parser.push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'check it' } } as never, 1);
-  updates.forEach((update, i) => parser.push(update as SessionUpdate, 2 + i));
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'check it' } } as never), 1);
+  updates.forEach((update, i) => parser.pushEvent(decodeSessionUpdate(update as SessionUpdate), 2 + i));
   const item = parser.activeTurn?.items.find((one) => 'toolCallId' in one && one.toolCallId === 'call-1');
   if (!item) throw new Error('no tool item');
   return item as ToolCallItem;
