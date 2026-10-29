@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 /**
  * Diff row stories — file diff preview in each scenario.
  */
@@ -39,9 +41,8 @@ export const StateMatrix: Story = {
       build={(status) => ({
         kind: 'diff',
         id: `diff-matrix-${status}`,
-        path: 'src/model.ts',
-        oldText: OLD_TS,
-        newText: NEW_TS,
+        patches: [textFilePatch('src/model.ts', OLD_TS, NEW_TS)],
+
         status,
       })}
     />
@@ -56,9 +57,8 @@ export const Default: Story = {
         {
           kind: 'diff',
           id: 'tc1:src/model.ts',
-          path: 'src/model.ts',
-          oldText: OLD_TS,
-          newText: NEW_TS,
+          patches: [textFilePatch('src/model.ts', OLD_TS, NEW_TS)],
+
           status: 'done',
         },
       ]}
@@ -75,12 +75,11 @@ export const NewFile: Story = {
         {
           kind: 'diff',
           id: 'tc2:src/components/diff/metrics.ts',
-          path: 'src/components/diff/metrics.ts',
-          oldText: null,
-          newText: `export const DIFF_HEADER_H = 28;
+          patches: [textFilePatch('src/components/diff/metrics.ts', null, `export const DIFF_HEADER_H = 28;
 export const DIFF_PAD_Y = 6;
 export const DIFF_MAX_LINES = 12;
-export const DIFF_CONTEXT = 1;`,
+export const DIFF_CONTEXT = 1;`)],
+
           status: 'done',
         },
       ]}
@@ -97,9 +96,8 @@ export const DeepFirstChange: Story = {
         {
           kind: 'diff',
           id: 'tc3:src/index.ts',
-          path: 'src/index.ts',
-          oldText: 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nold_value\nline9\nline10\n',
-          newText: 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nnew_value\nline9\nline10\n',
+          patches: [textFilePatch('src/index.ts', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nold_value\nline9\nline10\n', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nnew_value\nline9\nline10\n')],
+
           status: 'done',
         },
       ]}
@@ -116,17 +114,15 @@ export const MultiFile: Story = {
         {
           kind: 'diff',
           id: 'tc4:packages/chat-ui/src/model.ts',
-          path: 'packages/chat-ui/src/model.ts',
-          oldText: OLD_TS,
-          newText: NEW_TS,
+          patches: [textFilePatch('packages/chat-ui/src/model.ts', OLD_TS, NEW_TS)],
+
           status: 'done',
         },
         {
           kind: 'diff',
           id: 'tc4:packages/chat-ui/src/index.tsx',
-          path: 'packages/chat-ui/src/index.tsx',
-          oldText: `export type { ChatExecute } from './model';`,
-          newText: `export type { ChatDiff, ChatExecute } from './model';`,
+          patches: [textFilePatch('packages/chat-ui/src/index.tsx', `export type { ChatExecute } from './model';`, `export type { ChatDiff, ChatExecute } from './model';`)],
+
           status: 'done',
         },
       ]}
@@ -143,9 +139,8 @@ export const Running: Story = {
         {
           kind: 'diff',
           id: 'tc5:src/app.ts',
-          path: 'src/app.ts',
-          oldText: `const version = '1.0.0';`,
-          newText: `const version = '2.0.0';`,
+          patches: [textFilePatch('src/app.ts', `const version = '1.0.0';`, `const version = '2.0.0';`)],
+
           status: 'running',
         },
       ]}
@@ -165,9 +160,8 @@ export const RunningHeaderOnly: Story = {
         {
           kind: 'diff',
           id: 'tc6:src/components/diff/Diff.tsx',
-          path: 'src/components/diff/Diff.tsx',
-          oldText: null,
-          newText: '',
+          patches: [textFilePatch('src/components/diff/Diff.tsx', null, '')],
+
           status: 'running',
         },
       ]}
@@ -193,9 +187,8 @@ export const Error: Story = {
         {
           kind: 'diff',
           id: 'diff-err:src/model.ts',
-          path: 'src/model.ts',
-          oldText: OLD_TS,
-          newText: NEW_TS,
+          patches: [textFilePatch('src/model.ts', OLD_TS, NEW_TS)],
+
           status: 'error',
           error: 'Patch failed because the old text no longer matched',
         },
@@ -213,9 +206,8 @@ export const RequestingPermission: Story = {
         {
           kind: 'diff',
           id: 'diff-perm:src/model.ts',
-          path: 'src/model.ts',
-          oldText: OLD_TS,
-          newText: NEW_TS,
+          patches: [textFilePatch('src/model.ts', OLD_TS, NEW_TS)],
+
           status: 'running',
         },
       ]}
@@ -237,9 +229,8 @@ export const StreamingTransition: Story = {
         [seedStep([{ kind: 'message', id: 'u1', role: 'user', text: 'Add the diff constants' }])],
         streamDiff({
           id: 'tc7:src/components/diff/metrics.ts',
-          path: 'src/components/diff/metrics.ts',
-          oldText: STREAM_OLD,
-          newText: STREAM_NEW,
+          patches: [textFilePatch('src/components/diff/metrics.ts', STREAM_OLD, STREAM_NEW)],
+
           headerMs: 900,
           chunkMs: 220,
         })

@@ -9,6 +9,8 @@ import type {
 import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
+  permissionTitle,
+  permissionDescription,
   type AttachmentMimeType,
   type AttachmentRef,
   type HistoryCursor,
@@ -20,7 +22,6 @@ import {
   type PromptInput,
   type QueuedPrompt,
   type QueuedPromptEdit,
-  toolCallLabel,
 } from '@gugu/session-core/acp/client';
 import type {
   CommandItem,
@@ -110,8 +111,9 @@ type AcpFailureTitle = Extract<SessionMessageKey, `acpFailure.${string}`>;
 
 type PermissionQueueItem = {
   requestId: string;
-  toolCallId: string;
+  toolCallId: string | null;
   title: string;
+  description?: string;
   options: Array<{ optionId: string; name: string; kind: string }>;
   waitKind: PermissionWaitKind;
 };
@@ -491,8 +493,9 @@ export class AcpChatStore {
   get permissionQueue(): PermissionQueueItem[] {
     return (this.session?.sessionState.current().pendingPermissions ?? []).map((request) => ({
       requestId: request.requestId,
-      toolCallId: request.toolCall.toolCallId,
-      title: toolCallLabel(request.toolCall),
+      toolCallId: request.toolCall?.toolCallId ?? null,
+      title: permissionTitle(request),
+      description: permissionDescription(request),
       options: request.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,
@@ -894,14 +897,11 @@ export class AcpChatStore {
     this.session?.dispose();
     this.session = null;
     this.chatState.transcript.history.seed(turns);
-    for (const terminal of terminals) {
-      if (terminal.outputText !== undefined) {
-        this.chatState.session.setTerminalOutput(terminal.terminalId, terminal.outputText);
-      }
-      if (terminal.exitStatus !== undefined) {
-        this.chatState.session.setTerminalExitStatus(terminal.terminalId, terminal.exitStatus);
-      }
-    }
+    this.chatState.session.setTerminals(terminals.map(terminal => ({
+      terminalId: terminal.terminalId, owner: 'agent', canKill: false,
+      command: '', args: [], cwd: '', truncated: false,
+      output: terminal.outputText ?? '', exitStatus: terminal.exitStatus ?? null,
+    })));
     for (const id of collapsedIds) this.chatState.viewState.setCollapsed(id, true);
     this.historyLoading = false;
     this.loadError = null;
@@ -2224,12 +2224,7 @@ export class AcpChatStore {
   }
 
   private _bindTerminalOutputs(session: AcpLiveSession): () => void {
-    return bindSessionTerminalOutputs(
-      session,
-      (terminalId, text) => this.chatState.session.setTerminalOutput(terminalId, text),
-      (terminalId, exitStatus) =>
-        this.chatState.session.setTerminalExitStatus(terminalId, exitStatus)
-    );
+    return bindSessionTerminalOutputs(session, terminals => this.chatState.session.setTerminals(terminals));
   }
 
   /** 库里最新那一页(100 轮),读到就地上屏。读失败只记日志 —— 历史退回由重放供给(见开场处的注释)。 */

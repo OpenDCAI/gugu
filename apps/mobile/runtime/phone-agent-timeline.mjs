@@ -11,7 +11,7 @@ const terminal = new Set(['done', 'failed', 'cancelled', 'interrupted'])
 const permissionCodes = new Set(['revoked', 'not_granted', 'os_permission'])
 const hiddenNotice = '手机数据授权已改变，旧记录已隐藏。可以发送新的任务。'
 const timestamp = (value) => { const at = Date.parse(value); return Number.isFinite(at) ? at : undefined }
-const message = (key, at, text, role = 'user') => ({ key, ...(at === undefined ? {} : { at }), update: { sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', messageId: key, content: { type: 'text', text } } })
+const message = (key, at, text, role = 'user') => ({ key, ...(at === undefined ? {} : { at }), event: { kind: 'message', role, messageId: key, text } })
 
 /** Decode Pi's actual JSONL with the existing source/reducer. The host journal supplies only
  * admitted inputs and real failures before Pi could open a record, plus interrupted boundaries. */
@@ -55,15 +55,15 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
     if (job.status === 'queued') return []
     const began = timestamp(job.startedAt ?? job.createdAt)
     const ended = timestamp(job.finishedAt ?? job.startedAt ?? job.createdAt)
-    const recorded = piEntries.some((entry) => entry.update?.sessionUpdate === 'user_message_chunk' && entry.update.content?.type === 'text' && (entry.at ?? 0) >= (began ?? 0) && (entry.update.content.text === job.prompt || entry.update.content.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
+    const recorded = piEntries.some((entry) => entry.event?.kind === 'message' && entry.event.role === 'user' && (entry.at ?? 0) >= (began ?? 0) && (entry.event.text === job.prompt || entry.event.text.startsWith(`${job.prompt}\n\n手机宿主已根据真实主人确认`)))
     const entries = []
     // A queued/failed admission is a real user input, not an invented empty transcript.
     if (!recorded && job.status !== 'done') entries.push(message(`phone-input:${job.id}`, began, job.prompt))
     if (terminal.has(job.status) && job.status !== 'done') {
-      if (!recorded) entries.push(message(`phone-failure:${job.id}`, ended, job.error ?? '手机任务已取消', 'agent'))
+      if (!recorded) entries.push(message(`phone-failure:${job.id}`, ended, job.error ?? '手机任务已取消', 'assistant'))
       entries.push({ key: `phone-boundary:${job.id}`, at: ended, boundary: { kind: job.status === 'cancelled' ? 'turn_aborted' : 'turn_failed' } })
     }
-    entries.push(...(job.runtimeNotices ?? []).map((notice) => ({ key: notice.key, at: notice.at, update: { sessionUpdate: 'notice', title: notice.title, description: notice.description } })))
+    entries.push(...(job.runtimeNotices ?? []).map((notice) => ({ key: notice.key, at: notice.at, event: { kind: 'session_notice', code: 'provider-notice', title: notice.title, detail: notice.description ?? notice.title } })))
     return entries
   })
   const sourceFor = (agent, path) => {
@@ -151,7 +151,7 @@ export function createPhoneTimelineRuntime({ root, store, authorize, confirmatio
         locator: { harness: 'pi', providerSessionId: 'phone-permission-hidden', roots: [] },
         async start(events) {
           events.onEntries([
-            { key: 'phone-permission-hidden:notice', at, update: { sessionUpdate: 'notice', title: hiddenNotice } },
+            { key: 'phone-permission-hidden:notice', at, event: { kind: 'session_notice', code: 'provider-notice', title: hiddenNotice, detail: hiddenNotice } },
             { key: 'phone-permission-hidden:end', at, boundary: { kind: 'turn_end', stopReason: 'end_turn' } },
           ])
         },

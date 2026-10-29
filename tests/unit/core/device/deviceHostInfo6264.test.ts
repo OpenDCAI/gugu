@@ -216,6 +216,13 @@ describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版�
     expect(serverMachineNotices({ host_kind: 'desktop', remote_protocol: 1 }, own)).toEqual([{ kind: 'server-too-old' }])
   })
 
+  it('rejects peers that cannot exchange canonical file patch entities', () => {
+    const patched = { host_kind: 'server' as const, remote_protocol: REMOTE_PROTOCOL_VERSION, min_client_protocol: MIN_CLIENT_PROTOCOL }
+    expect(serverMachineNotices(patched, { protocol: 10, minServer: 9 })).toEqual([{ kind: 'desktop-too-old' }])
+    expect(serverMachineNotices({ host_kind: 'server', remote_protocol: 10, min_client_protocol: 9 })).toEqual([{ kind: 'server-too-old' }])
+    expect(serverMachineNotices(patched)).toEqual([])
+  })
+
   it('#6264 一套工作台:这一版 server 让协议 1 的旧桌面说「请更新这台电脑上的咕咕」,与现在的桌面互认', () => {
     const served = { host_kind: 'server' as const, remote_protocol: REMOTE_PROTOCOL_VERSION, min_client_protocol: MIN_CLIENT_PROTOCOL }
     // 旧桌面(0.2.155 及以前)的判据:自己协议 1、要 server 至少 1。

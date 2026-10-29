@@ -11,7 +11,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import type { Agent } from '@agentclientprotocol/sdk';
 import type { AcpClientFactory } from '@gugu/session-core/agents/plugins';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -211,14 +210,15 @@ describe('claude acp behavior', () => {
       const stdout = new Readable({ read: () => {} });
 
       const toClient: AcpClientFactory = () => ({
+        sessionEvent: vi.fn(),
         requestPermission: vi.fn(),
         sessionUpdate: vi.fn(),
       });
 
       const agentApi = acpBehavior().connect({ stdin, stdout }, toClient);
-      expect(typeof (agentApi as Agent).prompt).toBe('function');
-      expect(typeof (agentApi as Agent).newSession).toBe('function');
-      expect(typeof (agentApi as Agent).initialize).toBe('function');
+      expect(typeof agentApi.prompt).toBe('function');
+      expect(typeof agentApi.newSession).toBe('function');
+      expect(typeof agentApi.initialize).toBe('function');
     });
   });
 });

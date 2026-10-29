@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
@@ -6,9 +7,9 @@ import { createAcpProcedures } from '../api/procedures';
 
 const runtimes: AcpRuntime[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const rt of runtimes.splice(0)) await rt.dispose(); });
-async function setup(reportsState = false) {
+async function setup(nativeState = false) {
   const committed = vi.fn();
-  const h = makeAcpHarness({ reportsState, onTurnCommitted: committed });
+  const h = makeAcpHarness({ nativeState, onTurnCommitted: committed });
   const rt = new AcpRuntime(h.deps); runtimes.push(rt);
   expect((await rt.startSession(makeStartInput())).success).toBe(true);
   return { h, rt, api: createAcpProcedures(rt), committed };
@@ -34,9 +35,9 @@ it('does not cancel a runtime without admission signals during compaction and si
   vi.useFakeTimers();
   const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
   await vi.advanceTimersByTimeAsync(30_000);
-  await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+  await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
     sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'in_progress',
-  } as unknown as SessionUpdate });
+  } as unknown as SessionUpdate) });
   await vi.advanceTimersByTimeAsync(120_000);
   const cancelled = h.agent.cancel.mock.calls.length;
   finish.resolve({ stopReason: 'end_turn' });
@@ -45,22 +46,25 @@ it('does not cancel a runtime without admission signals during compaction and si
   expect(cancelled).toBe(0);
 });
 
-it('counts any provider update as progress while awaiting declared admission', async () => {
+it('a native receipt within the budget admits; compaction after it is never cancelled', async () => {
   const { h, api } = await setup(true);
-  const finish = Promise.withResolvers<{ stopReason: 'end_turn' }>();
-  h.agent.prompt.mockImplementationOnce(() => finish.promise);
+  const receipt = Promise.withResolvers<{ status: 'accepted'; requestId: string; messageId: string }>();
+  h.agent.prompt.mockImplementationOnce(() => receipt.promise);
   vi.useFakeTimers();
   const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
   await vi.advanceTimersByTimeAsync(30_000);
-  await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+  const dispatch = h.agent.prompt.mock.calls[0]![1] as { requestId: string };
+  await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'running' } });
+  await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'message', role: 'user', messageId: 'native', text: 'hi', contentMode: 'replace' } });
+  receipt.resolve({ status: 'accepted', requestId: dispatch.requestId, messageId: 'native' });
+  const accepted = await pending;
+  await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
     sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'in_progress',
-  } as unknown as SessionUpdate });
+  } as unknown as SessionUpdate) });
   await vi.advanceTimersByTimeAsync(120_000);
-  const cancelled = h.agent.cancel.mock.calls.length;
-  finish.resolve({ stopReason: 'end_turn' });
-  const receipt = await pending;
-  await api.waitPromptDetached({ requestId: receipt.requestId }).catch(() => {});
-  expect(cancelled).toBe(0);
+  expect(h.agent.cancel).not.toHaveBeenCalled();
+  await h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' } });
+  await api.waitPromptDetached({ requestId: accepted.requestId });
 });
 
 it('does not mistake a host notice for a provider admission update', async () => {
@@ -70,9 +74,9 @@ it('does not mistake a host notice for a provider admission update', async () =>
   const pending = api.promptDetached({ sessionId: 'conv-1', prompt: { text: 'hi', origin: 'communication' } });
   await vi.advanceTimersByTimeAsync(30_000);
   rt.announceSession({ sessionId: 'conv-1', notice: { code: 'agent-renamed', detail: 'Name changed' } });
+  const timedOut = expect(pending).rejects.toThrow('timed out');
   await vi.advanceTimersByTimeAsync(30_001);
-  const receipt = await pending;
-  await expect(api.waitPromptDetached({ requestId: receipt.requestId })).rejects.toThrow('timed out');
+  await timedOut;
   expect(h.agent.cancel).toHaveBeenCalledOnce();
 });
 

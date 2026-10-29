@@ -28,7 +28,8 @@
 import { clearCache as clearPretextInternalCaches } from '@chenglou/pretext';
 import { clearHtmlMeasure } from '@session-chat/components/rows/markdown/html/layout';
 import { clearMathMeasure } from '@session-chat/components/rows/markdown/math/layout';
-import { computeDiffRows } from '@session-chat/components/rows/tools/diff/diff-lines';
+import type { SessionPatch } from '@gugu/session-core/acp';
+import { parsePatchRows } from '@session-chat/components/rows/tools/diff/diff-lines';
 import type { DiffRow } from '@session-chat/components/rows/tools/diff/diff-lines';
 import { createMermaidRenderId, renderMermaidDiagram, type MermaidTheme } from '@session-chat/core/mermaid/render';
 import {
@@ -154,7 +155,7 @@ export type SharedCaches = {
    */
   peekHighlight(code: string, lang: string | undefined): HighlightResult | null;
   /** Compute a line-level diff with bounded LRU caching (100 entries). */
-  computeDiff(oldText: string | null, newText: string): DiffRow[];
+  computeDiff(patch: SessionPatch): DiffRow[];
   /**
    * Render a Mermaid diagram source to an SVG string in one theme.
    * Resolves null when mermaid rejects the source, or when `signal` aborted it first.
@@ -243,15 +244,11 @@ export function createSharedCaches(highlighter?: ChatHighlighter): SharedCaches 
   // Syntax highlight LRU — keyed by `${resolvedLang}\x00${code}`.
   const highlightCache = new Map<string, HighlightResult>();
 
-  // Diff LRU — keyed by `${oldText ?? '\x00null'}\x00${newText}`.
+  // Patch-row LRU — keyed by the complete canonical block, including scope and metadata.
   const diffCache = new Map<string, DiffRow[]>();
 
   // Mermaid SVG LRU — keyed by `${theme}\x00${source}`.
   const mermaidCache = new Map<string, string>();
-
-  function diffKey(oldText: string | null, newText: string): string {
-    return `${oldText ?? '\x00null'}\x00${newText}`;
-  }
 
   function highlight(code: string, lang: string | undefined): HighlightResult | null {
     const key = `${lang ?? ''}\x00${code}`;
@@ -287,11 +284,11 @@ export function createSharedCaches(highlighter?: ChatHighlighter): SharedCaches 
       return lruGet(highlightCache, `${lang ?? ''}\x00${code}`) ?? null;
     },
 
-    computeDiff(oldText, newText) {
-      const key = diffKey(oldText, newText);
+    computeDiff(patch) {
+      const key = JSON.stringify(patch);
       const cached = lruGet(diffCache, key);
       if (cached) return cached;
-      const result = computeDiffRows(oldText, newText);
+      const result = parsePatchRows(patch);
       lruSet(diffCache, key, result, DIFF_CACHE_MAX);
       return result;
     },

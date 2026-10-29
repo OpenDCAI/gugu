@@ -3,15 +3,16 @@ import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
 
-import type { SessionUpdate, ToolCallStatus } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent, NormalizedToolStatus } from '../../acp/reducer/normalized-event';
 
 import type { RecordBoundary, RecordEntry, SessionRecordLocator, SessionRecordSource } from '../contract';
 import {
   boundaryEntry,
   asRecord,
   parseJson,
-  toJsonValue,
   type SessionRecordSourceOptions,
+  toolCallStart,
+  toolCallResult,
   toolKindTable
 } from './shared';
 import { SqlitePollSource, openSessionDb } from './sqlite-db';
@@ -32,7 +33,7 @@ type PartState = {
   emittedText: string;
   /** 已经发出去的整份 data，原样比对；没变就不发第二遍。 */
   signature: string;
-  /** 这个 part 已经发过几条 update —— 进 key 的后缀，保证同一份内容重发时 key 不冲突。 */
+  /** 这个 part 已经发过几条 event —— 进 key 的后缀，保证同一份内容重发时 key 不冲突。 */
   emissions: number;
 };
 
@@ -246,17 +247,10 @@ class OpencodeSqliteSource extends SqlitePollSource<SessionRecordLocator> {
     this.parts.set(row.id, { emittedText: text, signature, emissions: emissions + 1 });
 
     const messageId = `opencode:${row.id}`;
-    const update: SessionUpdate =
-      type === 'reasoning'
-        ? { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: delta }, messageId }
-        : this.roleOf(row.message_id) === 'user'
-          ? { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: delta }, messageId }
-          : {
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'text', text: delta },
-              messageId
-            };
-    return { key, at: row.time_created, update };
+    const event: NormalizedEvent = type === 'reasoning'
+      ? { kind: 'thinking', messageId, text: delta }
+      : { kind: 'message', role: this.roleOf(row.message_id) === 'user' ? 'user' : 'assistant', messageId, text: delta };
+    return { key, at: row.time_created, event };
   }
 
   private decodeTool(
@@ -274,37 +268,26 @@ class OpencodeSqliteSource extends SqlitePollSource<SessionRecordLocator> {
     const result = hasAttachments ? { output, attachments: state.attachments, metadata: state.metadata } : output;
     // Replace an earlier text projection when a later observation includes attachments.
     const displayed = hasAttachments ? JSON.stringify(result, null, 2) : output;
-    const details = {
-      ...(state?.input !== undefined ? { rawInput: toJsonValue(state.input) } : {}),
-      ...(result !== undefined && (hasAttachments || typeof result !== 'string')
-        ? { rawOutput: toJsonValue(result) } : {}),
-      ...(typeof displayed === 'string'
-        ? { content: [{ type: 'content' as const, content: { type: 'text' as const, text: displayed } }] }
-        : {}),
-    };
+
 
     const emissions = prior?.emissions ?? 0;
     const key = emissions === 0 ? `opencode:${row.id}` : `opencode:${row.id}#${emissions}`;
     this.parts.set(row.id, { emittedText: '', signature, emissions: emissions + 1 });
 
     // Pending starts with empty input; later observations must carry the completed arguments.
-    const update: SessionUpdate =
-      emissions === 0
-        ? {
-            sessionUpdate: 'tool_call',
-            toolCallId: callId,
-            title: tool,
-            kind: opencodeToolKind(tool),
-            status,
-            ...details
-          }
-        : {
-            sessionUpdate: 'tool_call_update',
-            toolCallId: callId,
-            status,
-            ...details
-          };
-    return { key, at: row.time_created, update };
+    const resultEvent = toolCallResult(callId, status, {
+      rawInput: state?.input,
+      ...(result !== undefined && (hasAttachments || typeof result !== 'string') ? { rawOutput: result } : {}),
+      ...(typeof displayed === 'string' ? { text: displayed } : {}),
+    });
+    const event: NormalizedEvent = emissions === 0
+      ? {
+          ...toolCallStart(callId, tool, opencodeToolKind(tool), state?.input), status,
+          ...(resultEvent.rawOutput != null ? { rawOutput: resultEvent.rawOutput } : {}),
+          ...(resultEvent.outputText != null ? { outputText: resultEvent.outputText } : {}),
+        }
+      : resultEvent;
+    return { key, at: row.time_created, event };
   }
 }
 
@@ -381,7 +364,7 @@ function channelDbPaths(channelDbs: SessionRecordLocator['channelDbs']): string[
   });
 }
 
-function mapToolStatus(status: unknown): ToolCallStatus {
+function mapToolStatus(status: unknown): NormalizedToolStatus {
   switch (status) {
     case 'completed':
       return 'completed';

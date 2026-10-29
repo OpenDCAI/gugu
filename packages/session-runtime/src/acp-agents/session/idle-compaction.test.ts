@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { noopLogger } from '@gugu/session-shared/logger';
-import { FakeAcpAgent } from '../acp-test-support';
-import { SessionCell } from './cell';
+import { FakeAcpAgent, requestActivityCell } from '../acp-test-support';
 
 function fixture() {
   const agent = new FakeAcpAgent();
-  const cell = new SessionCell({ sessionId: 'assistant', projectId: 'project', providerId: 'claude',
-    acpSessionId: 'native', agent, resolveAttachment: vi.fn(), logger: noopLogger });
+  const cell = requestActivityCell(agent, { sessionId: 'assistant', projectId: 'project', providerId: 'claude',
+    acpSessionId: 'native', resolveAttachment: vi.fn(), logger: noopLogger });
   cell.applySessionReady();
   cell.push({ kind: 'commands', commands: [{ name: 'compact', description: 'Compact context' }] });
   return { cell, agent };
@@ -25,12 +24,10 @@ describe('native idle compaction admission', () => {
 
   it('does not overlap a prompt waiting for the native running notification', async () => {
     const { cell, agent } = fixture();
-    cell.setReportsState(true);
     let finish!: (value: { stopReason: 'end_turn' }) => void;
     agent.prompt.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const active = cell.prompt({ text: 'real message', origin: 'communication' });
     await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledOnce());
-    expect(cell.sessionState.isGenerating).toBe(false);
     await expect(cell.compactIfIdle()).resolves.toEqual({ success: true, data: { compacted: false } });
     finish({ stopReason: 'end_turn' });
     await active;
@@ -38,7 +35,6 @@ describe('native idle compaction admission', () => {
 
   it('queues a new delivery behind compaction and drains it when the command finishes without an idle event', async () => {
     const { cell, agent } = fixture();
-    cell.setReportsState(true);
     let finish!: (value: { stopReason: 'end_turn' }) => void;
     agent.prompt.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const compacting = cell.compactIfIdle();

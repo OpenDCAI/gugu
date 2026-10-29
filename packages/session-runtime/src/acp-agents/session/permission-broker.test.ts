@@ -24,7 +24,7 @@ describe('permissionWaitKind (#6448)', () => {
     expect(permissionWaitKind(request('AskUserQuestion', ['allow_once', 'reject_once']))).toBe('question');
   });
 
-  // 10-12:Claude ACP 适配器的标题是显示名(「Approve Plan」),工具名在 toolName(EnrichHook 从 `_meta` 提上来);
+  // 10-12:Claude ACP 适配器的标题是显示名(「Approve Plan」),工具名在 toolName(transport decoder 从 `_meta` 提上来);
   // 会话记录里标题就是工具名。两种形状各一格,认名字只经 toolCallName 一处。
   it('reads the tool name when the title is a display label (Claude ACP shape), else the title (record shape)', () => {
     const acp = (title: string, toolName: string, kinds: readonly string[]) => {

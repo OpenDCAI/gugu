@@ -293,6 +293,7 @@ export function AgentThread({
         // 最后一轮还没结算 = 在跑(等审批 / 提问也算):它的过程头在数秒、默认摊开,不挂附件卡(同桌面的活动层)。
         liveTurnId: unsettledLastTurnId(timeline.turns),
         settlements: timeline.settlements,
+        terminals: timeline.terminals,
       }),
       // 那台机器上还排着的(与桌面「Queued prompts」同一份),接着是手机刚发、那台机器还没报出来的。
       ...[
@@ -300,7 +301,7 @@ export function AgentThread({
         ...pendingSends,
       ].map((send) => userMessage(send.id, send.text)),
     ],
-    [timeline.turns, timeline.settlements, timeline.queuedPrompts, pendingSends, t],
+    [timeline.turns, timeline.settlements, timeline.terminals, timeline.queuedPrompts, pendingSends, t],
   )
   /*
    * 整条线由我们交成一份线性仓库(父 = 上一条),❌ 交 `messages`:那个模式下库自己攒一份**只加不删**的仓库,

@@ -2,7 +2,6 @@ import {
   defineContract,
   downloadFile,
   fallible,
-  liveLog,
   liveModel,
   liveState,
   procedure,
@@ -17,7 +16,7 @@ import {
   sessionConfigStateSchema,
   sessionUsageSchema,
 } from '../models/config';
-import { planStateSchema } from '../models/plan';
+import { sessionPlansSchema } from '../models/plan';
 import { promptDraftSchema, promptInputSchema } from '../models/prompt';
 import { sessionStateSchema, sessionSummarySchema } from '../models/session';
 import { transcriptTurnSchema } from '../models/turns';
@@ -71,7 +70,6 @@ import { historyPageInputSchema, historyPageSchema, resumeResultSchema, toolImag
 
 const startSessionResultSchema = z.object({ providerSessionId: z.string() });
 const sessionKeySchema = z.object({ sessionId: z.string() });
-const terminalOutputKeySchema = z.object({ terminalId: z.string() });
 
 export const acpApiContract = defineContract({
   startSession: fallible({
@@ -206,14 +204,13 @@ export const acpApiContract = defineContract({
       state: liveState({ data: sessionStateSchema }),
       config: liveState({ data: sessionConfigStateSchema }),
       usage: liveState({ data: sessionUsageSchema.nullable() }),
-      plan: liveState({ data: planStateSchema.nullable() }),
+      plan: liveState({ data: sessionPlansSchema.nullable() }),
       agents: liveState({ data: z.array(agentStateSchema) }),
       activeTurn: liveState({ data: transcriptTurnSchema.nullable() }),
       draft: liveState({ data: promptDraftSchema.nullable() }),
       terminals: liveState({ data: z.array(terminalStateSchema) }),
     },
   }),
-  terminalOutput: liveLog({ key: terminalOutputKeySchema }),
 });
 
 export type AcpApiContract = typeof acpApiContract;

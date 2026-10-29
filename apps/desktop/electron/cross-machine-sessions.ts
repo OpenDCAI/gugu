@@ -28,6 +28,8 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
+import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
 import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
@@ -189,7 +191,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     )
     let response: DeviceRpcResponse<unknown>
     try {
-      response = await deps.requester.call(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs, signal })
+      response = await deps.requester.call(deviceId, SESSION_HOST_RPC.call, { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs, signal })
     } catch (error) {
       if (signal?.aborted) throw error
       if (error instanceof DeviceRpcTimeoutError) {
@@ -215,7 +217,9 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     if (response.error?.code === 'unknown_method' || response.error?.message.startsWith('No handler registered for ')) throw outdated()
     // 对端的工具错误原样带回(那台机器上同一个工具会说的那句话),前面点名是哪台机器。
     if (response.error) throw new CrossMachineError(response.error.code || 'SESSION_REMOTE_ERROR', `on ${describe(device)}: ${response.error.message}`)
-    return (response.result as { value?: unknown } | undefined)?.value
+    const result = response.result as { value?: unknown; protocol?: number } | undefined
+    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
+    return protocol14FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
   }
 
   /**
