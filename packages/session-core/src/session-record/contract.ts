@@ -81,8 +81,11 @@ export function protocol13FileChanges<T>(value: T, peerProtocol: number, directi
 function fileToolFrom13(node: Record<string, unknown>): Record<string, unknown> | null {
   const { kind, path, content, oldText, newText, ...rest } = node;
   if (typeof path !== 'string') return null;
-  const block = kind === 'create-file-tool-call' && typeof content === 'string' ? textFilePatch(path, null, content)
-    : kind === 'modify-file-tool-call' && typeof oldText === 'string' && typeof newText === 'string' ? textFilePatch(path, oldText, newText)
+  // 13 trims one trailing newline from both texts as a display convention (withoutTrailingNewline); restore it on both
+  // sides, or the unchanged last line reads as removed and re-added (+1 −1 against 13↔13).
+  const lines = (text: string) => text && !text.endsWith('\n') ? `${text}\n` : text;
+  const block = kind === 'create-file-tool-call' && typeof content === 'string' ? textFilePatch(path, null, lines(content))
+    : kind === 'modify-file-tool-call' && typeof oldText === 'string' && typeof newText === 'string' ? textFilePatch(path, lines(oldText), lines(newText))
     // 13 的删除不带内容:只说删了哪个路径,❌ 编一份被删的全文。
     : kind === 'delete-file-tool-call' ? { type: 'diff', changes: [{ operation: 'delete', path }], scope: 'unknown' }
     : null;

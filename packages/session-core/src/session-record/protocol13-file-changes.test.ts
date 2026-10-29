@@ -2,6 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import { textFilePatch } from '../lib/text-diff';
 import { claudeFilePatch } from '../acp/transport/claude-file-patch';
+import type { SessionPatch } from '../acp/session-protocol';
+// The counter the 14 file card draws its +/- with.
+import { patchStats } from '../../../session-chat-ui/src/components/rows/tools/diff/diff-lines';
 import { FILE_PATCH_PROTOCOL, protocol13FileChanges } from './contract';
 
 const base = { id: 't:tool:1', seq: 2, toolCallId: 'edit-1', title: 'Edit src/a.ts', status: 'done', locations: [{ path: '/w/src/a.ts' }] };
@@ -20,6 +23,16 @@ describe('protocol 13 file changes on the wire', () => {
       { ...base, toolCallId: 'del-1', kind: 'patch-tool-call',
         contentBlocks: [{ type: 'diff', changes: [{ operation: 'delete', path: '/w/c.ts' }], scope: 'unknown' }] },
     ]);
+  });
+
+  it('from a 13 host: counts match 13↔13 for 13\'s newline-trimmed texts (rig817 Codex rollout 04-20-28 / 04-26-49)', () => {
+    // 13's unifiedDiffTexts of Codex's real `@@ -2,4 +2,5 @@ beta -gamma +GAMMA-817 delta epsilon +zeta`: one trailing newline trimmed.
+    const item = { ...base, kind: 'modify-file-tool-call', path: '/w/ab817.txt',
+      oldText: 'beta\ngamma\ndelta\nepsilon', newText: 'beta\nGAMMA-817\ndelta\nepsilon\nzeta' };
+    const [block] = (protocol13FileChanges(item, 13, 'from-peer') as unknown as { contentBlocks: SessionPatch[] }).contentBlocks;
+    expect(patchStats(block!)).toEqual({ adds: 2, dels: 1 });
+    const created = protocol13FileChanges({ ...item, kind: 'create-file-tool-call', content: 'alpha\nbeta' }, 13, 'from-peer');
+    expect(patchStats((created as unknown as { contentBlocks: SessionPatch[] }).contentBlocks[0]!)).toEqual({ adds: 2, dels: 0 });
   });
 
   it('to a 13 peer: each changed file becomes 13\'s own file entity, its texts read from the hunks as 13 read them', () => {
