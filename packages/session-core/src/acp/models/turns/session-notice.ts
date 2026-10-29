@@ -79,8 +79,8 @@ export const transcriptSessionNoticeSchema = z.object({
   previousValue: z.string().optional(),
   /** 供应商那句标题(只有 `provider-notice` 带)。 */
   title: z.string().optional(),
-  /** Epoch ms when it happened. */
-  at: z.number(),
+  /** Authentic epoch ms when it happened; absent for an unstamped replay. */
+  at: z.number().optional(),
 });
 export type TranscriptSessionNotice = z.infer<typeof transcriptSessionNoticeSchema>;
 
