@@ -26,6 +26,7 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
 
 import { IN_FILTER_CHUNK } from '../../../../packages/core/src/shared/inChunks'
 import { loadSessionpageCanonicalAgentIdentities } from '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-identity'
+import { resolveLocalSessionPeers } from '../../../../apps/desktop/electron/sessionpage/emdash-agent-registry'
 
 const auth = { accessToken: 'token', userId: 'owner-1' }
 const agent = (n: number) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, gugu_number: null, display_name: `Claude ${n}` })
@@ -61,5 +62,21 @@ describe('session-page canonical identity lookup', () => {
   it('asks nothing for an empty list', async () => {
     expect(await loadSessionpageCanonicalAgentIdentities(auth, [])).toEqual([])
     expect(state.queries).toEqual([])
+  })
+
+  it('carries the existing archive fact through canonical lookup and native peers without removing the identity', async () => {
+    const archivedAt = '2026-10-29T00:00:00Z'
+    const archived = { ...agent(1), session_archived_at: archivedAt }
+    state.rows = [archived, agent(2)]
+    const identities = await loadSessionpageCanonicalAgentIdentities(auth, state.rows.map((row) => row.id))
+    const selected = state.queries[0].find(([method]) => method === 'select')?.[1][0] as string
+    expect(selected.split(',')).toContain('session_archived_at')
+    const bindings = identities.map((identity) => ({ guguAgentUserId: identity.id, sessionId: `task-${identity.id}` }))
+    const facts = bindings.map(({ sessionId }) => ({ sessionId, title: 'Existing task', projectName: 'Project',
+      status: null, isPinned: false, lastInteractedAt: null }))
+    const peers = resolveLocalSessionPeers(bindings, identities, facts)
+    expect(peers).toHaveLength(2)
+    expect(peers[0].identity.users).toMatchObject({ id: archived.id, session_archived_at: archivedAt })
+    expect(peers[1].identity.users).not.toHaveProperty('session_archived_at')
   })
 })
