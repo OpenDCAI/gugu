@@ -3,7 +3,7 @@ import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { unit } from '@session-chat/core/units';
 import type { ItemSegmenter, SegmentCtx, SegmentItem } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
-import type { AgentSendItem, ChatItem, TranscriptTurn } from '@session-chat/model';
+import type { AgentSendItem, ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { agentSendLabel } from './agent-send';
 import { flattenTier } from './flatten';
 import { toolRunCategory } from './tool-run';
@@ -99,6 +99,19 @@ describe('agent-send: a send that went through is drawn once, not again as the r
     it(`${view}, ${state}: once, as ${as}`, () => {
       const units = flattenTier([turn([input(), delivered], done)], ctx({ agentConversation, ...extra } as Partial<SegmentCtx>), passthrough);
       expect(drawn(units)).toEqual([as]);
+    });
+
+    it(`${view}, ${state}: a background turn names the send's own destination without a delivery`, () => {
+      const record = { ...turn([delivered], done), initiator: 'agent' as const };
+      const units = flattenTier([record], ctx({ agentConversation, ...extra } as Partial<SegmentCtx>), passthrough);
+      expect(drawn(units)).toEqual([as]);
+      const output = units.find(u => u.kind === as && (as === 'agent-send'
+        ? (u.data as AgentSendItem).send.text : (u.data as ChatMessage).text) === 'HELLO-ONCE')!.data as AgentSendItem | ChatMessage;
+      const destination = output.kind === 'agent-send' ? output.send.to : (output as ChatMessage).sentTo;
+      expect(destination).toBeDefined();
+      expect(agentSendLabel(destination!, defaultChatTranslator, id => id === '216012' ? 'Design review' : null)).toBe('Sent to Design review');
+      expect(agentSendLabel(destination!, defaultChatTranslator, () => null)).toBe('Sent · destination name unavailable');
+      expect(output).not.toHaveProperty('conversationReply');
     });
   }
 });
