@@ -68,7 +68,7 @@ const folder = (workspaceId: string, kind: ProjectFolder['kind'], path: string, 
   sessionIds,
   attachedAt: kind === 'root' ? null : new Date().toISOString(),
 });
-const shown = (...folders: ProjectFolder[]) => folders.map((f) => ({ ...f, offline: false }));
+const shown = (...folders: ProjectFolder[]) => folders.map((f) => ({ ...f, offline: false, deviceId: null }));
 const ROOT = folder('ws-root', 'root', '/www/gugu', ['s1']);
 const WT = folder('ws-wt', 'attached', '/www/gugu-wt', ['s2']);
 const OTHER = folder('ws-other', 'attached', '/www/gugu-supabase');
@@ -79,7 +79,7 @@ function stateOf(partial: Partial<ProjectFoldersState>): ProjectFoldersState {
     folders: shown(ROOT, WT, OTHER, EXTRA),
     loadError: false,
     unanswered: [],
-    chosen: { ...ROOT, offline: false },
+    chosen: { ...ROOT, offline: false, deviceId: null },
     fresh: undefined,
     choose: vi.fn(),
     reload: vi.fn(),
@@ -127,7 +127,8 @@ describe('ProjectFolderCard', () => {
       onAddMachine?: () => void;
       onDropFolder?: (file: File) => void;
       memberIds?: string[];
-      machineOf?: (projectId: string) => { label: string; online: boolean; kind: 'server' | 'computer' };
+      machines?: (string | null)[];
+      machineOf?: (deviceId: string | null) => { label: string; online: boolean; kind: 'server' | 'computer' };
     } = {}
   ) {
     await act(async () => {
@@ -140,6 +141,7 @@ describe('ProjectFolderCard', () => {
             projectName: 'gugu',
             folders: state,
             memberIds: extra.memberIds,
+            machines: extra.machines ?? [null],
             machineOf: extra.machineOf ?? (() => ({ label: 'd22', online: true, kind: 'server' as const })),
             // 只有一台能挂:「+」直接去挑文件夹(多台时先弹机器菜单)。
             attachMachines: [{ id: null, label: '这台电脑', online: true, kind: 'computer' as const }],
@@ -158,7 +160,7 @@ describe('ProjectFolderCard', () => {
   const toggle = () => container.querySelector<HTMLElement>('[data-testid="project-folder-card-toggle"]');
 
   it('peeks the three most relevant folders: just attached, then the chosen one, then the root', async () => {
-    await renderCard(stateOf({ chosen: { ...WT, offline: false }, fresh: OTHER.workspaceId }));
+    await renderCard(stateOf({ chosen: { ...WT, offline: false, deviceId: null }, fresh: OTHER.workspaceId }));
     // 收起时只露三页,按相关程度:刚挂上的、选中的、根目录;第四页藏在叠底。
     expect(visible().map((p) => p.getAttribute('title'))).toEqual(['/www/gugu-supabase', '/www/gugu-wt', '/www/gugu']);
     expect(papers()).toHaveLength(4);
@@ -203,7 +205,7 @@ describe('ProjectFolderCard', () => {
 
   it('says how many sessions started in a folder even when none is running, and drops the stale fresh mark', async () => {
     const stale = { ...OTHER, attachedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() };
-    await renderCard(stateOf({ folders: [...shown(ROOT, WT), { ...stale, offline: false }], fresh: stale.workspaceId }));
+    await renderCard(stateOf({ folders: [...shown(ROOT, WT), { ...stale, offline: false, deviceId: null }], fresh: stale.workspaceId }));
     // WT 里开过一个会话、此刻歇着:写「1 个会话」,❌「还没有会话」。
     expect(papers().find((p) => p.getAttribute('title') === '/www/gugu-wt')?.textContent).toContain('1 个会话');
     expect(papers().find((p) => p.getAttribute('title') === '/www/gugu-supabase')?.textContent).toContain('还没有会话');
@@ -212,10 +214,12 @@ describe('ProjectFolderCard', () => {
   });
 
   it('marks each folder with its own machine, offline ones greyed, and lists every machine on the card', async () => {
-    const remote = { ...folder('ws-d15', 'attached', '/srv/gugu', [], 'proj-on-d15'), offline: true };
+    // 每页纸读它自己记着的那台(folder.deviceId),❌ 拿 projectId 反查。
+    const remote = { ...folder('ws-d15', 'attached', '/srv/gugu', [], 'proj-on-d15'), offline: true, deviceId: 'd15' };
     await renderCard(stateOf({ folders: [...shown(ROOT), remote] }), {
       memberIds: ['p1', 'proj-on-d15'],
-      machineOf: (id) => (id === 'proj-on-d15' ? { label: 'd15', online: true, kind: 'server' } : { label: '这台电脑', online: true, kind: 'computer' }),
+      machines: [null, 'd15'],
+      machineOf: (deviceId) => (deviceId === 'd15' ? { label: 'd15', online: true, kind: 'server' } : { label: '这台电脑', online: true, kind: 'computer' }),
     });
     const d15Paper = papers().find((p) => p.getAttribute('title') === '/srv/gugu');
     expect(d15Paper?.textContent).toContain('d15');
@@ -473,6 +477,16 @@ describe('useProjectFolders', () => {
       ['ws-d15-wt', true],
     ]);
     expect(latest?.loadError).toBe(false);
+    // PR4:每个文件夹盖上读它时那一台(这台电脑 = null),之后的机器标签、设备范围、在哪开工都读它。
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.deviceId])).toEqual([
+      ['ws-root', null],
+      ['ws-d15', 'd15'],
+      ['ws-d15-wt', 'd15'],
+    ]);
+    // 同一个本地项目 id 之后被别的设备行登记了(同一台机器重新登记):读到的这一份不跟着改指。
+    machineRegistry.register('d15-new', ['proj-on-d15']);
+    expect(latest?.folders?.find((f) => f.workspaceId === 'ws-d15')?.deviceId).toBe('d15');
+    machineRegistry.forgetMachine('d15-new');
   });
 
   it('a machine that stops answering shows what the account records, not the last read', async () => {

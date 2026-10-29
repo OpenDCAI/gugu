@@ -77,7 +77,7 @@ export function AddGroupMembers({ chatId, snapshot, canInviteHumans, humanDenied
         peopleDenied={canInviteHumans ? undefined : humanDeniedHint ?? t('group.picker.humanPermissionHint')}
         agentNote={agentNote}
         footer={error || notice ? (
-          <p role={error ? 'alert' : 'status'} className={error ? '!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--danger)]' : '!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--text-secondary)]'}>{error ?? notice}</p>
+          <p role={error ? 'alert' : 'status'} className={error ? '!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--danger-fg)]' : '!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--text-secondary)]'}>{error ?? notice}</p>
         ) : null}
         onConfirm={add}
         onClose={onClose}

@@ -1,5 +1,5 @@
 import semver from 'semver';
-import { resolveCommandPath, withProbeSwitches } from '../../host-dependencies/runtime';
+import { resolveCommandPath, versionLineOf, withProbeSwitches } from '../../host-dependencies/runtime';
 import type { IExecutionContext } from '../../exec';
 // ⚠️ 直接从无 `node:` 导入的那个模块取,❌ 走 `../../exec` 的 barrel:本文件在 web 构建里(#6390)。
 import {
@@ -182,13 +182,19 @@ export function assertSessionSurfaceDeclared(input: {
   });
 }
 
-function parseRuntimeVersion(output: string): string | null {
+function parseRuntimeVersion(output: string, versionLine?: RegExp): string | null {
   // 尾边界除了行尾/空白,还容**终端性标点**(句号/逗号/分号/右括号,其后必须是行尾或空白):
   // copilot 1.0.82 的 `--version` 逐字打出 "GitHub Copilot CLI 1.0.82."(句号收尾),
   // 2026-09-01 真机实撞 —— 只认 `$|\s` 会把现役版本判成 unparseable,让 floor 闸恒红。
   // 标点后必须终端,是为了不把 "1.0.82.3" 这类四段版本误配成前三段。
   const versionPattern = /(?:^|\s)v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?=$|\s|[.,;)](?:$|\s))/gm;
   const versionsIn = (text: string) => [...text.matchAll(versionPattern)].map((match) => match[1]);
+  // 这一家自己那一行(`versionLineOf`:包装器的 banner 里也会有版本号);认不出就照旧读法。
+  const own = versionLineOf(output, versionLine);
+  if (own !== null) {
+    const inOwn = versionsIn(own);
+    if (inOwn.length === 1) return inOwn[0];
+  }
   const matches = versionsIn(output);
   if (matches.length === 1) return matches[0];
   // 整段里不止一个版本号(hermes 0.21.0 的 `--version` 还列 Python 3.11.16、OpenAI SDK 2.24.0):
@@ -272,6 +278,8 @@ export async function resolveSessionRuntimeCompatible(input: {
   surface: HarnessSessionSurface;
   descriptor: SessionBundleDescriptor;
   executable: string;
+  /** 这一家 `--version` 里它自己的那一行(`HostDependencyDescriptor.versionLine`);只用于探它本身,❌ 用于探 node。 */
+  versionLine?: RegExp;
   executionContext: IExecutionContext;
   /**
    * 这一家跑起来时的那份环境(#5702)。会话启动前的这次 `--version` 探的就是将要跑的那份二进制,
@@ -464,7 +472,7 @@ export async function resolveSessionRuntimeCompatible(input: {
     pathEnv: probeEnvPath(input),
   };
 
-  const installedVersion = parseRuntimeVersion(output);
+  const installedVersion = parseRuntimeVersion(output, requirement.runtime === 'node' ? undefined : input.versionLine);
   if (!installedVersion) {
     throw new SessionRuntimeCompatibilityError({
       code: 'runtime-version-unparseable', providerId: input.providerId, surface: input.surface,
@@ -513,6 +521,7 @@ export async function assertSessionRuntimeCompatible(input: {
   surface: HarnessSessionSurface;
   descriptor: SessionBundleDescriptor;
   executable: string;
+  versionLine?: RegExp;
   executionContext: IExecutionContext;
   env?: Record<string, string>;
   runtimeExecutable?: string;

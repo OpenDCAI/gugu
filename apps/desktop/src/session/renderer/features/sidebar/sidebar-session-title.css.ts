@@ -20,7 +20,7 @@ export const viewport = style({
   display: 'block', minWidth: 0, flex: 1, overflow: 'hidden', whiteSpace: 'nowrap',
   selectors: {
     '&[data-overflow]': {
-      maskImage: 'linear-gradient(to right, #000 calc(100% - 1em), transparent)',
+      maskImage: 'linear-gradient(to right, black calc(100% - 1em), transparent)',
       maskRepeat: 'no-repeat',
     },
   },

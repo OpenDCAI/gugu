@@ -438,6 +438,9 @@ class RecordTimeline implements SessionTimeline {
         ...(request.detail !== undefined ? { detail: request.detail } : {}),
         ...(request.options.length > 0 ? { options: request.options } : {}),
         ...(request.origin ? { origin: request.origin } : {}),
+        ...(request.origin?.source === 'app-install' || request.origin?.source === 'agent-question'
+          ? { host: { kind: request.origin.source, payload: request.origin.payload } }
+          : {}),
         ...(request.origin?.source === 'agent-question' && request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
         state: 'pending',
         optionId: null,

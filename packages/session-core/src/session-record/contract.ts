@@ -1,4 +1,5 @@
 import type { TerminalState } from '../acp/models/terminals';
+import { textFilePatch } from '../lib/text-diff';
 import type { PermissionSubject } from '../acp/models/permissions';
 /**
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
@@ -30,6 +31,71 @@ export type { SessionLiveReply } from './live-reply';
 export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install', 'browser-assistance'] as const;
 export type AskSource = (typeof ASK_SOURCES)[number];
 export type AskOrigin = { source: AskSource; payload?: unknown };
+
+/**
+ * 协议 12 的宿主把 `origin` 叫 `host`(`{kind, payload}`,97ca6e73 改名):新的一端收进来时照新名读 ——
+ * 两边差一档时由新的一侧降级(serverMachineHealth.ts「向下兼容一档」),❌ 让装 App / agent 提问画成光秃秃的权限卡。
+ */
+export function settlementFromWire<T extends { origin?: AskOrigin }>(settlement: T): T {
+  const legacy = (settlement as { host?: { kind?: unknown; payload?: unknown } }).host;
+  if (settlement.origin || !legacy || !(ASK_SOURCES as readonly unknown[]).includes(legacy.kind)) return settlement;
+  return { ...settlement, origin: { source: legacy.kind as AskSource, payload: legacy.payload } };
+}
+
+/**
+ * ⚠️ 协议下次升级时删掉(同 settlementFromWire,「向下兼容一档、新的一侧降级」;删它就删这一个 helper 和它的调用点)。
+ *
+ * 协议 14 把改文件的三种实体(13 的 create/modify/delete-file-tool-call)换成一个规范 patch 实体。差一档的两端在线上互通:
+ *  · `from-peer`:13 的宿主发来的旧实体换成 patch(13 本来就带整份前后文本,`textFilePatch` 换算是精确的);
+ *  · `to-peer`:发给 13 的端时,patch 实体降成 13 认识的通用工具行 —— 标题、路径照旧,输出是原始 patch 文本。
+ *    13 的界面因此看不到彩色 diff;❌ 编造 13 要的整份文件。
+ * 对端是 14 及以上 = 原样返回同一个引用(14↔14 不经过这里)。渲染层只认 14 的 patch 实体。
+ */
+export const FILE_PATCH_PROTOCOL = 14;
+export function protocol13FileChanges<T>(value: T, peerProtocol: number, direction: 'from-peer' | 'to-peer'): T {
+  if (peerProtocol >= FILE_PATCH_PROTOCOL) return value;
+  const convert = direction === 'from-peer' ? fileToolFrom13 : patchToolTo13;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) {
+      const next = node.map(walk);
+      return next.some((item, i) => item !== node[i]) ? next : node;
+    }
+    if (!node || typeof node !== 'object') return node;
+    const record = node as Record<string, unknown>;
+    let changed = false;
+    const entries = Object.entries(record).map(([key, child]) => {
+      const next = walk(child);
+      if (next !== child) changed = true;
+      return [key, next] as const;
+    });
+    const walked = changed ? Object.fromEntries(entries) : record;
+    return convert(walked) ?? walked;
+  };
+  return walk(value) as T;
+}
+
+function fileToolFrom13(node: Record<string, unknown>): Record<string, unknown> | null {
+  const { kind, path, content, oldText, newText, ...rest } = node;
+  if (typeof path !== 'string') return null;
+  const block = kind === 'create-file-tool-call' && typeof content === 'string' ? textFilePatch(path, null, content)
+    : kind === 'modify-file-tool-call' && typeof oldText === 'string' && typeof newText === 'string' ? textFilePatch(path, oldText, newText)
+    // 13 的删除不带内容:只说删了哪个路径,❌ 编一份被删的全文。
+    : kind === 'delete-file-tool-call' ? { type: 'diff', changes: [{ operation: 'delete', path }], scope: 'unknown' }
+    : null;
+  return block ? { ...rest, kind: 'patch-tool-call', contentBlocks: [block] } : null;
+}
+
+function patchToolTo13(node: Record<string, unknown>): Record<string, unknown> | null {
+  if (node.kind !== 'patch-tool-call') return null;
+  const { contentBlocks, ...rest } = node;
+  const diffs = (Array.isArray(contentBlocks) ? contentBlocks : [])
+    .filter((block): block is { changes?: { operation?: string; path?: string }[]; patch?: { text?: string } } => block?.type === 'diff');
+  const text = diffs.map(diff => diff.patch?.text
+    ?? (diff.changes ?? []).map(change => `${change.operation ?? 'change'} ${change.path ?? ''}`).join('\n')).join('\n');
+  const title = typeof rest.title === 'string' && rest.title ? rest.title : 'Edit';
+  return { ...rest, kind: 'unknown-tool-call', name: title, toolKind: typeof rest.toolKind === 'string' ? rest.toolKind : 'edit',
+    ...(text ? { outputText: text } : {}) };
+}
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';
 
@@ -238,6 +304,11 @@ export type Settlement = {
   resultRecorded?: boolean;
   /** D-31 宿主替 agent 问的那一种(装 App):端上画它自己的卡,答案经 `respond` 交回宿主。 */
   origin?: AskOrigin;
+  /**
+   * 协议 12 的端读的旧名(`origin` 之前叫 `host: {kind, payload}`,只给宿主替 agent 问的那两种):新宿主照旧带上,
+   * 老桌面 / 老手机连上来时装 App、agent 提问照旧画成自己的卡(向下兼容一档,新的一侧负责降级)。新端只读 `origin`。
+   */
+  host?: { kind: 'app-install' | 'agent-question'; payload?: unknown };
   state: SettlementState;
   optionId: string | null;
   resolvedBy: string | null;
@@ -594,7 +665,8 @@ export type SessionpageSessionReloadModelRequest = {
   modelSource: 'platform' | 'own';
 };
 
-export type SessionpageProjectSummary = { id: string; name: string; path: string };
+/** `kind: 'workspace'`(#609):咕咕自己要用的目录(任务工作区、替人登记的 ~),不是项目 —— 它的会话列在「任务」里。 */
+export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
   conversationId: string;

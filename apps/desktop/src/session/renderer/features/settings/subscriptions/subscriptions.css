@@ -25,7 +25,7 @@ article.subscription-service {
 .subscription-meter i { display: block; height: 100%; background: var(--muted-fg); border-radius: inherit; }
 .subscription-quota[data-warning] strong { color: var(--warn); }
 .subscription-quota[data-warning] .subscription-meter i { background: var(--warn); }
-.subscription-error { color: var(--danger); font-size: var(--font-body); line-height: 1.6; overflow-wrap: anywhere; }
+.subscription-error { color: var(--danger-fg); font-size: var(--font-body); line-height: 1.6; overflow-wrap: anywhere; }
 .subscription-connection-list { display: flex; flex-direction: column; gap: 0; }
 .subscription-connection-menu { width: 340px; max-width: calc(100vw - 32px); }
 .subscription-connection-option { display: flex; align-items: stretch; }

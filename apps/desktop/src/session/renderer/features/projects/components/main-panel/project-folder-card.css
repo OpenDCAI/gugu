@@ -7,7 +7,6 @@
   --fc-edge: color-mix(in oklab, var(--fg) 14%, transparent);
   --fc-hi: color-mix(in oklab, var(--bg) 90%, transparent);
   --fc-cover-alpha: 1;
-  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 12%, transparent), 0 4px 12px -2px rgb(30 40 60 / 0.1);
   /* 时长、缓动一律取动效 token(scripts/ui-state-debt-check.mjs 的 css-magic-transition):换视觉母版时跟着走。 */
   --fc-ease: var(--ease-spring);
   --rx: 0deg;
@@ -21,7 +20,6 @@
 }
 :root[data-theme='dark'] .gg-folder-card {
   --fc-cover-alpha: 0.62;
-  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 16%, transparent), 0 6px 18px -4px rgb(0 0 0 / 0.5);
 }
 .gg-folder-card__toggle {
   height: auto;
@@ -59,11 +57,8 @@
   inset: auto 10% -12px;
   height: 26px;
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(30 40 60 / 0.2), transparent);
+  background: radial-gradient(closest-side, var(--fc-floor-shadow), transparent);
   transition: transform var(--dur-slow) var(--fc-ease);
-}
-:root[data-theme='dark'] .gg-folder-card__shadow {
-  background: radial-gradient(closest-side, rgb(0 0 0 / 0.55), transparent);
 }
 .gg-folder-card:hover .gg-folder-card__shadow {
   transform: translateY(3px) scaleX(1.03);
@@ -267,10 +262,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(90% 70% at calc(50% + var(--px) * 70%) calc(var(--py) * 50%), rgb(255 255 255 / 0.2), transparent 60%);
-}
-:root[data-theme='dark'] .gg-folder-card__front::after {
-  background: radial-gradient(90% 70% at calc(50% + var(--px) * 70%) calc(var(--py) * 50%), rgb(255 255 255 / 0.06), transparent 60%);
+  background: radial-gradient(90% 70% at calc(50% + var(--px) * 70%) calc(var(--py) * 50%), var(--fc-front-glow), transparent 60%);
 }
 .gg-folder-card__body {
   position: absolute;

@@ -6,7 +6,8 @@ import type { MachineHomeLayout } from '@renderer/features/remote-hosts/machine-
  * 每台机器的本地项目 id 各不相同(渲染层按 id 认机器),所以「合成一行」是读取时的归属,与 machine-home.ts
  * 把那台机器的任务工作区并进主目录那一行是同一种折叠:被并进的项目不单列,它的会话显示在代表那一行下。
  */
-export type GroupLayoutProject = { id: string; machine: string | null; representative?: boolean };
+/** `machine` null = 这台电脑;`online` = 那台机器此刻连着(这台电脑恒在);`createdAt` = 那个本地项目建的时间(ISO)。 */
+export type GroupLayoutProject = { id: string; machine: string | null; online?: boolean; createdAt?: string | null };
 
 export type ProjectGroupLayout = {
   /** 代表行 → 并进它的同群项目(不含它自己)。 */
@@ -19,12 +20,19 @@ export type ProjectGroupLayout = {
 
 export const EMPTY_PROJECT_GROUP_LAYOUT: ProjectGroupLayout = { folded: new Map(), rowOf: new Map(), members: new Map() };
 
-/** 代表行:这台电脑上的那一个优先(点开就是本机的项目页),再按 id 定序,保证每次算出来同一行。 */
-function representativeFirst(a: GroupLayoutProject, b: GroupLayoutProject): number {
+/**
+ * 同群的几个本地项目并成一行时,由谁画这一行(桌面侧栏、手机「伙伴」与派任务那张卡同一条,每次算出来同一行):
+ * 这台电脑上的 → 此刻连着的那台上的(❌ 指向一台离线的旧机器,如同一台机器重新登记后残留的设备行)→ 最早建的 → id。
+ * 从前另有一个「代表」标记(机器自己记的),它不看在不在线,已去掉。
+ */
+export function groupRowOrder(a: GroupLayoutProject, b: GroupLayoutProject): number {
   const local = Number(a.machine !== null) - Number(b.machine !== null);
   if (local !== 0) return local;
-  const preferred = Number(b.representative === true) - Number(a.representative === true);
-  return preferred !== 0 ? preferred : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  const online = Number(b.machine === null || b.online === true) - Number(a.machine === null || a.online === true);
+  if (online !== 0) return online;
+  const created = (a.createdAt || '\uffff').localeCompare(b.createdAt || '\uffff');
+  if (created !== 0) return created;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 export function projectGroupLayout(
@@ -44,7 +52,7 @@ export function projectGroupLayout(
   const members = new Map<string, string[]>();
   for (const list of byChat.values()) {
     if (list.length < 2) continue;
-    const [row, ...rest] = [...list].sort(representativeFirst);
+    const [row, ...rest] = [...list].sort(groupRowOrder);
     folded.set(row.id, rest.map((project) => project.id));
     members.set(row.id, [row.id, ...rest.map((project) => project.id)]);
     for (const project of rest) rowOf.set(project.id, row.id);

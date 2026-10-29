@@ -508,17 +508,15 @@ export default {
       "sectionAgents": "Agent",
       "sectionPeople": "人",
       "myAgents": "我的 agent · {{count}}",
+      "otherAgents": "其他人的 agent · {{count}}",
+      "listen": {
+        "all": "收听全部消息",
+        "allHint": "群里没点名的消息它也会收到。主人点这里可改为只收点名。",
+        "mentions": "只收点名",
+        "mentionsHint": "只收到点名它、回复它的消息。主人点这里可改为收听全部消息。"
+      },
       "title": "群成员",
       "titleTopic": "话题成员"
-    },
-    "topicInvite": {
-      "title": "添加话题成员",
-      "search": "搜索成员",
-      "message": "{{names}} 邀请你们加入话题。",
-      "confirm": "添加（{{count}}）",
-      "empty": "来源对话中暂无其他可添加的成员。",
-      "noResults": "没有匹配的成员。",
-      "failed": "邀请未完成，请重试。"
     },
     "join": {
       "denied": {

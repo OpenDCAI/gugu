@@ -172,7 +172,7 @@ export function McpSessionPanelAdapter({
   // 覆盖掉面板自带的 paper 表面(圆角/边框/底色/阴影)(design.md:一层浮层只许有一层抬升 ——
   // PopoverContent 已经是那层表面,这里不该再叠一层卡)。
   const panelClassName =
-    "rounded-none border-0 bg-transparent shadow-none dark:bg-transparent pr-12 pt-0 pb-1 [&>div:first-child]:hidden [&>div>button>svg:first-child]:hidden [&>div>button>span:nth-of-type(2)]:hidden [&>div>button>span[aria-hidden]]:hidden [&>div>button>span.sr-only]:hidden [&_.bg-red-500]:border [&_.bg-red-500]:border-foreground/30 [&_.bg-red-500]:bg-transparent";
+    "rounded-none border-0 bg-transparent shadow-none dark:bg-transparent pr-12 pt-0 pb-1 [&>div:first-child]:hidden [&>div>button>svg:first-child]:hidden [&>div>button>span:nth-of-type(2)]:hidden [&>div>button>span[aria-hidden]]:hidden [&>div>button>span.sr-only]:hidden [&_[data-mcp-dot=failed]]:border [&_[data-mcp-dot=failed]]:border-foreground/30 [&_[data-mcp-dot=failed]]:bg-transparent";
 
   const rowNote = (server: McpSessionPanelAdapterServer) => {
     if (server.extension) return translate('mcpSession.fromExtension', { name: server.extension.name });

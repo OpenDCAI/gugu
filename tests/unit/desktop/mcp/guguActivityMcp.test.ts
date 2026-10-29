@@ -1,3 +1,4 @@
+import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth';
 import { describe, expect, it, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -61,7 +62,7 @@ describe('activity tools at the real MCP boundary', () => {
       expect(value.gaps).toContainEqual(expect.objectContaining({ device_id: 'device:offline', reason: 'offline', statement: '未采集，不能断定在不在工作' }));
       expect(request).toHaveBeenCalledOnce();
       expect(request).toHaveBeenCalledWith('mac', 'taskhost.call', { channel: 'agentSession.activity_list',
-        args: [caller, expect.objectContaining({ action: 'activity_list', since, until })] }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        args: [caller, expect.objectContaining({ action: 'activity_list', since, until })], protocol: REMOTE_PROTOCOL_VERSION }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     } finally { await client.close(); await server.close(); }
   });
   it('always passes the calling agent to cloud metadata RPC and binds pagination to that actor', async () => {

@@ -193,7 +193,7 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
       if (!groupProjectIdFor(projectId, env())) continue
       const entry = mapped.get(projectId)
       const chatId = entry?.chatId || findGroupIdForProject(roster, projectId, auth.userId)
-      if (chatId) bindings.push({ projectId, chatId, representative: entry?.representative ?? false })
+      if (chatId) bindings.push({ projectId, chatId })
     }
     return ok(bindings)
   }

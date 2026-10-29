@@ -269,8 +269,9 @@ export async function handleUnifiedSessionMessage(
   }
   // 身份写法换来的会话,结果照旧按 Agent ID 回报。
   for (const entry of recipients) {
-    const userId = named.get(decodeTypedId('session', entry.to, 'to'))
-    if (userId) { entry.session_id = entry.to; entry.to = encodeTypedId('user', userId) }
+    const sessionId = decodeTypedId('session', entry.to, 'to')
+    const userId = named.get(sessionId)
+    if (userId) { entry.session_id = sessionId; entry.to = encodeTypedId('user', userId) }
   }
   return { route: 'session-direct', recipients }
 }

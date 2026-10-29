@@ -27,6 +27,13 @@ describe('bridge pairing (#6394)', () => {
     expect(parseCliVersion('command not found')).toBeNull();
   });
 
+  it('a wrapper (wcc) prints a banner with a version of its own first: the version is read off claude\'s own line', () => {
+    const wrapped = 'wcc: independent env -> /tmp/wcc-env\n启动中：网络通过座位转发 1.2.74\n2.1.212 (Claude Code)\n';
+    expect(parseCliVersion(wrapped, /\(Claude Code\)\s*$/)).toBe('2.1.212');
+    // [control] without its line declared, the first version as before.
+    expect(parseCliVersion(wrapped)).toBe('1.2.74');
+  });
+
   it('compares versions numerically, not as strings', () => {
     expect(compareVersions('2.1.282', '2.1.99')).toBeGreaterThan(0);
     expect(compareVersions('2.10.0', '2.9.9')).toBeGreaterThan(0);

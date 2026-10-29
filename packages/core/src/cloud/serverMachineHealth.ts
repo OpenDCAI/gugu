@@ -61,12 +61,25 @@ export const REMOTE_PROTOCOL_VERSION = 14
  * would keep rereading full pages from a new host. Reject both version mismatches through the existing
  * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
  * 14(Canonical file patches):sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
- * Older peers only understand create/modify/delete entities; both compatibility floors advance instead of translating them.
+ * Protocol-13 peers only understand create/modify/delete entities; within the one-notch window the newer side converts them
+ * on the wire (protocol13FileChanges), and a 13 view shows a generic tool row with the raw patch text.
  */
-/** 13: Ask settlements use origin instead of host; 14: canonical file patches. All clients and hosts update together. */
-export const MIN_CLIENT_PROTOCOL = 14
-/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 14
+/**
+ * 13: Ask settlements use origin instead of host. 14: canonical file patches.
+ *
+ * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
+ * 14 ↔ 13 的改文件实体由 session-record/contract.ts 的 protocol13FileChanges 在线上换算(宿主按开窗时对端报的协议、
+ * 客户端按宿主答的协议);开窗时按那台机器的协议报 hello(`helloProtocol`):老宿主见到更高的号会当成版本信号、
+ * 要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
+ */
+export const MIN_CLIENT_PROTOCOL = 13
+/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
+export const MIN_SERVER_PROTOCOL = 13
+
+/** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
+export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
+  return typeof serverProtocol === 'number' && serverProtocol < own && serverProtocol >= minServer ? serverProtocol : own
+}
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时

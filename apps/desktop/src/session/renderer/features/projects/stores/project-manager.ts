@@ -49,10 +49,15 @@ export class ProjectManagerStore {
   constructor() {
     makeObservable(this, { projects: observable, pendingCreationIds: observable });
 
+    // 这条订阅只收这台电脑自己的(别的机器上建的项目由 remote-hosts-store 订那台的):是本机项目,认领不走。
     this._disposeProjectCreatedEvent = events.on(projectCreatedChannel, ({ project }) => {
       let added = false;
+      machineRegistry.claimLocal([project.id]);
       runInAction(() => {
-        if (this.projects.has(project.id)) return;
+        const known = this.projects.get(project.id);
+        // #609 已有的 workspace 被人亲手加成了项目:同一个 id,只换 kind。
+        if (known?.data && known.data.kind !== project.kind) known.data = { ...known.data, kind: project.kind };
+        if (known) return;
         this.projects.set(project.id, createUnmountedProject(project, 'idle'));
         added = true;
       });
@@ -147,8 +152,14 @@ export class ProjectManagerStore {
     const rawProjects = await rpc.projects.getProjects();
     const toMount: string[] = [];
     runInAction(() => {
+      // #581 本机的清单说了算:别的机器先登记过的同一个 id(它的账号副本 / 应答里写着这台电脑的项目)换成本机这一份,
+      // 从此认不走(claimLocal);❌ 见它已在表里就跳过 —— 那样本机项目只剩一份指向那台机器的副本。
+      const claimed = rawProjects.filter((p) => machineRegistry.machineOf(p.id) !== null).map((p) => p.id);
+      machineRegistry.claimLocal(rawProjects.map((p) => p.id));
       for (const p of rawProjects) {
-        if (this.projects.has(p.id)) continue;
+        const existing = this.projects.get(p.id);
+        if (existing && !claimed.includes(p.id)) continue;
+        existing?.mountedProject?.dispose();
         this.projects.set(p.id, createUnmountedProject(p, 'idle'));
         toMount.push(p.id);
       }
@@ -180,10 +191,17 @@ export class ProjectManagerStore {
     // #6264 在别的机器上建:先把这个 id 记到那台机器名下,之后的挂载、任务调用才走得对。
     const machine = projectType.machine ?? null;
     if (machine) machineRegistry.register(machine, [projectId]);
+    else machineRegistry.claimLocal([projectId]);
     const targetPath = data.mode === 'pick' ? data.path : `${data.path}/${data.name}`;
     const inspection = await rpcOn(machine).projects.inspectProjectPath({ type: 'local', path: targetPath });
     if (inspection.existingProject) {
       if (machine) machineRegistry.register(machine, [inspection.existingProject.id]);
+      else machineRegistry.claimLocal([inspection.existingProject.id]);
+      // #609 这个目录是替人登记的 workspace(~):人亲手加 ⇒ 交给那台机器把它记成项目(同一个 id)。
+      if (inspection.existingProject.kind === 'workspace' && !(data.mode === 'pick' && data.automatic)) {
+        const claimed = await rpcOn(machine).projects.createProject({ type: 'local', path: targetPath, name: data.name, allowNonGit: true });
+        if (!claimed.success) throw new Error(claimed.error.type);
+      }
       if (inspection.existingProject.rootFolderDetached) {
         const attached = await rpcOn(machine).projects.attachProjectFolder(inspection.existingProject.id, targetPath);
         if (!attached.success) throw new Error(attached.error.message);
@@ -233,6 +251,7 @@ export class ProjectManagerStore {
             createDirectory: data.createDirectory,
             initGitRepository: data.initGitRepository,
             allowNonGit: data.allowNonGit,
+            automatic: data.automatic,
           });
           if (!projectResult.success) {
             result = err(projectResult.error);

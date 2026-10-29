@@ -337,7 +337,7 @@ function IntegrationCliLogin({
               <img
                 src={prompt.image}
                 alt={translate('integrations.cliQrAlt', { name: metadata.name })}
-                className="size-44 rounded-lg border border-border bg-white p-1"
+                className="size-44 rounded-lg border border-border bg-[var(--qr-paper)] p-1"
               />
               <p className="text-sm text-foreground-muted">{translate('integrations.cliQrHint', { name: metadata.name })}</p>
               {copyLink}

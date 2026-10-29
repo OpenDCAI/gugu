@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
 import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
@@ -200,6 +201,7 @@ import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unif
 import {createDesktopAssistantWorkHistory} from './assistant-work-history'
 import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
 import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isSubscribeFailure, subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol'
 import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
 import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
 import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
@@ -278,7 +280,7 @@ import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identit
 import { createSessionpageProjectGroupHost, ensureProjectNoticeAccess } from './sessionpage/sessionpage-project-group-binding'
 import { prepareProjectAgentNotice } from './sessionpage/project-agent-notice'
 import { onProjectGroupMappingChanged } from './sessionpage/sessionpage-project-groups'
-import { readSessionpageOpenTarget, type SessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
+import { readSessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
 import {
   clearLocalSessionDeliveryFailuresForTest,
   clearLocalSessionInjectionAuditForTest,
@@ -1703,6 +1705,7 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       if(response.error) throw response.error
     },
     warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
+    retryIn: ms => assistantWorkOutbox?.kickAfter(ms),
 
   })
   const host = createAssistantWorkOutboxHost({
@@ -1730,6 +1733,10 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
         return data?.id === post.messageId
       },
     }),
+    active: async () => {
+      const current = await context()
+      return !current || !!(await resolveAssistant(current))
+    },
     afterDrain: async () => {
       void history.kick()
       await reconciler.kick()
@@ -1757,14 +1764,19 @@ function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
       const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
       return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
     },
-    subscribe: async (ownerId, changed) => {
+    subscribe: async (ownerId, changed, live) => {
       const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
         .on('broadcast', { event: 'assistant_work_changed' }, changed)
       const off = await subscribeAuthenticatedElectronRealtimeChannel({
         realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
       }, createChannel(), {
         label: `assistant-work:${ownerId}`, createChannel,
-        onStatus: status => { if (String(status).endsWith('SUBSCRIBED')) changed() },
+        onStatus: status => {
+          if (subscribeStatusName(status).endsWith('SUBSCRIBED')) { live(true); changed() }
+          else if (isSubscribeFailure(status)) live(false)
+        },
+        // Like the command wake: a dropped channel reconnects by itself; until then every heartbeat claims.
+        reconnectOnStatus: status => isSubscribeFailure(status),
       })
       return () => { void off() }
     },
@@ -2024,7 +2036,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
-    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().kick() },
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -2039,7 +2051,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles() }, onSubscribed: () => drainProjectFiles(),
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
+      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2290,6 +2303,7 @@ const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider()
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
+function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
@@ -2301,7 +2315,6 @@ app.on('will-quit', () => { void nativeFiles.drop().catch(error => createLogger(
 
 // @@@payment-window (#1907) - 支付在专用 BrowserWindow 原生 POST 落地,主窗不再被支付页顶掉。
 // @@@local-runtime-open - Opening a terminal window is strictly local, so it bypasses cloud device commands.
-ipcMain.handle('agent-runtime:open', (_event, agentUserId: unknown) => openAgentRuntime(agentUserId))
 // The renderer's harness selectors consume this exact main-process reachability decision.
 ipcMain.handle('agent-creation-tools:list', () => listAgentCreationTools())
 function requiredIpcString(value: unknown, field: string): string {
@@ -2508,6 +2521,10 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
 // 广播只挂在 INSERT 上 ⇒ 没有任何事件会叫醒宿主;由发起方在这里说一声。
 ipcMain.on('device-runtime:commands-changed', () => {
   deviceRuntimeHost?.notifyCommandsChanged()
+})
+// 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
+ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
+  deviceRuntimeHost?.notifyScheduledTasksChanged()
 })
 // #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
@@ -3049,10 +3066,6 @@ function startAutoUpdateChecks(): void {
   setInterval(() => { void checkForUpdates() }, AUTO_UPDATE_INTERVAL_MS)
 }
 
-async function openAgentRuntime(agentUserId: unknown): Promise<unknown> {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
-}
-
 /**
  * @@@5301 等系统给出真的结论,而不是「我调用了 show() 就算弹了」。
  *
@@ -3154,6 +3167,8 @@ const reportShutdownPhase = (event: ShutdownPhaseEvent): void => {
   shutdownLogger.info(event, `[shutdown] phase=${event.phase} state=${event.state} elapsedMs=${event.elapsedMs}${error}`)
 }
 
+// 正常退出:留一句,下次开机收残据此说「重启打断了这一轮」,❌ 说成没正常退出。
+app.on('before-quit', () => noteExitReason(app.getPath('userData'), 'restart'))
 app.on('before-quit', createRuntimeBeforeQuitHandler({
   getHost: () => deviceRuntimeHost,
   setQuitting: (value) => {
@@ -3238,6 +3253,8 @@ const killEnginesOnCrash = (label: string): void => {
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
 const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
+  noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
     killEnginesOnCrash(label)
     process.exit(code)
@@ -3871,23 +3888,6 @@ async function ensureSessionpageSessionReady(
     ?? { status: 'ready' }
 }
 
-async function focusSessionpageAgentSession(agentUserId: string): Promise<SessionpageOpenTarget> {
-  const target = await readSessionpageOpenTarget(agentUserId)
-  if (!target) throw new Error('这个 Agent 在本机没有可打开的任务会话映射')
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('任务页运行时不可用')
-  const ready = await ensureSessionpageSessionReady(target.sessionId, 'sessionpage-open')
-  if (ready.status === 'failed') {
-    createLogger('sessionpage/platform').error({ sessionId: target.sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
-  }
-  if (!(await emdash.emdashSessionExists(target))) {
-    throw new Error('映射的任务或 Session 已不存在')
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
-  return target
-}
-
 /**
  * #5276 设备命令 `agent.set_model` 的宿主实现：校验（与目录、协议、引擎一致）→ 落本地 agent cache
  * （下次 spawn 用）→ 该 agent 此刻有活会话就当场应用（热切 / 重开续上）。三步顺序固定：校验不过
@@ -4010,10 +4010,6 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
-ipcMain.handle('sessionpage:open-agent-session', async (_event, agentUserId: unknown) => {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
-})
-
 ipcMain.handle('sessionpage:open-agent-file', async (
   _event,
   agentUserId: unknown,
@@ -4027,8 +4023,7 @@ ipcMain.handle('sessionpage:open-agent-file', async (
   if (!(await emdash.emdashSessionExists(target))) {
     throw new Error('映射的任务或 Session 已不存在')
   }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
+  // 会话已经由打开会话的那一条路(gugu-links.openLink)打开了,这里只开它工作区里的文件。
   await emdash.emdashOpenSessionFile(target, path)
   return target
 })
@@ -4179,9 +4174,9 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
         return invokeRendererExtensions(EXTENSION_MEMBER_FACES_METHOD, { people }, mainWindow.webContents.id) as Promise<Record<string, string>>
       },
-      listedSession: (sessionId) => {
+      listedSession: (sessionId, hint) => {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
-        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId }, mainWindow.webContents.id) as Promise<string | null>
+        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId, ...hint }, mainWindow.webContents.id) as Promise<string | null>
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
@@ -4863,11 +4858,22 @@ app.whenReady().then(async () => {
       devices: () => crossMachine().devices(),
       isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
       appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
-      sessions: (since) => crossMachine().sessionsElsewhere(since),
+      sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
       archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
+    })
+    // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。
+    emdash.setSessionOpening({
+      agentSession: async (agentId, deviceId) => {
+        const here = await readSessionpageOpenTarget(agentId)
+        return here ? { sessionId: here.sessionId } : crossMachine().sessionOfAgent(agentId, deviceId)
+      },
+      ensureReady: async (sessionId) => {
+        const ready = await ensureSessionpageSessionReady(sessionId, 'sessionpage-open')
+        if (ready.status === 'failed') createLogger('sessionpage/platform').error({ sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
+      },
     })
     // 触发②(agent 停下):running→false 的转变事件踢一次读者(触发④开机扫在 boot 那里)。
     agentStatusFeed.subscribe((agentUserId, entry, previous, version) => {

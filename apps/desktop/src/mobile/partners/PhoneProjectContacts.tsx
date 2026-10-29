@@ -11,7 +11,7 @@ import { SectionLabel } from '@/components/ui/SectionLabel'
 import { isMyAssistant } from '@/lib/myAssistant'
 import { useAuth } from '@/store/auth'
 import { useContactsStore } from '@/store/contactsContext'
-import { APP_SHOW_SESSION_EVENT, type AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
+import { followLink } from '@/lib/guguLinks'
 import { agentName, matchesQuery, projectAgents, projectAgentTarget, type PartnerProject, type ProjectAgent } from './partnersModel'
 import { ProjectFolderAvatar } from './ProjectFolderAvatar'
 
@@ -60,8 +60,7 @@ export function PhoneProjectContacts({
       onOpenGroup()
       return
     }
-    const detail: AppShowSessionDetail = { deviceId: target.deviceId, session: target.session }
-    window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail }))
+    followLink({ kind: 'session', sessionId: target.session.conversationId, deviceId: target.deviceId })
   }
   const shownAgents = agents.filter((agent) => matchesQuery(agentName(agent), query) || matchesQuery(agent.work ?? '', query))
 

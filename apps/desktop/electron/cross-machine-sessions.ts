@@ -27,6 +27,8 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
+import { FILE_PATCH_PROTOCOL, protocol13FileChanges } from '@gugu/session-core/session-record/contract'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
 import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
@@ -46,6 +48,8 @@ type Action = { action: string } & Record<string, unknown>
 /** 等对端多久:message 可能要先唤醒一条停着的会话;spawn / list_models 可能要探一次模型目录。 */
 /** What an App's page asks of another machine: its answer is the page's to read, with no agent tool to check by. */
 const APP_ACTIONS = new Set(['app_call'])
+/** 同一台机器的会话列表多久内复用(一次操作里几处都要它:App 刷新、按 Agent ID 投递、改父子)。 */
+const SESSIONS_LIST_REUSE_MS = 5_000
 
 export function remoteActionTimeoutMs(action: { action: string; force?: unknown }): number {
   switch (action.action) {
@@ -178,7 +182,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   /** 所有跨机器的请求只走这一处(那台机器路由表上的一问一答):出错时说清是哪台、为什么。`what` 是要那台机器做的事。 */
-  const request = async (device: Device, channel: string, args: unknown[], timeoutMs: number, what: string, signal?: AbortSignal): Promise<unknown> => {
+  const ask = async (device: Device, channel: string, args: unknown[], timeoutMs: number, what: string, signal?: AbortSignal): Promise<unknown> => {
     const deviceId = device.device_id
     const outdated = () => new CrossMachineError(
       'SESSION_DEVICE_OUTDATED',
@@ -186,7 +190,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     )
     let response: DeviceRpcResponse<unknown>
     try {
-      response = await deps.requester.call(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs, signal })
+      response = await deps.requester.call(deviceId, SESSION_HOST_RPC.call, { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs, signal })
     } catch (error) {
       if (signal?.aborted) throw error
       if (error instanceof DeviceRpcTimeoutError) {
@@ -212,7 +216,35 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     if (response.error?.code === 'unknown_method' || response.error?.message.startsWith('No handler registered for ')) throw outdated()
     // 对端的工具错误原样带回(那台机器上同一个工具会说的那句话),前面点名是哪台机器。
     if (response.error) throw new CrossMachineError(response.error.code || 'SESSION_REMOTE_ERROR', `on ${describe(device)}: ${response.error.message}`)
-    return (response.result as { value?: unknown } | undefined)?.value
+    const result = response.result as { value?: unknown; protocol?: number } | undefined
+    // A host before protocol 14 does not say its protocol here (protocol13FileChanges, delete on next bump).
+    return protocol13FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+  }
+
+  /**
+   * 一台机器的会话列表(界面那份,`sessionTimeline.sessionsList`),跨机器读会话的都从这里拿:同一台 5 秒内复用同一次结果,
+   * 正在问的合成一个,失败不留。`fresh` 不用记下的、问回来的照样记下。`listsAgents` = 每行都带 agent(协议 7 起);
+   * 不带的老宿主认不出它的 agent。
+   */
+  const listed = new Map<string, { settledAt: number | null; value: Promise<{ sessions: SessionpageSessionsListResult['sessions']; listsAgents: boolean }> }>()
+  const sessionsOn = (device: Device, options: { fresh?: boolean } = {}) => {
+    const kept = listed.get(device.device_id)
+    if (kept && !options.fresh && (kept.settledAt === null || now() - kept.settledAt < SESSIONS_LIST_REUSE_MS)) return kept.value
+    const value = (ask(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as Promise<SessionpageSessionsListResult>)
+      .then((result) => ({ sessions: result?.sessions ?? [], listsAgents: (result?.sessions ?? []).every((session) => session.agent !== undefined) }))
+    const entry = { settledAt: null as number | null, value }
+    listed.set(device.device_id, entry)
+    value.then(() => { entry.settledAt = now() }, () => { if (listed.get(device.device_id) === entry) listed.delete(device.device_id) })
+    return value
+  }
+  /** 往那台机器发了别的(归档、改父子、派、投递、App 的动作):它的列表可能变了,记下的那份作废 —— 发之前、回来后各一次。 */
+  const request: typeof ask = async (device, ...rest) => {
+    listed.delete(device.device_id)
+    try {
+      return await ask(device, ...rest)
+    } finally {
+      listed.delete(device.device_id)
+    }
   }
 
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
@@ -322,6 +354,26 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     return [...local, ...remote.flat()].sort((a, b) => at(b) - at(a))
   }
 
+  /** 那台机器上这几个 agent 各自的会话(按 Agent ID 发消息、打开 agent 的会话都按它找)。 */
+  const sessionsOfAgents = async (deviceId: string, userIds: string[]): Promise<Map<string, string>> => {
+    const device = await reachable(deviceId, true, undefined, true)
+    const listed = await sessionsOn(device)
+    // 协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
+    if (!listed.listsAgents) {
+      throw new CrossMachineError('SESSION_DEVICE_OUTDATED', `咕咕 on ${describe(device)} is too old to be reached by Agent ID; address its sessions as session:<id>. Nothing was sent there`)
+    }
+    return new Map(listed.sessions.flatMap((session) =>
+      session.agent && userIds.includes(session.agent.userId) ? [[session.agent.userId, session.conversationId] as const] : []))
+  }
+
+  /** 一个 agent 在别的机器上的会话(打开它时):它在哪台(名册,或调用方已知),那台的会话表里它那条。在本机、找不到 = null。 */
+  const sessionOfAgent = async (agentId: string, deviceId?: string): Promise<{ sessionId: string; deviceId: string } | null> => {
+    const at = deviceId ?? (await deps.lookupAgents({ userIds: [agentId], numbers: [] })).find((row) => row.userId === agentId)?.deviceId
+    if (!at || at === await deps.thisDeviceId()) return null
+    const sessionId = (await sessionsOfAgents(at, [agentId])).get(agentId)
+    return sessionId ? { sessionId, deviceId: at } : null
+  }
+
   /** session_message 的远端那一格(见 unified-session-message.ts)。 */
   const messageDeps = (callerOf: () => Promise<RemoteSessionCaller>, signal?: AbortSignal): NonNullable<UnifiedSessionMessageDeps['remote']> => ({
     locateSessions: async (sessionIds) => {
@@ -340,16 +392,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     assertReachable: async (deviceIds) => {
       for (const deviceId of deviceIds) await reachable(deviceId, true, undefined, true)
     },
-    sessionsOfAgents: async (deviceId, userIds) => {
-      const device = await reachable(deviceId, true, undefined, true)
-      const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
-      // 行上不带 agent 的是协议 7 之前的老宿主:认不出它的 agent,当场说太旧(❌ 说成「不是你的 agent」)。
-      if (listed.sessions.some((session) => session.agent === undefined)) {
-        throw new CrossMachineError('SESSION_DEVICE_OUTDATED', `咕咕 on ${describe(device)} is too old to be reached by Agent ID; address its sessions as session:<id>. Nothing was sent there`)
-      }
-      return new Map(listed.sessions.flatMap((session) =>
-        session.agent && userIds.includes(session.agent.userId) ? [[session.agent.userId, session.conversationId] as const] : []))
-    },
+    sessionsOfAgents,
     deliver: async (deviceId, group) => {
       const result = await call(deviceId, await callerOf(), { action: 'message', session_ids: group.sessionIds, text: group.text, ...group.said }, signal) as { recipients?: UnifiedRecipientResult[] }
       return result?.recipients ?? []
@@ -360,7 +403,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
    * 别的机器上的会话:每台在线机器报界面那份列表(手机目录读的同一个方法),整行交回。离线的机器只报 `since` 之后
    * 还在线过的(更早就离线的上面不可能有这棵树的 child);`since` = null 全报。
    */
-  const sessionsElsewhere: OtherMachines['sessions'] = async (since) => {
+  const sessionsElsewhere: OtherMachines['sessions'] = async (since, options) => {
     const { thisDeviceId, rows } = await devices()
     const sinceMs = since ? Date.parse(since) : Number.NEGATIVE_INFINITY
     const { sessions, unreached }: Awaited<ReturnType<OtherMachines['sessions']>> = { sessions: [], unreached: [] }
@@ -380,8 +423,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
         return
       }
       try {
-        const listed = await request(device, 'sessionTimeline.sessionsList', [], 30_000, 'listing') as SessionpageSessionsListResult
-        for (const session of listed?.sessions ?? []) sessions.push({ deviceId: device.device_id, label: device.label, session })
+        const listed = await sessionsOn(device, options)
+        for (const session of listed.sessions) sessions.push({ deviceId: device.device_id, label: device.label, session, listsAgents: listed.listsAgents })
       } catch (error) {
         unreached.push({ deviceId: device.device_id, label: device.label, detail: error instanceof Error ? error.message : String(error) })
       }
@@ -508,6 +551,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appCall,
     appSpawn,
     messageDeps,
+    sessionOfAgent,
     assertFileHandoffSupported,
     answer,
   }

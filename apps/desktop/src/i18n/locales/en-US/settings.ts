@@ -386,6 +386,11 @@ export default {
       "outdated": "Gugu server on {{name}} is too old and couldn't be updated.",
       "updating": "Gugu server on {{name}} is too old. Updating…",
       "retryUpdate": "Retry",
+      "waitingIdle": "Agents are running on {{name}}. It updates once they're idle.",
+      "updateNow": "Restart now",
+      "later": "Later",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "confirmRestart": "Restart",
       "reinstall": "Gugu server on {{name}} is too old to update automatically. Run the install command on that machine again:",
       "refused": "Gugu server on {{name}} refused the connection.",
       "notSignedIn": "{{name}} isn't signed in. Re-add it in Settings → Devices.",
@@ -551,6 +556,7 @@ export default {
         "loginFailed": "Sign-in didn't finish. Try again.",
         "cloudUnreachable": "That machine can't reach Gugu. Allow outbound HTTPS or set a proxy, then retry.",
         "machineLimit": "Machine limit reached.",
+        "agentsRunning": "Agents are running on that machine. It updates once they're idle.",
         "cancelled": "Cancelled.",
         "unknown": "Something went wrong. Try again."
       },
@@ -728,6 +734,13 @@ export default {
       "title": "Remove \"{{name}}\"?"
     },
     "renameFailed": "Could not rename it. Try again later.",
+    "replaced": {
+      "hint": "May have been replaced by “{{name}}”",
+      "why": "It has the same host name and kind as “{{name}}”, which is online, while this one is offline and appeared before it. That is what a reinstall or a new data directory leaves behind: the old row does not go away on its own. Two machines can also share a name; remove it only if it is the same one.",
+      "remove": "Remove",
+      "confirm": "This one may have been replaced by “{{name}}”.",
+      "cascade": "The projects the account keeps for it, and the records of files kept only on it, are removed with it."
+    },
     "retry": "Retry",
     "runsAsRoot": "Runs as administrator",
     "runsAsRootHint": "Runs as root; agents can change any file on the machine.",
@@ -765,7 +778,10 @@ export default {
       "downloading": "Updating",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
       "ready": "Update ready",
-      "readyHint": "{{version}} downloaded; switches when idle."
+      "readyHint": "{{version}} downloaded; switches when idle.",
+      "updateNow": "Restart now",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "confirmRestart": "Restart"
     },
     "versionUnknown": "Version unknown",
     "via": {

@@ -8,7 +8,8 @@ import { DeviceActionsPage, ThisDeviceActions } from '../../../apps/desktop/src/
 import { PermissionsSection } from '../../../apps/desktop/src/components/settings/PermissionsSection'
 import type { DeviceActionsState } from '../../../apps/desktop/src/lib/deviceActionsIpc'
 import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
-import { clickElement, createReactHarness } from '../../support/testHarness'
+import { DevicesContext, type DevicesContextValue } from '../../../apps/desktop/src/store/devicesContext'
+import { clickElement, createReactHarness, typeInto } from '../../support/testHarness'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), reload: vi.fn(), state: { supported: true, platform: 'darwin', denyAll: false, groups: [], recent: [] } as DeviceActionsState }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron', capabilities: { agentRuntime: false }, systemPermissions: ['notifications'], checkSystemPermission: async () => 'granted', subscribeAppForeground: () => () => {} } }))
@@ -33,6 +34,20 @@ it('does not mark a cached available action as usable while the device is offlin
   expect(h.container.textContent).not.toContain('Remote')
   await h.render(<DeviceActionsPage device={device(true)} isThisDevice={false} embedded />)
   expect(h.container.querySelector('[data-testid="settings-device-action-other-calendar"]')?.textContent).toContain('可用')
+})
+
+it('renames another machine (desktop or server alike) from its page header through the devices store', async () => {
+  const rename = vi.fn(async () => {})
+  const store = { devices: [], loading: false, error: null, refresh: async () => {}, rename, remove: async () => {}, listBoundAgents: async () => [] } satisfies DevicesContextValue
+  const server = { ...device(true), label: 'Linux 3', capabilities: { ...device(true).capabilities, host_kind: 'server' } } as Device
+  await h.render(<DevicesContext.Provider value={store}><DeviceActionsPage device={server} isThisDevice={false} onBack={() => {}} /></DevicesContext.Provider>)
+  await clickElement(h.container.querySelector<HTMLElement>('[data-testid="settings-device-actions-rename"]')!)
+  const input = h.container.querySelector<HTMLInputElement>('[data-testid="device-rename-input"]')!
+  expect(input.value).toBe('Linux 3')
+  await typeInto(input, ' juma2 ')
+  await clickElement([...h.container.querySelectorAll<HTMLElement>('button')].find(b => b.textContent === '保存')!)
+  expect(rename).toHaveBeenCalledWith('remote', 'juma2')
+  expect(h.container.querySelector('[data-testid="device-rename-input"]')).toBeNull()
 })
 
 it('does not expose another phone as an assistant action list even when it reports grants', async () => {

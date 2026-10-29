@@ -33,6 +33,7 @@ import { useToast } from '../toastContext'
 import { Sheet } from '../ui/Sheet'
 import { downloadDataUrl } from './downloadDataUrl'
 import { useTranslation } from 'react-i18next'
+import { qrColors } from '../../lib/qrColors'
 
 /** 群聊详情里扫码加入的码。项目群不拉人(gugu-dev#181):不出码,说一句原因。 */
 export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
@@ -92,10 +93,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
     QRCode.toDataURL(payloadText, {
       width: 132,
       margin: 1,
-      color: {
-        dark: '#1f2933',
-        light: '#ffffff'
-      }
+      color: qrColors()
     })
       .then((dataUrl) => {
         if (!cancelled) {
@@ -122,7 +120,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
       const dataUrl = await QRCode.toDataURL(payloadText, {
         width: 480,
         margin: 2,
-        color: { dark: '#1f2933', light: '#ffffff' }
+        color: qrColors()
       })
       const blob = await (await fetch(dataUrl)).blob()
       const safeName = t('groupInvite.qrFileName', {
@@ -401,7 +399,7 @@ function PublicGroupInviteSearchResult({
   const { t } = useTranslation('contacts')
   if (!lookup) return null
   if (lookup.status === 'lookup_error') {
-    return <div style={{ padding: 16, color: 'var(--danger)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
+    return <div style={{ padding: 16, color: 'var(--danger-fg)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
   }
   if (lookup.status === 'not_found' || !lookup.group) {
     return <div style={{ padding: 16, color: 'var(--text-secondary)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.notFound')}</div>
