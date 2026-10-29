@@ -23,7 +23,12 @@ beforeEach(() => {
 })
 
 describe('archived-agent delivery revisions', () => {
-  it.each(['same page', 'later page', 'read-back failure'] as const)('applies a refusal and subsequent reads with %s without a reply or reload', async (arrival) => {
+  it.each([
+    { arrival: 'same page', deviceFields: { device_id: 'gugu-agent:archived' } },
+    { arrival: 'later page', deviceFields: {} },
+    { arrival: 'same page', deviceFields: { device_id: 'physical-device' } },
+    { arrival: 'read-back failure', deviceFields: { device_id: { legacy: true } } },
+  ] as const)('applies a refusal and subsequent reads with $arrival and $deviceFields without a reply or reload', async ({ arrival, deviceFields }) => {
     if (arrival === 'read-back failure') { vi.useFakeTimers(); db.refusalFailure = true }
     const repository = await openImRepository('viewer', { adapter: createMemoryLocalSyncDb() })
     await repository.transaction((tx) => tx.putSyncState('account-revision-cursor', { revision: '0' }))
@@ -49,7 +54,7 @@ describe('archived-agent delivery revisions', () => {
       memberReadSeqsChatRef: { current: 'chat-1' }, setMemberReadSeqs: vi.fn(), readMemberReadSeqs: () => ({}),
     }
     const blocked = (revision: string): AccountRevisionOperation => ({ revision, event: 'delivery_changed', payload: {
-      chat_id: 'chat-1', entity_id: 'refused', device_id: 'gugu-agent:archived',
+      chat_id: 'chat-1', entity_id: 'refused', ...deviceFields,
       // broadcast_to_chat_member_user_events persists only these receipt fields; sync_since adds tombstone.
       status: 'blocked', tombstone: false,
     } })

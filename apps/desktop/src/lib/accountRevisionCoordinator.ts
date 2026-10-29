@@ -131,9 +131,6 @@ export function readDeliveryRevision(
   const raw = payload as { device_id?: unknown; status?: unknown }
   if (raw.device_id === undefined && raw.status === undefined) return { chatId: key.chatId, messageId: key.entityId, receipt: null }
   if (raw.status === 'blocked') {
-    if (typeof raw.device_id !== 'string' || !raw.device_id.startsWith('gugu-agent:') || raw.device_id === 'gugu-agent:') {
-      throw new Error('delivery_changed revision has malformed refusal')
-    }
     return { chatId: key.chatId, messageId: key.entityId, receipt: null }
   }
   if (typeof raw.device_id !== 'string' || !raw.device_id || (raw.status !== 'delivered' && raw.status !== 'read')) {

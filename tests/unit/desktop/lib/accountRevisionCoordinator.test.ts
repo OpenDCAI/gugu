@@ -522,9 +522,11 @@ describe('readDeliveryRevision (#5649)', () => {
     const payload = { chat_id: 'chat-1', entity_id: 'm1', device_id: 'gugu-agent:archived',
       status: 'blocked' }
     expect(readDeliveryRevision(payload)).toEqual({ chatId: 'chat-1', messageId: 'm1', receipt: null })
-    for (const deviceId of ['', 'gugu-agent:', 'human-device', undefined]) {
-      expect(() => readDeliveryRevision({ ...payload, device_id: deviceId })).toThrow(/malformed refusal/)
+    for (const deviceId of ['', 'gugu-agent:', 'human-device', undefined, null, 123, {}]) {
+      expect(readDeliveryRevision({ ...payload, device_id: deviceId })).toEqual({ chatId: 'chat-1', messageId: 'm1', receipt: null })
     }
+    expect(() => readDeliveryRevision({ status: 'blocked' })).toThrow(/chat_id/)
+    expect(() => readDeliveryRevision({ chat_id: 'chat-1', status: 'blocked' })).toThrow(/entity_id/)
   })
 })
 
