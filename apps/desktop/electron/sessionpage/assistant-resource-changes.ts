@@ -52,7 +52,8 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
   const groups: Record<string, Group> = {}
   const home = rows.find(row => row.device_id && row.this_machine)?.device_id
   const devices: Group = { kind: '设备', read: 'session_devices', items: {} }
-  groups.devices = devices
+  // A failed device discovery leaves the device list unknown, not empty.
+  if (!rows.some(row => row.status === 'unavailable' && (row.source === 'session_devices' || row.source === 'device_actions'))) groups.devices = devices
   for (const row of rows) {
     if (row.device_id) devices.items[key(row.device_id)] = { name: safeName(row.label) || key(row.device_id), scope: row.this_machine ? key(row.device_id) : '',
       state: json([row.online, row.task_runtime ?? null]) }
@@ -130,10 +131,11 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
     observe: (lines: readonly string[], expectedVersion?: number) => serial(async () => {
       const identity = lines.filter(line => line.startsWith('{')).map(line => JSON.parse(line)).find(row => row.account)?.account
       if (identity && identity !== `user:${owner}`) throw new Error('Assistant resource account changed')
-      const groups = resourceGroups(lines)
+      // Only the groups that were read are compared: an unread source keeps its rows (never a deletion)
+      // and does not hold back the others (#881: one device's failed library read froze every change).
+      const groups = resourceGroups(lines, true)!
       await state()
       if (expectedVersion !== undefined && value && value.version !== expectedVersion) return undefined
-      if (!groups) { value ??= initialize(resourceGroups(lines, true) ?? {}); value.healthy = false; await persist(); return undefined }
       if (!value) value = initialize(groups)
       else {
         for (const [id, next] of Object.entries(groups)) {

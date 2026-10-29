@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import type { AssistantLocalSource } from './assistant-local-index'
 import { ASSISTANT_INDEX_LIMIT, boundedAssistantIndex } from './assistant-index-format'
+import { createLogger } from '../lib/logger'
+
+const log = createLogger('assistant-index')
 
 const deviceSchema = z.object({
   device_id: z.string(), label: z.string().nullable(), platform: z.string().nullable(),
@@ -59,7 +62,11 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
         }),
       ])
       return { status: 'read', value: parse(raw) }
-    } catch {
+    } catch (error) {
+      // Why a source is unknown (unsupported action, timeout, parse): metadata only, never the response.
+      log.warn({ action: action.action, ...(typeof action.kind === 'string' ? { kind: action.kind } : {}),
+        ...(typeof action.device === 'string' ? { device: action.device } : {}),
+        reason: (error instanceof Error ? error.message : String(error)).slice(0, 300) }, 'Assistant resource read unavailable')
       return { status: 'unavailable' }
     } finally { clearTimeout(timer) }
   }
