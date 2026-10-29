@@ -238,6 +238,8 @@ export const enUSProjectMessages = {
   'projects.delete.checkTimeout': 'The device did not answer while checking the project. Try again once it is connected.',
   'projects.delete.description':
     '"{projectLabel}" will be removed from the project list. Its tasks will be archived and can be restored from Task history with their original agents. Agent identities, group memberships and messages are preserved. The project folder and worktrees stay on the filesystem.',
+  'projects.delete.descriptionEmpty':
+    '"{projectLabel}" has no tasks. The project record will be deleted and any associated project group archived. The project folder and worktrees stay on the filesystem.',
   'projects.delete.impact': 'Tasks: {tasks} · Bound agents: {agents} · Associated project groups: {groups}',
   'projects.delete.impactUnknown': 'This device is offline; the number of tasks, agents and associated project groups is unknown.',
   'projects.delete.detachWarning_one':
@@ -476,6 +478,7 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.delete.failed': '未能删除项目',
   'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将从项目列表移除“{projectLabel}”。项目里的任务会归档，可从任务历史恢复并沿用原 Agent。Agent 身份、群成员关系和消息均会保留。项目文件夹与 worktree 仍保留在文件系统上。',
+  'projects.delete.descriptionEmpty': '“{projectLabel}”没有任务。将删除项目记录，并归档关联项目群。项目文件夹与 worktree 仍保留在文件系统上。',
   'projects.delete.impact': '{tasks} 个任务 · {agents} 个绑定 Agent · {groups} 个关联项目群',
   'projects.delete.impactUnknown': '设备离线，任务、Agent 和关联项目群数量未知。',
   'projects.delete.detachWarning_one': '该自动化将从项目分离，并在挂到其他项目之前不会运行：',

@@ -68,7 +68,7 @@ export class ProjectManagerStore {
       }
     });
     // 项目在它那台机器上没了(那台自己的窗口删的、别的电脑撤销「接进来」时删的,#7341):这边跟着去掉。
-    // 这个窗口自己删的早就乐观地拿掉了,这里找不到就什么都不做。
+    // 同一项目的删除/隐藏可能已先到过,这里找不到就什么都不做。
     this._disposeProjectDeletedEvent = events.on(projectDeletedChannel, ({ projectId }) => {
       const store = this.projects.get(projectId);
       if (!store) return;
@@ -526,21 +526,17 @@ export class ProjectManagerStore {
   async deleteProject(projectId: string): Promise<void> {
     const ownerId = cachedDevicesAccount();
     const deviceId = machineRegistry.machineOf(projectId) ?? libraryDeviceId(null);
-    const snapshot = this.projects.get(projectId);
+    // Archiving tasks publishes visibility before the last folder is detached.
+    // Keep the mounted owner until removal commits; dropping it first would let
+    // those events mount another manager while the original still subscribes.
+    await rpc.projects.deleteProject(projectId);
     runInAction(() => {
+      this.projects.get(projectId)?.mountedProject?.dispose();
       this.projects.delete(projectId);
     });
     forgetProjectOnScreen(projectId);
     appState.navigation.revalidate();
-    try {
-      await rpc.projects.deleteProject(projectId);
-      void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'removed', id: projectId, deviceId }, ownerId);
-    } catch (err) {
-      runInAction(() => {
-        if (snapshot) this.projects.set(projectId, snapshot);
-      });
-      throw err;
-    }
+    void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'removed', id: projectId, deviceId }, ownerId);
   }
 
   removeUnregisteredProject(projectId: string): void {

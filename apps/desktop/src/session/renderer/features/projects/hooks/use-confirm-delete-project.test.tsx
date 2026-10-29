@@ -116,6 +116,19 @@ describe('project deletion confirmation', () => {
     expect(container.textContent).not.toContain('会话');
   });
 
+  it.each([
+    ['en-US', 'has no tasks', 'project record will be deleted', 'can be restored'],
+    ['zh-CN', '没有任务', '删除项目记录', '任务历史恢复'],
+  ] as const)('describes actual empty-project deletion in %s', async (locale, empty, removed, restorable) => {
+    mocks.impact.mockResolvedValue({ tasks: 0, agents: 0, groups: 1 });
+    await act(async () => setLocalePreference(locale));
+    await act(async () => confirm(project));
+    await act(async () => root.render(modalStore.activeModalArgs!.description));
+    expect(container.textContent).toContain(empty);
+    expect(container.textContent).toContain(removed);
+    expect(container.textContent).not.toContain(restorable);
+  });
+
   it('ends an unanswered automation read with an error and ignores a late answer', async () => {
     vi.useFakeTimers();
     let finish!: (value: unknown[]) => void;

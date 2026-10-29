@@ -3,7 +3,6 @@ import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { projectGroupHost } from '@main/core/projects/project-group-host';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
-import { archiveSession } from '@main/core/sessions/archiveSession';
 import { countSessionAgents } from '@main/core/sessionpage/sessionpage-session-agent';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
@@ -34,7 +33,10 @@ export async function deleteProject(id: string): Promise<void> {
   // Project removal is recoverable task archival, never orphan identity cleanup.
   // Keep the original project/session/workspace keys so Task history's existing
   // Restore path can reopen the same identity and memberships, including offline.
-  for (const row of sessionRows) await archiveSession(id, row.id);
+  if (sessionRows.length > 0) {
+    const { archiveSession } = await import('@main/core/sessions/archiveSession');
+    for (const row of sessionRows) await archiveSession(id, row.id);
+  }
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);

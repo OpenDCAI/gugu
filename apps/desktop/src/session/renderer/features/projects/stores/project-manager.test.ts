@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   cloneRepository: vi.fn(),
   createGithubRepository: vi.fn(),
   createProject: vi.fn(),
+  deleteProject: vi.fn(),
   deleteGithubRepository: vi.fn(),
   initializeRepository: vi.fn(),
   inspectProjectPath: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@renderer/lib/ipc', () => {
     },
     projects: {
       createProject: mocks.createProject,
+      deleteProject: mocks.deleteProject,
       getProjects: mocks.getProjects,
       inspectProjectPath: mocks.inspectProjectPath,
       openProject: mocks.openProject,
@@ -82,6 +84,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {
     navigation: {
       currentViewId: 'home',
+      navigate: vi.fn(),
       revalidate: vi.fn(),
       viewParamsStore: {},
     },
@@ -109,6 +112,8 @@ vi.mock('@renderer/features/sessions/acp/acp-chat-panel', () => ({
 vi.mock('@renderer/utils/logger', () => ({
   log: { error: mocks.logError },
 }));
+
+vi.mock('@/components/assistant/assistant-app-client', () => ({ reportAssistantAppChange: vi.fn() }));
 
 function localProject(overrides: Partial<LocalProject> = {}): LocalProject {
   return {
@@ -338,6 +343,67 @@ describe('ProjectManagerStore project creation', () => {
     // 这个窗口自己删的早已拿掉:再收到同一条什么都不做。
     handler({ projectId: gone.id });
     expect(revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the mounted owner until removal settles so archival visibility cannot create a duplicate manager', async () => {
+    let finish!: () => void;
+    mocks.deleteProject.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    const store = new ProjectManagerStore();
+    const project = localProject();
+    const current = createUnmountedProject(project, 'idle');
+    const dispose = vi.fn();
+    current.state = 'mounted';
+    current.mountedProject = { dispose } as never;
+    store.projects.set(project.id, current);
+    const removal = store.deleteProject(project.id);
+    expect(store.projects.get(project.id)).toBe(current);
+    const visibility = mocks.eventOn.mock.calls.find(([channel]) => channel === projectVisibilityChangedChannel)?.[1];
+    if (!visibility) throw new Error('Expected visibility subscription');
+    visibility({ projectId: project.id, project });
+    expect(store.projects.get(project.id)).toBe(current);
+    expect(mocks.openProject).not.toHaveBeenCalled();
+    finish();
+    await removal;
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(store.projects.has(project.id)).toBe(false);
+    store.dispose();
+  });
+
+  it('keeps the mounted project and its subscriptions when removal fails', async () => {
+    mocks.deleteProject.mockRejectedValueOnce(new Error('Archive refused'));
+    const store = new ProjectManagerStore();
+    const project = localProject();
+    const current = createUnmountedProject(project, 'idle');
+    const dispose = vi.fn();
+    current.state = 'mounted';
+    current.mountedProject = { dispose } as never;
+    store.projects.set(project.id, current);
+    await expect(store.deleteProject(project.id)).rejects.toThrow('Archive refused');
+    expect(store.projects.get(project.id)).toBe(current);
+    expect(dispose).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it('does not dispose a project twice when the host hides it before the removal RPC resolves', async () => {
+    let finish!: () => void;
+    mocks.deleteProject.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    const store = new ProjectManagerStore();
+    const project = localProject();
+    const current = createUnmountedProject(project, 'idle');
+    const dispose = vi.fn();
+    current.state = 'mounted';
+    current.mountedProject = { dispose } as never;
+    store.projects.set(project.id, current);
+    const removal = store.deleteProject(project.id);
+    const visibility = mocks.eventOn.mock.calls.find(([channel]) => channel === projectVisibilityChangedChannel)?.[1];
+    if (!visibility) throw new Error('Expected visibility subscription');
+    visibility({ projectId: project.id, project: null });
+    expect(dispose).toHaveBeenCalledOnce();
+    finish();
+    await removal;
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(store.projects.has(project.id)).toBe(false);
+    store.dispose();
   });
 
   it('hides an empty detached project and mounts the same project when undo or history restores it', () => {

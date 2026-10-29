@@ -26,7 +26,7 @@ function deleteProjectDescription(
   impact: ProjectDeletionImpact | null,
   translate: ProjectsTranslate
 ) {
-  const headline = translate('projects.delete.description', { projectLabel });
+  const headline = translate(impact?.tasks === 0 ? 'projects.delete.descriptionEmpty' : 'projects.delete.description', { projectLabel });
 
   return (
     <div className="space-y-3">

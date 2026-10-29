@@ -62,6 +62,7 @@ export class MountedProject {
   }
 
   dispose(): void {
+    this.sessionManager.dispose();
     this.gitRepository.dispose();
     this.prSync.dispose();
     this.settings.dispose();
