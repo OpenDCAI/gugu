@@ -71,6 +71,7 @@ export interface LocalSessionPeerIdentity {
   id: string
   gugu_number: number | null
   display_name: string | null
+  session_archived_at?: string | null
 }
 
 /** What the user's task sidebar shows for the same conversation (this machine's task DB). */
@@ -86,7 +87,7 @@ export interface LocalSessionFacts {
 
 export interface LocalSessionPeer {
   /** gugu_number is display-only and lazily minted (only once the agent is made public) — null until then. */
-  identity: { users: { id: string; gugu_number: number | null; display_name: string } }
+  identity: { users: { id: string; gugu_number: number | null; display_name: string; session_archived_at?: string | null } }
   sessionId: string
   /** The exact session-page sidebar title for this session, separate from the contact display name. */
   title: string
@@ -166,7 +167,8 @@ export function resolveLocalSessionPeers(
       throw new Error(`local peers identity lookup: incomplete identity for ${row.id}`)
     }
     return {
-      identity: { users: { id: row.id, gugu_number: row.gugu_number, display_name: row.display_name } },
+      identity: { users: { id: row.id, gugu_number: row.gugu_number, display_name: row.display_name,
+        ...(row.session_archived_at != null ? { session_archived_at: row.session_archived_at } : {}) } },
       sessionId: binding.sessionId,
       title: session.title,
       project: isImplicitSessionHomeProjectId(session.projectId) ? '' : session.projectName,

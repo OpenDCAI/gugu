@@ -64,6 +64,17 @@ export default {
       "statusReadFailed": "无法读取任务状态：{{reason}}"
     },
     "turnFailure": {
+      "card": {
+        "generic": "回复没有完成",
+        "authentication": "模型服务拒绝了授权",
+        "network": "连不上模型服务",
+        "timeout": "太久没有响应",
+        "offline": "运行它的设备断开了",
+        "rateLimited": "请求太频繁",
+        "nextMessage": "下条消息会自动再试",
+        "recovered": "{{name}} 之前 {{count}} 次没有完成 · 已恢复",
+        "settings": "去设置"
+      },
       "state": {
         "exhausted": "额度已用完",
         "weekly": "周限额度已满",
@@ -408,6 +419,7 @@ export default {
       }
     },
     "attachmentContextMissing": "附件发送失败：当前对话已不可用",
+    "attachmentSendTimedOut": "附件发送超时。",
     "attachmentPersistenceFailed": "附件 {{fileName}} 保存失败。",
     "attach": "添加",
     "cancelQuote": "取消引用",
@@ -747,6 +759,8 @@ export default {
     },
     "retracted": "消息已撤回",
     "sendStatus": {
+      "unknown": "状态待确认",
+      "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
       "archived": "对方已归档、未送达",
       "failed": "未送达",
       "failedActions": "未送达消息操作",

@@ -215,7 +215,11 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     if (!contactId || !ownerUserId || !localDeviceId) return
     return keepFinishingLocalAssistant({
       pending: () => pendingLocalAssistant(ownerUserId),
-      resume: resumeLocalAssistant,
+      resume: async (record) => {
+        await resumeLocalAssistant(record)
+        writeSetupStep(ownerUserId, 'connect')
+        reloadMyAssistant(ownerUserId)
+      },
       // 只有「还没起来」值得过一会儿再推;别的失败(真失败、那一单已被收回……)再推也一样,停下、原因进日志,下次打开 App 再试。
       isFinal: (error) => !setupStillStarting(error),
       setTimer: (run, ms) => window.setTimeout(run, ms),
@@ -264,7 +268,7 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       case 'chat': return contact ? <AssistantChatSlot dm={dm} assistantId={contact.id} assistantName={contact.display_name} visible={visible} {...chatHandlers} /> : null
       case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} panelNavigation />
       case 'connectors': return <ConnectorsSection panelNavigation />
-      case 'settings': return <AssistantSettingsPage />
+      case 'settings': return <AssistantSettingsPage panelNavigation />
     }
   }
   return (

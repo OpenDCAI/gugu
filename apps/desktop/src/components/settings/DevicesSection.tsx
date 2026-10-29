@@ -519,7 +519,7 @@ function DeviceRow({
         {editing ? (
           <DeviceRenameField label={device.label} onSave={onCommitRename} onCancel={onCancelRename} />
         ) : (
-          <div className="flex min-w-0 items-center gap-[7px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
             {model.kind === 'this' && <Chip tone="accent">{t('devices.current')}</Chip>}
             {model.update && model.update.state !== 'failed' && (

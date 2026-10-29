@@ -6,6 +6,7 @@ import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { ChevronLeft, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
@@ -258,8 +259,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
-    () => visibleDeliveryMessages(displayedMessages).map((message) => ({ type: 'message' as const, message })),
-    [displayedMessages],
+    () => (isFiltering ? visibleDeliveryMessages(displayedMessages) : projectTurnFailureMessages(visibleDeliveryMessages(displayedMessages))).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages, isFiltering],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)

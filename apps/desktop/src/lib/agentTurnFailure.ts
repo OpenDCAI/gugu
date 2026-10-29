@@ -12,6 +12,7 @@ import { agentStreamKey } from './agentStreamState'
 import { i18n } from '@/i18n'
 import { displayAgentReferences } from './mentionMdast'
 import { markdownPlainText } from './markdownPlainText'
+import { turnFailurePresentation, turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
 
 export interface AgentTurnFailure {
   agentUserId: string
@@ -31,7 +32,7 @@ import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReas
 
 /** A failure row's line in the viewer's language (the chat row, the quick chat, the chat-list preview, the notification). */
 export function agentFailureText(reason: AgentFailureReason): string {
-  return i18n.t(`agent.turnFailure.${reason}`, { ns: 'messaging' })
+  return i18n.t(turnFailurePresentation(reason).bodyKey, { ns: 'messaging' })
 }
 
 /** The chat list's last-message line: a failure row says its reason, anything else its stored preview. */
@@ -46,10 +47,7 @@ export function agentTurnFailureNeedsModelChoice(raw: string | null | undefined)
 
 // 人话映射：内部错误（英文/术语/堆栈）一律不透传。文案是「回合」语义——回复没完成，不是「Agent 未能启动」。
 export function agentTurnFailureUserMessage(raw: string | null | undefined): string {
-  const text = (raw ?? '').trim()
-  const reason = agentFailureReason(text)
-    ?? (!text || /timeout|timed out/i.test(text) ? 'timeout' : /offline|离线|not connected|disconnected/i.test(text) ? 'offline' : 'generic')
-  return i18n.t(`agent.turnFailure.${reason}`, { ns: 'messaging' })
+  return i18n.t(turnFailurePresentation(turnFailureReasonFromError(raw)).bodyKey, { ns: 'messaging' })
 }
 
 // 纯 reducer：一条流事件如何改写失败条集合。

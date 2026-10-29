@@ -132,7 +132,7 @@ export interface MessageItem {
   // 'read' rows), independent of the monotonic last_read_seq watermark. Drives precise directed read receipts.
   readers?: string[]
   delivery_blocks?: Array<{ agent_user_id: string; reason: 'agent_archived' }>
-  local_send_state?: 'sending' | 'failed' | null
+  local_send_state?: 'sending' | 'failed' | 'unknown' | null
   local_send_error?: string | null
   forwarded_from_message_id?: string | null
   // @@@threads (#957) — 非空 = 此消息是某话题(thread_root_id 指向的 root)下的回复；
@@ -147,7 +147,7 @@ export interface MessageItem {
 }
 
 /** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
-export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
+export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string
