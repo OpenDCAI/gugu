@@ -26,7 +26,8 @@ it('tells the assistant to delegate a connected CLI application, naming the skil
   expect(await configuredIntegrationIndex()).toEqual([
     { id: 'dingtalk:default', name: '钉钉', modifiedAt: '1970-01-01T00:00:01.000Z', isDefault: true,
       use: { note: '钉钉已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['dws'] } },
-    { id: 'email:default', name: '邮箱', modifiedAt: '1970-01-01T00:00:01.000Z', isDefault: true },
+    { id: 'email:default', name: '邮箱', modifiedAt: '1970-01-01T00:00:01.000Z', isDefault: true,
+      use: { note: '邮箱已连接，要用就派任务；任务会话里自带它的工具', delegate: { tool: 'session_spawn' }, task_skills: [] } },
     { id: 'github:default', name: 'GitHub', modifiedAt: '1970-01-01T00:00:01.000Z', isDefault: true, note: '只用来关联 issue，助理不能直接用' },
   ])
   expect(data.resolveSecret).not.toHaveBeenCalled()
