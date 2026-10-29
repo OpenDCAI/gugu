@@ -30,6 +30,8 @@ vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgrou
 vi.mock('@main/core/extensions/extension-programs', () => ({ extensionPrograms: {}, onExtensionProgramNotification: vi.fn() }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
+    get: () => ({}),
+    isEnabled: () => true,
     hasCapability: (_id: string, wanted: string) => granted.has(wanted),
     grantedCapabilities: () => [...granted],
   }),
@@ -109,6 +111,22 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('uses only the current call\'s host-stamped task for a projection, never a task in the arguments or a completed call', async () => {
+    granted.add('agents:tools');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('scoped', null, [], [], 'task-owned');
+    const answer = await call(child, 1001, 'projectionCreate', { sessionId: 'task-forged' }, 'scoped') as { ok: boolean; value: { id: string } };
+    expect(answer.ok).toBe(true);
+    expect(answer.value.id).toEqual(expect.any(String));
+    expect(surface.openFiles()).toBe(1);
+    await release();
+    const late = await call(child, 1002, 'projectionCreate', { sessionId: 'task-owned' }, 'scoped') as { ok: boolean; message: string };
+    expect(late.ok).toBe(false);
+    expect(late.message).toContain('inside a task tool call');
+    surface.close();
+    expect(surface.openFiles()).toBe(0);
+  });
   it('simultaneous watches at the same place retain each caller through later calls and independent cancellation', async () => {
     granted.add('files:read');
     const child = fakeChild();

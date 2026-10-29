@@ -71,7 +71,7 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 20: several files at once — `files.download([…])` (one folder on the desktop, the share sheet on the phone) and
 // `files.keep([…], how)`.
 // 21: tools modules receive the real MCP per-call AbortSignal in run(args, call).
-export const EXTENSION_API_VERSION = 21;
+export const EXTENSION_API_VERSION = 22;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -464,6 +464,8 @@ export interface ExtensionAgentHistoryPage {
 
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
+  | { type: 'projection'; watchId: string; packet: import('./projection-protocol').ProjectionHostPacket }
+  | { type: 'projectionSource'; event: import('./projection-protocol').ProjectionSourceEvent }
   | { type: 'context'; context: ExtensionHostContext }
   | { type: 'modalFocus'; edge: 'first' | 'last' }
   /**
@@ -641,6 +643,15 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  /** Generic picture/input resources. Scope comes from the host's task binding, not the argument object. */
+  projectionCreate: { needs: 'agents:tools' },
+  projectionPublish: { needs: 'agents:tools' },
+  projectionClose: { needs: 'agents:tools' },
+  projectionClosed: { needs: 'agents:tools' },
+  projectionInputResult: { needs: 'agents:tools' },
+  projectionWatch: { needs: 'agents:tools', only: 'page' },
+  projectionUnwatch: { needs: 'agents:tools', only: 'page' },
+  projectionSend: { needs: 'agents:tools', only: 'page' },
   /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
   modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
   modalClose: { needs: null, only: 'page' },

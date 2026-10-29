@@ -75,7 +75,7 @@ export interface ExtensionPrograms {
    * by which calls hold the same file or chat at the moment.
    */
   call(program: ExtensionProgram, params: CallToolRequest['params'],
-    options: { signal: AbortSignal; onprogress?: (progress: Progress) => void; agent?: string; handed?: readonly ExtensionHandedFile[];
+    options: { signal: AbortSignal; onprogress?: (progress: Progress) => void; agent?: string; sessionId?: string; handed?: readonly ExtensionHandedFile[];
       handedChats?: readonly ExtensionHandedChat[] }): Promise<CallToolResult>;
   /** Which group each file is in, read as this agent; throws, naming the file, when the agent cannot open one. */
   handedFiles(agentUserId: string, itemIds: readonly string[]): Promise<ExtensionHandedFile[]>;
@@ -508,7 +508,7 @@ function armIdle(instance: Instance): void {
 }
 
 async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (client: Client) => Promise<T>,
-  call?: { id: string; agent?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
+  call?: { id: string; agent?: string; sessionId?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
   const key = versionKeyOf(program);
   signal.throwIfAborted();
   let pending = live.has(key) ? Promise.resolve(live.get(key)!) : starting.get(key);
@@ -526,7 +526,7 @@ async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (cli
   try {
     signal.throwIfAborted();
     if (instance.stopping) throw new Error('App program access was revoked');
-    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats) : undefined;
+    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId) : undefined;
     return await work(instance.client);
   } finally {
     await release?.();
@@ -571,14 +571,14 @@ export const extensionPrograms: ExtensionPrograms = {
   instructions(program) {
     return instructionsOf.get(versionKeyOf(program));
   },
-  call(program, params, { signal: parent, onprogress, agent, handed = [], handedChats = [] }) {
+  call(program, params, { signal: parent, onprogress, agent, sessionId, handed = [], handedChats = [] }) {
     return withExtensionProgramAccess(program.extensionId, parent, async (signal) => {
       const refusal = extensionPrograms.agentToolsRefusal(program.extensionId);
       if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
       const id = randomUUID();
       const stamped = { ...params, _meta: { ...params._meta, [PROGRAM_CALL_META_KEY]: id } };
       const call = program.native ? nativeProgram(program).call(program, stamped, signal)
-        : use(program, signal, (client) => client.callTool(stamped, undefined, { signal, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>, { id, agent, handed, handedChats });
+        : use(program, signal, (client) => client.callTool(stamped, undefined, { signal, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>, { id, agent, sessionId, handed, handedChats });
       return call.then((result) => {
         signal.throwIfAborted();
         if (result.isError) {
@@ -622,13 +622,16 @@ export const extensionPrograms: ExtensionPrograms = {
         // as an agent's call is — a page on another machine knows neither the path nor this machine's layout.
         const { agentSessionContext } = await import('./extension-agent-context');
         const root = from.sessionId ? (await agentSessionContext(from.sessionId))?.workspaceRoot : undefined;
+        const id = randomUUID();
         const _meta = {
           'gugu/caller': 'app',
+          [PROGRAM_CALL_META_KEY]: id,
           ...(from.sessionId ? { [SESSION_META_KEY]: from.sessionId } : {}),
           ...(root ? { [WORKSPACE_META_KEY]: root } : {}),
         };
-        if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal });
-        return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>);
+        if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal, sessionId: from.sessionId });
+        return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
+          { id, sessionId: from.sessionId, handed: [], handedChats: [] });
       }
       // Worked by an agent (owner 10-14): its call, as the agent's own tool call is — stamped the same (its session, working
       // copy, model), what it hands checked as that agent, and what the program does in it done as that agent (`gugu/call`).
@@ -637,9 +640,9 @@ export const extensionPrograms: ExtensionPrograms = {
       const given = await handedAs(extensionPrograms, from.agent.slice('user:'.length), tool, name, args);
       const id = randomUUID();
       const _meta = { 'gugu/caller': 'app', ...stamp, [PROGRAM_CALL_META_KEY]: id };
-      if (program.native) return extensionPrograms.call(program, { name, arguments: given.args, _meta }, { signal });
+      if (program.native) return extensionPrograms.call(program, { name, arguments: given.args, _meta }, { signal, sessionId: from.agentSession });
       return use(program, signal, (client) => client.callTool({ name, arguments: given.args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
-        { id, agent: from.agent.slice('user:'.length), handed: given.handed, handedChats: given.handedChats });
+        { id, agent: from.agent.slice('user:'.length), sessionId: from.agentSession, handed: given.handed, handedChats: given.handedChats });
     });
   },
 };

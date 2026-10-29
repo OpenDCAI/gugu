@@ -625,7 +625,7 @@ describe("an extension's own pages call its programs (#6635)", () => {
     const seen = JSON.parse((result.content[0] as { text: string }).text);
     expect(seen.pid).toBe(agent.pid);
     // The page's own: never an agent id, and no session of it either (an App names agents by user:<uuid>).
-    expect(seen.meta).toEqual({ 'gugu/caller': 'app', 'gugu/sessionId': 'task-1' });
+    expect(seen.meta).toEqual({ 'gugu/caller': 'app', 'gugu/sessionId': 'task-1', 'gugu/call': expect.any(String) });
     expect(seen.args).toEqual({ _meta: { 'gugu/agent': 'user:forged' } });
   }, 30_000);
 
@@ -634,7 +634,7 @@ describe("an extension's own pages call its programs (#6635)", () => {
   it("tells the program the page's session and its working copy on this machine", async () => {
     const result = await extensionPrograms.callFromPage('page-ext', { name: 'whoami', from: { sessionId: 'task-f' } });
     expect(JSON.parse((result.content[0] as { text: string }).text).meta).toEqual({
-      'gugu/caller': 'app', 'gugu/sessionId': 'task-f', 'gugu/workspaceRoot': '/work/f',
+      'gugu/caller': 'app', 'gugu/sessionId': 'task-f', 'gugu/workspaceRoot': '/work/f', 'gugu/call': expect.any(String),
     });
   }, 30_000);
 

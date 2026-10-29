@@ -9,6 +9,7 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { AppModalSessions } from '@shared/extensions/app-modal';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
+import { extensionProjections } from './extension-projection-bridge';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -161,6 +162,8 @@ export interface BridgeCaller {
    * gugu does not know which — and it works on chats only as that agent (`asCallingAgent`). Absent: in no agent's call.
    */
   callingAgent?: string | null;
+  /** The task stamped by main for this exact program call; never read from the tool arguments. */
+  callingSession?: string;
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
@@ -315,6 +318,7 @@ async function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  extensionProjections.closePage(webContentsId);
   void appModals.pageGone(webContentsId);
   stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
@@ -755,6 +759,7 @@ export async function retargetExtensionSurface(input: {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   const sessionId = input.sessionId ?? null;
+  if (binding.sessionId !== sessionId) extensionProjections.closePage(input.webContentsId);
   const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath);
   // Another handed-over file: the one it could open without a capability was the old one, so its open files go (it is
   // told, and reopens what it may). Its other files were never the place's to give.
@@ -775,6 +780,7 @@ export async function retargetExtensionSurface(input: {
 }
 
 export function unbindExtensionSurface(webContentsId: number): void {
+  extensionProjections.closePage(webContentsId);
   void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
   agentPages.delete(webContentsId);
@@ -1453,6 +1459,7 @@ async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Reco
 }
 
 async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, args: Record<string, unknown>): Promise<unknown> {
+  if (method.startsWith('projection')) return await extensionProjections.call(caller, method, args);
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {

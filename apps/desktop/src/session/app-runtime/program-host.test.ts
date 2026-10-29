@@ -52,6 +52,32 @@ describe('gugu in a program', () => {
     await expect(listing).resolves.toEqual([{ id: 'item-1', name: 'a.md' }]);
   });
 
+  it('exposes projection sources and keeps later capture outside the finished calling agent scope', async () => {
+    const { gugu, sent, deliver, nextCall } = await program();
+    const { programCall } = await import('./program-call');
+    const api = gugu.projection as { create(driver: { input(): Promise<void>; disconnect(): Promise<void>; refresh(): void; close(): void }): Promise<{
+      id: string; publish(frame: unknown): Promise<void>;
+    }> };
+    let refreshes = 0;
+    const created = programCall.run('projection-tool-call', () => api.create({ input: async () => {}, disconnect: async () => {},
+      refresh: () => { refreshes++; }, close() {},
+    }));
+    const creation = await nextCall(0);
+    expect(creation).toMatchObject({ method: 'projectionCreate', call: 'projection-tool-call' });
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: creation.id, ok: true, value: { id: 'projection-resource' } });
+    const source = await created;
+    deliver({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'projectionSource', event: { type: 'refresh', id: source.id } } });
+    await Promise.resolve();
+    expect(refreshes).toBe(1);
+    const before = sent.length;
+    const published = source.publish({ width: 1, height: 1, mime: 'image/png', data: 'YQ==' });
+    const publication = await nextCall(before);
+    expect(publication).toMatchObject({ method: 'projectionPublish', args: { id: 'projection-resource', frame: { sequence: 1 } } });
+    expect(publication).not.toHaveProperty('call');
+    deliver({ m: APP_FRAME_MARKER, t: 'result', id: publication.id, ok: true });
+    await published;
+  });
+
   it('keeps file sync frames apart from calls: a sync frame is never taken for an answer', async () => {
     const { gugu, sent, deliver, nextCall } = await program();
     const before = sent.length;
