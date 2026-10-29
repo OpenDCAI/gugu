@@ -33,7 +33,11 @@ import './phone-profile.css'
 import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 
 /** Profile home: identity, projects, devices, capabilities and connected apps. */
-export function PhoneProfile(props: PhonePageProps) {
+export function PhoneProfile(input: PhonePageProps) {
+  const props: PhonePageProps = input.sub?.startsWith('settings:') ? { ...input,
+    sub: input.sub.slice('settings:'.length),
+    go: next => input.go(next ? `settings:${next}` : 'settings'),
+  } : input
   const { t } = useTranslation('assistant')
   const settings = useTranslation('settings').t
   const devices = useDevicesStore()
@@ -48,7 +52,7 @@ export function PhoneProfile(props: PhonePageProps) {
   if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
   if (sub === 'settings') return <div className="ta-page ta-phone-profile"><PageHead title={t('nav.settings')} /><div className="ta-skin">
-    <AssistantSettingsPage onOpenPage={(tab) => props.open({ tab })} onOpenSection={(section) => go(section)} />
+    <AssistantSettingsPage panelNavigation onOpenPage={(tab) => props.open({ tab })} onOpenSection={(section) => go(`settings:${section}`)} />
   </div></div>
 
   if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
@@ -82,7 +86,7 @@ export function PhoneProfile(props: PhonePageProps) {
             </IconButton>
           )} />}
         <div className="ta-skin">
-          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} openedDeviceId={openedDeviceId} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
+          <AssistantDevicesPage panelNavigation cloudDeviceId={cloudDeviceId} openedDeviceId={openedDeviceId} onOpenDevice={(id) => go(id ? `devices:${id}` : 'devices')} />
         </div>
       </div>
     )

@@ -609,6 +609,14 @@ export function cacheString(cache: Record<string, unknown> | null | undefined, k
   return typeof value === 'string' ? value : ''
 }
 
+/** Replay a create against its durable roster binding, never the process-local registry. */
+export async function sessionpageAgentSessionForStart(agentUserId: string, ownerUserId: string): Promise<string | undefined> {
+  const agent = (await listAgents()).find((row) => row.gugu_user_id === agentUserId)
+  if (!agent) return undefined
+  if (!agentMayBelongTo(agent, ownerUserId)) throw new Error('agent.create roster owner mismatch')
+  return cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY) || undefined
+}
+
 /**
  * 这个 provider/surface 的会话能不能拿到咕咕身份。唯一事实源是 plugin registry 的 sessionpage 两轴声明；
  * platform catalog 与 transport capability 读取同一格。

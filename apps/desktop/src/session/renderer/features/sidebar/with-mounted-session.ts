@@ -3,6 +3,7 @@
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
+import { machineUnavailableLabel } from '@renderer/features/sessions/machine-unavailable-label';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { machineLinkState, subscribeMachineLink } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -40,7 +41,10 @@ export function withMountedSession(
   const say = (key: string): void => {
     toast({ title: translateSessionMessage(key, { device }), variant: 'destructive' });
   };
-  const offline = () => say('task.remoteActionOffline');
+  const offline = (): void => {
+    toast({ title: machineUnavailableLabel(projectId)
+      ?? translateSessionMessage('remoteHost.status.offlineNever', { device }), variant: 'destructive' });
+  };
 
   const mountThenRun = () => {
     void getProjectManagerStore()

@@ -161,6 +161,8 @@ it('keeps home executors isolated while the host supplies the contract in their 
   expect(typeof options.systemPrompt).toBe('string')
   expect(options.settingSources).toEqual([])
   expect(options.tools).toContain('Bash')
+  // A delegated task loads the skills of connected CLI applications; the assistant itself never gets Bash or Skill.
+  expect(options.tools).toContain('Skill')
   expect(options.env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', KEEP_THIS: 'yes' })
   expect(options.env).not.toHaveProperty('ENABLE_TOOL_SEARCH')
   expect(options.settings).toBe('/private/model.json')

@@ -32,6 +32,9 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const failureReason = safeFailureLine(reason ?? '')
 
+  if (state === 'unknown') return <span data-send-state="unknown" title={t('message.sendStatus.unknownHint')}
+    className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('message.sendStatus.unknown')}</span>
+
   // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
   if (state === 'sending' || state === 'queued') {
     const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')

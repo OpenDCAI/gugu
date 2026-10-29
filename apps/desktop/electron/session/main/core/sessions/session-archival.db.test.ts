@@ -5,6 +5,7 @@ import type { AppDb } from '@main/db/client'
 const mock = vi.hoisted(() => ({ db: undefined as AppDb | undefined }))
 vi.mock('@main/db/client', () => ({ get db() { if (!mock.db) throw new Error('Missing fixture'); return mock.db } }))
 const { initializeSessionArchival, sessionArchivalInventory, sessionArchivalState, sessionMessageRefused, setSessionArchival } = await import('./session-archival')
+const { getSessions } = await import('./getSessions')
 let fixture: Awaited<ReturnType<typeof openFixture>>
 beforeEach(async () => {
   fixture = await openFixture(); mock.db = fixture.db
@@ -13,6 +14,19 @@ beforeEach(async () => {
 afterEach(() => { fixture.close(); mock.db = undefined })
 
 describe('atomic local archival journal', () => {
+  it('keeps archived task titles available to identity directories while the sidebar hides them', async () => {
+    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,title) VALUES('normal','p','Normal peer')")
+    setSessionArchival('s', true, '2026-10-28T09:00:00Z')
+    const visible = (await getSessions()).map((session) => session.id)
+    expect(visible).toContain('normal')
+    expect(visible).not.toContain('s')
+    expect(await getSessions({ includeArchived: true })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 's', title: 'Fixture', archivedAt: '2026-10-28T09:00:00Z' }),
+      expect.objectContaining({ id: 'normal', title: 'Normal peer', archivedAt: null }),
+    ]))
+    setSessionArchival('s', false, '2026-10-28T09:00:01Z')
+    expect((await getSessions()).map((session) => session.id)).toEqual(expect.arrayContaining(['s', 'normal']))
+  })
   it('keeps archived sessions in the authoritative existence inventory after restart', () => {
     setSessionArchival('s', true, '2026-10-28T09:00:00Z')
     fixture.sqlite.exec("INSERT INTO sessions(id,project_id,title) VALUES('new','p','New')")

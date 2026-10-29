@@ -5,12 +5,13 @@
  * 点不了、不插进消息,❌ 拿空列表冒充「那台机器上没有」。把远端会话拖进输入框走的是同一份候选。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSessionShellPort } from '@shared/lib/ipc/shell-port';
+import { createSessionShellPort, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 
 const LOCAL = { sessionId: 'local-1', identity: { users: { id: 'agent-local', display_name: 'Claude 3', gugu_number: 103 } }, engine: 'claude' };
 const REMOTE = { sessionId: 'remote-1', identity: { users: { id: 'agent-remote', display_name: 'Codex 8', gugu_number: null } }, engine: 'codex' };
-const directory = vi.fn(() => ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
-const sessionPeers = vi.fn(async (_sessionId?: string) => [LOCAL]);
+const directory = vi.fn((): { peers: SessionShellPeer[]; notRead: { id: string; label: string }[] } =>
+  ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
+const sessionPeers = vi.fn(async (_sessionId?: string): Promise<SessionShellPeer[]> => [LOCAL]);
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ projects: new Map() }) }));
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({ sessionRegistry: { get: () => undefined } }));
@@ -107,5 +108,29 @@ describe('@ 弹层读会话目录', () => {
     sessionPeers.mockResolvedValueOnce([]);
     expect(await provider.resolveSession('unstarted-task')).toBeNull();
   });
+
+  it('keeps archived local and remote Agents out of task mentions and restores them after unarchive', async () => {
+    const archivedAt = '2026-10-29T00:00:00Z';
+    const archivedLocal = { ...LOCAL, sessionId: 'archived-local', identity: { users: {
+      ...LOCAL.identity.users, id: 'agent-archived-local', session_archived_at: archivedAt,
+    } } };
+    const archivedRemote = { ...REMOTE, sessionId: 'archived-remote', identity: { users: {
+      ...REMOTE.identity.users, id: 'agent-archived-remote', session_archived_at: archivedAt,
+    } } };
+    const provider = createLocalSessionMentionProvider();
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id)).toEqual(['aid:agent-local', 'aid:agent-remote']);
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect(await provider.resolveSession('archived-local')).toBeNull();
+    sessionPeers.mockResolvedValueOnce([LOCAL, { ...archivedLocal, identity: { users: {
+      ...archivedLocal.identity.users, session_archived_at: null,
+    } } }]);
+    directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id))
+      .toEqual(['aid:agent-local', 'aid:agent-archived-local', 'aid:agent-remote']);
+  });
+
 
 });

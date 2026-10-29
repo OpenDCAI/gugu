@@ -2078,8 +2078,11 @@ export class SessionCell {
       const receiptOrTimeout = agent.prompt(promptRequest, { requestId, message: submittedMessage,
         ...(watched ? { admissionTimeoutMs: PROMPT_ADMISSION_TIMEOUT_MS } : {}) });
       if (steered) this.deps.callbacks?.onPromptSteered?.();
-      // Prepared context is consumed by the model only when its turn completes; any failure releases it.
-      if (!steered) void request.completion.promise.then(result => result.success ? confirmPreparation() : releasePreparation());
+      // Prepared context is consumed by the model only when its turn completes; a failure, or a cancelled turn
+      // that ends without acting on what it carried (#881), releases it for the next turn.
+      if (!steered) void request.completion.promise.then(result => result.success
+        && this.transcript.entityOwner({ ...submittedMessage, messageId: request.messageId })?.outcome?.kind !== 'cancelled'
+        ? confirmPreparation() : releasePreparation());
       const receipt = receiptOrTimeout.then(receipt => {
         if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') return ok({ queued: false });
         if (steered) confirmPreparation();

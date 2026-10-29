@@ -162,6 +162,7 @@ import { projectEvents } from '@main/core/projects/project-events'
 import { installClearDataPolyfill } from '@main/app/session-clear-data-polyfill'
 import { sessionService } from '@main/core/sessions/session-service'
 import { attachAgentToSession } from '@main/core/sessions/attach-agent-to-session'
+import { rollbackAgentSessionStartup } from '@main/core/sessions/agent-session-startup'
 import { assertNoDeliveryEnvelopeInPersistedText } from '@main/core/sessions/build-session-row'
 import {
   isGuguPermissionMode,
@@ -1761,6 +1762,8 @@ function reloadOutcome(reloaded: { warning?: string; nativeSession: ReloadNative
 
 export interface SessionpageAgentSessionStartInput {
   agentUserId: string
+  /** Existing owner-checked roster binding when replaying an interrupted create. */
+  existingSessionId?: string
   displayName: string
   agentType: string
   projectPath: string
@@ -1879,8 +1882,14 @@ export async function startSessionpageAgentSession(
   const repositoryWorkspaceId = opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
   if (!repositoryWorkspaceId)
     throw new Error(`session-page project ${project.id} has no repository workspace to run in`)
-  const sessionId = randomUUID()
   const provider = toAgentProviderId(pluginIdForAgentType(input.agentType))
+  const existing = input.existingSessionId
+    ? (await getSessions()).find((session) => session.id === input.existingSessionId)
+    : undefined
+  if (input.existingSessionId && (!existing || existing.projectId !== project.id || existing.providerId !== provider || existing.runtime !== 'acp')) {
+    throw new Error(`agent.create cannot resume its bound task ${input.existingSessionId}`)
+  }
+  const sessionId = existing?.id ?? randomUUID()
   // 在建会话之前解释模型:选了一个这台机器给不了的模型就当场拒,❌ 不静默落成自家模型(那会去烧用户自己的 Key,
   // 在一台没登录过这家 agent 的服务器上就是 401)。
   const modelChoice = await resolveCreateModelChoice(provider, 'acp', input.model)
@@ -1910,16 +1919,14 @@ export async function startSessionpageAgentSession(
       `agent.create ${provider} received an initial prompt but does not declare an argv/stdin startup channel`,
     )
   }
-  let cleanupPromise: Promise<void> | null = null
-  const cleanup = (): Promise<void> => cleanupPromise ??= (async () => {
-    await stopExactSessionpageSession({ projectId: project.id, sessionId }).catch(() => false)
-    await deleteSession(project.id, sessionId, { skipTransportStop: true }).catch(() => undefined)
-  })()
-  let started = false
+  let runtimeStartedByAttempt = false
+  const cleanup = () => rollbackAgentSessionStartup({
+    projectId: project.id, sessionId, created: !existing, started: runtimeStartedByAttempt,
+  })
   try {
     throwIfAborted()
     // 落行并挂载(挂不上就撤掉这一行再抛,见 attachAgentToSession);ACP 会话的引擎在下面显式起。
-    const session = await attachAgentToSession({
+    const session = existing ?? await attachAgentToSession({
       id: sessionId,
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
@@ -1938,6 +1945,9 @@ export async function startSessionpageAgentSession(
     })
     throwIfAborted()
     mark('session-attached')
+    const workspaceId = existing
+      ? (await sessionService.ensureSessionMounted(session.id)).workspaceId
+      : repositoryWorkspaceId
     const mounted = resolveSession(project.id, session.id)
     if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
     const provisioned = await provision({
@@ -1953,27 +1963,21 @@ export async function startSessionpageAgentSession(
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
+    if (existing && await acpSessionLive(session.id)) {
+      throwIfAborted()
+      return { ...provisioned, sessionId: session.id, projectId: project.id }
+    }
+    runtimeStartedByAttempt = true
     const startPromise = (await getAcpRuntimeClient()).startSession({
       input: {
-        sessionId: session.id,
-        projectId: project.id,
-        providerId: provider,
-        workspaceId: repositoryWorkspaceId,
-        cwd: mounted.sessionPath,
-        providerSessionId: null,
-        model: modelChoice?.model ?? null,
-        effort,
-        ...(input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' }] } : {}),
-        permissionMode,
+        ...acpStartInputFor(session, workspaceId, mounted.sessionPath),
+        ...(!session.providerSessionId && input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' as const }] } : {}),
       },
     })
     let removeAbortListener: () => void = () => undefined
     const abortPromise = new Promise<never>((_, reject) => {
       const onAbort = () => {
-        void cleanup().then(
-          () => reject(signal.reason ?? new Error('session-page agent session start aborted')),
-          reject,
-        )
+        reject(signal.reason ?? new Error('session-page agent session start aborted'))
       }
       if (signal.aborted) onAbort()
       else {
@@ -1984,19 +1988,10 @@ export async function startSessionpageAgentSession(
     let result: Awaited<typeof startPromise>
     try {
       result = await Promise.race([startPromise, abortPromise])
-    } catch (error) {
-      // The cleanup above owns the task/provider resources. If the runtime finishes its handshake later,
-      // run the same idempotent cleanup again so a late success cannot resurrect a timed-out session.
-      void startPromise.then(
-        () => cleanup(),
-        () => undefined,
-      )
-      throw error
     } finally {
       removeAbortListener()
     }
     if (!result.success) throw new Error(result.error.message ?? result.error.type)
-    started = true
     mark('runtime-started')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {
@@ -2004,7 +1999,8 @@ export async function startSessionpageAgentSession(
       { agentUserId: input.agentUserId, elapsedMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) },
       'agent session start failed — #4181',
     )
-    if (started) await (await getAcpRuntimeClient()).stopSession({ sessionId }).catch(() => undefined)
+    // ACP's existing start owner cancels an in-flight handshake when stopped. A late
+    // session-id-only stop here could instead kill a successful retry of this task.
     await cleanup()
     throw error
   }
@@ -2384,7 +2380,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
 }
 
 /**
- * What the task sidebar shows for each active session: its title, the project it sits in, its status,
+ * The task sidebar's facts for each existing session, including archived tasks: its title, project, status,
  * whether it is pinned, and when it was last active. `session_peers` rows are these facts joined to identity.
  * This is deliberately a separate bridge from ACP runtime summaries: PTY sessions have no ACP summary, and a
  * runtime summary is not the source of the user's sidebar label. Status is the session-page status writer's
@@ -2399,7 +2395,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   isPinned: boolean
   lastInteractedAt: string | null
 }>> {
-  const [rows, projectRows] = await Promise.all([getSessions(), getProjects()])
+  const [rows, projectRows] = await Promise.all([getSessions({ includeArchived: true }), getProjects()])
   // #609 workspace 不是项目,不带名字(与心跳摘要同一条,见 sessionpageSessionDigest)。
   const projectName = new Map(projectRows.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return rows.map((session) => ({
