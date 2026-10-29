@@ -40,7 +40,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
   // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
   if (state === 'sending' || state === 'queued') {
     const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')
-    if (state === 'sending' && progress?.total) {
+    if (state === 'sending' && progress?.total && progress.loaded > 0) {
       const percent = Math.max(0, Math.min(100, Math.floor(progress.loaded / progress.total * 100)))
       return <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
         data-send-state="sending" className="text-[length:var(--font-caption)] text-[var(--text-secondary)] tabular-nums">{percent}%</span>
