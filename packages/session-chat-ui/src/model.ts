@@ -516,6 +516,8 @@ export type TurnProcessItem = {
   turnId: string;
   /** This segment explicitly chose silence; a status label, never an assistant reply. */
   silent?: boolean;
+  /** A retained acknowledgement with no expandable agent activity. */
+  empty?: boolean;
   /**
    * 这一轮还在跑：头上的时间在数、带微光，底下的内容**默认摊开**（点一下收起）；
    * 落定后同一条头默认收起、写的是总时长（点开还原）。

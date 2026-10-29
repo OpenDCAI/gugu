@@ -67,6 +67,7 @@ import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
 import { tallyToolRun, toolRunCategory, toolRunLabel, toolRunNow } from '@session-chat/state/tool-run';
 import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
+import { isEmptyAgentTurn } from './turn-visibility';
 
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
 export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fold';
@@ -337,7 +338,10 @@ export function flattenTier(
   const opened = collectOpenedOutputs(turns, { live: ctx.active });
   const openSteps = new Set<ChatItem>(opened.flat().map((entry) => entry.item));
   const outsideProcess = (rows: readonly ChatItem[]) => rows.filter((item) => !openSteps.has(item) && (ctx.active || !successfulFileDiff(item)));
-  const turnItems: ChatItem[][] = turns.map((turn) => [...(turn.items as readonly ChatItem[])]);
+  const latestTurnId = ctx.latestTurnId ?? turns.at(-1)?.id;
+  const hidden = turns.map(turn => !ctx.active && turn.id !== latestTurnId && isEmptyAgentTurn(turn));
+  const turnItems: ChatItem[][] = turns.map((turn, index) => hidden[index]
+    ? (turn.items as readonly ChatItem[]).filter(itemIsUser) : [...(turn.items as readonly ChatItem[])]);
 
   // 连续折叠回合合并成一条(#4981),判据在 `planTurnFoldRuns`。
   const { folds: foldPlans, runs: foldRuns, absorbed } = planTurnFoldRuns(
@@ -351,6 +355,8 @@ export function flattenTier(
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
     const turn = turns[turnIndex];
     if (absorbed[turnIndex]) continue;
+    // A hidden agent response must not leave an orphan date/name/duration row.
+    if (hidden[turnIndex] && turnItems[turnIndex].length === 0) continue;
     sendTurn = turn as TranscriptTurn;
     // Day boundary (#3334 row 20). A turn with no `startedAt` came from provider
     // replay and carries no authentic clock, so it neither opens a new day nor
@@ -368,6 +374,16 @@ export function flattenTier(
     }
 
     const items = turnItems[turnIndex] as readonly ChatItem[];
+    if (hidden[turnIndex]) {
+      for (const item of items) processItem(item);
+      continue;
+    }
+    if (!ctx.active && turn.id === latestTurnId && isEmptyAgentTurn(turn) && items.every(itemIsUser)) {
+      for (const item of items) processItem(item);
+      processItem({ kind: 'turn-process', id: `${turn.id}:process`, turnId: turn.id,
+        startedAt: turn.startedAt, endedAt: turn.endedAt, empty: true });
+      continue;
+    }
 
     /**
      * 「丢弃」过的那一轮：只留用户那条指令，agent 写到一半的输出与收尾行都不再发出。
@@ -484,6 +500,10 @@ export function flattenTier(
         processItem({ kind: 'turn-process', ...pending.header, turnId: turn.id,
           ...(pending.at < items.length ? { withBody: true } : {}) });
         emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+      } else if (!ctx.active && turn.id === latestTurnId && isEmptyAgentTurn(turn)) {
+        for (const item of items.filter(itemIsUser)) processItem(item);
+        processItem({ kind: 'turn-process', id: `${turn.id}:process`, turnId: turn.id,
+          startedAt: turn.startedAt, endedAt: turn.endedAt, empty: true });
       } else {
         emitOps(planRows(outsideProcess(items)), turn.id);
       }
@@ -621,9 +641,11 @@ export type UnitsView = {
  */
 export function trailingDayKey(
   turns: readonly TranscriptTurn[],
-  fallback?: string
+  fallback?: string,
+  latestTurnId = turns.at(-1)?.id
 ): string | undefined {
   for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].id !== latestTurnId && isEmptyAgentTurn(turns[i]) && !turns[i].items.some(itemIsUser)) continue;
     const startedAt = turns[i].startedAt;
     if (startedAt !== undefined) return localDayKey(startedAt);
   }
