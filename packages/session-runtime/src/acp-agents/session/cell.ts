@@ -214,7 +214,7 @@ export class SessionCell {
     this.liveSettings = deps.liveSettings;
     this.pendingSessionContext = deps.sessionContext?.trim() || null;
     this.machine = new SessionMachine(deps.sessionId);
-    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId });
+    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId, newTurnReference: () => `source:${crypto.randomUUID()}` });
     this.rawLog = new RawAcpLog({
       sessionId: deps.sessionId,
       providerId: deps.providerId,

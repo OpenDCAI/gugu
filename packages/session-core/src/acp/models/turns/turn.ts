@@ -128,6 +128,8 @@ export type TranscriptTurnOutcome = z.infer<typeof transcriptTurnOutcomeSchema>;
 export const transcriptTurnSchema = z.object({
   /** Reducer-generated turn id used to scope all item ids in this exchange. */
   id: z.string(),
+  /** Immutable live origin, minted when the turn opens and retained when storage renumbers display IDs. */
+  referenceId: z.string().min(1).optional(),
   /** Stable session order, assigned when the turn opens. */
   seq: z.number().int(),
   /** Who opened the turn: a user prompt or agent-originated background activity. */

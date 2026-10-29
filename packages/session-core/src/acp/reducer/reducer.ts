@@ -111,6 +111,7 @@ export type ReducerInput =
 export interface ReducerDeps {
   sessionId: string;
   enrich?: EnrichHook;
+  newTurnReference?: () => string;
 }
 
 export function initialState(): ParserState {
@@ -163,6 +164,7 @@ function openTurn(
   const id = makeTurnId(deps.sessionId, nextTurnIndex(t));
   const turn: TranscriptTurn = {
     id,
+    ...(deps.newTurnReference ? { referenceId: deps.newTurnReference() } : {}),
     seq: nextTurnSeq(t),
     initiator,
     ...(trigger ? { trigger } : {}),

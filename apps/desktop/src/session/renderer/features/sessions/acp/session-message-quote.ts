@@ -9,7 +9,9 @@ export function sessionMessageQuoteSource(message: ChatMessage, sessionId: strin
     const source = facts?.sourceLink ? parseMessageQuoteLink(facts.sourceLink) : null;
     if (source?.kind === 'chat') return source;
   }
-  return message.id && !message.id.startsWith('optimistic:') ? { kind: 'session', sessionId, itemId: message.id } : null;
+  const itemId = message.sourceItemId === undefined ? message.id : message.sourceItemId;
+  return itemId && !itemId.startsWith('optimistic:') && !/:turn:\d+:/.test(itemId)
+    ? { kind: 'session', sessionId, itemId } : null;
 }
 
 /** Undefined: this row has no selection. Null: a selection crosses message boundaries. */

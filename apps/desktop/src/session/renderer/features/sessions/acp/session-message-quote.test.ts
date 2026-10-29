@@ -19,6 +19,12 @@ describe('task quote sources and draft', () => {
   it('does not persist an optimistic row identity that will be replaced when admitted', () => {
     expect(sessionMessageQuoteSource(message('optimistic:user:1'), 'session')).toBeNull();
   });
+  it('uses the durable live source and refuses a legacy runtime index without one', () => {
+    expect(sessionMessageQuoteSource({ ...message('s:turn:0:message:auto:0'), sourceItemId: 'source:one:message:auto:0' } as ChatMessage, 's'))
+      .toEqual({ kind: 'session', sessionId: 's', itemId: 'source:one:message:auto:0' });
+    expect(sessionMessageQuoteSource(message('s:turn:0:message:auto:0'), 's')).toBeNull();
+    expect(sessionMessageQuoteSource({ ...message('unsupported'), sourceItemId: null } as ChatMessage, 's')).toBeNull();
+  });
   it('reads a selection only from the same message and refuses selections crossing messages', () => {
     document.body.innerHTML = '<div id="a">same words</div><div id="b">same words</div>';
     const a = document.getElementById('a')!, b = document.getElementById('b')!;
