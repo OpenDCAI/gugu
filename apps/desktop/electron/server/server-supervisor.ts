@@ -138,6 +138,10 @@ export async function runSupervisor(): Promise<void> {
     lifecycle,
     log,
     running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
+    runningProcess: userId => {
+      const child = children.get(userId)
+      return child ? { pid: child.process.pid, startedAt: child.startedAt } : undefined
+    },
     // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
     restart: (userId) => {
       noteExitReason(accountDataDir(userId), 'update')
@@ -264,7 +268,14 @@ export async function runSupervisor(): Promise<void> {
     // Account restart confirmation never authorises a supervisor-wide upgrade.
     isBusy: () =>
       listAccounts().some(
-        (account) => children.has(account.userId) && accountIsBusy(account.dataDir),
+        (account) => {
+          const child = children.get(account.userId)
+          // Backoff/rollback is unknown, not a gap in which the supervisor may upgrade.
+          if (!child) return account.signedIn
+          return accountIsBusy(account.dataDir, Date.now(), {
+            pid: child.process.pid, startedAt: child.startedAt,
+          })
+        },
       ),
     shutdown: () => shutdown('upgrade'),
     inUse: () => versions.inUse(),

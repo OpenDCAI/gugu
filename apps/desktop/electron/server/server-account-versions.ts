@@ -8,11 +8,11 @@
  *   current                   守护进程自己跑的那一份;没有桌面报过版本的账号也跑它
  *   accounts/<id>/data/
  *     desktop-versions.json   用这台机器的各台桌面报的版本(core/cloud/serverDesktopVersions.ts)
- *     version-switch.json     版本信号来了:这个账号当场换,❌ 等空闲
+ *     version-switch.json     普通请求等空闲;仅目标匹配的显式确认允许中断
  *     server-version.json     这个账号现在跑哪一版(守护进程写;账号进程从 versions/<它>/ 起)
  *
  * 规则(纯函数 planAccountVersion):目标 = 没过期的桌面报告里最新的、下载站上有的那一版;和在跑的不一样 ⇒
- * 没装就先装(下载、校验、试跑),装好了有版本信号就当场换、没有就等这个账号空闲再换。只重启这一个账号的进程,
+ * 没装就先装(下载、校验、试跑),装好了等空闲;只有明确确认才允许中断。只重启这一个账号的进程,
  * 同一台机器上别的账号 ❌ 受影响。换过去秒退(起不来)就退回原来那一版,这一版几个小时内不再试。
  */
 import fs from 'node:fs'
@@ -73,7 +73,7 @@ export type AccountVersionPlan =
   | { kind: 'failed'; version: string }
   /** 目标版本还没装:先装。 */
   | { kind: 'stage'; version: string }
-  /** 装好了、在等这个账号空闲(没有版本信号)。 */
+  /** 装好了、在等这个账号空闲。 */
   | { kind: 'wait-idle'; version: string }
   /** 现在就把这个账号换过去。 */
   | { kind: 'switch'; version: string; urgent: boolean }
@@ -105,7 +105,7 @@ export function planAccountVersion(input: {
   // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):冷却不拦 —— 那是人那边在等。
   // 但有 agent 在跑就等它空闲,除非人点过「现在重启更新」:换版结束账号进程,在跑的那一轮跟着没了。
   if (input.switchRequested) {
-    return input.busy && !input.switchConfirmed ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: true }
+    return input.busy && !input.switchConfirmed ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: input.switchConfirmed === true }
   }
   if (failed) return { kind: 'failed', version: target }
   return input.busy ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: false }

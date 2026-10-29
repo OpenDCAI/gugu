@@ -209,6 +209,8 @@ import {
   getAcpRuntimeClient,
   initializeAcpRuntimeProcess,
   peekAcpRuntimeClient,
+  readAcpLiveSessionIds,
+  onAcpRuntimeActivityChange,
   type AcpAnnounceSessionInput,
 } from '@main/core/acp/controller'
 import {
@@ -233,7 +235,7 @@ export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
 import { setSessionMessageOutboxReady } from '@main/core/sessions/session-message-router'
-import { sessionProcess } from '@main/core/sessions/session-process'
+import { sessionProcess, hostSessionProcessIds, onSessionProcessesChanged } from '@main/core/sessions/session-process'
 export { sessionProcess }
 export { setUserLibraryOwner } from '@main/core/app/user-library'
 // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主接上实现(对照 / 登录态 / 云端都在宿主那边);
@@ -351,7 +353,7 @@ import { runtimeManager } from '@main/core/runtime/runtime-manager'
 import { appScope } from '@main/app/app-scope'
 import { sessionEvents } from '@main/core/sessions/session-events'
 import { type AgentEvent } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
   type AgentStatusChange,
   type SessionScope,
@@ -2496,12 +2498,12 @@ function refreshDigestAgents(): void {
 
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
- * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
+ * 从实际运行时所有权数账号进程重启会打断的任务;空闲但仍 attach 的 ACP 也在内;
  * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
  * 本机读数,❌ 进云端摘要。
  */
-export function sessionpageBusyForVersionSwitch(): boolean {
-  return sessionpageVersionSwitchActivity().busy
+export async function sessionpageBusyForVersionSwitch(): Promise<boolean> {
+  return (await sessionpageVersionSwitchActivity()).busy
 }
 
 /** One reading supplies both the existing idle policy and its visible agent count. */
@@ -2522,21 +2524,22 @@ export function sessionpageBootFailures() {
   return sessionBootTasks.snapshot()
 }
 
-export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
-  const busyAgents = listSessionStates().sessions.filter((session) =>
-    busyForVersionSwitch(
-      parseAgentStatusView(session.status ?? null),
-      session.runtime,
-      sessionProcess(session.conversationId)?.home ?? null,
-    ),
-  ).length
+export async function sessionpageVersionSwitchActivity(): Promise<{ busy: boolean; busyAgents: number }> {
+  // A ready, idle ACP session still owns an attached adapter. DB status and sessions.list
+  // cannot prove idle (the latter also omits runtime-only views).
+  const acpIds = await readAcpLiveSessionIds()
+  const busyAgents = new Set([...acpIds, ...hostSessionProcessIds()]).size
   return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
-/** Refresh the account heartbeat at authorization boundaries, without waiting
- * for the periodic report. The connection service belongs to this bundle. */
+/** Existing heartbeat also refreshes immediately at runtime ownership and authorization boundaries. */
 export function onSessionpageAuthorizationActivityChange(listener: () => void): () => void {
-  return integrationConnectionService.onAuthorizationActivityChange(listener)
+  const stop = [
+    integrationConnectionService.onAuthorizationActivityChange(listener),
+    onAcpRuntimeActivityChange(listener),
+    onSessionProcessesChanged(listener),
+  ]
+  return () => { for (const dispose of stop) dispose() }
 }
 
 /**

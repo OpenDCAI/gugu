@@ -130,6 +130,9 @@ const detachedPromptWaitInputSchema = z.object({ requestId: z.string() });
 /** Internal ACP process contract. The Electron renderer is exposed acpApiContract, never this one. */
 export const acpRuntimeApiContract = defineContract({
   ...acpApiContract,
+  /** Host-only process ownership; sessions.list intentionally omits runtime-only views. */
+  liveSessionIds: procedure({ input: z.void(), output: z.array(z.string()) }),
+  liveSessionsChanged: eventStream({ key: z.void(), event: z.void() }),
   startSession: procedure({
     input: z.object({ input: acpRuntimeStartInputSchema }),
     output: acpApiContract.startSession.output,

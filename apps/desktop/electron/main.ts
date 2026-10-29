@@ -1,3 +1,4 @@
+import { startServerAccountActivity } from './server/server-account-activity'
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
 import { noteExitReason } from './lib/exit-reason'
@@ -6410,30 +6411,21 @@ app.whenReady().then(async () => {
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
-    // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
-    const activityFile = join(app.getPath('userData'), 'activity.json')
-    // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
-    const activityStartedAt = Date.now()
-    const reportActivity = (): void => {
-      const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
-      try {
-        writeFileSync(activityFile, JSON.stringify({
-          busy: activity?.busy ?? false,
-          busyAgents: activity?.busyAgents,
-          bootFailures: loadEmdashBridge()?.sessionpageBootFailures(),
-          at: Date.now(),
-          version: process.env.GUGU_TASK_HOST_VERSION ?? null,
-          pid: process.pid,
-          startedAt: activityStartedAt,
-        }))
-      } catch (error) {
-        createLogger('server').warn({ err: error }, '忙闲写不进去')
-      }
-    }
-    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
-    reportActivity()
-    setInterval(reportActivity, 10_000).unref()
+    startServerAccountActivity({
+      dataDir: app.getPath('userData'),
+      version: process.env.GUGU_TASK_HOST_VERSION ?? null,
+      read: async () => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session runtime activity is unavailable')
+        return { ...await bridge.sessionpageVersionSwitchActivity(), bootFailures: bridge.sessionpageBootFailures() }
+      },
+      subscribe: listener => {
+        const bridge = loadEmdashBridge()
+        if (!bridge) throw new Error('Session runtime activity is unavailable')
+        return bridge.onSessionpageAuthorizationActivityChange(listener)
+      },
+      warn: error => createLogger('server').warn({ err: error }, '任务活动读取或写入失败，暂缓自动换版'),
+    })
     return
   }
   tray = new Tray(loadTrayIcon())

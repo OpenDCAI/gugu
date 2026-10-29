@@ -1,0 +1,97 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnOwnedChild } from '@gugu/session-core/exec'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createServerVersionLifecycle, pointCurrent } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { createAccountVersionConverger } from '../../../../apps/desktop/electron/server/server-account-converge'
+import { accountDataDir } from '../../../../apps/desktop/electron/server/server-layout'
+import { recordDesktopReport } from '../../../../packages/core/src/cloud/serverDesktopVersions'
+import { readAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+
+let home: string | undefined
+const savedEnv = { ...process.env }
+afterEach(() => {
+  process.env = { ...savedEnv }
+  if (home) { fs.rmSync(home, { recursive: true, force: true }); home = undefined }
+})
+
+function binary(version: string, body: string) {
+  const bin = path.join(home!, 'versions', version, 'bin', 'gugu-server')
+  fs.mkdirSync(path.dirname(bin), { recursive: true })
+  fs.writeFileSync(bin, `#!${process.execPath}\n${body}`, { mode: 0o700 })
+  return bin
+}
+
+describe.runIf(process.platform !== 'win32')('supervisor boot admission and rollback use real owned processes', () => {
+  it('rejects a cached package that cannot boot, then retries the same stage and releases the entire scratch boot process', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-handoff-'))
+    process.env.GUGU_SERVER_HOME = home
+    const previous = '0.2.58-beta.100.1'
+    const target = '0.2.58-beta.101.1'
+    binary(previous, 'process.exit(0)')
+    const readings = path.join(home, 'boot-processes.jsonl')
+    const record = `require('node:fs').appendFileSync(${JSON.stringify(readings)}, JSON.stringify({pid:process.pid, home:process.env.GUGU_SERVER_HOME, args:process.argv.slice(2)})+'\\n');`
+    binary(target, `${record}process.exit(1)`)
+    pointCurrent(home, path.join(home, 'versions', previous))
+    const lifecycle = createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: previous } })
+    const staged = vi.fn(async () => {}) // Cached directory already exists; no download is needed.
+    await expect(lifecycle.stage(target, staged)).rejects.toThrow('Account boot exited before serving')
+    expect(lifecycle.ready(target)).toBe(false)
+    expect(() => lifecycle.switchAccount(path.join(home!, 'account-data'), target, previous, 1)).toThrow('boot verification')
+    expect(() => lifecycle.switchSupervisor({ from: previous, to: target,
+      fromDir: path.join(home!, 'versions', previous), toDir: path.join(home!, 'versions', target), switchedAt: 1 }, () => {})).toThrow('boot verification')
+    expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${previous}`)
+    binary(target, `${record}const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false}));setInterval(()=>{},1000)`)
+    await lifecycle.stage(target, staged)
+    expect(lifecycle.ready(target)).toBe(true)
+    const rows = fs.readFileSync(readings, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { pid: number; home: string; args: string[] })
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.home).not.toBe(home)
+      expect(row.args[0]).toBe('run-account')
+      expect(() => process.kill(row.pid, 0)).toThrow()
+      expect(fs.existsSync(row.home)).toBe(false)
+    }
+    // Concurrent account/supervisor callers reuse the completed stage instead of starting another probe.
+    await lifecycle.stage(target, staged)
+    expect(staged).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the previous account pin when a real target exits during account-specific boot after passing cold boot', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-rollback-'))
+    process.env.GUGU_SERVER_HOME = home
+    const userId = '00000000-0000-4000-8000-000000000001'
+    const previous = '0.2.58-beta.100.1'
+    const target = '0.2.58-beta.101.1'
+    binary(previous, 'process.exit(0)')
+    const candidate = binary(target, `if(process.argv[3]===${JSON.stringify(userId)})process.exit(1);const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false}));setInterval(()=>{},1000)`)
+    pointCurrent(home, path.join(home, 'versions', previous))
+    const lifecycle = createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: previous } })
+    await lifecycle.stage(target, async () => {})
+    const dataDir = accountDataDir(userId)
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(path.join(dataDir, 'activity.json'), JSON.stringify({ runtimeOwned: true, busy: false, pid: process.pid, startedAt: 10, at: 20 }))
+    recordDesktopReport(dataDir, { id: 'fixture-desktop', version: target, protocol: null }, 20)
+    const restart = vi.fn()
+    const converge = createAccountVersionConverger({
+      layout: { home, versions: path.join(home, 'versions'), version: previous }, lifecycle,
+      log: { info: vi.fn(), warn: vi.fn() }, running: () => previous, restart,
+      runningProcess: () => ({ pid: process.pid, startedAt: 10 }), now: () => 20,
+    })
+    converge.converge([{ userId, dataDir, dir: path.dirname(dataDir), homeDir: path.join(path.dirname(dataDir), 'home'), signedIn: true, signedOut: null, email: null, addedAt: null }])
+    expect(restart).toHaveBeenCalledOnce()
+    expect(readAccountVersionPin(dataDir)?.version).toBe(target)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const exit = Promise.withResolvers<number | null>()
+      const owned = spawnOwnedChild(candidate, ['run-account', userId], { stdio: 'ignore', onError: error => exit.reject(error) })
+      owned.child.once('exit', code => exit.resolve(code))
+      try { expect(await exit.promise).toBe(1) } finally { await owned.stop() }
+      converge.quickExit(userId, target)
+    }
+    expect(readAccountVersionPin(dataDir)?.version).toBe(previous)
+    expect(readBadVersions(home)[target]).toBe(20)
+    expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${previous}`)
+  })
+})

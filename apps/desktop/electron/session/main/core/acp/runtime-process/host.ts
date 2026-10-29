@@ -247,6 +247,11 @@ const acpWorker = lazyWorker(
   },
   {
     onSpawned: async (handle) => {
+      handle.scope.add(await handle.client.liveSessionsChanged.subscribe(undefined, {
+        onEvent: notifyRuntimeActivityChange,
+        onGap: notifyRuntimeActivityChange,
+        onError: notifyRuntimeActivityChange,
+      }));
       handle.scope.add(
         await handle.client.promptSteered.subscribe(undefined, {
           onEvent: ({ sessionId }) => {
@@ -284,12 +289,14 @@ const acpWorker = lazyWorker(
       handle.scope.add(await connectNativePromptPreparation(handle.client, log));
       handle.scope.add(
         handle.onRestarted(() => {
+          notifyRuntimeActivityChange();
           // A restarted worker has no surviving adapter processes or session records.
           void releaseEmdashPlatformSession(null);
         })
       );
       // 起来之后才告诉订阅者:订阅者会再 `get()`,那要等这里返回 ⇒ 只排出去、❌ 在这里 await。
       for (const listener of spawnedListeners) queueMicrotask(() => listener(handle.process));
+      queueMicrotask(notifyRuntimeActivityChange);
     },
   }
 );
@@ -306,6 +313,21 @@ export function onAcpRuntimeSpawned(listener: (runtime: object) => void): () => 
   return () => {
     spawnedListeners.delete(listener);
   };
+}
+
+const activityListeners = new Set<() => void>();
+function notifyRuntimeActivityChange(): void {
+  for (const listener of activityListeners) listener();
+}
+export function onAcpRuntimeActivityChange(listener: () => void): () => void {
+  activityListeners.add(listener);
+  return () => { activityListeners.delete(listener); };
+}
+
+/** Does not start a worker, and a failed ownership read must never become an empty list. */
+export async function readAcpLiveSessionIds(): Promise<string[]> {
+  const handle = await acpWorker.peek();
+  return handle ? handle.client.liveSessionIds(undefined) : [];
 }
 
 let rendererWireDispose: (() => void) | null = null;

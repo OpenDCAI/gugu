@@ -3,6 +3,8 @@ export {
   getAcpRuntimeClient,
   initializeAcpRuntimeProcess,
   onAcpRuntimeSpawned,
+  onAcpRuntimeActivityChange,
+  readAcpLiveSessionIds,
   peekAcpRuntimeClient,
   type AcpAnnounceSessionInput,
   type AcpRuntimeClient,

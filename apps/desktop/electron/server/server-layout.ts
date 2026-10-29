@@ -162,17 +162,31 @@ export function emailFromAccessToken(accessToken: string): string | null {
   }
 }
 
-/** 这个账号的子进程写下的忙闲(见 main.ts 的 server 分支):有 agent 在跑一轮或等人批准。 */
-export function accountIsBusy(dataDir: string, now = Date.now()): boolean {
+/** One parser for account heartbeat freshness and current-process identity. */
+export function readAccountActivity(
+  dataDir: string,
+  now = Date.now(),
+  expectedProcess?: { pid: number | undefined; startedAt: number },
+): { busy: unknown; runtimeOwned?: unknown; at: number; pid: number; startedAt: number } | null {
   try {
     const activity = JSON.parse(fs.readFileSync(path.join(dataDir, 'activity.json'), 'utf8')) as {
-      busy?: unknown
-      at?: unknown
+      busy?: unknown; runtimeOwned?: unknown; at?: unknown; pid?: unknown; startedAt?: unknown
     }
-    return activity.busy === true && typeof activity.at === 'number' && now - activity.at < SERVER_ACTIVITY_STALE_MS
-  } catch {
-    return false
-  }
+    if (typeof activity.at !== 'number' || !Number.isFinite(activity.at)
+      || activity.at > now || now - activity.at >= SERVER_ACTIVITY_STALE_MS
+      || typeof activity.pid !== 'number' || !Number.isInteger(activity.pid) || activity.pid <= 0
+      || typeof activity.startedAt !== 'number' || !Number.isFinite(activity.startedAt)
+      || activity.startedAt > activity.at
+      || (expectedProcess && (activity.pid !== expectedProcess.pid || activity.startedAt < expectedProcess.startedAt))) return null
+    return { busy: activity.busy, runtimeOwned: activity.runtimeOwned, at: activity.at, pid: activity.pid, startedAt: activity.startedAt }
+  } catch { return null }
+}
+
+/** Only a fresh, positively known runtime idle reading can permit an automatic switch. */
+export function accountIsBusy(dataDir: string, now = Date.now(), expectedProcess?: { pid: number | undefined; startedAt: number }): boolean {
+  const activity = readAccountActivity(dataDir, now, expectedProcess)
+  // Old account binaries publish DB status here; their false does not prove runtime idle.
+  return !activity || activity.runtimeOwned !== true || activity.busy !== false
 }
 
 /**

@@ -68,6 +68,7 @@ export function createAccountVersionConverger(options: {
   log: SupervisorLog
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
+  runningProcess?: (userId: string) => { pid: number | undefined; startedAt: number } | undefined
   /** 只结束这个账号的进程(守护进程下一轮对账会按新版本拉起它)。 */
   restart: (userId: string) => void
   now?: () => number
@@ -85,7 +86,6 @@ export function createAccountVersionConverger(options: {
   if (layout && !options.lifecycle) throw new Error('Supervisor version lifecycle is required')
   const now = options.now ?? Date.now
   const exists = options.exists ?? ((file: string) => fs.existsSync(file))
-  const busy = options.busy ?? ((dataDir: string) => accountIsBusy(dataDir))
   const makeWriter = options.stateWriter ?? ((account: ServerAccount) => createServerUpdateStateWriter(account.dir))
   /**
    * 设备行上「正在下载 / 空闲时自动更新」那一格(随这个账号的心跳报,见 core/cloud/deviceHostInfo.ts)。
@@ -116,6 +116,7 @@ export function createAccountVersionConverger(options: {
     options.stage ??
     (async (version: string) => {
       if (!layout) throw new Error('不是经 install.sh 装的布局')
+      if (exists(versionBinary(layout.versions, version))) return
       const incoming = incomingPackage(layout.versions, version)
       if (!exists(incoming.manifest)) return void (await stageVersion(layout, await fetchVersionManifest(layout.home, version)))
       try {
@@ -239,8 +240,9 @@ export function createAccountVersionConverger(options: {
           running: effective,
           switchRequested: !followSupervisor && request !== null,
           switchConfirmed: request?.confirmed === true && request.target === (pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version),
-          installed,
-          busy: current !== undefined && busy(account.dataDir),
+          installed: version => installed(version) && options.lifecycle?.ready(version) === true,
+          busy: current !== undefined && (options.busy?.(account.dataDir)
+            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId))),
           failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
           fallback: layout.version,
           unpublished,

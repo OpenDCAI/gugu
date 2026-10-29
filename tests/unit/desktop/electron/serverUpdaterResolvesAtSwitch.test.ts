@@ -55,7 +55,7 @@ afterEach(() => {
 function updater(isBusy: () => boolean) {
   const log = { info: vi.fn(), warn: vi.fn() }
   const shutdown = vi.fn()
-  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
+  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ verifyBoot: async () => {}, layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
   return { log, shutdown, stop }
 }
 

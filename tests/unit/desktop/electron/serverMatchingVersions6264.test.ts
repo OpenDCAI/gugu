@@ -176,7 +176,7 @@ describe('planAccountVersion', () => {
     // 10-28 Linux 2:桌面升了一版来敲门(版本信号),7 条车道正在跑的那一轮全断 —— 有 agent 在跑就等。
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true })).toEqual({ kind: 'wait-idle', version: '0.2.9' })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true, switchConfirmed: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0' })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
   })
   it('这一版刚失败过:不再自己下、不再等空闲换;桌面经 SSH 装好后请它换(版本信号)照样换', () => {
@@ -198,12 +198,25 @@ describe('planAccountVersion', () => {
   })
 })
 
+// These planning fixtures represent packages whose cold boot was already verified.
+// The real staging/boot admission is exercised by serverLiveActivity1013.test.ts.
+async function verifiedLifecycle() {
+  const lifecycle = createServerVersionLifecycle({
+    layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
+    verifyBoot: async () => {},
+  })
+  for (const version of fs.readdirSync(path.join(home, 'versions'))) {
+    if (fs.existsSync(path.join(home, 'versions', version, 'bin', 'gugu-server'))) await lifecycle.stage(version, async () => {})
+  }
+  return lifecycle
+}
+
 describe('守护进程:各账号各跑各的版本,换版只重启那一个账号', () => {
-  function converger(running: Map<string, string | null>, options: { stage?: (v: string) => Promise<void>; busy?: boolean } = {}) {
+  async function converger(running: Map<string, string | null>, options: { stage?: (v: string) => Promise<void>; busy?: boolean } = {}) {
     const restarted: string[] = []
     const staged: string[] = []
     const c = createAccountVersionConverger({
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
+      lifecycle: await verifiedLifecycle(),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: (userId) => (running.has(userId) ? running.get(userId) ?? null : undefined),
@@ -219,14 +232,14 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
   }
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-  it('两个账号各报各的桌面版本 ⇒ 各自记下、各自从自己那一版起;只重启版本变了的那个', () => {
+  it('两个账号各报各的桌面版本 ⇒ 各自记下、各自从自己那一版起;只重启版本变了的那个', async () => {
     signIn(U1)
     signIn(U2)
     for (const v of ['0.3.0', '0.2.9', '0.3.1']) installVersion(v)
     report(U1, 'alice-mbp', '0.2.9')
     report(U2, 'bob-mbp', '0.3.0')
     const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
-    const { c, restarted } = converger(running)
+    const { c, restarted } = await converger(running)
     c.converge(listAccounts())
     expect(restarted).toEqual([U1])
     expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.2.9')
@@ -242,13 +255,13 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(readAccountVersionPin(dataDir(U2))?.version).toBe('0.3.1')
   })
 
-  it('同一账号两台桌面:按新的那一边跑,旧桌面换回来 ❌ 来回重启', () => {
+  it('同一账号两台桌面:按新的那一边跑,旧桌面换回来 ❌ 来回重启', async () => {
     signIn(U1)
     for (const v of ['0.3.0', '0.3.1']) installVersion(v)
     report(U1, 'home', '0.3.1')
     report(U1, 'office', '0.3.0')
     const running = new Map<string, string | null>([[U1, '0.3.0']])
-    const { c, restarted } = converger(running)
+    const { c, restarted } = await converger(running)
     c.converge(listAccounts())
     expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.1')
     running.set(U1, '0.3.1')
@@ -264,7 +277,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     report(U1, 'alice-old', '0.2.9', MIN_CLIENT_PROTOCOL)
     fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW, confirmed: true, target: '0.2.9' }))
     const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
-    const { c, restarted, staged } = converger(running, { busy: true })
+    const { c, restarted, staged } = await converger(running, { busy: true })
     c.converge(listAccounts())
     expect(staged).toEqual(['0.2.9'])
     expect(restarted).toEqual([])
@@ -277,12 +290,12 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(false)
   })
 
-  it('版本信号来了、账号在干活:不结束账号进程,等空闲(设备行说「空闲时自动更新」);人点「现在重启更新」才当场换', () => {
+  it('版本信号来了、账号在干活:不结束账号进程,等空闲(设备行说「空闲时自动更新」);人点「现在重启更新」才当场换', async () => {
     signIn(U1)
     for (const v of ['0.3.0', '0.3.1']) installVersion(v)
     report(U1, 'mbp', '0.3.1')
     fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'desktop speaks protocol 13', at: NOW }))
-    const { c, restarted } = converger(new Map([[U1, '0.3.0']]), { busy: true })
+    const { c, restarted } = await converger(new Map([[U1, '0.3.0']]), { busy: true })
     c.converge(listAccounts())
     expect(restarted).toEqual([])
     expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
@@ -299,11 +312,11 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(readVersionSwitchRequest(dataDir(U1), NOW + 11 * 60_000)).toMatchObject({ confirmed: false })
   })
 
-  it('没有版本信号、账号在干活:装好了也等空闲(设备行说「空闲时自动更新」)', () => {
+  it('没有版本信号、账号在干活:装好了也等空闲(设备行说「空闲时自动更新」)', async () => {
     signIn(U1)
     for (const v of ['0.3.0', '0.3.1']) installVersion(v)
     report(U1, 'mbp', '0.3.1')
-    const { c, restarted } = converger(new Map([[U1, '0.3.0']]), { busy: true })
+    const { c, restarted } = await converger(new Map([[U1, '0.3.0']]), { busy: true })
     c.converge(listAccounts())
     expect(restarted).toEqual([])
     expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
@@ -316,7 +329,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let t = NOW
     const staged: string[] = []
     const c = createAccountVersionConverger({
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
+      lifecycle: await verifiedLifecycle(),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -351,7 +364,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let error: Error = new DownloadSiteUnreachableError('下载站上没有 0.3.1 这一版(连不上)')
     let t = NOW
     const c = createAccountVersionConverger({
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
+      lifecycle: await verifiedLifecycle(),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -381,7 +394,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let outcome: 'not-published' | 'broken' | 'ok' = 'not-published'
     const staged: string[] = []
     const c = createAccountVersionConverger({
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
+      lifecycle: await verifiedLifecycle(),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -432,7 +445,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     const switched: string[] = []
     let running = '0.3.0'
     const c = createAccountVersionConverger({
-      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
+      lifecycle: await verifiedLifecycle(),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => running,
@@ -460,34 +473,34 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(running).toBe('0.2.9')
   })
 
-  it('上一个守护进程留下的「更新没成功」:换了守护进程、账号已跑在目标版本上 ⇒ 第一轮就清掉,❌ 挂到过期', () => {
+  it('上一个守护进程留下的「更新没成功」:换了守护进程、账号已跑在目标版本上 ⇒ 第一轮就清掉,❌ 挂到过期', async () => {
     signIn(U1)
     installVersion('0.3.0')
     report(U1, 'dev', '0.3.0')
     const file = path.join(dataDir(U1), 'server-update.json')
     fs.writeFileSync(file, JSON.stringify({ state: 'failed', version: '0.3.0', at: NOW - 1000 }))
-    const { c } = converger(new Map([[U1, '0.3.0']]))
+    const { c } = await converger(new Map([[U1, '0.3.0']]))
     c.converge(listAccounts())
     expect(fs.existsSync(file)).toBe(false)
   })
 
-  it('用它的桌面都很久没来(报告全过期):空闲时回到这台机器自己的版本', () => {
+  it('用它的桌面都很久没来(报告全过期):空闲时回到这台机器自己的版本', async () => {
     signIn(U1)
     for (const v of ['0.3.0', '0.2.9']) installVersion(v)
     report(U1, 'old', '0.2.9', 2, NOW - DESKTOP_REPORT_TTL_MS - 1)
     writeAccountVersionPin(dataDir(U1), { version: '0.2.9', previous: null, at: NOW })
-    const { c, restarted } = converger(new Map([[U1, '0.2.9']]))
+    const { c, restarted } = await converger(new Map([[U1, '0.2.9']]))
     c.converge(listAccounts())
     expect(restarted).toEqual([U1])
     expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.0')
     expect(c.binaryFor(U1)).toBeNull()
   })
 
-  it('换过去秒退三次:退回原来那一版', () => {
+  it('换过去秒退三次:退回原来那一版', async () => {
     signIn(U1)
     for (const v of ['0.3.0', '0.3.1']) installVersion(v)
     report(U1, 'mbp', '0.3.1')
-    const { c } = converger(new Map([[U1, '0.3.0']]))
+    const { c } = await converger(new Map([[U1, '0.3.0']]))
     c.converge(listAccounts())
     c.quickExit(U1, '0.3.1')
     c.quickExit(U1, '0.3.1')

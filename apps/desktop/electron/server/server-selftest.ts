@@ -12,6 +12,54 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { spawnOwnedChild } from '@gugu/session-core/exec'
+import { readAccountActivity } from './server-layout'
+
+/** Same cold-account smoke as ci-linux-packages.sh, through the target's actual entry. */
+export async function checkAccountBoot(binary: string): Promise<void> {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-boot-'))
+  const userId = randomUUID()
+  const account = path.join(home, 'accounts', userId)
+  const data = path.join(account, 'data')
+  fs.mkdirSync(data, { recursive: true, mode: 0o700 })
+  fs.writeFileSync(path.join(account, 'account.json'), '{}', { mode: 0o600 })
+  const ready = Promise.withResolvers<void>()
+  const startedAt = Date.now()
+  let owned: ReturnType<typeof spawnOwnedChild> | undefined
+  let watcher: fs.FSWatcher | undefined
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    watcher = fs.watch(data, (_event, file) => {
+      if (owned && file?.toString() === 'activity.json'
+        && readAccountActivity(data, Date.now(), { pid: owned.child.pid, startedAt })) ready.resolve()
+    })
+    watcher.on('error', error => ready.reject(error))
+    owned = spawnOwnedChild(binary, ['run-account', userId], {
+      detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
+        GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
+        GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: home, USERPROFILE: home },
+      onError: error => ready.reject(error),
+    })
+    // Main writes its existing heartbeat only after full account startup, after the early boot log.
+    // Drain output without collecting environment, credentials or unbounded logs.
+    owned.child.stdout?.resume()
+    owned.child.stderr?.resume()
+    owned.child.stdout?.on('error', error => ready.reject(error))
+    owned.child.stderr?.on('error', error => ready.reject(error))
+    owned.child.once('exit', code => ready.reject(new Error(`Account boot exited before serving (${code})`)))
+    timeout = setTimeout(() => ready.reject(new Error('Account boot did not become ready')), 45_000)
+    await ready.promise
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    watcher?.close()
+    await owned?.stop()
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+  if (owned.child.exitCode !== null && owned.child.exitCode !== 0) throw new Error(`Account boot exited with code ${owned.child.exitCode}`)
+}
 
 export type SelftestCheck = { name: string; run: () => void | Promise<void> }
 export type SelftestResult = { name: string; ok: boolean; error?: string }

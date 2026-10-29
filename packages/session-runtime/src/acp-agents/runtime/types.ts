@@ -26,6 +26,8 @@ export interface PromptQueueStore {
 export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
+  /** Ownership changed; readers query the same cells, including runtime-only views. */
+  onLiveSessionsChanged?: () => void;
   onPromptSteered?: (sessionId: string) => void;
   agentHost: AgentPluginHost;
   host: AcpRuntimeProcessHost;

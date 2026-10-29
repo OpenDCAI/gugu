@@ -28,7 +28,7 @@ const marker = () => ({ from: '2.0.0', to: '3.0.0', fromDir: path.join(home, 've
 describe('one supervisor version lifecycle', () => {
   it('retains actual current, explicit previous, live processes and a staging lease; reclaims only unowned directories', async () => {
     recordVerifiedSupervisorVersion(home, marker())
-    const lifecycle = createServerVersionLifecycle({ layout: layout(), running: () => ['1.0.0'] })
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout(), running: () => ['1.0.0'] })
     let release!: () => void
     const staged = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
     const first = lifecycle.stage('4.0.0', staged)
@@ -42,15 +42,16 @@ describe('one supervisor version lifecycle', () => {
     expect(fs.readdirSync(path.join(home, 'versions')).sort()).toEqual(['1.0.0', '2.0.0', '3.0.0'])
   })
   it('does not guess a legacy previous version from directory numbers or mtimes', () => {
-    expect(createServerVersionLifecycle({ layout: layout() }).reclaim()).toEqual([])
+    expect(createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout() }).reclaim()).toEqual([])
     expect(fs.readdirSync(path.join(home, 'versions'))).toHaveLength(5)
   })
-  it('protects an installer-prepared target until an account adopts it through the same owner', () => {
+  it('protects an installer-prepared target until an account adopts it through the same owner', async () => {
     recordVerifiedSupervisorVersion(home, marker())
-    const lifecycle = createServerVersionLifecycle({ layout: layout() })
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout() })
     const prepared = path.join(home, 'versions', '.prepared', '4.0.0')
     fs.mkdirSync(path.dirname(prepared)); fs.writeFileSync(prepared, '')
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
+    await lifecycle.stage('4.0.0', async () => {})
     const data = path.join(home, 'accounts', userId, 'data')
     fs.mkdirSync(data, { recursive: true })
     fs.writeFileSync(path.join(data, 'server-session.enc'), 'fixture')
@@ -58,9 +59,10 @@ describe('one supervisor version lifecycle', () => {
     expect(fs.existsSync(prepared)).toBe(false)
     expect(lifecycle.reclaim()).not.toContain('4.0.0')
   })
-  it('persists rollback before switching; the watchdog establishes the verified previous fact', () => {
-    const lifecycle = createServerVersionLifecycle({ layout: layout() })
+  it('persists rollback before switching; the watchdog establishes the verified previous fact', async () => {
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout() })
     const next = { from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions', '3.0.0'), toDir: path.join(home, 'versions', '4.0.0'), switchedAt: now }
+    await lifecycle.stage('4.0.0', async () => {})
     lifecycle.switchSupervisor(next, () => {
       expect(readUpgradeMarker(home)).toEqual(next)
       expect(fs.realpathSync(path.join(home, 'current'))).toBe(next.fromDir)
@@ -69,7 +71,7 @@ describe('one supervisor version lifecycle', () => {
     recordVerifiedSupervisorVersion(home, next)
     expect(readAccountVersionPin(path.join(home, 'data'))).toMatchObject({ version: '4.0.0', previous: '3.0.0' })
   })
-  it('Retry waits while busy; explicit target-bound confirmation interrupts exactly once and cannot authorise a later target', () => {
+  it('Retry waits while busy; explicit target-bound confirmation interrupts exactly once and cannot authorise a later target', async () => {
     const data = path.join(home, 'accounts', userId, 'data')
     fs.mkdirSync(data, { recursive: true })
     fs.writeFileSync(path.join(data, 'server-session.enc'), 'fixture')
@@ -77,7 +79,8 @@ describe('one supervisor version lifecycle', () => {
     const env = { GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data }
     const restart = vi.fn()
     let running = '3.0.0'
-    const lifecycle = createServerVersionLifecycle({ layout: layout() })
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => {}, layout: layout() })
+    await lifecycle.stage('4.0.0', async () => {})
     const converger = createAccountVersionConverger({ layout: layout(), lifecycle, log: { info: vi.fn(), warn: vi.fn() }, running: () => running, restart, busy: () => true, now: () => now })
     const accounts = listAccounts()
     expect(requestVersionRetry(env, now)).toBe(true)
