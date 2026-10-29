@@ -33,18 +33,31 @@ export function useAnnotateCanvas(initial: AnnotateDocument) {
   const doc = draft ?? history.present
   const fit = Math.max(.001, Math.min(1, (viewport.width - 32) / doc.crop.width, (viewport.height - 32) / doc.crop.height))
   const scale = fit * view.zoom
-  const save = (next: AnnotateDocument) => setHistory(current => commit(current, next))
   const show = (next: AnnotateDocument) => { working.current = next; setDraft(next) }
+  const save = (next: AnnotateDocument) => {
+    if (editingText) show(next)
+    else setHistory(current => commit(current, next))
+  }
   const resetGesture = () => { gesture.current = null; working.current = null; setDraft(null); setCropDraft(undefined) }
-  const undoEdit = () => { resetGesture(); setEditingText(null); setHistory(undo) }
-  const redoEdit = () => { resetGesture(); setEditingText(null); setHistory(redo) }
   const finishTextEdit = () => {
-    const shape = history.present.shapes.find(candidate => candidate.id === editingText)
-    const next = shape?.kind === 'text' && !shape.text.trim() ? deleteShape(history.present, shape.id) : history.present
-    if (next !== history.present) save(next)
+    if (!editingText) return history.present
+    const pending = draft ?? history.present
+    const shape = pending.shapes.find(candidate => candidate.id === editingText)
+    const next = shape?.kind === 'text' && !shape.text.trim()
+      ? history.present.shapes.some(candidate => candidate.id === shape.id) ? deleteShape(pending, shape.id) : history.present
+      : pending
+    setHistory(current => commit(current, next))
+    working.current = null; setDraft(null)
     setEditingText(null)
     return next
   }
+  const undoEdit = () => {
+    const newText = editingText && !history.present.shapes.some(shape => shape.id === editingText)
+    const next = finishTextEdit()
+    resetGesture()
+    if (!newText || next !== history.present) setHistory(undo)
+  }
+  const redoEdit = () => { finishTextEdit(); resetGesture(); setHistory(redo) }
   const chooseTool = (next: AnnotateTool) => { finishTextEdit(); setSelected(null); setTool(next) }
 
   useEffect(() => {
@@ -57,9 +70,12 @@ export function useAnnotateCanvas(initial: AnnotateDocument) {
   }, [])
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.isComposing || editable(event.target)) return
-      if (!(event.target instanceof HTMLElement) || !event.target.closest('.ia-editor') || event.target.closest('[aria-busy="true"]')) return
       const key = event.key.toLowerCase(), mod = event.metaKey || event.ctrlKey
+      const textUndo = editingText && mod && ['z', 'y'].includes(key)
+        && event.target instanceof HTMLElement && event.target.closest('.ia-text-editor')
+      if (event.isComposing || (editable(event.target) && !textUndo)) return
+      if (!(event.target instanceof HTMLElement) || !event.target.closest('.ia-editor') || event.target.closest('[aria-busy="true"]')) return
+      if (textUndo) event.target.closest<HTMLElement>('.ia-editor')?.focus()
       if (key === ' ' || (!mod && toolKeys[key]) || ['Delete', 'Backspace'].includes(event.key) || (mod && ['z', 'y', '+', '=', '-', '0'].includes(key))) {
         event.preventDefault(); event.stopPropagation()
       }
@@ -165,11 +181,15 @@ export function useAnnotateCanvas(initial: AnnotateDocument) {
       setView({ zoom: 1, x: 0, y: 0 })
     } else if (action?.kind === 'draw' && working.current) {
       const shape = action.shape, box = boundsOf(shape)
-      if (shape.kind === 'marker' || shape.kind === 'text' || shape.kind === 'pen' || (box.width + box.height) * scale >= 3) {
+      if (shape.kind === 'text') {
+        const pending = working.current
+        resetGesture(); show(pending); setSelected(shape.id); setEditingText(shape.id)
+        return
+      }
+      if (shape.kind === 'marker' || shape.kind === 'pen' || (box.width + box.height) * scale >= 3) {
         save(working.current)
         if (shape.kind !== 'mosaic') setSelected(shape.id)
         if (shape.kind === 'marker') setNoteFocus(value => value + 1)
-        if (shape.kind === 'text') setEditingText(shape.id)
       }
     } else if (action?.kind === 'shape') {
       if (working.current) save(working.current)

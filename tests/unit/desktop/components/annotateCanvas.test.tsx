@@ -2,15 +2,17 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
-import { boundsOf, newDocument } from '../../../../apps/desktop/src/components/imageAnnotate/annotateModel'
+import { boundsOf, editShape, newDocument } from '../../../../apps/desktop/src/components/imageAnnotate/annotateModel'
 import { useAnnotateCanvas } from '../../../../apps/desktop/src/components/imageAnnotate/useAnnotateCanvas'
 
 let editor: ReturnType<typeof useAnnotateCanvas>
 let harness: ReturnType<typeof createReactHarness>
 function Probe() {
   editor = useAnnotateCanvas(newDocument(800, 600))
+  const text = editor.doc.shapes.find(shape => shape.id === editor.editingText && shape.kind === 'text')
   return <div className="ia-editor" tabIndex={0}><div ref={editor.stage} onPointerDown={editor.onPointerDown} onPointerMove={editor.onPointerMove}
-    onPointerUp={editor.onPointerUp} onPointerCancel={editor.onPointerCancel}><canvas ref={editor.vectors} /></div><input aria-label="Words" /></div>
+    onPointerUp={editor.onPointerUp} onPointerCancel={editor.onPointerCancel}><canvas ref={editor.vectors} /></div><input aria-label="Words" />
+    {text?.kind === 'text' ? <div className="ia-text-editor"><textarea value={text.text} readOnly onBlur={editor.finishTextEdit} /></div> : null}</div>
 }
 beforeEach(async () => {
   vi.stubGlobal('ResizeObserver', class { constructor(private notify: () => void) {} observe(element: HTMLElement) {
@@ -70,5 +72,50 @@ describe('annotation canvas interaction', () => {
     await act(async () => input.dispatchEvent(key))
     expect(editor.tool).toBe('marker')
     expect(key.defaultPrevented).toBe(false)
+  })
+  it('undoes and redoes a whole new multiline text shape after typing several characters', async () => {
+    await act(async () => editor.chooseTool('text'))
+    await pointer('pointerdown', 100, 100); await pointer('pointerup', 100, 100)
+    const id = editor.editingText!
+    for (const text of ['中文', '中文多行\n第二行 r', '中文多行\n第二行 rnap']) {
+      await act(async () => editor.save(editShape(editor.doc, id, shape => shape.kind === 'text' ? { ...shape, text } : shape)))
+    }
+    await act(async () => editor.finishTextEdit())
+    await act(async () => editor.undoEdit())
+    expect(editor.doc.shapes).toHaveLength(0)
+    await act(async () => editor.redoEdit())
+    expect(editor.doc.shapes).toMatchObject([{ id, kind: 'text', text: '中文多行\n第二行 rnap' }])
+  })
+  it('treats an existing text edit as one undo entry and discards an untouched new text box', async () => {
+    await act(async () => editor.chooseTool('text'))
+    await pointer('pointerdown', 100, 100); await pointer('pointerup', 100, 100)
+    const id = editor.editingText!
+    await act(async () => editor.save(editShape(editor.doc, id, shape => shape.kind === 'text' ? { ...shape, text: 'Original' } : shape)))
+    await act(async () => editor.finishTextEdit())
+    await act(async () => editor.setEditingText(id))
+    for (const text of ['Changed', 'Changed again']) {
+      await act(async () => editor.save(editShape(editor.doc, id, shape => shape.kind === 'text' ? { ...shape, text } : shape)))
+    }
+    await act(async () => editor.undoEdit())
+    expect(editor.doc.shapes).toMatchObject([{ id, text: 'Original' }])
+    await pointer('pointerdown', 500, 400); await pointer('pointerup', 500, 400)
+    await act(async () => editor.undoEdit())
+    expect(editor.doc.shapes).toMatchObject([{ id, text: 'Original' }])
+    expect(editor.history.past).toHaveLength(1)
+  })
+  it('uses shape undo from the active text field and keeps keyboard focus in the editor', async () => {
+    await act(async () => editor.chooseTool('text'))
+    await pointer('pointerdown', 100, 100); await pointer('pointerup', 100, 100)
+    const id = editor.editingText!
+    await act(async () => editor.save(editShape(editor.doc, id, shape => shape.kind === 'text' ? { ...shape, text: '中文 rnap' } : shape)))
+    const input = harness.container.querySelector('textarea')!
+    await act(async () => input.focus())
+    const undo = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })
+    await act(async () => input.dispatchEvent(undo))
+    expect(undo.defaultPrevented).toBe(true)
+    expect(editor.doc.shapes).toHaveLength(0)
+    expect(document.activeElement).toBe(harness.container.querySelector('.ia-editor'))
+    await act(async () => editor.redoEdit())
+    expect(editor.doc.shapes).toMatchObject([{ id, text: '中文 rnap' }])
   })
 })

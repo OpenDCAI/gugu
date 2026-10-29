@@ -74,7 +74,7 @@ function AnnotationCanvas({ item, image, mobile, onCancel, onDone }: {
           <canvas ref={editor.vectors} aria-label={t('canvas')} />
           {textShape?.kind === 'text' ? <Field.Root className="ia-text-editor" style={{ left: textShape.at.x - crop.x, top: textShape.at.y - crop.y, width: Math.max(160 / editor.scale, textShape.size * [...textShape.text].length), fontSize: textShape.size }}>
             <Field.Textarea autoFocus rows={2} aria-label={t('text')} value={textShape.text} disabled={actions.busy}
-              onValueChange={value => editor.save(editShape(editor.history.present, textShape.id, shape => shape.kind === 'text' ? { ...shape, text: value } : shape))}
+              onValueChange={value => editor.save(editShape(editor.doc, textShape.id, shape => shape.kind === 'text' ? { ...shape, text: value } : shape))}
               onBlur={editor.finishTextEdit} />
           </Field.Root> : null}
         </div>
