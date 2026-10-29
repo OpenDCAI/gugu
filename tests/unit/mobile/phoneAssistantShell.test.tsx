@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness, clickElement } from '../../support/testHarness'
+import { useState } from 'react'
+import { useAssistantPanelBack } from '../../../apps/desktop/src/lib/assistantPanelPage'
 
 const state = vi.hoisted(() => ({ transition: vi.fn((update: () => void) => update()) }))
 vi.mock('../../../apps/desktop/src/mobile/navigateMobile', () => ({ navigateMobile: state.transition }))
@@ -25,7 +27,13 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneIdeas', () => ({ PhoneI
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneToday', () => ({ PhoneToday: () => <div>today content</div> }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneTasks', () => ({ PhoneTasks: () => <div>tasks content</div> }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneMemory', () => ({ PhoneMemory: () => <div>memory content</div> }))
-vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneProfile', () => ({ PhoneProfile: ({ go }: { go: (sub: string) => void }) => <>{['devices', 'devices:this-phone', 'devices:offline', 'connectors', 'library:capabilities'].map(sub => <button key={sub} data-testid={`open-${sub}`} onClick={() => go(sub)}>{sub}</button>)}</> }))
+function ProfileFixture({ go, sub }: { go: (sub: string) => void; sub: string | null }) {
+  const [detail, setDetail] = useState(false)
+  useAssistantPanelBack(sub === 'library:capabilities' && detail ? 'capability:calendar' : null, () => setDetail(false))
+  return <>{['devices', 'devices:this-phone', 'devices:offline', 'connectors', 'library:capabilities'].map(sub => <button key={sub} data-testid={`open-${sub}`} onClick={() => go(sub)}>{sub}</button>)}
+    {sub === 'library:capabilities' && (detail ? <span data-testid="capability-detail">Calendar</span> : <button data-testid="open-capability-detail" onClick={() => setDetail(true)}>Calendar</button>)}</>
+}
+vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneProfile', () => ({ PhoneProfile: ProfileFixture }))
 vi.mock('../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell', () => ({ ShellSlot: () => null }))
 
 import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
@@ -91,4 +99,18 @@ it('keeps profile subpages inside the same header and restores the search action
   expect((received.mock.calls[0][0] as CustomEvent).detail).toEqual({ chatId: 'dm', viewportKey: 'assistant' })
   expect(state.transition).not.toHaveBeenCalled()
   window.removeEventListener(UI_EVENTS.openChatSearch, received)
+})
+
+it('returns from a profile detail before leaving its section using the one phone header', async () => {
+  await h.render(<MobileAssistantApp {...props} />)
+  await clickElement(find('mobile-assistant-pill'))
+  await clickElement(find('open-library:capabilities'))
+  await clickElement(find('open-capability-detail'))
+  expect(find('capability-detail')).not.toBeNull()
+  await clickElement(find('mobile-assistant-back'))
+  expect(find('mobile-assistant-app').getAttribute('data-sub')).toBe('library:capabilities')
+  expect(h.container.querySelector('[data-testid="capability-detail"]')).toBeNull()
+  expect(find('open-capability-detail')).not.toBeNull()
+  await clickElement(find('mobile-assistant-back'))
+  expect(find('mobile-assistant-app').getAttribute('data-sub')).toBe('')
 })
