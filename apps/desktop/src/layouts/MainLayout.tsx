@@ -67,6 +67,7 @@ import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/q
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { ContactsProvider } from '../store/contacts'
 import { DevicesProvider } from '../store/devices'
+import { ServerLoginApproveHost } from '../mobile/server-login/ServerLoginApproveHost'
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
 import { ChatSlotHost } from '../components/ChatSlotHost'
 import { ChatListSlotHost } from '../components/ChatListSlotHost'
@@ -1510,6 +1511,8 @@ export function MainLayout({
   return (
     <ContactsProvider active={effectsActive}>
       <DevicesProvider active={effectsActive}>
+        {/* 批准页的机器移除与设置共用这份设备数据。 */}
+        <ServerLoginApproveHost active={effectsActive} />
         <InnerLayout
           user={user}
           effectsActive={effectsActive}
