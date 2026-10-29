@@ -1,5 +1,6 @@
 import type { TerminalState } from '../acp/models/terminals';
 import { textFilePatch } from '../lib/text-diff';
+import type { SessionPatch } from '../acp/session-protocol';
 import type { PermissionSubject } from '../acp/models/permissions';
 /**
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
@@ -46,9 +47,11 @@ export function settlementFromWire<T extends { origin?: AskOrigin }>(settlement:
  * ⚠️ 协议下次升级时删掉(同 settlementFromWire,「向下兼容一档、新的一侧降级」;删它就删这一个 helper 和它的调用点)。
  *
  * 协议 14 把改文件的三种实体(13 的 create/modify/delete-file-tool-call)换成一个规范 patch 实体。差一档的两端在线上互通:
- *  · `from-peer`:13 的宿主发来的旧实体换成 patch(13 本来就带整份前后文本,`textFilePatch` 换算是精确的);
- *  · `to-peer`:发给 13 的端时,patch 实体降成 13 认识的通用工具行 —— 标题、路径照旧,输出是原始 patch 文本。
- *    13 的界面因此看不到彩色 diff;❌ 编造 13 要的整份文件。
+ *  · `from-peer`:13 的宿主发来的旧实体换成 patch(13 本来就带前后文本,`textFilePatch` 换算是精确的);
+ *  · `to-peer`:发给 13 的端时,patch 实体换回 13 自己的改文件实体 —— 一个文件一条(13 的 reducer 也是这么拆的,
+ *    id 同 13 的 makeDiffId),前后文本按 13 原来的读法从 hunk 还原(13 的 unifiedDiffTexts:只有改动附近那几段,
+ *    13 一直就是这么显示的),所以 13 的界面照样是文件卡 + 增删计数。没带 patch 文本的那块 ⇒ 通用工具行,
+ *    ❌ 编造 13 要的文本。
  * 对端是 14 及以上 = 原样返回同一个引用(14↔14 不经过这里)。渲染层只认 14 的 patch 实体。
  */
 export const FILE_PATCH_PROTOCOL = 14;
@@ -57,8 +60,9 @@ export function protocol13FileChanges<T>(value: T, peerProtocol: number, directi
   const convert = direction === 'from-peer' ? fileToolFrom13 : patchToolTo13;
   const walk = (node: unknown): unknown => {
     if (Array.isArray(node)) {
-      const next = node.map(walk);
-      return next.some((item, i) => item !== node[i]) ? next : node;
+      // One 14 patch entity can become several 13 entities (one per file): they take its place in the list.
+      const next = node.flatMap(item => { const walked = walk(item); return Array.isArray(walked) && !Array.isArray(item) ? walked : [walked]; });
+      return next.length !== node.length || next.some((item, i) => item !== node[i]) ? next : node;
     }
     if (!node || typeof node !== 'object') return node;
     const record = node as Record<string, unknown>;
@@ -85,16 +89,48 @@ function fileToolFrom13(node: Record<string, unknown>): Record<string, unknown> 
   return block ? { ...rest, kind: 'patch-tool-call', contentBlocks: [block] } : null;
 }
 
-function patchToolTo13(node: Record<string, unknown>): Record<string, unknown> | null {
+function patchToolTo13(node: Record<string, unknown>): Record<string, unknown> | Record<string, unknown>[] | null {
   if (node.kind !== 'patch-tool-call') return null;
   const { contentBlocks, ...rest } = node;
-  const diffs = (Array.isArray(contentBlocks) ? contentBlocks : [])
-    .filter((block): block is { changes?: { operation?: string; path?: string }[]; patch?: { text?: string } } => block?.type === 'diff');
-  const text = diffs.map(diff => diff.patch?.text
-    ?? (diff.changes ?? []).map(change => `${change.operation ?? 'change'} ${change.path ?? ''}`).join('\n')).join('\n');
-  const title = typeof rest.title === 'string' && rest.title ? rest.title : 'Edit';
-  return { ...rest, kind: 'unknown-tool-call', name: title, toolKind: typeof rest.toolKind === 'string' ? rest.toolKind : 'edit',
-    ...(text ? { outputText: text } : {}) };
+  const diffs = (Array.isArray(contentBlocks) ? contentBlocks : []).filter((block): block is SessionPatch => block?.type === 'diff');
+  const files = diffs.flatMap((diff) => {
+    const change = diff.changes.length === 1 ? diff.changes[0] : undefined;
+    const path = change && typeof change.path === 'string' ? change.path : undefined;
+    if (!path) return [];
+    if (change!.operation === 'delete') return [{ kind: 'delete-file-tool-call', path }];
+    const texts = diff.patch ? hunkTexts(diff.patch.text) : null;
+    if (!texts) return [];
+    return [change!.operation === 'add'
+      ? { kind: 'create-file-tool-call', path, content: texts.newText }
+      : { kind: 'modify-file-tool-call', path, oldText: texts.oldText, newText: texts.newText }];
+  });
+  if (!files.length || files.length !== diffs.length) {
+    // 没有 13 能认的改文件信息:通用工具行,输出是原始 patch 文本。
+    const text = diffs.map(diff => diff.patch?.text ?? '').filter(Boolean).join('\n');
+    const title = typeof rest.title === 'string' && rest.title ? rest.title : 'Edit';
+    return { ...rest, kind: 'unknown-tool-call', name: title, toolKind: typeof rest.toolKind === 'string' ? rest.toolKind : 'edit',
+      ...(text ? { outputText: text } : {}) };
+  }
+  return files.length === 1 ? { ...rest, ...files[0] }
+    : files.map(file => ({ ...rest, ...file, id: `${String(rest.id)}:${file.path}` }));
+}
+
+/** 13 的读法(unifiedDiffTexts):hunk 里的行还原成改前/改后两段;多段首尾相接,行尾那个换行去掉。 */
+function hunkTexts(patch: string): { oldText: string; newText: string } | null {
+  const before: string[] = [];
+  const after: string[] = [];
+  let inHunk = false;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) { inHunk = true; continue; }
+    if (line.startsWith('diff --git ')) { inHunk = false; continue; }
+    if (!inHunk || line.startsWith('\\')) continue;
+    if (line.startsWith('-')) before.push(line.slice(1));
+    else if (line.startsWith('+')) after.push(line.slice(1));
+    else { const text = line.startsWith(' ') ? line.slice(1) : line; before.push(text); after.push(text); }
+  }
+  if (!inHunk && !before.length && !after.length) return null;
+  const trim = (text: string) => text.endsWith('\n') ? text.slice(0, -1) : text;
+  return { oldText: trim(before.join('\n')), newText: trim(after.join('\n')) };
 }
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';

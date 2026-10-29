@@ -1,6 +1,7 @@
 // Protocol 13 compatibility (delete with protocol13FileChanges on the next protocol bump).
 import { describe, expect, it } from 'vitest';
 import { textFilePatch } from '../lib/text-diff';
+import { claudeFilePatch } from '../acp/transport/claude-file-patch';
 import { FILE_PATCH_PROTOCOL, protocol13FileChanges } from './contract';
 
 const base = { id: 't:tool:1', seq: 2, toolCallId: 'edit-1', title: 'Edit src/a.ts', status: 'done', locations: [{ path: '/w/src/a.ts' }] };
@@ -21,13 +22,26 @@ describe('protocol 13 file changes on the wire', () => {
     ]);
   });
 
-  it('to a 13 peer: a patch entity becomes a generic tool row with its title, locations and the raw patch text', () => {
-    const patch = textFilePatch('/w/src/a.ts', 'one\n', 'two\n');
-    const item = { ...base, kind: 'patch-tool-call', contentBlocks: [patch] };
-    const converted = protocol13FileChanges({ t: 'event', data: { activeTurn: { items: [item] } } }, 13, 'to-peer');
-    expect(converted.data.activeTurn.items[0]).toEqual({
-      ...base, kind: 'unknown-tool-call', name: 'Edit src/a.ts', toolKind: 'edit', outputText: patch.patch!.text,
-    });
+  it('to a 13 peer: each changed file becomes 13\'s own file entity, its texts read from the hunks as 13 read them', () => {
+    const modify = claudeFilePatch({ path: '/w/a.txt', hunks: [{ oldStart: 2, oldLines: 3, newStart: 2, newLines: 4,
+      lines: [' beta', '-gamma', '+GAMMA-817', ' delta', '+zeta'] }] });
+    const add = textFilePatch('/w/new.txt', null, 'one\ntwo\n');
+    const remove = textFilePatch('/w/old.txt', 'gone\n', null);
+    const item = { ...base, kind: 'patch-tool-call', contentBlocks: [modify] };
+    const one = protocol13FileChanges({ t: 'result', value: { items: [item] } }, 13, 'to-peer');
+    // One file: the entity keeps its own id (live updates still address it).
+    expect(one.value.items).toEqual([{ ...base, kind: 'modify-file-tool-call', path: '/w/a.txt',
+      oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' }]);
+    const many = protocol13FileChanges({ items: [{ ...item, contentBlocks: [modify, add, remove] }] }, 13, 'to-peer');
+    // Several files: one entity each, with 13's per-file ids, in the place of the one patch entity.
+    expect(many.items).toEqual([
+      { ...base, id: `${base.id}:/w/a.txt`, kind: 'modify-file-tool-call', path: '/w/a.txt', oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' },
+      { ...base, id: `${base.id}:/w/new.txt`, kind: 'create-file-tool-call', path: '/w/new.txt', content: 'one\ntwo' },
+      { ...base, id: `${base.id}:/w/old.txt`, kind: 'delete-file-tool-call', path: '/w/old.txt' },
+    ]);
+    // A diff without patch text has nothing 13 can draw as a file: generic row, no invented text.
+    const bare = protocol13FileChanges({ ...item, contentBlocks: [{ type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'unknown' }] }, 13, 'to-peer');
+    expect(bare).toEqual({ ...base, kind: 'unknown-tool-call', name: 'Edit src/a.ts', toolKind: 'edit' });
   });
 
   it('between protocol 14 peers nothing is converted: the same value comes back', () => {
