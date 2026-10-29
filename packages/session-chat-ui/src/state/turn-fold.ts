@@ -14,6 +14,7 @@ import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptItem, TranscriptTurn } from '@session-chat/model';
+export { isEmptyAgentTurn } from './turn-visibility';
 
 /** Returns true when the item is a user-role message (boundary seam sentinel). */
 export function itemIsUser(item: ChatItem): boolean {

@@ -130,6 +130,8 @@ export type SegmentCtx = {
   caches: ChatCaches;
   expanded: (id: string) => boolean;
   active: boolean;
+  /** Latest logical turn across committed and active tiers; its empty acknowledgement remains visible. */
+  latestTurnId?: string;
   plan: () => SessionPlans | null;
   translate: ChatTranslator;
   pendingToolCallIds: () => Set<string>;

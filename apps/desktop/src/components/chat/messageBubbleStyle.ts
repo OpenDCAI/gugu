@@ -31,9 +31,7 @@ export function buildBubbleStyle(
     wordBreak: 'break-word',
     overflowWrap: 'break-word',
     whiteSpace: 'pre-wrap',
-    // @@@mobile-select-guard (#1227) — 触屏禁原生文本选中 + iOS callout：long-press 已是消息菜单入口
-    //   (startTouchLongPress → openMenuAt)，不抑制的话原生选中/选择手柄/callout 会与菜单打架。
-    //   移动端 select-none。复制走菜单 handleCopyText，桌面仍可选中文本复制。
+    // Metadata and attachments keep the message menu. The mobile body root explicitly opts into selection.
     ...(compactMobile
       ? { userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }
       : {}),

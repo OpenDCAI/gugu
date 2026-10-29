@@ -91,8 +91,20 @@ describe('时间线转 assistant-ui 消息', () => {
     expect(ids).toEqual(['group-1', 'child-1'])
   })
 
-  it('空轮不产出空消息(❌ 屏幕上不许出现一条什么都没有的气泡)', () => {
-    expect(toThreadMessages([turn('t1', [])])).toEqual([])
+  it('最后一轮为空时保留过程确认，后面出现新轮才隐藏历史空轮', () => {
+    const empty = turn('t1', [agentItem('silent', '[NO_REPLY]')])
+    const last = toThreadMessages([empty])
+    expect(last).toHaveLength(1)
+    expect(last[0].metadata?.custom).toHaveProperty('turnProcess.id', 't1:process')
+    expect(toThreadMessages([empty, turn('t2', [agentItem('answer', '收到')])]).map(m => m.content)).toEqual([[{ type: 'text', text: '收到' }]])
+  })
+
+  it('历史空轮不带走原始输入，带工具的轮次仍然显示', () => {
+    const empty = turn('t1', [userItem('input', '请检查'), agentItem('silent', '[NO_REPLY]')])
+    const out = toThreadMessages([empty, turn('tool', [toolItem('call', 'pwd')]), turn('latest', [])])
+    expect(out.some(m => m.id === 'input' && m.role === 'user')).toBe(true)
+    expect(out.some(m => typeof m.content !== 'string' && m.content.some(p => p.type === 'tool-call'))).toBe(true)
+    expect(out.at(-1)?.metadata?.custom).toHaveProperty('turnProcess.id', 'latest:process')
   })
 
   it('上游造的占位标题不许上屏,退回工具自己报的名字', () => {
@@ -301,9 +313,10 @@ describe('思考与过程折叠(同桌面)', () => {
     expect(header(second!)).toEqual({ id: 't1:process#1', live: true })
   })
 
-  it('❌ 不在跑的轮不画这个空头', () => {
-    // 同一轮没在跑(落定 / 机器没说它在跑)⇒ 只有那一句
-    expect(toThreadMessages([timed(turn('t1', [userItem('u1', '算一下')]), 3_000)]).map((m) => m.role)).toEqual(['user'])
+  it('落定的末轮没有输出时保留确认，已有答案且没有过程时不留空头', () => {
+    const empty = toThreadMessages([timed(turn('t1', [userItem('u1', '算一下')]), 3_000)])
+    expect(empty.map((m) => m.role)).toEqual(['user', 'assistant'])
+    expect(header(empty[1])).toMatchObject({ id: 't1:process' })
     // 一句话就答完、落定了 ⇒ 没有可折的过程,不留头
     const answered = toThreadMessages([timed(turn('t1', [userItem('u1', '在吗'), agentItem('a1', '在')]), 3_000, 4_000)])
     expect(answered.every((m) => header(m) === undefined)).toBe(true)

@@ -134,8 +134,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     onMentionInserted?.()
   }, [mentionToInsert, onMentionInserted])
   useEffect(() => {
-    if (quoteContent) scheduleComposerFocus('quote-attached', { target: () => inputRef.current })
-  }, [quoteContent])
+    // Automatic selection quotes leave the browser's handles and Copy toolbar in charge of focus.
+    if (quoteContent && !(mobile && quoteContent.selectionId)) scheduleComposerFocus('quote-attached', { target: () => inputRef.current })
+  }, [quoteContent, mobile])
   useEffect(() => {
     if (!isMain) return
     const attach = (event: Event) => {

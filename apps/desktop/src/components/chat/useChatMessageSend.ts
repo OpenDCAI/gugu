@@ -8,6 +8,7 @@ import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from '../toastContext'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget } from './useChatDraft'
+import { contentWithQuote } from './messageQuoteContent'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 import { useChatStore } from '../../store/chatContext'
 
@@ -35,11 +36,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       return
     }
     if (!typed && pendingFiles.length === 0) return
-    const content = typed
-      ? quoteContent && !quoteContent.messageId
-        ? `> [${quoteContent.senderName}]: ${quoteContent.content}\n${typed}`
-        : typed
-      : ''
+    const content = contentWithQuote(typed, quoteContent)
     // @@@whisper (#820) — 悄悄话模式下覆盖 toUserIds + 附加 isWhisper flag；禁用 @提及。
     const replyToMessageId = quoteContent?.messageId ?? null
     const explicitRecipientIds = resolveMentionUserIds(
