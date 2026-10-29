@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { assistantHomePaths, type AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 
 /** How a connected application is used: by a delegated task, with the skills it should load. */
-export type AssistantIntegrationUse = { note: string; delegate: { tool: 'session_spawn' }; task_skills: string[] }
+export type AssistantIntegrationUse = { note: string; delegate: { tool: string }; task_skills: string[] }
 
 export type AssistantLocalSource = {
   source: 'assistant_memory' | 'assistant_personality' | 'assistant_files' | 'integrations'
