@@ -23,15 +23,15 @@ async function readProjectDeletionImpact(projectId: string, timeoutMessage: stri
 function deleteProjectDescription(
   projectLabel: string,
   automations: Automation[],
-  impact: ProjectDeletionImpact | null,
+  impact: ProjectDeletionImpact,
   translate: ProjectsTranslate
 ) {
-  const headline = translate(impact?.tasks === 0 ? 'projects.delete.descriptionEmpty' : 'projects.delete.description', { projectLabel });
+  const headline = translate(impact.tasks === 0 ? 'projects.delete.descriptionEmpty' : 'projects.delete.description', { projectLabel });
 
   return (
     <div className="space-y-3">
       <p>{headline}</p>
-      <p>{impact ? translate('projects.delete.impact', impact) : translate('projects.delete.impactUnknown')}</p>
+      <p>{translate('projects.delete.impact', impact)}</p>
       {automations.length > 0 && (
         <div className="space-y-2">
           <p className="text-foreground-muted">

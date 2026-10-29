@@ -47,6 +47,14 @@ export async function deleteProject(id: string): Promise<void> {
       const detached = await detachProjectFolder(id, folder.workspaceId);
       if (!detached.success) throw new Error(detached.error.message);
     }
+    // A task may have finished creation while the initial tasks were being
+    // archived. Re-read after detaching folders instead of leaving it active.
+    const initialIds = new Set(sessionRows.map((row) => row.id));
+    const remaining = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id));
+    const { archiveSession } = await import('@main/core/sessions/archiveSession');
+    for (const row of remaining) {
+      if (!initialIds.has(row.id)) await archiveSession(id, row.id);
+    }
     // The project row survives for Restore, so reproduce its old ON DELETE SET
     // NULL effect for automations explicitly. No task outputs/history are erased.
     await db.update(automations).set({ projectId: null }).where(eq(automations.projectId, id));

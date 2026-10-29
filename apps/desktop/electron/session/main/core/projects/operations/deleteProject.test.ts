@@ -67,6 +67,30 @@ describe('deleteProject', () => {
     expect(mocks.deleteProjectRow).not.toHaveBeenCalled();
   });
 
+  it('archives a task created during removal after all folders have been detached', async () => {
+    mocks.sessionsOfProject
+      .mockResolvedValueOnce([{ id: 'session-1' }])
+      .mockResolvedValueOnce([{ id: 'session-1' }, { id: 'created-during-removal' }]);
+    await deleteProject('project-1');
+    expect(mocks.archiveSession.mock.calls).toEqual([
+      ['project-1', 'session-1'], ['project-1', 'created-during-removal'],
+    ]);
+    expect(mocks.archiveSession.mock.invocationCallOrder[1]).toBeGreaterThan(mocks.detach.mock.invocationCallOrder[1]!);
+    expect(mocks.deleteProjectRow).not.toHaveBeenCalled();
+  });
+
+  it('reports failure to archive a task created during removal instead of reporting success', async () => {
+    mocks.sessionsOfProject
+      .mockResolvedValueOnce([{ id: 'session-1' }])
+      .mockResolvedValueOnce([{ id: 'created-during-removal' }]);
+    mocks.archiveSession.mockResolvedValueOnce({ archived: [], unreached: [] })
+      .mockRejectedValueOnce(new Error('new task runtime stop failed'));
+    await expect(deleteProject('project-1')).rejects.toThrow('new task runtime stop failed');
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.deleteProjectRow).not.toHaveBeenCalled();
+    expect(mocks.projectEmit).not.toHaveBeenCalled();
+  });
+
   it('keeps the original true deletion and PR cleanup for an empty project', async () => {
     mocks.sessionsOfProject.mockResolvedValue([]);
     await deleteProject('project-1');

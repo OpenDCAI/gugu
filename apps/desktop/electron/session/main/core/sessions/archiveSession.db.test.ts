@@ -2,6 +2,11 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createAgent, listAgents, updateAgent } from '@gugu/core/local/state/agents';
+import { removeAgentCloudIdentityViaSupabase } from '@gugu/core/cloud/agentIdentityRemoval';
 
 /**
  * spec session-graph 的归档合同,打在真 SQLite 上。
@@ -14,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   stopped: [] as string[],
   teardown: vi.fn(),
   mounted: new Set<string>(),
+  onStop: undefined as ((id: string) => void) | undefined,
 }));
 
 vi.mock('@main/db/client', () => ({
@@ -27,6 +33,7 @@ vi.mock('@main/core/acp/controller', () => ({
   getAcpRuntimeClient: async () => ({
     stopSession: async ({ sessionId }: { sessionId: string }) => {
       mocks.stopped.push(sessionId);
+      mocks.onStop?.(sessionId);
       return { success: true };
     },
   }),
@@ -51,6 +58,12 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 vi.mock('./session-events', () => ({ sessionEvents: { _emit: vi.fn() } }));
 
 vi.mock('@main/core/session-import/host-source', () => ({ hasLocalSessionSource: () => false }));
+vi.mock('@gugu/core/cloud/agentIdentityRemoval', () => ({
+  removeAgentCloudIdentityViaSupabase: vi.fn(async () => ({ removed: true })),
+}));
+// Only the cloud boundary is substituted: deletion, SQLite inventory, roster
+// persistence and the reaper's removal decisions all run their real operations.
+vi.mock('../../../../supabase', () => ({ makeChatClient: () => ({}), electronFetch: undefined }));
 
 const { getProjects } = await import('../projects/operations/getProjects');
 const { listSessionHistory } = await import('../session-history/list-session-history');
@@ -61,6 +74,8 @@ const { recordSessionOutput, sessionOutputs } = await import('./session-outputs'
 const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
+const { reconcileSessionpageAgents } = await import('../../../../sessionpage/sessionpage-agent-reaper');
+const { SESSION_CACHE_KEY, PROJECT_CACHE_KEY, OWNER_CACHE_KEY } = await import('../../../../sessionpage/emdash-agent-provisioning');
 
 describe('archiveSession', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -106,6 +121,7 @@ describe('archiveSession', () => {
     mocks.teardown.mockReset()
     mocks.teardown.mockResolvedValue({ success: true })
     mocks.mounted.clear()
+    mocks.onStop = undefined;
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
   });
 
@@ -160,6 +176,65 @@ describe('archiveSession', () => {
     expect((await getProjects()).map((project) => project.id).sort()).toEqual(['other', 'p1']);
     expect(fixture.sqlite.prepare(`SELECT session_id, data FROM session_turns`).all()).toEqual([{ session_id: 'kept-task', data: turn }]);
     expect(await sessionOutputs('kept-task')).toEqual([{ kind: 'file', path: '/repo-extra/report.md' }]);
+  });
+
+  it('archives a task created during project removal before returning a hidden project', async () => {
+    insertSession('first-task');
+    mocks.onStop = (id) => {
+      if (id === 'first-task') insertSession('created-during-removal');
+    };
+    await deleteProject('p1');
+    expect(archivedAt('first-task')).toBeTruthy();
+    expect(archivedAt('created-during-removal')).toBeTruthy();
+    expect(mocks.stopped).toEqual(['first-task', 'created-during-removal']);
+    expect(await getProjects()).toEqual([]);
+    expect(sessionArchivalInventory().map((state) => state.sessionId).sort())
+      .toEqual(['created-during-removal', 'first-task']);
+  });
+
+  it('reconciles the remaining project-deletion inventory without removing archived agents', async () => {
+    insertSession('kept-task');
+    insertSession('old-task');
+    await archiveSession('p1', 'old-task');
+    const home = await mkdtemp(join(tmpdir(), 'gugu-project-delete-archive-reaper-'));
+    const env = { GUGU_HOME: home };
+    try {
+      for (const sessionId of ['kept-task', 'old-task']) {
+        const agentUserId = `agent-${sessionId}`;
+        await createAgent({ name: sessionId, agent_type: 'codex', gugu_user_id: agentUserId }, env);
+        await updateAgent({ guguUserId: agentUserId }, { cache: {
+          [SESSION_CACHE_KEY]: sessionId, [PROJECT_CACHE_KEY]: 'p1', [OWNER_CACHE_KEY]: 'owner',
+        } }, env);
+      }
+      const originalRoster = await listAgents(env);
+      const reapDeps = {
+        getAuth: async () => ({ userId: 'owner', accessToken: 'fixture-token', refreshToken: 'fixture-refresh' }),
+        resolveDeviceId: async () => 'fixture-device',
+        // Use the same authoritative SQLite readers as emdashSessionpageInventory,
+        // including hidden projects; never feed the visible task list to reaping.
+        getInventory: async () => ({
+          sessionIds: sessionArchivalInventory().map((state) => state.sessionId),
+          projectIds: (await getProjects({ includeHidden: true })).map((project) => project.id),
+        }),
+        env,
+      };
+      await deleteProject('p1');
+      expect(await getProjects()).toEqual([]);
+      expect(await reapDeps.getInventory()).toEqual({ sessionIds: ['kept-task', 'old-task'], projectIds: ['p1'] });
+      vi.mocked(removeAgentCloudIdentityViaSupabase).mockClear();
+      expect(await reconcileSessionpageAgents(reapDeps)).toEqual({ reapedAgents: 0, archivedGroups: 0 });
+      expect(removeAgentCloudIdentityViaSupabase).not.toHaveBeenCalled();
+      expect(await listAgents(env)).toEqual(originalRoster);
+
+      // Positive control: a genuinely deleted task still follows identity cleanup.
+      fixture.sqlite.prepare("DELETE FROM sessions WHERE id = 'kept-task'").run();
+      expect((await reconcileSessionpageAgents(reapDeps)).reapedAgents).toBe(1);
+      expect(removeAgentCloudIdentityViaSupabase).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ agentUserId: 'agent-kept-task' }));
+      expect((await listAgents(env)).map((agent) => agent.gugu_user_id)).toEqual(['agent-old-task']);
+    } finally {
+      expect(home.startsWith(join(tmpdir(), 'gugu-project-delete-archive-reaper-'))).toBe(true);
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it('无目录项目归档后隐藏,历史仍能恢复原会话与工作区,重读清单也保留', async () => {
