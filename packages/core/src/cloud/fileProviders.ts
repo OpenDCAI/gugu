@@ -28,7 +28,7 @@ function remoteSource(size: number, key: string, cache: FileChunkCache, sign: ()
       try { response = await fetcher(lease.url, { signal, headers: offset ? { Range: `bytes=${offset}-` } : {} }) }
       catch (error) { interrupted = true; throw error }
       if (response.status !== (offset ? 206 : 200) || !response.body || offset && response.headers.get('content-range') !== `bytes ${offset}-${size - 1}/${size}`) {
-        await response.body?.cancel(); throw new Error('Invalid file range response')
+        await response.body?.cancel(); throw new Error(`Invalid file range response (HTTP ${response.status})`)
       }
       reader = response.body.getReader(); next = index
     }

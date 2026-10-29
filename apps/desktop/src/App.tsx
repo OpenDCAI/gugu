@@ -10,7 +10,6 @@ import { Tooltip } from './components/ui/Tooltip'
 import { UnfinishedAgentCreateSweeper } from './components/UnfinishedAgentCreateSweeper'
 import { StarterContinuationHost } from './components/StarterContinuationHost'
 import { ShareIntakeHost } from './mobile/share-intake/ShareIntakeHost'
-import { ServerLoginApproveHost } from './mobile/server-login/ServerLoginApproveHost'
 import { AgentPresencePrewarm } from './components/AgentPresencePrewarm'
 import { AgentStatusFeedBridge } from './components/AgentStatusFeedBridge'
 import { ImagePreviewProvider } from './components/ImagePreviewProvider'
@@ -70,7 +69,6 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
         {/* 从前挂在已下架的 AgentCreateRetryHost 里,#6299 起直接挂在这里。 */}
         <StarterContinuationHost active={effectsActive} />
         <ShareIntakeHost active={effectsActive} />
-        <ServerLoginApproveHost active={effectsActive} />
         <UnfinishedAgentCreateSweeper active={effectsActive} />
         <SessionExpiredNotice />
         <ReleaseNotesOpener />

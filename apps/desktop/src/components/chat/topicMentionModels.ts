@@ -1,6 +1,6 @@
 import { withSourceLineCandidates, type GroupRosterCandidate } from '@/lib/mention'
 
-type TopicIdentity = { display_name: string; owner_user_id?: string | null; gugu_number?: number | null; type: 'human' | 'agent' }
+type TopicIdentity = { display_name: string; owner_user_id?: string | null; gugu_number?: number | null; type: 'human' | 'agent'; session_archived_at?: string | null }
 
 /**
  * 话题分栏里能 @ 的人 = 来源线名册 ∪ 来源线 member_user_ids ∪ **话题自己的成员**。

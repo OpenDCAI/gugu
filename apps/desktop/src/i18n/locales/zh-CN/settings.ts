@@ -434,6 +434,10 @@ export default {
       },
       "switchToTunnel": "改用远程隧道",
       "machineLimit": {
+        "occupants": "当前占用名额的机器",
+        "available": "已有可用名额，请重新添加这台机器。",
+        "continue": "继续等待",
+
         "total": "咕咕 server 已达上限（{{used}}/{{max}}），未添加。",
         "tunnel": "远程隧道已达上限（{{used}}/{{max}}），未添加。远程 SSH 不占名额。",
         "unknown": "咕咕 server 已达上限，未添加。",
@@ -779,7 +783,7 @@ export default {
     "update": {
       "downloading": "更新中",
       "downloadingHint": "正在下载 {{version}}，空闲时自动切换。",
-      "ready": "有新版本",
+      "ready": "新版本已就绪，等待空闲",
       "readyHint": "{{version}} 已下载，空闲时自动切换。",
       "updateNow": "现在重启更新",
       "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。",

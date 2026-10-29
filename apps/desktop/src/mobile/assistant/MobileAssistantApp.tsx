@@ -25,6 +25,7 @@ import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assista
 import { ShellSlot } from '@/session/renderer/features/assistant/assistant-shell'
 import { useChatStore } from '@/store/chatContext'
 import { ChatLineScope } from '@/store/chatLineScope'
+import { useAssistantPanelPage } from '@/lib/assistantPanelPage'
 import { PhoneHomeContext } from './phoneHome'
 import { PhoneIdeas } from './PhoneIdeas'
 import { PhoneMemory } from './PhoneMemory'
@@ -153,8 +154,9 @@ function MobileAssistantAppContent({
   const voice = usePhoneVoiceNotes({ assistantId: assistant.id, deviceId: homeDeviceId, machine })
   const { disabled: voiceDisabled, start: voiceStart } = voice
   const back = backOf(route)
+  const innerPage = useAssistantPanelPage()
   // 安卓返回键:往下钻的页回上一层,别的格回聊天,聊天再退出(交给外壳:退回「消息」)。
-  useBackLayer(() => taskChat ? showAssistantTaskChat(null) : open(back ?? { tab: 'chat' }), visible && tab !== 'chat')
+  useBackLayer(() => taskChat ? showAssistantTaskChat(null) : innerPage ? innerPage.back() : open(back ?? { tab: 'chat' }), visible && tab !== 'chat')
 
   // 「问问它」这类:回到聊天并唤起键盘(人要接着打字);点分段里的「聊天」只切过去,不弹键盘(手机壳惯例)。
   const openChat = useCallback(() => {
@@ -206,8 +208,8 @@ function MobileAssistantAppContent({
         data-testid="mobile-assistant-header" hidden={taskChat}
         leading={
           <>
-            {back ? (
-              <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back.tab]}`} onClick={() => open(back)} data-testid="mobile-assistant-back">
+            {innerPage || back ? (
+              <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back?.tab ?? tab]}`} onClick={() => innerPage ? innerPage.back() : back && open(back)} data-testid="mobile-assistant-back">
                 <ChevronLeft />
               </IconButton>
             ) : onExit ? (

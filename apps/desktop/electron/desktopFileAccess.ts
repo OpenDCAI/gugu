@@ -6,6 +6,7 @@ import { attachmentRequest, configuredEndpoint } from '@gugu/core/cloud/attachme
 import { createFileMetadataLoader } from '@gugu/core/cloud/fileMetadata'
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders'
 import { createFileChunkCache, createFileSink, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
+import { attachmentStage } from '@gugu/core/local/files/attachmentDiagnostics'
 import { createFileResolver, type FileContext, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { PROJECT_FILE_READ, createProjectFileReader, localProjectFileProvider } from './projectFileHost'
 import { ownSshFileProvider, type HeldFileSshLinks } from './projectFileSsh'
@@ -61,10 +62,17 @@ export function createDesktopFileAccess(deps: {
   return { providers, resolve, resolveAccount, read, drain, handoffs, publish,
     handlers: (transport: 'ssh' | 'realtime'): DeviceRpcHandlers => transport === 'ssh' ? sshHandlers : {},
     async download(ref: FileRef, name: string, actorId: string) {
-      const { accountId } = await identity(), file = await resolve(ref, { accountId, actorId })
-      if (file.status !== 'ready') throw new Error('File is no longer available')
-      const saved = await saveFileHandle(file, deps.downloads, name)
-      return { localPath: saved.file_path, bytes: saved.content_type.startsWith('image/') ? new Uint8Array(await readFile(saved.file_path)) : new Uint8Array() }
+      const step = <T>(stage: string, action: () => Promise<T>) => attachmentStage({ actorId, ref }, stage, action)
+      const { accountId } = await step('identity', identity)
+      const file = await step('resolve', async () => {
+        const resolved = await resolve(ref, { accountId, actorId })
+        if (resolved.status !== 'ready') throw new Error('File is no longer available')
+        return resolved
+      })
+      const saved = await step('save', () => saveFileHandle(file, deps.downloads, name))
+      const bytes = saved.content_type.startsWith('image/')
+        ? await step('read-image', async () => new Uint8Array(await readFile(saved.file_path))) : new Uint8Array()
+      return { localPath: saved.file_path, bytes }
     },
   }
 }
