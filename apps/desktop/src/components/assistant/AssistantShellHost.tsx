@@ -1,4 +1,4 @@
-import { deviceMachines } from '@/lib/deviceMachines'
+import { deviceMachines } from '@gugu/core/shared/deviceMachines'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'

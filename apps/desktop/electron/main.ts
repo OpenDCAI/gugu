@@ -3521,15 +3521,17 @@ function deviceActionCaller(): DeviceActionCaller {
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || !auth.userId) throw new Error('this machine is not signed in to 咕咕')
       const thisId = await localDeviceId()
-      // 直接读 gugu_devices 全部行(❌ 经 listDevices:手机行会被「在哪跑」那一份滤掉,而手机正是能被调用的设备)。
+      // Native discovery needs every endpoint's full action manifest; the UI device list carries summaries only.
+      // Physical machine grouping is shared with the UI by createDeviceActionCaller.
       const { data, error } = await makeIdentityClient(auth.accessToken)
         .from('gugu_devices')
-        .select('device_id, label, platform, status, last_seen_at, capabilities')
+        .select('device_id, machine_id, label, platform, status, last_seen_at, capabilities')
         .eq('user_id', auth.userId)
       if (error) throw new Error(`list devices failed: ${error.message}`)
-      return ((data ?? []) as Array<{ device_id: string; label: string | null; platform: string | null; status: string; last_seen_at: string | null; capabilities: Record<string, unknown> | null }>)
+      return ((data ?? []) as Array<{ device_id: string; machine_id: string | null; label: string | null; platform: string | null; status: string; last_seen_at: string | null; capabilities: Record<string, unknown> | null }>)
         .map((d) => ({
           device_id: d.device_id,
+          machine_id: d.machine_id,
           label: d.label ?? d.device_id,
           platform: d.platform,
           online: d.status === 'online',
