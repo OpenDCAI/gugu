@@ -63,15 +63,28 @@ it('returns an unadmitted reservation to the next delivery', async () => {
   expect((await journal.prepare()).text).toBe(rejected.text)
 })
 
-it('never treats a failed read as deletion or advances a version; recovery sends the accumulated changes', async () => {
+it('never treats a failed read as deletion, and does not hold back the groups that were read', async () => {
   const { journal, saved } = await fixture()
-  await journal.observe([...snapshot({ memory: [] }), JSON.stringify({ source: 'projects', status: 'unavailable' })])
-  expect((await journal.prepare()).text).toBe('')
-  expect(saved().version).toBe(0); expect(saved().delivered).toBe(0)
-  await journal.observe(snapshot({ memory: [] }))
+  // One device's projects could not be read; its memory deletion was read.
+  await journal.observe([...snapshot({ memory: [] }).filter(line => !line.includes('"source":"projects"')),
+    JSON.stringify({ source: 'projects', device: 'device:mac', status: 'unavailable' })])
   const delta = await journal.prepare()
-  expect(delta.text).toContain('old.md'); await delta.accepted()
-  expect(saved().delivered).toBe(1)
+  expect(delta.text).toContain('old.md')
+  expect(delta.text).not.toContain('项目')
+  expect(saved().groups['项目:mac']?.items.old).toBeDefined()
+  await delta.accepted()
+  expect(saved().delivered).toBe(saved().version)
+  // The source recovers unchanged: nothing to report.
+  await journal.observe(snapshot({ memory: [] }))
+  expect((await journal.prepare()).text).toBe('')
+})
+
+it('never reports devices removed when device discovery itself failed', async () => {
+  const { journal, saved } = await fixture()
+  await journal.observe([...snapshot().filter(line => !line.includes('"device_id"')),
+    JSON.stringify({ source: 'session_devices', status: 'unavailable' })])
+  expect((await journal.prepare()).text).toBe('')
+  expect(saved().groups.devices?.items.mac).toBeDefined()
 })
 
 it('rebuilds the full baseline after compact without replaying older events', async () => {
