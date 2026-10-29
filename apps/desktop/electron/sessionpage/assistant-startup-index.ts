@@ -72,7 +72,7 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
       status: z.enum(['read', 'unavailable']), read: z.string(),
       items: z.array(z.object({ id: z.string(), name: z.string(), path: z.string().optional(), modifiedAt: z.string(),
         size: z.number().optional(), isDefault: z.boolean().optional(),
-        use: z.object({ note: z.string(), delegate: z.object({ tool: z.literal('session_spawn') }), task_skills: z.array(z.string()) }).optional() })).optional(),
+        use: z.object({ note: z.string(), delegate: z.object({ tool: z.string() }), task_skills: z.array(z.string()) }).optional() })).optional(),
     })).parse(value), deps.localSources)
     result.push(json({ source: 'assistant_local_index', read: '个人助理本机资源索引，失败时按各来源重读。',
       ...(local.status === 'read' ? { status: 'read', items: [] } : unavailable) }))

@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 
 type Row = Record<string, unknown>
 type Kind = '设备' | '项目' | '能力' | '设备资料' | '记忆' | '定时' | '连接应用'
+// The assistant has no shell: a connected CLI application is used through a delegated task.
+const INTEGRATION_READ = 'catalog_list；命令行应用派任务（session_spawn）'
 type Item = { name: string; state: string; scope: string; accounts?: string[] }
 type Group = { kind: Kind; read: string; items: Record<string, Item> }
 type Event = { version: number; kind: Kind; operation: '+' | '-' | '~'; name: string; scope: string; read: string; state: string; trusted?: true }
@@ -53,7 +55,7 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
     const source = text(row.source)
     const type = ({ projects: ['项目', 'project_list'], library_capabilities: ['能力', 'library_read'],
       library_devices: ['设备资料', 'library_read'], assistant_memory: ['记忆', 'Read'],
-      assistant_schedules: ['定时', 'schedule_list'], integrations: ['连接应用', 'catalog_list / Read'] } as const)[source]
+      assistant_schedules: ['定时', 'schedule_list'], integrations: ['连接应用', INTEGRATION_READ] } as const)[source]
     if (!type) continue
     const group: Group = { kind: type[0], read: type[1], items: {} }
     for (const raw of row.items) {
@@ -149,7 +151,7 @@ export function createResourceChanges(owner: string, storage: { load(): Promise<
       if (value.notices.includes(operationId)) return true
       const type = ({ devices: ['设备', 'session_devices'], projects: ['项目', 'project_list'], capabilities: ['能力', 'library_read'],
         'device-notes': ['设备资料', 'library_read'], memory: ['记忆', 'Read'], schedules: ['定时', 'schedule_list'],
-        integrations: ['连接应用', 'catalog_list / Read'] } as const)[text(notice.resource)]
+        integrations: ['连接应用', INTEGRATION_READ] } as const)[text(notice.resource)]
       if (!type) return false
       const scope = key(notice.deviceId), groupId = type[0] === '设备' ? 'devices' : `${type[0]}:${scope}`
       const group = value.groups[groupId] ??= { kind: type[0], read: type[1], items: {} }
