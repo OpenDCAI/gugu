@@ -29,7 +29,7 @@ describe('phone Agent model options',()=>{
     expect(h.container.querySelector('[data-dimension="project"]')).toBeNull()
     expect(text()).not.toContain('Pi');expect(text()).not.toContain('harness')
     await clickElement(h.container.querySelector<HTMLElement>('[data-option-id="platform:model-a"]')!)
-    expect(onChange).toHaveBeenCalledExactlyOnceWith({...selection,harness:'pi',model:'platform:model-a'})
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({...selection,harness:'pi',model:'platform:model-a'},true)
     expect(h.container.querySelector('[role="dialog"]')).not.toBeNull()
   })
   it('titles the permission sheet with its label, not the raw permission table',async()=>{

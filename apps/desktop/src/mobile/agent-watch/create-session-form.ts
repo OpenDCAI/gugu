@@ -8,7 +8,7 @@ import type {
   SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
 import { createModelName } from './session-model-menu'
-import { offeredInCreateMenu } from '@/lib/createModelDefault'
+import { canUseOwnCreateModels, defaultCreateModel, offeredInCreateMenu } from '@/lib/createModelDefault'
 import { PREFERRED_SESSION_PROVIDERS } from '@/session/shared/core/sessions/new-session-defaults'
 
 /**
@@ -141,18 +141,19 @@ export function selectHarness(
 }
 
 /**
- * 目录换了(换 harness 后新目录到了),选中的模型若已不在下拉里(下架、要会员、在设置里关掉了,#7056)就退回默认。
+ * 目录到了，自动默认与桌面共用 defaultCreateModel；沿用的自家模型须仍有凭据。
+ * 明确点选的模型(包括不指定)保留；下架、要会员、被关掉的选择回到同一默认。
  * 目录还没到(null)时**不动**:清空一个稍后可能仍然有效的选择只会让人重选一次。
  */
 export function reconcileModel(
   selection: CreateSelection,
   models: SessionpageSessionCreateModels | null,
+  modelTouched = false,
 ): CreateSelection {
   if (!models || models.harness !== selection.harness) return selection
-  const model =
-    selection.model !== null && !models.models.some((m) => m.id === selection.model && offeredInCreateMenu(m))
-      ? null
-      : selection.model
+  const chosen = models.models.find((m) => m.id === selection.model && offeredInCreateMenu(m))
+  const keepModel = chosen && (modelTouched || chosen.source === 'gugu' || canUseOwnCreateModels(models))
+  const model = keepModel || (modelTouched && selection.model === null) ? selection.model : defaultCreateModel(models)
   const effort =
     selection.effort !== null && !models.efforts.some((e) => e.id === selection.effort) ? null : selection.effort
   return model === selection.model && effort === selection.effort ? selection : { ...selection, model, effort }

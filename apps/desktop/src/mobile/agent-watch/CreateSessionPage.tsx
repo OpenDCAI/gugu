@@ -18,6 +18,7 @@ import type {
 import { Thread } from '@/components/assistant-ui/thread.aui'
 import { ComposerExtrasProvider } from '@/components/assistant-ui/composer-extras'
 import { Button } from '@/components/ui/Button'
+import { canUseOwnCreateModels } from '@/lib/createModelDefault'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import { useAuth } from '@/store/auth'
 import { forgetPhoneSessionCreate, readPhoneSessionCreate, rememberPhoneSessionCreate } from '../local-agent/phoneSessionCreate'
@@ -109,7 +110,9 @@ export function CreateSessionPage({
   const [selection, setSelection] = useState<CreateSelection>({ projectId: null, harness: null, model: null, permissionMode: null, effort: null })
   /** 人动过选择没有 —— 动过之后「上次那一套没沿用上」就不再说(那是人自己的改动)。 */
   const [touched, setTouched] = useState(false)
-  /** 选定 harness 的模型目录 —— 按 harness 现探,换家就重读;探不到不拦发送(默认档照建)。 */
+  /** 与桌面创建框同一条：明确点选的自家默认不被自动默认覆盖；换 harness 后重算。 */
+  const modelTouched = useRef(false)
+  /** 选定 harness 的模型目录；自动默认等这份读数，人明确点选后沿用其选择。 */
   const [models, setModels] = useState<SessionpageSessionCreateModels | null>(null)
   const [modelsState, setModelsState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
   /** 正在建的那句话;建成或失败后清空。它同时也是线程里唯一那条(乐观显示的)用户消息。 */
@@ -129,6 +132,7 @@ export function CreateSessionPage({
       .then((next) => {
         if (cancelled) return
         const attempt = phone && ownerId ? readPhoneSessionCreate(ownerId, device.device_id) : null
+        modelTouched.current = attempt !== null
         setPhoneAttempt(attempt)
         setOptions(next)
         setSelection(attempt ? { ...initialSelection(next), ...(attempt.projectId ? { projectId: attempt.projectId } : {}), harness: attempt.harness, model: attempt.model ?? null } : initialSelection(next))
@@ -137,8 +141,8 @@ export function CreateSessionPage({
     return () => { cancelled = true }
   }, [device.device_id, online, reloadKey, phone, ownerId])
 
-  // 目录跟着 harness 走。⚠️ 目录要在那台机器上起一次 harness 进程探,几秒是常态 —— 所以它**不**挡发送:
-  // 人不选模型就按默认建,目录只是「想换的话有哪些」。展示不由手机选:那台电脑按自己的「终端」开关定。
+  // 目录跟着 harness 走；复用这次读数定默认，不另发可用性探针。
+  // 展示不由手机选:那台电脑按自己的「终端」开关定。
   const harness = selection.harness
   const model = selection.model
   useEffect(() => {
@@ -154,15 +158,18 @@ export function CreateSessionPage({
         if (cancelled) return
         setModels(next)
         setModelsState('ready')
-        setSelection((current) => reconcileModel(current, next))
+        setSelection((current) => reconcileModel(current, next, modelTouched.current || (
+          options?.lastUsed?.harness === current.harness && options.lastUsed.model === null && canUseOwnCreateModels(next)
+        )))
       })
       .catch(() => { if (!cancelled) setModelsState('failed') })
     return () => { cancelled = true }
-  }, [device.device_id, online, harness, model, reloadKey, phone])
+  }, [device.device_id, online, harness, model, reloadKey, phone, options])
 
   const blocker = options ? createBlocker(options, selection) : null
+  const readingModelDefault = !modelTouched.current && (!models || models.harness !== harness) && modelsState !== 'failed'
   const creating = pendingText !== null
-  const canSubmit = online && options !== null && optionsError === null && blocker === null
+  const canSubmit = online && options !== null && optionsError === null && blocker === null && !readingModelDefault
   const reloadOptions = () => {
     setOptions(null)
     setOptionsError(null)
@@ -185,8 +192,8 @@ export function CreateSessionPage({
       const submittedDraft = draft.current
       submittedDraft?.hold(first.text)
       // 还没读到选项 / 还有拦着的原因 → 如实报,❌ 不带着空 projectId 发过去让机器来拒。
-      if (!online || !options || optionsError || blocker) {
-        setCreateError(t(`agentWatch.create.blocked.${blocker ?? 'loading'}`))
+      if (!online || !options || optionsError || blocker || readingModelDefault) {
+        setCreateError(readingModelDefault ? t('agentWatch.create.modelLoading') : t(`agentWatch.create.blocked.${blocker ?? 'loading'}`))
         runtime.thread.composer.setText(first.text)
         submittedDraft?.restore(first.text)
         return
@@ -297,9 +304,9 @@ export function CreateSessionPage({
 
   // 「为什么还不能发」钉在输入框上方,与失败横幅同一位置 —— 人看输入框时它就在眼前。
   // ⚠️ 这是**说明**,不是错误:机器上没项目是常态,❌ 不用报错的红。
-  const blockerNotice = options && blocker ? (
-    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker}>
-      {t(`agentWatch.create.blocked.${blocker}`)}
+  const blockerNotice = options && (blocker || readingModelDefault) ? (
+    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker ?? 'loading_model'}>
+      {blocker ? t(`agentWatch.create.blocked.${blocker}`) : t('agentWatch.create.modelLoading')}
     </div>
   ) : null
   const pendingCreationNotice = phoneAttempt && !creating ? (
@@ -384,7 +391,11 @@ export function CreateSessionPage({
                     phoneHost={phone}
                     options={options}
                     selection={selection}
-                    onChange={(next) => { setTouched(true); setSelection(next) }}
+                    onChange={(next, modelPicked) => {
+                      modelTouched.current = next.harness === selection.harness && (modelTouched.current || modelPicked === true)
+                      setTouched(true)
+                      setSelection(next)
+                    }}
                     busy={!online || optionsError !== null || creating || phoneAttempt !== null}
                     models={models}
                     modelsState={modelsState}

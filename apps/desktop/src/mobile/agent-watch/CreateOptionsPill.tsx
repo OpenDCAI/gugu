@@ -52,7 +52,8 @@ export function CreateOptionsPill({
 }: {
   options: SessionpageSessionCreateOptions
   selection: CreateSelection
-  onChange: (next: CreateSelection) => void
+  /** 模型点选另报，区分“明确不指定”和尚未定默认；改项目/权限不算选过模型。 */
+  onChange: (next: CreateSelection, modelPicked?: boolean) => void
   /** 正在建 —— 发出去之后再改项目,请求已经带着旧值在路上了。 */
   busy: boolean
   /** 选定 harness 的模型目录;还没到 / 探失败时 null,由 `modelsState` 说明是哪种。 */
@@ -148,7 +149,7 @@ export function CreateOptionsPill({
                 state={modelsState}
                 selection={selection}
                 onPick={(model) => {
-                  onChange({ ...selection, model })
+                  onChange({ ...selection, model }, true)
                   backToRoot()
                 }}
                 onLeave={() => setView(null)}
