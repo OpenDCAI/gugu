@@ -4,13 +4,13 @@ import { projectGroupsStore } from '@renderer/features/projects/stores/project-g
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 
 /**
- * 一个群在会话页里叫什么(会话里「来自 X」、时间轴上那一格):项目群就是项目名;别的群读咕咕壳的聊天列表那一份
- * (chatSummariesBridge)。认不出来 = null,调用方只说「来自群聊」,❌ 写信封里的群号。
+ * 群名以壳的聊天列表为准。同一个群可绑多个本地文件夹，任取一个项目名会把去处写成那个文件夹。
+ * 壳还没读到摘要时才用已知项目名。认不出来 = null，调用方只说「来自群聊」。
  */
 export function chatDisplayName(chatId: string): string | null {
   chatId = resolveChatId(chatId) ?? chatId;
   const projectId = projectGroupsStore.projectOfChat(chatId);
   const summary = readChatSummary(chatId);
-  const name = (projectId ? projectDisplayName(getProjectStore(projectId)) : null) ?? summary?.name;
+  const name = summary?.name ?? (projectId ? projectDisplayName(getProjectStore(projectId)) : null);
   return name ? groupDisplayName({ name, alias: summary?.alias }) : null;
 }
