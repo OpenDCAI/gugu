@@ -622,13 +622,13 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     expect(ids(units)).toContain('a14');
-    // 对话布局例外(管家 10-28,MBP 验收 #733):跑着就套头,写「执行中 · 后台任务」,❌ 行平铺在上一轮回复底下。
+    // 对话布局跑着就套头，但不把轮次触发来源写成推算的状态文案。
     const silent = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1')], undefined, { startedAt: 5_000 });
     for (const record of [running, silent]) {
       const conversation = flattenTier([record], ctxWith({ foldTurnProcess: true, active: true, agentConversation: true }), SEGMENTERS);
       const head = conversation.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as TurnProcessItem | undefined;
       expect(head?.live).toBe(true);
-      expect(head?.trigger).toEqual({ kind: 'agent' });
+      expect(head).not.toHaveProperty('trigger');
     }
   });
 
@@ -985,16 +985,16 @@ describe('agent conversation segment process', () => {
     expect(process(units)).toMatchObject({ steps: 3, live: true });
     expect(conversation(record, true, true).length).toBeLessThan(units.length);
   });
-  it('carries delivery, schedule and agent triggers through both process paths', () => {
+  it('keeps runtime triggers out of both observable process paths', () => {
     for (const trigger of [{ kind: 'delivery' as const, chatIds: ['g1'] }, { kind: 'schedule' as const }, { kind: 'agent' as const }]) {
       for (const speech of [[], [reply('said')]]) {
         const record = { ...turn('t', [user('u'), tool('a'), ...speech]), trigger };
-        expect(process(conversation(record, true))?.trigger).toEqual(trigger);
-        expect(process(conversation(record))?.trigger).toBeUndefined();
+        expect(process(conversation(record, true))).not.toHaveProperty('trigger');
+        expect(process(conversation(record))).not.toHaveProperty('trigger');
       }
     }
-    expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))?.trigger).toEqual({ kind: 'agent' });
-    expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))?.trigger).toBeUndefined();
+    expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))).not.toHaveProperty('trigger');
+    expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))).not.toHaveProperty('trigger');
   });
   it('leaves a single tool as one row and uses speech to separate consecutive tool groups', () => {
     const record = turn('pings', [user('u'), bash('p1'), reply('mid'), bash('p2'), reply('final')], DONE);

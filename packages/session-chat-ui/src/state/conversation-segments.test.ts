@@ -26,7 +26,7 @@ describe('replay conversation segment boundaries', () => {
   it('keeps the latest live words in a bubble and earlier words in the process', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
     const rows = flattenTier([record], context(true), segmenters);
-    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 'one', 'first', 'two', 'latest']);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(true);
     expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
@@ -88,39 +88,39 @@ describe('replay conversation segment boundaries', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.map(row => row.itemId)).not.toContain('t:process:earlier');
-    expect(rows.map(row => row.itemId)).toContain('one');
+    expect(rows.map(row => row.itemId)).toContain('t:run:one');
     expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(false);
   });
 
-  it('carries the live trigger through the bubble process and never invents historical clocks', () => {
+  it('does not infer process labels from runtime triggers or invent historical clocks', () => {
     const record: TranscriptTurn = { ...turn([message('u', 'user'), message('reply', 'assistant')]), startedAt: undefined, endedAt: undefined, trigger: { kind: 'schedule' } };
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
-    expect(head.conversationProcess).toMatchObject({ trigger: { kind: 'schedule' } });
+    expect(head.conversationProcess).not.toHaveProperty('trigger');
     expect(head.conversationProcess?.startedAt).toBeUndefined();
     expect(head.conversationProcess?.endedAt).toBeUndefined();
   });
 
-  it('carries a schedule trigger before the first model output arrives', () => {
+  it('keeps an observable placeholder before scheduled model output arrives', () => {
     const record = { ...turn([]), initiator: 'agent' as const, trigger: { kind: 'schedule' as const } };
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true,
-      placeholder: true, trigger: { kind: 'schedule' }, startedAt: 1000, steps: 0 });
+      placeholder: true, startedAt: 1000, steps: 0 });
   });
 
-  it('uses each segment input as its trigger instead of inheriting the agent turn', () => {
+  it('does not expose trigger labels when later input comes from another source', () => {
     const incoming = { ...message('delivery', 'user', 8000), text: '<gugu_delivery route="chat" from="Peer" from_id="user:11111111-1111-4111-8111-111111111111" chat="206258" chat_kind="group" source_link="gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333"><![CDATA[update]]></gugu_delivery>' };
     const record = { ...turn([message('before', 'assistant', 2000), message('owner', 'user', 5000)]), initiator: 'agent' as const, trigger: { kind: 'agent' as const } };
     let rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.data).not.toHaveProperty('trigger');
     record.items = [...record.items, message('after', 'assistant', 6000), incoming] as TranscriptTurn['items'];
     rows = flattenTier([record], context(true), segmenters);
-    expect(rows.at(-1)?.data).toMatchObject({ trigger: { kind: 'delivery', chatIds: ['22222222-2222-4222-8222-222222222222'] } });
+    expect(rows.at(-1)?.data).not.toHaveProperty('trigger');
     const old = rows.find(row => row.itemId === 't:process:head')!.data as ChatMessage;
-    expect(old.conversationProcess?.trigger).toBeUndefined();
+    expect(old.conversationProcess).not.toHaveProperty('trigger');
   });
 
   it('quotes a completion source as background even when the notice has no summary property', () => {
@@ -128,7 +128,7 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => row.itemId === 't:process@wake:head')!.data as ChatMessage;
     expect(head.conversationReply).toMatchObject({ from: 'Background', text: 'wake' });
-    expect(head.conversationProcess?.trigger).toEqual({ kind: 'agent' });
+    expect(head.conversationProcess).not.toHaveProperty('trigger');
   });
 
   it('does not add the generic message margin between process parts or after an action lane', () => {
@@ -154,7 +154,8 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.some(row => row.kind === 'agent-send')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'head')).toHaveLength(1);
-    expect(rows.find(row => row.itemId === 'pending')?.kind).toBe('mcp-tool-call');
+    expect(rows.find(row => row.itemId === 't:run:pending')?.data).toMatchObject({ kind: 'tool-run', stepCount: 1, collapsible: false });
+    expect(rows.some(row => row.kind === 'mcp-tool-call')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'body').map(row => row.itemId)).toEqual(['ready']);
   });
 });

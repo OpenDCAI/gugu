@@ -7,8 +7,6 @@ import { CommandsContext } from '@session-chat/components/contexts/CommandsConte
 import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
 import { SelfIdentityProvider } from '@session-chat/lib/self-identity';
-import { ChatNameProvider } from '@session-chat/lib/chat-name';
-import { ConversationProcess } from './ConversationProcess';
 import { createChatCaches } from '@session-chat/core/caches';
 import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -207,25 +205,6 @@ describe('agent-centered conversation bubbles', () => {
       expect(view.host.textContent).not.toContain('已处理');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
-  });
-
-  it('says what a live turn the owner did not type is busy with, naming the group only when it knows exactly one', () => {
-    const label = (trigger: NonNullable<ChatMessage['conversationProcess']>['trigger']) => {
-      const host = document.createElement('div');
-      const dispose = render(() => <ChatNameProvider value={id => (id === 'g1' ? 'gugu' : null)}>
-        <ConversationProcess process={{ id: 'p', live: true, steps: 2, ...(trigger ? { trigger } : {}) }} anchorId="p" expanded />
-      </ChatNameProvider>, host);
-      const text = host.querySelector('[data-conversation-process]')!.textContent;
-      dispose();
-      return text;
-    };
-    expect(label(undefined)).toBe('Thinking and working · 2 steps›');
-    expect(label({ kind: 'delivery', chatIds: ['g1'] })).toBe('Thinking and working · handling a message from gugu · 2 steps›');
-    // 几条合成一轮、或者宿主认不出:不写名字,❌ 写会话 id。
-    expect(label({ kind: 'delivery', chatIds: ['g1', 'g2'] })).toBe('Thinking and working · handling incoming messages · 2 steps›');
-    expect(label({ kind: 'delivery', chatIds: ['unknown'] })).toBe('Thinking and working · handling incoming messages · 2 steps›');
-    expect(label({ kind: 'schedule' })).toBe('Thinking and working · running a scheduled task · 2 steps›');
-    expect(label({ kind: 'agent' })).toBe('Thinking and working · background task · 2 steps›');
   });
 
   it('updates the existing bubble in place while keeping its name and brain control', async () => {

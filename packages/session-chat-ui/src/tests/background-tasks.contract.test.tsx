@@ -1,4 +1,5 @@
 import { createChatContext } from '@session-chat/chat-context'
+import { textFilePatch } from '@gugu/session-core/lib'
 import { createChatView } from '@session-chat/chat-view'
 import type { ChatCommands } from '@session-chat/commands'
 import { DEFAULT_THEME } from '@session-chat/core/theme'
@@ -392,7 +393,7 @@ it('keeps a sealed bubble above a steer and the background pill on the following
   expect(host.querySelectorAll('[data-slot="background-tasks-pill"]')).toHaveLength(1)
 })
 
-it('renders a single Bash step without a nested disclosure and gives an owner steer its own origin', async () => {
+it('summarizes a single live command without a nested disclosure and keeps the owner steer boundary', async () => {
   const { state, host } = mount({}, true)
   const now = Date.now()
   state.transcript.activeTurn.set({ id: 'origin', seq: 0, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: now - 5000, items: [
@@ -401,16 +402,39 @@ it('renders a single Bash step without a nested disclosure and gives an owner st
     { kind: 'execute-tool-call', id: 'single', seq: 2, toolCallId: 'single', toolName: 'Bash', title: 'Read Beta workflow', command: 'cat workflow.yml', status: 'done', at: now - 1000 },
   ] })
   await until('owner-steer process is visible', () => host.querySelector('[data-conversation-process="origin:process@owner-steer"]') !== null)
-  const step = host.querySelector<HTMLElement>('[data-conversation-step="single"]')!
+  const step = host.querySelector<HTMLElement>('[data-slot="tool-run"]')!
   expect(step).not.toBeNull()
-  expect(step.textContent).toContain('Bash')
-  expect(step.textContent).toContain('Read Beta workflow')
+  expect(step.textContent).toContain('Ran 1 shell command')
+  expect(step.textContent).not.toContain('Bash')
+  expect(step.getAttribute('data-step-count')).toBe('1')
   expect(step.querySelector('button, [data-collapse-id]')).toBeNull()
-  expect(step.offsetHeight).toBe(32)
+  expect(step.offsetHeight).toBeGreaterThan(0)
   const process = host.querySelector<HTMLElement>('[data-conversation-process="origin:process@owner-steer"]')!
   expect(process.textContent).not.toContain('background task')
   const bubble = host.querySelector<HTMLElement>('[data-user-card="before"]')!
   const input = host.querySelector<HTMLElement>('[data-agent-conversation-message="owner-steer"]')!
   await untilStable('message seam settles', () => input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom)
   expect(Math.abs(input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom - 20)).toBeLessThanOrEqual(1)
+})
+
+it('keeps background tasks on the completed process with a trailing change card', async () => {
+  const { state, host } = mount({}, true)
+  state.transcript.history.seed([{
+    id: 'edited', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 4000, outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: 'edit-request', seq: 0, role: 'user', text: 'Update the file and leave the checks running.' },
+      { kind: 'diff', id: 'edit-file', seq: 1, patches: [textFilePatch('/workspace/result.txt', null, 'Updated.')], status: 'done' },
+      { kind: 'message', id: 'edit-reply', seq: 2, role: 'assistant', text: 'Updated the file; checks are still running.' },
+    ],
+  } as unknown as TranscriptTurn])
+  state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+  await until('the result card and background tasks mount', () => !!host.querySelector('[data-slot="file-change-summary"]') && !!host.querySelector('[data-slot="background-tasks-pill"], [data-slot="background-tasks"]'))
+  await untilStable('completed process layout settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height)
+  const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="edited:process:head"]')!
+  const pill = head.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]')
+  expect(pill).not.toBeNull()
+  expect(pill!.textContent).toContain('Background · 1 command · 1 subagent')
+  expect(row(host)).toBeNull()
+  const process = head.querySelector<HTMLElement>('[data-conversation-process]')!
+  expect(Math.abs(process.getBoundingClientRect().top - pill!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+  expect(host.querySelectorAll('[data-slot="file-change-summary"]')).toHaveLength(1)
 })

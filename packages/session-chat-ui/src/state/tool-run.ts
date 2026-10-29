@@ -65,7 +65,7 @@ const CATEGORY_ORDER: readonly ToolRunCategory[] = [
 ];
 
 /** 这一行属于哪一类；`null` = 它不进段（文本），并把前面的段切断。 */
-export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
+export function toolRunCategory(item: ChatItem, conversation = false): ToolRunCategory | null {
   switch (item.kind) {
     case 'thinking':
       return 'thinking';
@@ -87,7 +87,9 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
     case 'web-fetch-tool-call':
       return 'fetch';
     case 'mcp-tool-call':
-      return agentSendOf(item as TranscriptItem) ? null : 'mcp';
+      return !conversation && agentSendOf(item as TranscriptItem) ? null : 'mcp';
+    case 'tool':
+      return conversation ? 'tool' : null;
     case 'spawn-subagent-tool-call':
       return 'subagentLaunch';
     case 'subagent-done-tool-call':
@@ -108,7 +110,7 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
 
 export type ToolRunTally = Partial<Record<ToolRunCategory, number>>;
 
-export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
+export function tallyToolRun(items: readonly ChatItem[], conversation = false): ToolRunTally {
   const tally: ToolRunTally = {};
   for (const item of items) {
     // `tool-group` is a layout wrapper (for example the read-batch emitted for
@@ -117,7 +119,7 @@ export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
     // though the hidden children were all file reads. Walk the leaves so the
     // sentence reports the same calls that expansion reveals.
     if (item.kind === 'tool-group') {
-      const childTally = tallyToolRun(item.children);
+      const childTally = tallyToolRun(item.children, conversation);
       for (const category of CATEGORY_ORDER) {
         const count = childTally[category];
         if (!count) continue;
@@ -125,7 +127,7 @@ export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
       }
       continue;
     }
-    const category = toolRunCategory(item);
+    const category = toolRunCategory(item, conversation);
     if (!category) continue;
     tally[category] = (tally[category] ?? 0) + 1;
   }
@@ -218,4 +220,3 @@ export function toolRunNow(items: readonly ChatItem[]): ToolRunNow | null {
 export function toolRunNowLabel(now: ToolRunNow, translate: ChatTranslator): string {
   return translate(now.kind === 'command' ? 'transcript.toolRun.nowRunning' : 'transcript.toolRun.nowThinking');
 }
-

@@ -36,7 +36,7 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
     const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means expanded (see view-state.ts).
-    const expanded = () => props.ctx.viewState.isCollapsed(props.data.id);
+    const expanded = () => props.data.collapsible !== false && props.ctx.viewState.isCollapsed(props.data.id);
     return (
       <div
         data-slot="tool-run"
@@ -51,7 +51,7 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
           <div class={turnProcessHeaderSlot}>
             <CollapseHeader
               id={props.data.id}
-              collapsible
+              collapsible={props.data.collapsible !== false}
               expanded={expanded()}
               active={props.data.live}
               height={height()}

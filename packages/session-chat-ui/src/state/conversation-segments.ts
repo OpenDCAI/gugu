@@ -1,5 +1,4 @@
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
@@ -17,7 +16,6 @@ export type ConversationSegment = {
   endedAt?: number;
   live: boolean;
   idleMs: number;
-  trigger: NonNullable<TranscriptTurn['trigger']>;
 };
 export type ConversationBlock = { kind: 'input'; item: ChatItem } | ConversationSegment;
 
@@ -47,7 +45,6 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
   let segment: ConversationSegment | undefined;
   let input: ChatMessage | undefined;
   let inputFrom: 'background' | undefined;
-  let trigger: NonNullable<TranscriptTurn['trigger']> = turn.trigger ?? { kind: turn.initiator === 'agent' ? 'agent' : 'owner' };
   let startedAt = turn.startedAt;
   let boundary: string | undefined;
   let hadSegment = false;
@@ -56,7 +53,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
   const open = (): ConversationSegment => {
     if (!segment) {
       segment = { kind: 'segment', id: boundary ? `${turnProcessId(turn.id)}@${boundary}` : turnProcessId(turn.id),
-        items: [], live: false, idleMs: 0, trigger, ...(input ? { input } : {}), ...(inputFrom ? { inputFrom } : {}), ...(startedAt !== undefined ? { startedAt } : {}) };
+        items: [], live: false, idleMs: 0, ...(input ? { input } : {}), ...(inputFrom ? { inputFrom } : {}), ...(startedAt !== undefined ? { startedAt } : {}) };
       blocks.push(segment);
       hadSegment = true;
     }
@@ -79,9 +76,6 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       blocks.push({ kind: 'input', item });
       input = item;
       inputFrom = undefined;
-      const delivery = readDeliveryEnvelope(item.text);
-      const chatIds = [...new Set(delivery?.segments.flatMap(({ facts }) => facts?.chat && (facts.chatKind === 'group' || facts.chatKind === 'topic') ? [facts.chat] : []) ?? [])];
-      if (hadSegment || !turn.trigger) trigger = delivery ? { kind: 'delivery', ...(chatIds.length ? { chatIds } : {}) } : { kind: 'owner' };
       pendingInput = true;
       continue;
     }
@@ -90,7 +84,6 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
     if (notification) {
       input = { kind: 'message', id: item.id, seq: item.seq, role: 'user', text: ('summary' in item ? item.summary : undefined) ?? item.title };
       inputFrom = 'background';
-      trigger = { kind: 'agent' };
     }
     const question = 'toolCallId' in item && isQuestionOrPlanToolName(toolCallName(item));
     // Context and engine boundaries keep their chronological place outside process folds.

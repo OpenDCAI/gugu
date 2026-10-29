@@ -1,4 +1,4 @@
-import { conversationOutput, processTrigger } from './conversation-process';
+import { conversationOutput } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
 import { planConversationSegments } from './conversation-segments';
@@ -196,7 +196,7 @@ export function flattenTier(
   let conversationOwner: string | undefined;
   let lastConversationPart: 'input' | 'head' | 'step' | 'body' | undefined;
 
-  const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[]): void => {
+  const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[], owner = conversationOwner): void => {
     if (isSubagentChild(item)) return;
     const seg = segmenters[item.kind];
     if (!seg) return;
@@ -205,7 +205,7 @@ export function flattenTier(
 
     stampGroupRoles(group);
     if (group.length === 0) return;
-    if (conversationOwner) for (const u of group) u.conversationProcessOwner = conversationOwner;
+    if (owner) for (const u of group) u.conversationProcessOwner = owner;
     if (ctx.revealAllFolds && folds) for (const u of group) u.folds = folds;
 
     // Copy chrome from the segmenter onto each unit (allows UnitRow to read it
@@ -271,14 +271,14 @@ export function flattenTier(
     const ops: EmitOp[] = [];
     let run: ChatItem[] = [];
     const flush = (): void => {
-      // Prototype stepRows(): a single call keeps its own row; folding starts at two calls.
-      if (run.length === 1) ops.push({ kind: 'row', item: run[0] });
+      // Running conversation steps stay semantic even when only one call has arrived.
+      if (run.length === 1 && !(ctx.agentConversation && ctx.active)) ops.push({ kind: 'row', item: run[0] });
       else if (run.length > 0) ops.push({ kind: 'run', rows: run });
       run = [];
     };
     for (const row of rows) {
       if (isSubagentChild(row)) continue;
-      if (toolRunCategory(row)) {
+      if (toolRunCategory(row, ctx.agentConversation && ctx.active)) {
         run.push(row);
         continue;
       }
@@ -315,12 +315,13 @@ export function flattenTier(
         kind: 'tool-run',
         id: runId,
         turnId,
-        label: toolRunLabel(tallyToolRun(op.rows), ctx.translate),
+        label: toolRunLabel(tallyToolRun(op.rows, ctx.agentConversation && ctx.active), ctx.translate),
         stepCount: op.rows.length,
+        ...(ctx.agentConversation && ctx.active ? { collapsible: false } : {}),
         ...(live ? { live: true as const } : {}),
         ...(now ? { now } : {}),
       }, folds);
-      if (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false)) {
+      if (!(ctx.agentConversation && ctx.active) && (ctx.revealAllFolds || (ctx.isTurnProcessExpanded?.(runId) ?? false))) {
         for (const row of op.rows) processItem(row, [...folds, { id: runId, stored: true }]);
       }
     }
@@ -400,15 +401,15 @@ export function flattenTier(
     }
 
     const fold = foldPlans[turnIndex];
+    let resultOwner: string | undefined;
     if (ctx.agentConversation) {
       for (const block of planConversationSegments(turn, ctx.active && turnIndex === turns.length - 1)) {
-        if (block.kind === 'input') { processItem(block.item); continue; }
+        if (block.kind === 'input') { resultOwner = undefined; processItem(block.item); continue; }
         const output = conversationOutput(block.items, block.live);
         const ops = planRows(outsideProcess(output.rest));
-        const trigger = block.live ? processTrigger({ ...turn, trigger: block.trigger }) : undefined;
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
           startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs ? { idleMs: block.idleMs } : {}), steps: output.steps.length,
-          ...(trigger ? { trigger } : {}), ...(ops.length ? {} : { empty: true }) };
+          ...(ops.length ? {} : { empty: true }) };
         const expanded = ctx.revealAllFolds || turnProcessExpanded(block.live, ctx.isTurnProcessExpanded?.(block.id) ?? false);
         const steps = () => {
           if (!expanded) return;
@@ -429,6 +430,7 @@ export function flattenTier(
           }
         };
         conversationOwner = output.reply ? `${block.id}:head` : block.id;
+        resultOwner = conversationOwner;
         if (output.reply) {
           const reply = { ...output.reply, conversationProcess: process,
             conversationCaret: block.live && block.items.at(-1)?.id === output.reply.id };
@@ -511,7 +513,7 @@ export function flattenTier(
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
       const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
-      if (summary) processItem(summary);
+      if (summary) processItem(summary, undefined, resultOwner);
     }
 
     // 这一轮交出来的东西(含被它并进来的后续轮):最后那条回复下面,一份一张卡。
@@ -524,7 +526,7 @@ export function flattenTier(
         output,
         index,
         count: outputs.length,
-      });
+      }, undefined, resultOwner);
     });
 
     const completionResult = completedTurnResult(turn, foldRuns.get(turnIndex), ctx.active);

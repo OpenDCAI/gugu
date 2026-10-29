@@ -108,7 +108,7 @@ export type ChatMessage = {
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean; trigger?: TurnProcessItem['trigger'] };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land
@@ -518,11 +518,6 @@ export type TurnProcessItem = {
   /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「执行中 · 9m16s · 39 步」)。 */
   steps?: number;
   /**
-   * 对话布局、在跑:这一轮不是主人手打起的(群消息投递、定时任务、agent 自己起的)。过程行写清在干什么
-   * (「执行中 · 处理「gugu」群消息」),❌ 只露出后台药丸(管家 10-28:主人手打的消息不能被不是他发起的事挡住)。
-   */
-  trigger?: { kind: 'delivery' | 'schedule' | 'agent'; chatIds?: string[] };
-  /**
    * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
    * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。
    */
@@ -567,6 +562,8 @@ export type ToolRunItem = {
   label: string;
   /** 折进去的行数。 */
   stepCount: number;
+  /** Running conversation summaries contain no separately expandable raw tool rows. */
+  collapsible?: boolean;
   /** 这一段里还有在跑的调用（活动层）⇒ 头上微光。 */
   live?: boolean;
   /** 跑着的这一段此刻在做什么(`toolRunNow`):在跑的命令或在思考;只在活动层、只在有的时候写。 */
