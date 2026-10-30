@@ -44,6 +44,13 @@ describe('resource drafts', () => {
     expect(mocks.compose.mock.calls[0]![0]()).toBe(mocks.view)
     expect(mocks.notice).not.toHaveBeenCalled()
   })
+  it('preserves an explicit group receipt through the same draft-opening path', async () => {
+    const { composeTaskDraft } = await import('../../../../apps/desktop/src/lib/composeDraft')
+    const row = { session: { conversationId: 'task', projectId: 'project' } } as Parameters<typeof composeTaskDraft>[0]
+    await composeTaskDraft(row, 'group draft', false, [], 'group-receipt')
+    expect(mocks.open).toHaveBeenCalledExactlyOnceWith({ kind: 'session', sessionId: 'task', projectId: 'project' }, 'group-receipt')
+    expect(mocks.compose).toHaveBeenCalledWith(expect.any(Function), 'group draft')
+  })
   it('copies a pinned file version without querying tasks or using the build scheme', async () => {
     await runResourceAction('copy-resource-url', { kind: 'file', target: { kind: 'file', itemId: '00000000-0000-4000-8000-000000000001', version: 3 } })
     expect(mocks.clipboard).toHaveBeenCalledWith('gugu-file://00000000-0000-4000-8000-000000000001?v=3')
