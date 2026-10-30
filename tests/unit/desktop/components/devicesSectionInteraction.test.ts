@@ -147,6 +147,36 @@ describe('DevicesSection interaction', () => {
     expect(value.remove).not.toHaveBeenCalled()
   })
 
+  it('clicking the versions sheet backdrop closes only that sheet above Settings', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', is_online: false }),
+      device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
+    const closeSettings = vi.fn()
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value },
+      createElement(Sheet, { onClose: closeSettings, testId: 'settings-parent', children: createElement(DevicesSection) }))) })
+    await act(async () => {
+      const trigger = document.body.querySelector<HTMLElement>('[data-testid="settings-device-menu-button"]')!
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      trigger.click()
+    })
+    await flush()
+    await act(async () => { document.body.querySelector<HTMLElement>('[data-testid="settings-device-remove-versions"]')!.click() })
+    await flush()
+    const dialog = document.body.querySelector('[data-testid="settings-device-versions-dialog"]')!
+    const backdrop = dialog.closest('.gg-sheet-viewport')!.previousElementSibling as HTMLElement | null
+    expect(backdrop?.matches('.gg-sheet-backdrop')).toBe(true)
+    expect(dialog.hasAttribute('data-nested')).toBe(true)
+    expect(backdrop?.matches(':has(+ .gg-sheet-viewport > .gg-sheet-content[data-nested])')).toBe(true)
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+      backdrop!.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
+      backdrop!.click()
+    })
+    expect(document.body.querySelector('[data-testid="settings-device-versions-dialog"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="settings-parent"]')).not.toBeNull()
+    expect(closeSettings).not.toHaveBeenCalled()
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
   it('groups physical machines but retains both tier configurations in details', async () => {
     const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', tier: 'acceptance-tasks431', is_online: false }),
       device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
