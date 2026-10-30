@@ -15,6 +15,7 @@ import { EditorView } from '@codemirror/view'
 import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+// @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
 import { fingerprint } from '../../../../apps/desktop/preinstalled-apps/workspace/lines.js'
 import { until } from '../../../support/awaitCondition'
 
