@@ -1,6 +1,7 @@
 import { setTimeout as pause } from 'node:timers/promises';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { taskSearchDocuments } from '@gugu/session-core/session-record/search-documents';
+import { isAgentActive, parseAgentStatus } from '@gugu/core/shared/agentStatus';
 import type { SearchIndexOp, SearchTask } from '@gugu/core/shared/search/types';
 import { sqlite } from '@main/db/client';
 import { log } from '@main/lib/logger';
@@ -24,9 +25,13 @@ function turnOp(taskId: string, row: Stored): SearchIndexOp {
 
 /** One cancellable reconciliation per account-index lifetime. No provider or network reads. */
 export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, write: Write, identity: (sessionId: string, accountId: string) => Promise<string | null> = async () => null): void {
-  const inventory = (sqlite.prepare(`SELECT id,title,project_id FROM sessions WHERE archived_at IS NULL
-    ORDER BY (agent_status = 'running') ASC, updated_at DESC, id`).all() as { id: string; title: string; project_id: string }[])
-    .map(row => ({ id: row.id, title: row.title, projectId: row.project_id }));
+  const inventory = (sqlite.prepare(`SELECT id,title,project_id,agent_status FROM sessions WHERE archived_at IS NULL
+    ORDER BY updated_at DESC, id`).all() as { id: string; title: string; project_id: string; agent_status: string | null }[])
+    .map(row => {
+      const status = parseAgentStatus(row.agent_status);
+      return { task: { id: row.id, title: row.title, projectId: row.project_id }, active: isAgentActive(status ? { status } : null) };
+    })
+    .sort((a, b) => Number(a.active) - Number(b.active)).map(row => row.task);
   store.apply([{ kind: 'tasks', tasks: inventory }]);
   const pending = new Set(inventory.map(row => row.id));
   let running = false;
