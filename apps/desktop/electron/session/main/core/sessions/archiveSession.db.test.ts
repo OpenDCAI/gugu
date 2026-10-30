@@ -59,6 +59,7 @@ vi.mock('../../../../sessionpage/sessionpage-project-groups', () => ({ listProje
 const { getProjects } = await import('../projects/operations/getProjects');
 const { listSessionHistory } = await import('../session-history/list-session-history');
 const { archiveSession, restoreSession } = await import('./archiveSession');
+const { permanentlyDeleteAgentSession } = await import('./permanently-delete-agent-session');
 const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
@@ -445,6 +446,34 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     const { sessionArchivalState } = await import('./session-archival');
     expect(sessionArchivalState('concurrent')).toMatchObject({ revision: 2, archivedAt: null,
       intervals: [{ restoredAt: expect.any(String) }] });
+  });
+
+  it('permanently removes only a deleted Agent task and its SQLite history; automatic archives stay restorable', async () => {
+    insert('deleted-agent');
+    insert('kept-agent');
+    for (const id of ['deleted-agent', 'kept-agent']) {
+      fixture.sqlite.prepare('INSERT INTO messages (id, session_id, content, sender) VALUES (?, ?, ?, ?)').run(`${id}:message`, id, 'history', 'user');
+      fixture.sqlite.prepare('INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES (?, ?, 0, ?, ?)').run(`${id}:turn`, id, `${id}:provider-turn`, '[]');
+      await archiveSession('p1', id);
+    }
+    expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toHaveLength(2);
+    expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toHaveLength(2);
+    await permanentlyDeleteAgentSession('deleted-agent');
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions ORDER BY id').all()).toEqual([{ id: 'kept-agent' }]);
+    expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toEqual([{ id: 'kept-agent:message' }]);
+    expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toEqual([{ id: 'kept-agent:turn' }]);
+    await expect(restoreSession('p1', 'deleted-agent')).rejects.toThrow('Session not found');
+    await expect(permanentlyDeleteAgentSession('deleted-agent')).resolves.toBeUndefined();
+    await expect(restoreSession('p1', 'kept-agent')).resolves.toMatchObject({ id: 'kept-agent', archivedAt: null });
+  });
+
+  it('does not leave a restorable task when stopping the deleted Agent fails', async () => {
+    insert('stop-failed');
+    mocks.mounted.add('stop-failed');
+    mocks.teardown.mockRejectedValueOnce(new Error('runtime stop unavailable'));
+    await expect(permanentlyDeleteAgentSession('stop-failed')).rejects.toThrow('runtime stop unavailable');
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get('stop-failed')).toBeUndefined();
+    await expect(restoreSession('p1', 'stop-failed')).rejects.toThrow('Session not found');
   });
 
   it('把这条会话放回列表', async () => {

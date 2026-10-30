@@ -8,6 +8,7 @@
 export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
+export { permanentlyDeleteAgentSession } from '../session/main/core/sessions/permanently-delete-agent-session'
 export {
   bootEmdashModule,
   setSessionAdmissionPreparation,

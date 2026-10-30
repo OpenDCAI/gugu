@@ -95,11 +95,10 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
     if (!isOwnedAgent) return
     // #7350 删的是咕咕:换成关闭咕咕那一份确认(写清记忆、性格、它开过的会话),这个设置窗让给它。
     if (closeIfMyAssistant(user?.id, agent.id)) return onClose?.()
-    if (!window.confirm(t('settings.profile.confirmDelete', { name: agent.display_name }))) return
+    if (!window.confirm(t('confirmations.deleteAgent', { ns: 'contacts', name: agent.display_name }))) return
     setRemoving(true)
     try {
       await removeOwnedAgent(agent.id)
-      toast(t('settings.profile.deleted'), 'success')
       onClose?.()
     } catch (err) {
       profileLog.error({ err: String((err as Error)?.message ?? err) }, 'delete agent failed')

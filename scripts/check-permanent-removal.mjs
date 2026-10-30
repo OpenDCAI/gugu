@@ -6,9 +6,13 @@ import ts from 'typescript'
 import { PERMANENT_REMOVAL_RPCS } from '../packages/core/src/cloud/agentIdentityRemoval.ts'
 
 const entry = 'packages/core/src/cloud/agentIdentityRemoval.ts'
+const taskRemovalEntry = 'apps/desktop/electron/session/main/core/sessions/permanently-delete-agent-session.ts'
 const rpcs = new Set(Object.values(PERMANENT_REMOVAL_RPCS))
 // Existing explicit deletion and non-identity GC are the only roster-removal callers.
 const removalCallers = {
+  permanentlyDeleteAgentSession: {
+    'apps/desktop/electron/main.ts': 'removeDeletedAgentTask',
+  },
   permanentlyRemove: {
     'apps/desktop/src/lib/contacts.ts': 'removeOwnedAgent',
     'apps/desktop/src/lib/agentProvision.ts': 'defaultRemoveOwnedAgent',
@@ -52,7 +56,8 @@ export function removalViolations(file, text) {
       if (!removalCallers[operation][file] || removalCallers[operation][file] !== enclosingFunction(node)) flag(node)
     }
     if (ts.isCallExpression(node)) {
-      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'delete' && /(?:^|\.)sessions$/.test(node.arguments[0]?.getText(source) ?? '')) flag(node)
+      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'delete' && /(?:^|\.)sessions$/.test(node.arguments[0]?.getText(source) ?? '')
+        && (file !== taskRemovalEntry || enclosingFunction(node) !== 'permanentlyDeleteAgentSession')) flag(node)
     }
     ts.forEachChild(node, visit)
   }
