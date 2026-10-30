@@ -18,8 +18,8 @@ export function createExtrasFamily(): ActionFamily {
         platforms: ['darwin', 'win32', 'linux'],
         settingsUrl: 'x-apple.systempreferences:com.apple.preference.notifications',
         async probe(ctx) {
-          await ctx.deps.notify('咕咕', '这台电脑可以收到助理发来的通知了', { probe: true })
-          return ok(null)
+          const { shown } = await ctx.deps.notify('咕咕', '这台电脑可以收到助理发来的通知了', { probe: true })
+          return shown ? ok(null) : fail('execution_failed', 'Notifications are turned off in gugu settings or are not supported on this computer.')
         },
       },
       { id: 'url', platforms: ['darwin', 'win32', 'linux'] },

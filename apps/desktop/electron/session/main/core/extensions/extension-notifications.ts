@@ -77,13 +77,13 @@ export function admitBanner(source: string, now: number): void {
 
 /** The main-process device action and its user-pressed probe share the task preferences. */
 export async function showDeviceNotification(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }> {
-  const [{ Notification }, { appSettingsService }] = await Promise.all([
-    import('electron'), import('@main/core/settings/settings-service'),
+  const [{ Notification }, { appSettingsService }, { log }] = await Promise.all([
+    import('electron'), import('@main/core/settings/settings-service'), import('@main/lib/logger'),
   ]);
   const { enabled, sound } = await appSettingsService.get('notifications');
   if (!enabled || !Notification.isSupported()) return { shown: false };
   if (!options?.probe) admitBanner('device-action', Date.now());
-  new Notification({ title, body, silent: !sound }).show();
+  await showSystemBanner(Notification, log, 'device', { title, body, silent: !sound }).shown;
   return { shown: true };
 }
 const MAX_TITLE = 120;
@@ -219,6 +219,38 @@ export function refusalReason(systemError: string): string {
   return `the system did not show the notification: ${systemError}`;
 }
 
+// Retain banners until close/click/refusal, including device banners without an App tag.
+const live = new Set<import('electron').Notification>();
+
+function showSystemBanner(
+  Notification: typeof import('electron').Notification,
+  log: Pick<typeof import('@main/lib/logger').log, 'info' | 'warn'>,
+  source: 'extension' | 'device',
+  { title, body, silent, onClick }: { title: string; body: string; silent: boolean; onClick?: () => void },
+): ReturnType<ExtensionNotifierDeps['show']> {
+  const banner = new Notification({ title, body, silent });
+  live.add(banner);
+  const release = () => live.delete(banner);
+  banner.on('close', release);
+  const shown = new Promise<void>((resolve, reject) => {
+    banner.on('show', () => {
+      log.info(`notification: ${source} banner shown`, { title });
+      resolve();
+    });
+    banner.on('failed', (_event, error) => {
+      release();
+      log.warn(`notification: OS refused ${source} banner`, { error: String(error) });
+      reject(new Error(refusalReason(String(error))));
+    });
+  });
+  banner.on('click', () => {
+    release();
+    onClick?.();
+  });
+  banner.show();
+  return { shown, close: () => { release(); banner.close(); } };
+}
+
 let notifier: ReturnType<typeof createExtensionNotifier> | null = null;
 
 /** The live path: the bridge's `notify` verb lands here. */
@@ -242,9 +274,6 @@ export async function showExtensionNotification(input: { extensionId: string; re
       if (!projectId) throw new Error(`No session ${sessionId} on this computer`);
       return projectId;
     };
-    // Held so macOS does not garbage-collect a banner before its click arrives — the
-    // same reason the agent banners keep theirs.
-    const live = new Set<InstanceType<typeof electron.Notification>>();
     notifier = createExtensionNotifier({
       manifestOf: (id) => extensionsService().get(id).manifest,
       locale: sessionHostLocale,
@@ -252,38 +281,7 @@ export async function showExtensionNotification(input: { extensionId: string; re
         const { enabled, sound } = await appSettingsService.get('notifications');
         return { enabled: enabled && electron.Notification.isSupported(), sound };
       },
-      show: ({ title, body, silent, onClick }) => {
-        const banner = new electron.Notification({ title, body, silent });
-        live.add(banner);
-        const release = () => live.delete(banner);
-        banner.on('close', release);
-        let settle: { resolve: () => void; reject: (error: Error) => void } | null = null;
-        const shown = new Promise<void>((resolve, reject) => {
-          settle = { resolve, reject };
-        });
-        // 系统真的把横幅显示出来时才触发 —— 「横幅到底出没出来」唯一不靠人眼的读数。
-        banner.on('show', () => {
-          log.info('notification: extension banner shown', { title });
-          settle?.resolve();
-        });
-        banner.on('failed', (_event, error) => {
-          release();
-          log.warn('notification: OS refused an extension banner', { error: String(error) });
-          settle?.reject(new Error(refusalReason(String(error))));
-        });
-        banner.on('click', () => {
-          release();
-          onClick();
-        });
-        banner.show();
-        return {
-          shown,
-          close: () => {
-            release();
-            banner.close();
-          },
-        };
-      },
+      show: (banner) => showSystemBanner(electron.Notification, log, 'extension', banner),
       focusApp: () => {
         focusAppFromNotification();
       },

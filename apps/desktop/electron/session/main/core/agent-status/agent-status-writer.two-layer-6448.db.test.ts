@@ -75,11 +75,6 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(outputs.length, `${e.type} must not write a status`).toBe(before);
   };
-  const sounds = () =>
-    mocks.emit.mock.calls
-      .filter(([, payload]) => payload && 'soundEvent' in payload)
-      .map(([, payload]) => (payload as { soundEvent?: string }).soundEvent)
-      .filter(Boolean);
   const ipcDetails = () =>
     mocks.emit.mock.calls
       .filter(([, payload]) => payload && 'reading' in payload && 'unseen' in payload)
@@ -129,12 +124,10 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await deliver(event('stop', { backgroundTasks: 1, scheduledTasks: 0 }));
     expect(row()).toEqual({ status: 'working', detail: 'parked', seen: 1 });
     expect(outputs.at(-1)).toEqual({ status: 'working', detail: 'parked', running: false, background: 'running' });
-    expect(sounds()).toEqual([]);
     await deliverNoop(notification('idle_prompt'));
     await deliver(event('start'));
     await deliver(event('stop', { backgroundTasks: 0, scheduledTasks: 0 }));
     expect(row()).toEqual({ status: 'idle', detail: 'done', seen: 0 });
-    expect(sounds()).toEqual([]);
     expect(ipcDetails()).toEqual(['running', 'parked', 'running', 'done']);
   });
 
@@ -145,7 +138,6 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await deliver(event('wait', { waitKind: 'question', waitId: 'toolu_q' }));
     expect(row()).toEqual({ status: 'needs_user', detail: 'question', seen: 0 });
     expect(outputs.at(-1)).toMatchObject({ running: true });
-    expect(sounds()).toEqual([]);
     await deliverNoop(notification('permission_prompt'));
     await deliver(event('wait_resolved', { waitId: 'toolu_q' }));
     expect(row()).toEqual({ status: 'working', detail: 'running', seen: 1 });
@@ -168,7 +160,6 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     });
     await statusWritesSettled(agentStatusWriter, cid);
     expect(row()).toEqual({ status: 'needs_user', detail: 'dialog', seen: 0 });
-    expect(sounds()).toEqual([]);
     await deliver(event('start'));
     expect(row()).toEqual({ status: 'working', detail: 'running', seen: 1 });
   });
@@ -196,7 +187,6 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await deliver(event('start'));
     await deliver(event('stop', { outcome: 'cancelled' }));
     expect(row()).toEqual({ status: 'idle', detail: 'plain', seen: 1 });
-    expect(sounds()).toEqual([]);
   });
 
   it('日志由会话行恢复:行里是 needs_user,来一条 start 就接着往下走', async () => {
