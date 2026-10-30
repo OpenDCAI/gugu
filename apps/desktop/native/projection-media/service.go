@@ -83,35 +83,75 @@ func ServeMedia(parent context.Context, config Config, encoding EncoderConfig, i
 		_ = peer.Close()
 		workers.Wait()
 	}()
-	type incomingWire struct {
-		kind byte
-		data []byte
-		err  error
-	}
 	wires := make(chan incomingWire)
 	readDone := make(chan struct{})
-	go func() {
-		defer close(readDone)
-		for {
-			kind, data, readErr := readWire(input, encoding.Width*encoding.Height*4)
-			select {
-			case wires <- incomingWire{kind, data, readErr}:
-			case <-ctx.Done():
-				return
-			}
-			if readErr != nil {
-				return
-			}
+	go func() { defer close(readDone); readMediaWires(ctx, input, encoding.Width*encoding.Height*4, wires) }()
+	var borrowed chan struct{}
+	defer func() {
+		if borrowed != nil {
+			close(borrowed)
 		}
+		cancel()
+		_ = input.Close()
+		<-readDone
 	}()
-	defer func() { cancel(); _ = input.Close(); <-readDone }()
+	// Recovery sends the same source picture, with a fresh IDR/RTP timestamp,
+	// without waiting for a source ACK that cannot arrive after picture loss.
+	var recoverAt <-chan time.Time
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
+	var lastRecovery time.Time
+	emitFrame := func(receipt EncodedFrame) error {
+		metadata, err := json.Marshal(MediaMessage{Type: "frame", Frame: &receipt})
+		if err != nil {
+			return err
+		}
+		return peer.Send(ctx, metadata)
+	}
 	for {
+		if borrowed != nil {
+			close(borrowed)
+			borrowed = nil
+		}
 		var incoming incomingWire
+		var encoderDone <-chan struct{}
+		if video != nil {
+			encoderDone = video.encoder.done
+		}
 		select {
+		case <-encoderDone:
+			failure := video.encoder.closedError()
+			_ = emit(MediaMessage{Type: "error", Error: failure.Error()})
+			return failure
+		case <-peer.keyframes:
+			if recoverAt == nil && video != nil && video.completed != 0 {
+				delay := time.Until(lastRecovery.Add(time.Second))
+				if delay < 0 {
+					delay = 0
+				}
+				timer.Reset(delay)
+				recoverAt = timer.C
+			}
+			continue
+		case <-recoverAt:
+			recoverAt = nil
+			receipt, err := video.RefreshFrame(ctx)
+			if err != nil {
+				return err
+			}
+			lastRecovery = time.Now()
+			if err = emitFrame(receipt); err != nil {
+				return err
+			}
+			continue
 		case <-ctx.Done():
 			return ctx.Err()
 		case incoming = <-wires:
 		}
+		borrowed = incoming.release
 		kind, data, readErr := incoming.kind, incoming.data, incoming.err
 		if readErr != nil {
 			if parent.Err() != nil {
@@ -131,13 +171,7 @@ func ServeMedia(parent context.Context, config Config, encoding EncoderConfig, i
 			if frameErr != nil {
 				return frameErr
 			}
-			metadata, encodeErr := json.Marshal(MediaMessage{Type: "frame", Frame: &receipt})
-			if encodeErr != nil {
-				return encodeErr
-			}
-			// The video and its metadata travel on this direct peer connection,
-			// never through native IPC into the cloud signaling channel.
-			if err = peer.Send(ctx, metadata); err != nil {
+			if err = emitFrame(receipt); err != nil {
 				return err
 			}
 			if err = emit(MediaMessage{Type: "encoded", Frame: &receipt}); err != nil {
@@ -167,19 +201,6 @@ func ServeMedia(parent context.Context, config Config, encoding EncoderConfig, i
 			if err != nil {
 				return err
 			}
-			stream := video
-			workers.Add(1)
-			go func() {
-				defer workers.Done()
-				select {
-				case <-stream.encoder.done:
-					if !closing.Load() && ctx.Err() == nil {
-						_ = emit(MediaMessage{Type: "error", Error: stream.encoder.closedError().Error()})
-						cancel()
-					}
-				case <-ctx.Done():
-				}
-			}()
 			if err = emit(MediaMessage{Type: "ready", ID: command.ID}); err != nil {
 				return err
 			}

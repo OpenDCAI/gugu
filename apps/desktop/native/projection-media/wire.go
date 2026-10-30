@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,11 @@ type MediaMessage struct {
 }
 
 func readWire(input io.Reader, maxFrame int) (byte, []byte, error) {
+	var buffer []byte
+	return readWireBuffer(input, maxFrame, &buffer)
+}
+
+func readWireBuffer(input io.Reader, maxFrame int, buffer *[]byte) (byte, []byte, error) {
 	var size [4]byte
 	if _, err := io.ReadFull(input, size[:]); err != nil {
 		return 0, nil, err
@@ -42,7 +48,11 @@ func readWire(input io.Reader, maxFrame int) (byte, []byte, error) {
 		(kind[0] != wireJSON && kind[0] != wireFrame) {
 		return 0, nil, errors.New("invalid native media message kind or size")
 	}
-	data := make([]byte, int(length)-1)
+	sizeNeeded := int(length) - 1
+	if cap(*buffer) < sizeNeeded {
+		*buffer = make([]byte, sizeNeeded)
+	}
+	data := (*buffer)[:sizeNeeded]
 	_, err := io.ReadFull(input, data)
 	return kind[0], data, err
 }
@@ -80,4 +90,34 @@ func writeMessage(output io.Writer, message MediaMessage) error {
 		return errors.New("native media response is too large")
 	}
 	return writeWire(output, wireJSON, data)
+}
+
+// The reader borrows one reusable slab until the consumer explicitly returns it.
+// An unbuffered channel alone is insufficient: sending completes before encoding.
+type incomingWire struct {
+	kind    byte
+	data    []byte
+	err     error
+	release chan struct{}
+}
+
+func readMediaWires(ctx context.Context, input io.Reader, maxFrame int, wires chan<- incomingWire) {
+	var buffer []byte
+	for {
+		kind, data, err := readWireBuffer(input, maxFrame, &buffer)
+		returned := make(chan struct{})
+		select {
+		case wires <- incomingWire{kind, data, err, returned}:
+		case <-ctx.Done():
+			return
+		}
+		select {
+		case <-returned:
+		case <-ctx.Done():
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
 }
