@@ -5,16 +5,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { screenLayout } from '@renderer/app/screen-layout';
 import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
 
-const state = vi.hoisted(() => ({ extent: 966, layout: {} as Record<string, number>, observers: new Set<() => void>() }));
+const state = vi.hoisted(() => ({ extent: 966, layout: {} as Record<string, number>, observers: new Set<() => void>(), onLayoutChanged: undefined as undefined | ((layout: Record<string, number>, meta: { isUserInteraction: boolean }) => void) }));
 vi.mock('react-resizable-panels', () => ({
   useGroupRef: () => useRef({
     getLayout: () => state.layout,
-    setLayout: (layout: Record<string, number>) => { state.layout = layout; },
+    setLayout: (layout: Record<string, number>) => { state.layout = layout; state.onLayoutChanged?.(layout, { isUserInteraction: false }); },
   }),
 }));
 vi.mock('@renderer/lib/ui/resizable', () => ({
-  ResizablePanelGroup: ({ children, elementRef }: { children: ReactNode; elementRef?: Ref<HTMLDivElement> }) => <div ref={elementRef}>{children}</div>,
-  ResizablePanel: ({ children, id }: { children: ReactNode; id: string }) => <div data-panel-id={id}>{children}</div>,
+  ResizablePanelGroup: ({ children, elementRef, onLayoutChanged }: { children: ReactNode; elementRef?: Ref<HTMLDivElement>; onLayoutChanged: typeof state.onLayoutChanged }) => {
+    state.onLayoutChanged = onLayoutChanged;
+    return <div ref={elementRef}>{children}</div>;
+  },
+  ResizablePanel: ({ children, id }: { children: ReactNode; id: string }) => <div data-panel="true" data-panel-id={id}>{children}</div>,
   ResizableHandle: () => <div />,
 }));
 vi.mock('@renderer/app/project-block', () => ({ ProjectBlock: () => null }));
@@ -100,7 +103,10 @@ it('keeps ordinary independently opened blocks on their existing ratio behavior'
 });
 
 it('ignores transient zero-size frames and uses an updated explicit width', () => {
-  act(() => groupParticipantPanes.rememberWidth(600));
+  act(() => {
+    state.layout = { [`block-panel-${sourceId}`]: 100 - 600 / 966 * 100, [`block-panel-${targetId}`]: 600 / 966 * 100 };
+    state.onLayoutChanged!(state.layout, { isUserInteraction: true });
+  });
   expect(actualRightWidth()).toBeCloseTo(600, 2);
   const original = { ...state.layout };
   act(() => {
@@ -113,5 +119,40 @@ it('ignores transient zero-size frames and uses an updated explicit width', () =
     for (const notify of state.observers) notify();
   });
   expect(actualRightWidth()).toBeCloseTo(600, 2);
-  expect(groupParticipantPanes.rightWidth).toBe(600);
+  expect(groupParticipantPanes.rightWidth).toBeCloseTo(600, 6);
+});
+
+
+it('restores a dragged pixel width beside a third block after minimum-size clamping', () => {
+  const other = { kind: 'session', projectId: 'resize-project', sessionId: 'third-task' } as const;
+  let otherId: string;
+  act(() => {
+    screenLayout.showBeside(other);
+    otherId = screenLayout.blockOf(other)!;
+    state.extent = 1200;
+    state.layout = { [`block-panel-${sourceId}`]: 30, [`block-panel-${targetId}`]: 30, [`block-panel-${otherId}`]: 40 };
+    if (screenLayout.layout?.type !== 'split') throw Error('Expected one horizontal group');
+    screenLayout.setSplitSizes(screenLayout.layout.id, [30, 30, 40]);
+  });
+  act(() => {
+    state.layout = { [`block-panel-${sourceId}`]: 60 - 350 / 1200 * 100, [`block-panel-${targetId}`]: 350 / 1200 * 100, [`block-panel-${otherId!}`]: 40 };
+    state.onLayoutChanged!(state.layout, { isUserInteraction: true });
+  });
+  expect(groupParticipantPanes.rightWidth).toBeCloseTo(350, 6);
+  const saved = localStorage.getItem('gugu.group-participant-pane.v1:width-resize-test');
+  act(() => {
+    state.extent = 660;
+    state.layout = { [`block-panel-${sourceId}`]: 33.333, [`block-panel-${targetId}`]: 33.333, [`block-panel-${otherId!}`]: 33.334 };
+    for (const notify of state.observers) notify();
+  });
+  act(() => {
+    // Replay the library's constrained layout at the start of expansion.
+    state.layout = { [`block-panel-${sourceId}`]: 33.333, [`block-panel-${targetId}`]: 33.333, [`block-panel-${otherId!}`]: 33.334 };
+    state.extent = 1200;
+    for (const notify of state.observers) notify();
+  });
+  expect(actualRightWidth()).toBeCloseTo(350, 2);
+  expect(state.layout[`block-panel-${otherId!}`]).toBeCloseTo(40, 6);
+  expect(groupParticipantPanes.rightWidth).toBeCloseTo(350, 6);
+  expect(localStorage.getItem('gugu.group-participant-pane.v1:width-resize-test')).toBe(saved);
 });

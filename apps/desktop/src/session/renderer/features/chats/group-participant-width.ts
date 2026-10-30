@@ -20,11 +20,15 @@ export function observeGroupParticipantWidth(element: HTMLElement, node: Split, 
   const resize = () => {
     const pair = panes.pairIn(node);
     if (!pair) return;
-    const pairBlocks = node.children.slice(pair.targetIndex - 1, pair.targetIndex + 1);
-    const widths = pairBlocks.map(child => child.type === 'pane'
-      ? element.querySelector<HTMLElement>(`[data-screen-block="${child.paneId}"]`)?.getBoundingClientRect().width ?? 0 : 0);
-    if (widths.some(width => !Number.isFinite(width) || width <= 0)) return;
-    const sizes = participantSplitSizes(node, pair.targetIndex, panes.rightWidth, widths[0] + widths[1]);
+    const widths = Array.from(element.children)
+      .filter(child => child.hasAttribute('data-panel'))
+      .map(child => child.getBoundingClientRect().width);
+    if (widths.length !== node.children.length || widths.some(width => !Number.isFinite(width) || width <= 0)) return;
+    // The library may have clamped these panels to different shares. Convert the saved pair share
+    // against the whole group's pixel budget, not the pair's currently clamped DOM width.
+    const total = node.sizes[pair.targetIndex - 1] + node.sizes[pair.targetIndex];
+    const extent = widths.reduce((sum, width) => sum + width, 0) * total / 100;
+    const sizes = participantSplitSizes(node, pair.targetIndex, panes.rightWidth, extent);
     const wanted = Object.fromEntries(node.children.map((child, index) => [child.type === 'pane' ? `block-panel-${child.paneId}` : `block-cut-${child.id}`, sizes[index]]));
     const current = handle.getLayout();
     if (Object.keys(wanted).some(id => Math.abs((current[id] ?? -1) - wanted[id]) > 0.001)) handle.setLayout(wanted);
