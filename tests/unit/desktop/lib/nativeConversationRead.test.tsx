@@ -38,7 +38,7 @@ it('retries identity navigation after the target render units become available w
     updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 1, nativeUnreadKeys: ['msg_first'] } as never] })
     const turns = [{ id: 's:turn:s4', items: [{ id: 's:turn:s4:message:msg_first', kind: 'message', role: 'assistant', text: 'Reply' }] }] as TranscriptTurn[]
     let controls!: ReturnType<typeof useNativeConversationRead>
-    function Fixture() { controls = useNativeConversationRead('host', 's', true, () => turns); return null }
+    const Fixture = () => { controls = useNativeConversationRead('host', 's', true, () => turns); return null }
     const revealItem = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
     await harness.render(<Fixture />)
     await act(async () => { controls.onReady({ revealItem } as unknown as ChatView) })
