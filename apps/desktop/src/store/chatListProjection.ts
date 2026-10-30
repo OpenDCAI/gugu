@@ -5,7 +5,7 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { publishChatSnapshot } from '../lib/chatSnapshotPublication'
 import { replaceEqualDeep } from '@tanstack/react-query'
 import { platform } from '../platform'
-import { chatOnScreen } from '../lib/onScreenChat'
+import { isChatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
@@ -73,13 +73,13 @@ export async function applyFetchedChatList(
 export function notifyForRefreshedChats(
   previous: readonly ChatItem[],
   fetched: readonly ChatItem[],
-  context: { activeChatId: string | null; notificationsEnabled: boolean; soundEnabled: boolean },
+  context: { onScreen: (chatId: string) => boolean; notificationsEnabled: boolean; soundEnabled: boolean },
 ): void {
   if (!platform.capabilities.notifications) return
   const previousById = new Map(previous.map((chat) => [chat.id, chat]))
   for (const chat of fetched) {
     if (!shouldNotify({ kind: 'chat', previous: previousById.get(chat.id), next: chat },
-      { enabled: context.notificationsEnabled, onScreen: chat.id === context.activeChatId })) continue
+      { enabled: context.notificationsEnabled, onScreen: context.onScreen(chat.id) })) continue
     void platform.showNotification({ ...createChatNotificationPayload({ ...chat, last_message_preview: chatPreviewText(chat) }), silent: !context.soundEnabled })
       .catch((err) => chatListLog.error({ reason: String(err) }, 'show notification failed'))
   }
@@ -125,7 +125,7 @@ export function useChatProjectionBinding(deps: {
     ledger.recordProjected(fetched, options.requestSeq)
     if (options.notify) {
       notifyForRefreshedChats(chatsRef.current, fetched,
-        { activeChatId: chatOnScreen(), notificationsEnabled: notifyMessages, soundEnabled: notifySound })
+        { onScreen: isChatOnScreen, notificationsEnabled: notifyMessages, soundEnabled: notifySound })
     }
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))

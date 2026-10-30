@@ -12,7 +12,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 const row = (id: string, kind: ChatKind, unread: number, addressed: number): ChatItem => chat({ id, kind, unread_count: unread,
   unread_locator: unread === 0 ? null : { stream_id: `main:${id}`, stream_kind: 'main', thread_root_id: null, message_id: 'first', message_seq: 1,
     unread_count: unread, addressed_count: addressed, cursor_seq: 0, version: 1, is_marked_unread: false } })
-const context = { activeChatId: null, notificationsEnabled: true, soundEnabled: true }
+const context = { onScreen: () => false, notificationsEnabled: true, soundEnabled: true }
 
 beforeEach(() => { showNotification.mockClear() })
 
@@ -25,5 +25,10 @@ describe('the chat notification call site, shared by phone and desktop', () => {
       context,
     )
     expect(showNotification.mock.calls.map(([payload]) => payload.chatId)).toEqual(['dm', 'group-at'])
+  })
+
+  it('raises nothing for the chat the person is looking at (desktop: focused window, that group on screen)', () => {
+    notifyForRefreshedChats([row('group-at', 'group', 0, 0)], [row('group-at', 'group', 1, 1)], { ...context, onScreen: (id) => id === 'group-at' })
+    expect(showNotification).not.toHaveBeenCalled()
   })
 })
