@@ -241,25 +241,30 @@ it('adds a third-party API and explicitly switches the connection without openin
 });
 
 
-it.each([390, 720])('Gugu credits fit a %s px settings container and align the reset date with its explanation', async width => {
+it.each([390, 720])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
   host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
   root.render(<GuguSubscriptionRow />);
-  await until('the Gugu balances render', () => host.querySelector('.subscription-quota')?.textContent?.includes('8.2') ?? false);
+  await until('the Gugu balances render', () => host.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.includes('8.2') ?? false);
   const row = host.querySelector<HTMLElement>('[data-testid="subscription-row-gugu"]')!;
   const quotas = [...row.querySelectorAll<HTMLElement>('.subscription-quota')];
   await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
-  const available = quotas[0].getBoundingClientRect();
-  const period = quotas[1].getBoundingClientRect();
+  const period = quotas[0].getBoundingClientRect();
+  const wallet = quotas[1].getBoundingClientRect();
+  const total = row.querySelector<HTMLElement>('[data-testid="subscription-credits-balance"]')!;
+  expect(parseFloat(getComputedStyle(total).fontSize)).toBeGreaterThan(parseFloat(getComputedStyle(quotas[0].querySelector('strong')!).fontSize));
+  expect(total.getBoundingClientRect().bottom).toBeLessThanOrEqual(period.top);
+  const recharge = row.querySelector<HTMLElement>('[data-testid="membership-open-web"]')!;
+  expect(recharge.getBoundingClientRect().width).toBeLessThan(row.clientWidth * 0.7);
+  expect(row.querySelector('[data-testid="subscription-billing-copy"]')).toBeNull();
   if (width === 390) {
-    expect(period.top).toBeGreaterThanOrEqual(available.bottom);
-    expect(Math.abs(period.left - available.left)).toBeLessThanOrEqual(1);
-    const reset = quotas[1].querySelector('p')!.getBoundingClientRect();
-    const explanation = row.querySelector('[data-testid="subscription-billing-copy"]')!.getBoundingClientRect();
-    expect(Math.abs(reset.left - explanation.left)).toBeLessThanOrEqual(1);
+    expect(wallet.top).toBeGreaterThanOrEqual(period.bottom);
+    expect(Math.abs(wallet.left - period.left)).toBeLessThanOrEqual(1);
+    const reset = quotas[0].querySelector('p')!.getBoundingClientRect();
+    expect(Math.abs(reset.left - period.left)).toBeLessThanOrEqual(1);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   } else {
-    expect(Math.abs(period.top - available.top)).toBeLessThanOrEqual(1);
-    expect(period.left).toBeGreaterThan(available.right);
+    expect(Math.abs(wallet.top - period.top)).toBeLessThanOrEqual(1);
+    expect(wallet.left).toBeGreaterThan(period.right);
   }
 });
 

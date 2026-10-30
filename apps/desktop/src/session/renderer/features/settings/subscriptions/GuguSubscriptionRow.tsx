@@ -4,8 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets';
 import { ArrowUpRight } from '@/lib/icons';
 import { useAuth } from '@/store/auth';
-import { formatCredits, getMembership, periodUsdFor, quotaWindowLabel, quotaWindowViews, useSpendingPower } from '@/lib/billing';
-import { formatDate, formatNumber } from '@/i18n';
+import { formatCredits, getMembership, quotaWindowViews, useSpendingPower } from '@/lib/billing';
 import { platform } from '@/platform';
 import { GUGU_BILLING_URL } from '@/lib/appLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -42,7 +41,6 @@ export function GuguSubscriptionRow() {
   const date = (value: Date) =>
     new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }).format(value);
   const period = windows ? quotaWindowViews(windows).period : null;
-  const periodUsd = windows ? periodUsdFor(windows) : null;
   const badge = plan ? plan.tier[0].toUpperCase() + plan.tier.slice(1) : undefined;
   const identity = !user
     ? translate('subscriptions.gugu.signIn')
@@ -61,7 +59,7 @@ export function GuguSubscriptionRow() {
       logo={<img className="subscription-gugu-icon" src={APP_ICON_URL} alt="" width={24} height={24} />}
       badge={badge}
       identity={identity}
-      scope={translate('subscriptions.gugu.shared')}
+      scope={<span className="subscription-credit-scope">{translate('subscriptions.gugu.shared')}</span>}
       testId="subscription-row-gugu"
       action={
         <Button variant="ghost" size="sm" nativeButton={false} render={<a href={GUGU_BILLING_URL} target="_blank" rel="noreferrer" />}>
@@ -70,27 +68,22 @@ export function GuguSubscriptionRow() {
         </Button>
       }
     >
+      <div className="subscription-credit-summary">
+        <span className="subscription-credit-label">{translate('subscriptions.gugu.available')}</span>
+        <strong className="subscription-credit-value" data-testid="subscription-credits-balance">
+          {power ? formatCredits(power.spendable) : '—'}
+        </strong>
+        {!power && !balanceError && !windowsError && (
+          <p className="subscription-note" data-testid="subscription-credits-loading">{t('credits.loading')}</p>
+        )}
+        {power && power.held > 0 && <p className="subscription-note">{translate('subscriptions.gugu.reserved', { credits: formatCredits(power.held) })}</p>}
+      </div>
       <div className="subscription-quota-grid">
-        <div className="subscription-quota">
-          <div className="subscription-quota-label">
-            <span>{translate('subscriptions.gugu.available')}</span>
-            <strong>{power ? formatCredits(power.spendable) : '—'}</strong>
-          </div>
-          {power && (
-            <p>
-              {translate('subscriptions.gugu.breakdown', {
-                period: formatCredits(power.periodCredits),
-                wallet: formatCredits(power.walletCredits),
-              })}
-              {power.held > 0 && <> {translate('subscriptions.gugu.reserved', { credits: formatCredits(power.held) })}</>}
-            </p>
-          )}
-        </div>
-        <div className="subscription-quota">
+        <div className="subscription-quota" data-testid="subscription-period">
           <div className="subscription-quota-label">
             <span>{translate('subscriptions.gugu.period')}</span>
             <strong>
-              {period ? formatCredits(period.remaining) : '—'}
+              <span data-testid="subscription-period-credits">{period ? formatCredits(period.remaining) : '—'}</span>
               {period && <small> / {formatCredits(period.limit)}</small>}
             </strong>
           </div>
@@ -110,6 +103,12 @@ export function GuguSubscriptionRow() {
             </>
           )}
         </div>
+        <div className="subscription-quota" data-testid="subscription-wallet">
+          <div className="subscription-quota-label">
+            <span>{translate('subscriptions.gugu.wallet')}</span>
+            <strong data-testid="subscription-wallet-credits">{power ? formatCredits(power.walletCredits) : '—'}</strong>
+          </div>
+        </div>
       </div>
       {(balanceError || windowsError) && (
         <p className="subscription-error" role="status">
@@ -119,16 +118,14 @@ export function GuguSubscriptionRow() {
       {deviceFull && membership.isSuccess && !membership.isFetching && plan?.tier === 'free' && (
         <p className="subscription-note">{t('usage.na.deviceFull')}</p>
       )}
-      {period && windows && periodUsd !== null && (
-        <p className="subscription-note" data-testid="subscription-billing-copy">
-          {t('credits.billingCopy', {
-            periodLabel: quotaWindowLabel(period.hours),
-            periodCredits: formatCredits(windows.period_credits),
-            usd: formatNumber(periodUsd, { maximumFractionDigits: 2 }),
-            endDate: formatDate(windows.period_ends_at, { month: 'long', day: 'numeric' }),
-          })}
-        </p>
-      )}
+      <div className="subscription-credit-actions">
+        <Button variant="secondary" size="sm" nativeButton={false}
+          render={<a href={GUGU_BILLING_URL} target="_blank" rel="noreferrer" />}
+          data-testid="membership-open-web">
+          {t('usage.na.openWebBilling')}
+          <ArrowUpRight className="ml-1 size-3" />
+        </Button>
+      </div>
     </SubscriptionServiceRow>
   );
 }

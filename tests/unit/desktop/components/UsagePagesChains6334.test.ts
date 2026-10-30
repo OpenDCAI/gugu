@@ -22,8 +22,8 @@ vi.mock('../../../../apps/desktop/src/components/usage/useUsageData', () => ({
 }))
 // 余额/会员/明细各自取数,与这里要钉的汇总链路无关 —— 积分段内部的取数换成空壳。
 vi.mock('../../../../apps/desktop/src/components/usage/UsageCredits', () => ({
-  UsageCredits: ({ credits, range, guguTokens }: { credits: Loadable<CreditUsageDay[]>; range: { days: number }; guguTokens: Loadable<number> }) =>
-    createElement('div', { 'data-testid': 'credit-probe' }, `${credits.status === 'error' ? 'credits-error' : credits.status === 'ready' ? 'credits-ready' : 'credits-loading'}|${range.days}|${guguTokens.status === 'ready' ? guguTokens.value : '?'}`),
+  UsageCredits: ({ credits, range }: { credits: Loadable<CreditUsageDay[]>; range: { days: number } }) =>
+    createElement('div', { 'data-testid': 'credit-probe' }, `${credits.status === 'error' ? 'credits-error' : credits.status === 'ready' ? 'credits-ready' : 'credits-loading'}|${range.days}`),
 }))
 
 import { ActivitySection } from '../../../../apps/desktop/src/components/usage/ActivitySection'
@@ -93,6 +93,18 @@ describe('#6334「活跃」页', () => {
 })
 
 describe('#6334「用量」页', () => {
+  it('#986 活跃紧接时间段，排在消耗和日志前面', async () => {
+    state.activity = activity({ usage: { status: 'ready', value: [] } })
+    state.credits = { status: 'ready', value: [] }
+    const harness = await render(UsageSection)
+    try {
+      const root = document.querySelector('[data-testid="usage-section"]')!
+      expect(root.children[1].querySelector('[data-testid="usage-tile-sessions"]')).not.toBeNull()
+      const credit = root.querySelector('[data-testid="credit-probe"]')!
+      expect(root.children[1].compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    } finally { harness.cleanup() }
+  })
+
   beforeEach(() => {
     state.activity = activity({ usage: { status: 'ready', value: [] } })
     state.accountUsage = []
@@ -115,10 +127,10 @@ describe('#6334「用量」页', () => {
     try {
       expect(document.querySelectorAll('[data-testid^="usage-range-"]')).toHaveLength(4)
       expect(tile('sessions')).toContain('5')
-      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|30|1500')
+      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|30')
       await act(async () => (document.querySelector('[data-testid="usage-range-7d"]') as HTMLButtonElement).click())
       expect(tile('sessions')).toContain('2')
-      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|7|1000')
+      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|7')
     } finally { harness.cleanup() }
   })
 
@@ -133,7 +145,7 @@ describe('#6334「用量」页', () => {
       await act(async () => { filter.value = 'a'; filter.dispatchEvent(new Event('change', { bubbles: true })) })
       expect(tile('sessions')).toContain('1')
       expect(tile('gugu-tokens')).toContain('100')
-      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|30|1000')
+      expect(document.querySelector('[data-testid="credit-probe"]')?.textContent).toContain('|30')
     } finally { harness.cleanup() }
   })
 })

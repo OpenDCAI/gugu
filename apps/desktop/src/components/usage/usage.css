@@ -137,33 +137,7 @@
 .gg-usage .na-stats-grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .gg-usage .na-stats-grid[data-cols="2"] .na-stat { border-top: 0; }
 
-/* 积分余额与充值入口;会员段归订阅/账户行。 */
-.na-overview { display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--card, var(--bg)); box-shadow: 0 1px 2px color-mix(in oklab, black 5%, transparent); }
-.na-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-fg); font-size: var(--font-caption); }
-.na-status i { width: 6px; height: 6px; border-radius: 9999px; background: var(--muted-fg); }
-.na-status i[data-tone="success"] { background: var(--ok); }
-.na-status i[data-tone="destructive"] { background: var(--danger); }
 .na-sub-meta { color: var(--muted-fg); font-size: var(--font-caption); }
-.na-overview-balance {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 16px; padding: 20px;
-  background: linear-gradient(135deg,
-    color-mix(in oklch, var(--usage-accent-2) 12%, var(--bg)),
-    color-mix(in oklch, var(--usage-accent-mint) 8%, var(--bg)),
-    color-mix(in oklch, var(--usage-accent-1) 7%, var(--bg)));
-}
-.na-balance-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.na-balance-label { color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); }
-.na-balance-value { color: var(--fg); font-family: var(--font-mono); font-size: calc(var(--font-size-xl) * 1.4); font-weight: var(--font-weight-semibold); letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
-.na-balance-rate { margin: -8px 0 0; color: var(--muted-fg); font-size: var(--font-caption); line-height: 1.6; }
-.na-balance-rate[data-blocked] { color: var(--danger-fg); }
-.na-balance-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.na-balance-cell { min-width: 0; padding: 8px 10px; border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--bg) 60%, transparent); }
-.na-balance-cell span { display: flex; align-items: center; gap: 4px; color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); line-height: 1; }
-.na-balance-cell span svg { width: 12px; height: 12px; }
-.na-balance-cell b { display: block; margin-top: 6px; font-size: var(--font-caption); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
-/* 整行宽的按钮,文案(英文尤其)比 360 宽:允许换行、高度跟着长(Button 只有 min-height),❌ 冲出卡片被裁掉。 */
-.na-balance-button { justify-content: space-between; width: 100%; white-space: normal; text-align: left; padding-block: var(--spacing-sm); }
-.na-balance-button svg { width: 16px; height: 16px; }
 
 /* 邀请好友卡:沿用图表卡的壳,体里一行统计 + 一行邀请链接 */
 .na-referral { display: grid; gap: 16px; padding: 16px; }
@@ -172,7 +146,6 @@
    不归零就把整行撑出卡片;输入框也不沿用 .na-input 的 min-width:10rem。 */
 .na-referral-link { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .na-referral-link .na-input { min-width: 0; color: var(--muted-fg); }
-.na-balance-link { display: block; text-decoration: none; }
 
 /* 图表卡:overflow-hidden rounded-lg border;头 border-b px-5 py-3;体 h-96 p-2 */
 .na-card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); min-width: 0; }
@@ -241,10 +214,7 @@
 /* One set of data and rows: narrow containers read as labelled records rather than a wide table. */
 @container (max-width: 560px) {
   .gg-usage-section { grid-template-columns: minmax(0, 1fr); }
-  .na-overview-balance { min-width: 0; }
-  .na-balance-top, .na-balance-cell span { flex-wrap: wrap; }
-  .na-overview-balance, .na-referral { overflow-wrap: anywhere; }
-  .gg-usage .na-balance-value { font-size: var(--font-heading); overflow-wrap: anywhere; }
+  .na-referral { overflow-wrap: anywhere; }
   .na-stat-label, .na-stat-value { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
   .na-stat-label { letter-spacing: normal; text-transform: none; }
   .na-card-head { display: grid; grid-template-columns: minmax(0, 1fr); }

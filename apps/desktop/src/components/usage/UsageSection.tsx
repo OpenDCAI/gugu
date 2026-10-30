@@ -3,8 +3,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../store/auth'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
-import { RANGE_PRESETS, rangeFor, totalsFor, type RangePreset } from '../../lib/usage/derive'
-import type { Loadable } from './useUsageData'
+import { RANGE_PRESETS, rangeFor, type RangePreset } from '../../lib/usage/derive'
 import { useCreditData } from './useUsageData'
 import { UsageCredits } from './UsageCredits'
 import { ActivitySection } from './ActivitySection'
@@ -26,8 +25,8 @@ export function UsageSection() {
           items={RANGE_PRESETS.map((p) => ({ value: p, label: t(`usage.ranges.${p}`), testId: `usage-range-${p}` }))}
         />
       </div>
-      {officialServicesEnabled() && <ConfiguredCreditUsage preset={preset} />}
       <ActivitySection preset={preset} />
+      {officialServicesEnabled() && <ConfiguredCreditUsage preset={preset} />}
     </div>
   )
 }
@@ -36,8 +35,5 @@ function ConfiguredCreditUsage({ preset }: { preset: RangePreset }) {
   const { user } = useAuth()
   const data = useCreditData(user?.id ?? null)
   const { current } = useMemo(() => rangeFor(preset, data.today), [preset, data.today])
-  const guguTokens = useMemo<Loadable<number>>(() => data.usage.status === 'ready'
-    ? { status: 'ready', value: totalsFor(data.usage.value, current).guguTokens }
-    : data.usage, [data.usage, current])
-  return <UsageCredits credits={data.credits} guguTokens={guguTokens} range={current} />
+  return <UsageCredits credits={data.credits} range={current} />
 }
