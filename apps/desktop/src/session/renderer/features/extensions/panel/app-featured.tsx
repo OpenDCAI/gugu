@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
 import { cn } from '@/lib/cn';
@@ -7,17 +8,45 @@ import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import type { ProductPageApi } from './app-product-page';
 import { splitReadme } from './app-product-page';
 import { ExtensionMonogram } from './extension-monogram';
-import { keepShot, keptShot } from './kept-shelf';
+import { decodeShot, isDecoded, keepShot, keptShot, type Shot } from './kept-shelf';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ResourceMenu } from '@/components/ResourceMenu';
 import type { ResourceContext } from '@shared/resource-actions';
+
+/** 首帧占位图的宽:几 KB 的 JPEG,data URL 首帧就画得出来;大图解码好了再换上。 */
+const PLACEHOLDER_WIDTH = 48;
+
+/**
+ * 重启后第一帧那张大图还没解码:先画一张从它缩出来的小图(不用等解码,❌ 空着的深色框)。页面自己读不到下载站上图的字节
+ * (不发 CORS 头,画进 canvas 也取不出像素),经 `marketRead` 读 —— 桌面是主进程,手机是原生壳,同一个形状。
+ * 读不到(老版本的机器没有这一问、断网、不是下载站上的图)就没有占位图:❌ 重试,❌ 报错。
+ */
+async function placeholderOf(api: Pick<ProductPageApi, 'marketRead'>, src: string): Promise<string | undefined> {
+  const pathname = new URL(src).pathname;
+  const at = pathname.indexOf('/media/');
+  if (!api.marketRead || at < 0) return undefined;
+  try {
+    const result = await api.marketRead({ path: decodeURIComponent(pathname.slice(at + 1)) });
+    if (!result.success) return undefined;
+    const bytes = Uint8Array.from(atob(result.data.base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    const canvas = document.createElement('canvas');
+    canvas.width = PLACEHOLDER_WIDTH;
+    canvas.height = Math.max(1, Math.round((PLACEHOLDER_WIDTH * bitmap.height) / bitmap.width));
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * 精选卡的底图:这一版 README 的第一张图,解码好了才算取到。一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里,
  * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取 README,owner 10-30「既然曾经缓存过,为什么又要失效」),
  * 也留到下次启动(kept-shelf.ts)。
  */
-export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hostKey: string, id: string, version: string) {
+export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>, hostKey: string, id: string, version: string) {
   return queryOptions({
     queryKey: ['market-readme-shot', hostKey, id, version],
     // 没读到就抛:失败不进缓存,下次再取(主进程那边已记日志)。
@@ -25,13 +54,11 @@ export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hos
       const result = await api.marketReadme({ extensionId: id, version });
       if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
       const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
-      if (artwork) {
-        const image = new window.Image();
-        image.src = artwork.src;
-        await image.decode();
-      }
-      keepShot(hostKey, id, version, artwork);
-      return artwork;
+      if (artwork) await decodeShot(artwork.src);
+      // 留到下次启动的那份带上占位图;缩图在后台,不挡这一次上屏。
+      if (artwork) void placeholderOf(api, artwork.src).then((placeholder) => keepShot(hostKey, id, version, { ...artwork, placeholder }));
+      else keepShot(hostKey, id, version, null);
+      return artwork as Shot;
     },
     // 重启后的第一帧:上次取到的这一版底图(下载站的地址是内容哈希的,图在 HTTP 缓存里),❌ 先画骨架再问一遍 README。
     initialData: () => keptShot(hostKey, id, version),
@@ -46,7 +73,7 @@ export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hos
  */
 export async function featuredShotsReady(
   client: QueryClient,
-  api: Pick<ProductPageApi, 'marketReadme'>,
+  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>,
   hostKey: string,
   featured: readonly { manifest: { id: string; version: string } }[]
 ): Promise<void> {
@@ -93,7 +120,7 @@ export function AppFeaturedCard({
   lifecycle: AppLifecycle;
   pending?: ExtensionPendingAction;
   pendingPercent?: number;
-  api: Pick<ProductPageApi, 'marketReadme'>;
+  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>;
   translate: SessionTranslate;
   onOpen: () => void;
   onAction: () => void;
@@ -101,6 +128,20 @@ export function AppFeaturedCard({
 }) {
   // 取过的这一版底图一直在缓存里,换上的新一版清单读时已取好(featuredShotsReady):再进这一页、换上新一版,第一帧就是截图。
   const { data: shot = null, isPending, isError, refetch } = useQuery({ ...featuredShotQuery(api, hostKey, id, version), retryOnMount: false });
+  // 上次存下的那张(重启后的 initialData)这次运行里还没解码:解码好再上屏;解不出来(图也读不到了)就重新取,走读不到的那张脸。
+  const [, setDecodedSrc] = useState<string | null>(null);
+  const shown = shot && isDecoded(shot.src);
+  useEffect(() => {
+    if (!shot || isDecoded(shot.src)) return;
+    let alive = true;
+    decodeShot(shot.src).then(
+      () => alive && setDecodedSrc(shot.src),
+      () => alive && void refetch()
+    );
+    return () => {
+      alive = false;
+    };
+  }, [shot, refetch]);
 
   const card = variant === 'card';
   const artwork = isPending || isError || Boolean(shot);
@@ -121,7 +162,12 @@ export function AppFeaturedCard({
           </div>
         ) : shot ? (
           <>
-            <img src={shot.src} alt="" />
+            {/* 大图解码好之前画占位图(重启后的第一帧);连占位图都没有才空着,❌ 画一张没解码完的大图。 */}
+            <img
+              src={shown || !shot.placeholder ? shot.src : shot.placeholder}
+              alt=""
+              style={shown || shot.placeholder ? undefined : { visibility: 'hidden' }}
+            />
             {!card ? (
               <button type="button" className="mk-hero-open" aria-label={translate('extensions.detailsOf', { name })} />
             ) : null}

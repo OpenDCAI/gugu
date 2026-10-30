@@ -923,6 +923,20 @@ describe('what the market has to say about the Apps here (marketUpdates)', () =>
   });
 });
 
+// 精选卡的首帧占位图:页面经 marketRead 读下载站上那张图的字节(形状同手机壳的 GuguAppStore.marketRead)。只读 `media/`,有硬上限。
+describe('marketRead: one file under the market media, for the featured card placeholder', () => {
+  it('answers base64, never asks for more than the cap, and refuses anything outside media/', async () => {
+    const media = vi.spyOn(cloudExtensionMarket(), 'media');
+    media.mockResolvedValueOnce(new Uint8Array([1, 2]));
+    expect(await extensionsController.marketRead({ path: 'media/pomo/shot.png', maxBytes: 10 ** 9 })).toEqual({ success: true, data: { base64: 'AQI=' } });
+    expect(media).toHaveBeenLastCalledWith('media/pomo/shot.png', 2 * 1024 * 1024);
+    media.mockRestore();
+    for (const path of ['index.json', 'bundles/pomo/1.0.0.zip', 'media/../index.json', '/media/pomo/shot.png', 'https://elsewhere.example/media/a.png']) {
+      expect((await extensionsController.marketRead({ path })).success, path).toBe(false);
+    }
+  });
+});
+
 describe('the README a detail dialog shows', () => {
   it('is the installed copy’s own README.md for the installed version, and the market’s for any other', async () => {
     const source = writeBundle([]);

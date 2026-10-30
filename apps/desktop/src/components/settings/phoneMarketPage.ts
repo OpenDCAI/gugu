@@ -67,6 +67,17 @@ export const phoneProductApi: ProductPageApi = {
       return { success: false, error: String(error) }
     }
   },
+  // 桌面主进程的 marketRead 同一个形状:页面那一套(精选卡的首帧占位图)两端一样调。
+  marketRead: async ({ path }) => {
+    try {
+      const bytes = await phoneApps.market.media(path)
+      let binary = ''
+      for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+      return { success: true as const, data: { base64: btoa(binary) } }
+    } catch (error) {
+      return { success: false as const, error: String(error) }
+    }
+  },
   marketHistory: async ({ extensionId }) => {
     try {
       return { success: true, data: await phoneApps.market.history(extensionId) }

@@ -2,6 +2,7 @@ import { onMachineEvent, rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import { marketRefreshedChannel } from '@shared/extensions/marketEvents';
 import { installedExtensionsStore } from './installed-extensions-store';
+import { warmKeptShots } from './panel/kept-shelf';
 
 /**
  * 本机的「有新版 / 被撤回 / 已弃用」跟着手上那份市场目录走(market-snapshot.ts):启动时先从手上那份查一次,同时让主进程去
@@ -9,6 +10,7 @@ import { installedExtensionsStore } from './installed-extensions-store';
  * ❌ 轮询:去取只在启动、打开 App 页、安装时。失败只进日志(checkUpdates 自己兜底)。
  */
 export function wireMarketRefresh(): void {
+  warmKeptShots();
   onMachineEvent(null, marketRefreshedChannel, (refreshed) => {
     if (refreshed.outcome === 'changed') void installedExtensionsStore.checkUpdates();
   });

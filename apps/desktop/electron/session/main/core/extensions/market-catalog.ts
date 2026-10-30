@@ -273,6 +273,14 @@ export class CloudExtensionMarket {
     return readme ? this.backend.readText(readme) : null;
   }
 
+  /** 下载站 `media/` 下的一个文件(README 里的截图),超过 `maxBytes` 当场断。 */
+  async media(relativePath: string, maxBytes: number): Promise<Uint8Array> {
+    if (!/^media\/[\w.\-/]+$/.test(relativePath) || relativePath.split('/').includes('..')) {
+      throw new Error(`Not a market media path: ${relativePath}`);
+    }
+    return this.backend.download(relativePath, { expectedBytes: maxBytes });
+  }
+
   // ── 启动时那一趟检查 ───────────────────────────────────────────────────
 
   /**

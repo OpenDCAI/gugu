@@ -12,7 +12,8 @@ const SHOT_KEY = 'gugu.appsShot.v1';
 
 type Item = { manifest: { id: string } };
 type Ids = { featured: string[]; remaining: string[]; newest: string[]; popular: string[] | null };
-export type Shot = { src: string; alt: string } | null;
+/** `placeholder`:从这张图缩出来的几 KB 小图(data URL),重启后大图解码好之前先画它。 */
+export type Shot = { src: string; alt: string; placeholder?: string } | null;
 
 function read(key: string): unknown {
   try {
@@ -72,4 +73,31 @@ export function keptShot(hostKey: string, id: string, version: string): Shot | u
 export function keepShot(hostKey: string, id: string, version: string, shot: Shot): void {
   const all = (read(SHOT_KEY) as Record<string, unknown> | null) ?? {};
   write(SHOT_KEY, { ...all, [`${hostKey}|${id}`]: { version, shot } });
+}
+
+/** 存下的每一张精选底图(启动时预解码)。 */
+export function keptShotSrcs(): string[] {
+  const all = (read(SHOT_KEY) as Record<string, { shot?: Shot }> | null) ?? {};
+  return Object.values(all).flatMap((kept) => (kept?.shot?.src ? [kept.shot.src] : []));
+}
+
+/**
+ * 这次运行里解码好的底图,留着那个 Image:卡片再挂上时,同一张图直接画(❌ 每挂一次就重新解码、空几帧)。
+ * 没解码好的那张不上屏 —— 一张图只有解码好了才出现。
+ */
+const decoded = new Map<string, HTMLImageElement>();
+
+export const isDecoded = (src: string) => decoded.has(src);
+
+export async function decodeShot(src: string): Promise<void> {
+  if (decoded.has(src)) return;
+  const image = new window.Image();
+  image.src = src;
+  await image.decode();
+  decoded.set(src, image);
+}
+
+/** 启动时把上次存下的精选底图先解码好:重启后点进 Apps,第一帧就是图。只是预热,解不出来的等卡片自己取。 */
+export function warmKeptShots(): void {
+  for (const src of keptShotSrcs()) void decodeShot(src).catch(() => undefined);
 }

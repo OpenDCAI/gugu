@@ -378,6 +378,7 @@ describe('市场页 (#7059)', () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     h.api.market.mockImplementation(saved.market!);
+    delete (h.api as Record<string, unknown>).marketRead;
     dom.window.close();
   });
 
@@ -442,7 +443,8 @@ describe('市场页 (#7059)', () => {
   it.each(['README', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
     // 读不到的一直读不到(这一页画过的那份目录在、重读也会再取一次),直到点「重试」时才读得到。
     const readme = vi.fn(async () => (failure === 'README' ? { success: false, error: 'unreadable' }
-      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/shot.png)' } }));
+      // 一张这次运行里没解码过的图(解码好的图这次运行里留着,不再解)。
+      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/unreadable.png)' } }));
     (h.api as Record<string, unknown>).marketReadme = readme;
     if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValue(new Error('image unreadable'));
     await render(false);
@@ -489,7 +491,7 @@ describe('市场页 (#7059)', () => {
       data: { extensions, invalid: [], errorKind: null, error: null, total: extensions.length, page: 0, hasMore: false, fetchedAt: null },
     } as never);
   };
-  const shotOf = (version: string) => `https://dl.example/pomo/${version}.png`;
+  const shotOf = (version: string) => `https://dl.example/market/media/pomo/${version}.png`;
   const readmeOf = (version: string) => ({ success: true, data: { readme: `# Pomo\n\n![Pomo](${shotOf(version)})\n` } });
   const heroArt = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
   const reopen = async () => {
@@ -515,6 +517,8 @@ describe('市场页 (#7059)', () => {
     act(() => root.render(page()));
     expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    // 这次运行里解码过的图:重新挂上的卡片直接画它,❌ 先藏起来等再解一遍。
+    expect((heroArt()?.querySelector('img') as HTMLImageElement).style.visibility).toBe('');
     await settle();
     expect(readme).toHaveBeenCalledTimes(calls);
   });
@@ -566,27 +570,55 @@ describe('市场页 (#7059)', () => {
   });
 
   // 重启:渲染进程是新的(这一页的进程内缓存、查询缓存都是空的),上次画的那份在 localStorage(kept-shelf.ts)。
-  it('重启后第一帧:画上次那份清单和精选截图,❌ 骨架', async () => {
+  it('重启后第一帧:画上次那份清单,精选卡先画占位图、大图解码好再换上;❌ 骨架,❌ 空着的图', async () => {
     const stored = new Map<string, string>();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => stored.get(key) ?? null,
       setItem: (key: string, value: string) => void stored.set(key, value),
     });
+    // 占位图:经 marketRead 读到图的字节,缩成一张小 JPEG(jsdom 没有画布,这里只判走的是这条路、存下的是它)。
+    const placeholder = 'data:image/jpeg;base64,c21hbGw=';
+    const marketRead = vi.fn(async () => ({ success: true, data: { base64: btoa('png bytes') } }));
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 900, close: () => undefined })));
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => undefined } as never);
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(placeholder);
     (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
     await render(false);
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(marketRead).toHaveBeenCalledWith({ path: 'media/pomo/1.0.0.png' });
     await act(async () => root.render(null));
 
+    // 新的渲染进程:模块里的缓存、解码过的图都没有了,手上只有 localStorage 那份。
     vi.resetModules();
     const { ExtensionsSettingsCard: FreshCard } = await import('./ExtensionsSettingsCard');
     const { SessionLocalizationProvider: FreshLocalization } = await import('@renderer/localization/localization-provider');
     // 下载站那一趟没回来之前:第一帧全靠手上那份。
     h.api.market.mockImplementation(() => new Promise(() => undefined));
+    let decoded!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(new Promise<void>((resolve) => { decoded = resolve; }));
     act(() => root.render(React.createElement(QueryClientProvider, { client: new QueryClient() },
       React.createElement(FreshLocalization, null, React.createElement(FreshCard)))));
     const document = dom.window.document;
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
     expect(document.querySelector('[aria-busy="true"]')).toBeNull();
     expect(document.querySelector('[data-testid="extension-card-arxiv"]')).not.toBeNull();
+    expect(img()?.getAttribute('src')).toBe(placeholder);
+    expect(img()?.style.visibility).toBe('');
+    await act(async () => decoded());
+    expect(img()?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(img()?.style.visibility).toBe('');
+  });
+
+  it('老版本的机器没有 marketRead:没有占位图就是没有,❌ 重试、❌ 报错', async () => {
+    const marketRead = vi.fn(async () => {
+      throw new Error('No handler registered for extensions.marketRead');
+    });
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => readmeOf('1.0.0'));
+    await render(false);
+    expect(marketRead).toHaveBeenCalledTimes(1);
+    expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
   });
 

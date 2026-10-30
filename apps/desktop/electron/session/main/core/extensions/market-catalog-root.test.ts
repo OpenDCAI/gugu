@@ -33,4 +33,21 @@ describe('the market reads the download site through Chromium', () => {
     expect(await cloudExtensionMarket().readme('pomo', '1.0.0')).toBe('# Pomo');
     expect(h.fetch.mock.calls.map(([url]) => String(url))).toContain(new URL(readme, feeds.market).toString());
   });
+
+  it('a media file larger than asked stops while it comes', async () => {
+    h.fetch.mockImplementation(async () => new Response(new Uint8Array(10)));
+    const { cloudExtensionMarket } = await import('./market-catalog-root');
+    await expect(cloudExtensionMarket().media('media/pomo/shot.png', 4)).rejects.toThrow(/expected 4 bytes/);
+    expect(await cloudExtensionMarket().media('media/pomo/shot.png', 10)).toHaveLength(10);
+  });
+
+  it('reads nothing outside media/, however the site would answer', async () => {
+    h.fetch.mockReset();
+    h.fetch.mockImplementation(async () => new Response('{}'));
+    const { cloudExtensionMarket } = await import('./market-catalog-root');
+    for (const path of ['index.json', 'bundles/pomo/1.0.0.zip', 'media/../index.json', '/media/pomo/shot.png', 'https://elsewhere.example/media/a.png']) {
+      await expect(cloudExtensionMarket().media(path, 100), path).rejects.toThrow(/Not a market media path/);
+    }
+    expect(h.fetch).not.toHaveBeenCalled();
+  });
 });
