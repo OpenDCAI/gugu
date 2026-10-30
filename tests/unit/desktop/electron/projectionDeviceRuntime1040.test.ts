@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createProjectionDeviceRuntime } from '../../../../apps/desktop/electron/projection-device-runtime';
 import type { ProjectionViewerPage } from '../../../../apps/desktop/electron/projection-device-client';
+import type { DeviceRpcPipeHandlers } from '@gugu/core/cloud/deviceRpcRequester';
 
 const fixture = () => {
   const report = vi.fn(), openPipe = vi.fn(async () => { throw new Error('Unexpected transport'); });
@@ -11,6 +12,42 @@ const fixture = () => {
   return { runtime, report, openPipe };
 };
 describe('actual outer projection runtime ownership', () => {
+  it.each([false, true])('shutdown owns pending bind cleanup and returns its failure=%s', async fail => {
+    const bind = Promise.withResolvers<void>(), unbind = Promise.withResolvers<void>();
+    const bound = Promise.withResolvers<void>(), cleaning = Promise.withResolvers<void>();
+    const release = vi.fn(), close = vi.fn(), report = vi.fn();
+    const runtime = createProjectionDeviceRuntime({ auth: async () => ({ userId: 'owner', accessToken: 'fixture' }),
+      runtime: () => ({ ownerId: 'owner', deviceId: 'device', runtimeInstanceId: 'instance' }), resources: () => '', report,
+      capturePage: async () => ({ id: '7', epoch: 1, appId: 'app', version: '1', sessionId: 'task', deviceId: 'remote',
+        signal: new AbortController().signal, assertCurrent() {}, release }),
+      openPipe: async (_device: string, _asker: string, handlers: DeviceRpcPipeHandlers) => ({ close, async send(raw) {
+        const request = (raw as { payload: { type: string; request_id: string } }).payload;
+        const reply = (result?: unknown, error?: { code: string; message: string }) => handlers.onMessage({
+          type: `${request.type}:reply`, request_id: request.request_id, result, error });
+        if (request.type === 'projection.hello') reply({ proof: 'fixture-proof', deviceId: 'remote' });
+        else if (request.type === 'projection.bind') { bound.resolve(); await bind.promise; reply({ bindingId: 'binding', controlKey: 'A'.repeat(43) }); }
+        else if (request.type === 'projection.unbind') { cleaning.resolve(); await unbind.promise;
+          reply(undefined, fail ? { code: 'cleanup', message: 'Fixture driver disconnect failed' } : undefined); }
+        else if (request.type === 'projection.goodbye') reply();
+        else throw new Error('Unexpected projection RPC');
+      } }),
+    });
+    const opening = runtime.openViewer(7).then(() => undefined, error => error);
+    let settled = false;
+    await bound.promise;
+    const completion = runtime.dispose();
+    const stopping = completion.then(() => { settled = true; }, error => { settled = true; return error; });
+    try {
+      await cleaning.promise; await new Promise(resolve => setImmediate(resolve));
+      expect(settled).toBe(false); expect(close).not.toHaveBeenCalled(); expect(release).not.toHaveBeenCalled();
+      unbind.resolve(); bind.resolve();
+      const result = await stopping;
+      if (fail) { expect(result.message).toMatch(/driver disconnect failed/); expect(report).toHaveBeenCalled(); }
+      else expect(result).toBeUndefined();
+      expect(close).toHaveBeenCalledTimes(1); expect(release).toHaveBeenCalledTimes(1);
+      expect(await opening).toBeInstanceOf(Error); expect(runtime.dispose()).toBe(completion);
+    } finally { bind.resolve(); unbind.resolve(); await opening; await stopping; await runtime.dispose().catch(() => {}); }
+  });
   it('invalidates its actual leases synchronously and fails closed without host-owned media artifacts', async () => {
     const f = fixture();
     try {

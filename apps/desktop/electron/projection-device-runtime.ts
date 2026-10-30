@@ -52,16 +52,21 @@ export function createProjectionDeviceRuntime(input: Parameters<typeof createPro
     async openViewer(webContentsId: number) {
       if (stopped || active.size + openingViewers >= 128) throw new Error('Projection viewer runtime is unavailable');
       openingViewers++;
+      let capturing = true, owned: { dispose(): Promise<void> } | undefined;
       try {
         const page = await input.capturePage(webContentsId);
         if (stopped) { page.release(); throw new Error('Projection device runtime stopped'); }
-        const client = await createProjectionDeviceClient({ page, identity, openPipe: input.openPipe, report });
-        if (stopped) { await client.close(); throw new Error('Projection device runtime stopped'); }
-        const owned = track({ dispose: client.close });
-        client.signal.addEventListener('abort', () => { void owned.dispose(); }, { once: true });
-        if (client.signal.aborted) void owned.dispose();
-        return Object.freeze({ ...client, close: owned.dispose });
-      } finally { openingViewers--; }
+        const client = await createProjectionDeviceClient({ page, identity, openPipe: input.openPipe, report,
+          onStart(close, signal) {
+            const entry = track({ dispose: close }); owned = entry;
+            openingViewers--; capturing = false;
+            signal.addEventListener('abort', () => { void entry.dispose(); }, { once: true });
+            if (signal.aborted) void entry.dispose();
+          },
+        });
+        if (stopped) { await owned!.dispose(); throw new Error('Projection device runtime stopped'); }
+        return Object.freeze({ ...client, close: owned!.dispose });
+      } finally { if (capturing) openingViewers--; }
     },
     dispose() {
       if (stopping) return stopping;

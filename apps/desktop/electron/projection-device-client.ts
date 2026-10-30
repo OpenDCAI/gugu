@@ -15,6 +15,8 @@ export async function createProjectionDeviceClient(options: {
   identity: { capture(signal: AbortSignal): Promise<ProjectionIdentityLease> };
   openPipe(deviceId: string, asker: string, handlers: DeviceRpcPipeHandlers, signal: AbortSignal): Promise<DeviceRpcPipe>;
   report(error: unknown): void;
+  /** Register cancellation/cleanup ownership before the first handshake await. */
+  onStart?(close: () => Promise<void>, signal: AbortSignal): void;
 }) {
   const page = options.page, lifetime = new AbortController();
   let hostIdentity: ProjectionIdentityLease | undefined, proof: string | undefined, bindingId: string | undefined, controlKey: string | undefined;
@@ -73,6 +75,7 @@ export async function createProjectionDeviceClient(options: {
   };
   lifetime.signal.addEventListener('abort', () => { void close(); }, { once: true });
   try {
+    options.onStart?.(close, lifetime.signal);
     check(); hostIdentity = await options.identity.capture(lifetime.signal);
     hostIdentity.signal.addEventListener('abort', revoked, { once: true });
     if (hostIdentity.signal.aborted) revoked(); check();
