@@ -18,11 +18,11 @@ export function resolveConversationMessageReference(turns: readonly TranscriptTu
   for (const turn of turns) for (const item of replyItems(withSentReplies(turn, { allDestinations: true }))) {
     if (item.kind !== 'message') {
       if (source?.kind === 'session' && 'toolCallId' in item && item.status === 'done' && agentSendOf(item, turn)
-        && (messageReferenceId(turn, item.id) ?? item.id) === reference) nativeMatches.push(item.id);
+        && messageReferenceId(turn, item.id) === reference) nativeMatches.push(item.id);
       continue;
     }
     if (source?.kind === 'session') {
-      if ((messageReferenceId(turn, item.id) ?? item.id) === reference) nativeMatches.push(item.id);
+      if (messageReferenceId(turn, item.id) === reference) nativeMatches.push(item.id);
       continue;
     }
     if (item.id === reference) return item.id;
