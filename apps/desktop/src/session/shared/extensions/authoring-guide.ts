@@ -575,22 +575,22 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - A session on another of your machines (\`files:read:all-machines\`): open/download only.
 - \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
-  \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON content: an object at the top.
+  \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON: an object at the top.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
   path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries are listed, never opened);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
-  \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
+  \`gugu.files.move(entry, { folder, name })\`; remove takes a whole folder. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
-- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
+- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
 - \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
+  \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
-  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` (a click or key) asks where
-  to save → \`true\` saved.
-- An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
+  a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
+  to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
+- Media opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
