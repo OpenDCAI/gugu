@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { copyVerifiedFile, ciphertextSize, transformFile, type FileSink } from '../shared/fileCipher'
-import { FILE_CHUNK_BYTES, fileRefKey, requireFileRange, requireFileRevision, snapshotBlob, type FileBytes, type FileContext, type FileMetadata, type FileProviders, type FileRevision } from '../shared/fileResolver'
+import { FILE_CHUNK_BYTES, fileRefKey, requireFileRange, parseFileMetadata, snapshotBlob, type FileBytes, type FileContext, type FileMetadata, type FileProviders, type FileRevision } from '../shared/fileResolver'
 import type { FileChunkCache } from '../shared/fileCache'
 import { attachmentRequest, type AttachmentsEndpoint } from './attachmentsApi'
 import { withBoundedOperation } from './boundedOperation'
@@ -120,13 +120,7 @@ export function cloudFileProviders(deps: {
   const metadata = deps.metadata ?? ((context: FileContext) => request(context, 'file-resolve', { ref: context.ref, as: context.actor.actorId }))
   return {
     async metadata(context): Promise<FileMetadata> {
-      const row = await metadata(context) as FileRevision & { status: string }
-      if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
-      if (row.status !== 'ready') throw new Error('Invalid file metadata')
-      const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer } = row
-      const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer }
-      requireFileRevision(revision)
-      return { status: 'ready', revision }
+      return parseFileMetadata(await metadata(context))
     },
     managed: (revision, context) => read(revision, context, false),
     temporary: (revision, context) => read(revision, context, true),

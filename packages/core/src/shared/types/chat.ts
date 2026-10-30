@@ -4,6 +4,7 @@ import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
 import type { DeviceProject } from './deviceProject'
 import type { AgentFailureReason } from '../agentQuotaReason'
+import type { FileMetadata } from '../fileResolver'
 export type { AgentType } from '@gugu/core/agentTypes'
 
 // @@@1514 channel 概念已抹除(collapse 进 group)：公开 agent 好友会话原是独立 'channel' kind，
@@ -116,6 +117,10 @@ export interface MessageItem {
   file_version?: number | null
   /** #7290 悄悄话的附件:不进群文件夹,直接指字节;能读这条消息的人才签得到链接。 */
   file_blob_id?: string | null
+  /** Authorized pinned-file display metadata; original reads still use the file resolver. */
+  file_metadata?: FileMetadata | null
+  /** Local sending preview only; committed dimensions come from the verified file metadata. */
+  image_dimensions?: { width: number; height: number }
   seq: number
   content: string | null
   content_type: MessageContentType

@@ -1,5 +1,6 @@
 import { nullableText, nullableTextArray, numberOrSentinel, text } from './payload'
 import type { MessageContentType, MessageItem } from '../shared/types/chat'
+import { parseFileMetadata, type FileMetadata } from '../shared/fileResolver'
 
 // @@@ message-item-builder — see git history for full context.
 // @@@threads (#957) thread_root_id：thread 回复指向其 root；主时间线据此过滤、thread 视图据此聚合。
@@ -10,7 +11,7 @@ import type { MessageContentType, MessageItem } from '../shared/types/chat'
 // #7290 file_item_id / file_version：附件消息指向群文件夹的哪个条目、哪一版（gugu-supabase #123;字节经 attachments/urls 现签）;
 //       file_blob_id：悄悄话的附件不进文件夹,消息直接指字节（能读这条消息的人才签得到）。
 export const MESSAGES_VIEW_SELECT =
-  'id, chat_id, sender_user_id, to_user_ids, seq, content, content_type, reply_to_message_id, reply_to_sender_user_id, reply_to_content, retracted_at, created_at, forwarded_from_message_id, thread_root_id, edited_at, is_whisper, is_thread_root, client_message_id, via_app, sent_by_agent, agent_sender, file_item_id, file_version, file_blob_id'
+  'id, chat_id, sender_user_id, to_user_ids, seq, content, content_type, reply_to_message_id, reply_to_sender_user_id, reply_to_content, retracted_at, created_at, forwarded_from_message_id, thread_root_id, edited_at, is_whisper, is_thread_root, client_message_id, via_app, sent_by_agent, agent_sender, file_item_id, file_version, file_blob_id, file_metadata'
 
 export type RawMessageRow = {
   id?: unknown
@@ -37,6 +38,7 @@ export type RawMessageRow = {
   file_item_id?: unknown
   file_version?: unknown
   file_blob_id?: unknown
+  file_metadata?: unknown
 }
 
 function agentSenderFromRow(value: unknown): MessageItem['agent_sender'] {
@@ -61,6 +63,10 @@ export function messageItemFromRow(raw: RawMessageRow, currentUserId: string): M
   const rawSender = raw.sender_user_id
   if (rawSender !== null && !text(rawSender)) return null
   const senderUserId: string | null = rawSender === null ? null : text(rawSender)
+  let fileMetadata: FileMetadata | null = null
+  if (raw.file_metadata != null) {
+    try { fileMetadata = parseFileMetadata(raw.file_metadata) } catch { return null }
+  }
   return {
     id,
     chat_id: chatId,
@@ -74,6 +80,7 @@ export function messageItemFromRow(raw: RawMessageRow, currentUserId: string): M
     file_item_id: nullableText(raw.file_item_id),
     file_version: typeof raw.file_version === 'number' && Number.isInteger(raw.file_version) ? raw.file_version : null,
     file_blob_id: nullableText(raw.file_blob_id),
+    file_metadata: fileMetadata,
     is_thread_root: raw.is_thread_root === true,
     client_message_id: nullableText(raw.client_message_id),
     seq: numberOrSentinel(raw.seq, -1),

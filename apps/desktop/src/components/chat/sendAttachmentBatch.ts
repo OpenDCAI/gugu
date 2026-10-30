@@ -46,7 +46,14 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
   return results
 }
 
-function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean }) {
+async function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean }) {
+  let dimensions: MessageItem['image_dimensions']
+  if (inferAttachmentKind(file) === 'image') {
+    try {
+      const image = await createImageBitmap(file)
+      try { dimensions = { width: image.width, height: image.height } } finally { image.close() }
+    } catch { /* A local decoder need not support every uploadable image format. */ }
+  }
   const previewUrl = URL.createObjectURL(file)
   const message: MessageItem = {
     id: crypto.randomUUID(),
@@ -74,6 +81,7 @@ function placeholderRow(file: File, caption: string | undefined, args: { chatId:
     delivered: false,
     delivery_status: null,
     local_send_state: 'sending',
+    ...(dimensions ? { image_dimensions: dimensions } : {}),
   }
   // 预览 URL 等确认行换上真地址之后再释放(下一帧,避免那一帧的 <img> 指向已撤销的 blob)。
   const release = () => { setTimeout(() => URL.revokeObjectURL(previewUrl), 1000) }
@@ -100,10 +108,14 @@ export async function sendAttachmentBatch(args: {
   const captionIndex = args.files.findLastIndex((file) => inferAttachmentKind(file) === 'image')
   // 点下发送的那一刻每件先上屏一个「发送中」占位(本地预览),确认行用同一个 id 原位替换它;
   // 否则多张图要等上传+插入+读回全走完才冒出来,中间什么都看不到。话题回复不画(它不进主时间线)。
-  const placeholders = args.removePlaceholder && !args.threadRootId
-    ? args.files.map((file, i) => placeholderRow(file, i === captionIndex ? args.caption : undefined, args))
+  const placeholders: Awaited<ReturnType<typeof placeholderRow>>[] | null = args.removePlaceholder && !args.threadRootId
+    ? []
     : null
-  for (const row of placeholders ?? []) args.appendMessage(row.message)
+  if (placeholders) for (const [i, file] of args.files.entries()) {
+    const row = await placeholderRow(file, i === captionIndex ? args.caption : undefined, args)
+    placeholders.push(row)
+    args.appendMessage(row.message)
+  }
   const messageIds = args.files.map((_, index) => placeholders?.[index].message.id ?? crypto.randomUUID())
   const timings = messageIds.map(id => attachmentSendTiming(id, args.chatId))
   let index = 0
@@ -131,7 +143,7 @@ export async function sendAttachmentBatch(args: {
         ...(index === captionIndex && args.caption ? { caption: args.caption } : {}),
       } })
       // appendMessage 按 thread_root_id 自路由：话题附件进 threadMessages,主线附件进主时间线。
-      if (!persisted) pending ??= placeholderRow(file, index === captionIndex ? args.caption : undefined, args)
+      if (!persisted) pending ??= await placeholderRow(file, index === captionIndex ? args.caption : undefined, args)
       args.appendMessage(persisted ?? { ...pending!.message, id: messageIds[index], local_send_state: 'unknown' })
       if (persisted) pending?.release()
       firstInsertedId ??= messageIds[index]
