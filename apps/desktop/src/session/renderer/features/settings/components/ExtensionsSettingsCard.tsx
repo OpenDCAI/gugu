@@ -31,6 +31,7 @@ import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { installedElsewhere } from '@renderer/features/extensions/installed-elsewhere';
 import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
 import { featuredShotsReady } from '@renderer/features/extensions/panel/app-featured';
+import { keepShelf, keptShelf } from '@renderer/features/extensions/panel/kept-shelf';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
@@ -97,10 +98,21 @@ type InventoryState = 'loading' | 'ready' | 'error';
 
 /**
  * 每台机器的市场那一块,这一页上次画出来的样子(不带搜索词那一份,按 `host.key`):再打开、换机器再换回来,先画它,
- * 同时照常从那台机器手上的目录读一遍、原地换上(owner 10-16「本地有缓存啊」)。只在这次运行里:跨重启的那份在主进程
- * (market-snapshot.ts),读它不用等下载站。
+ * 同时照常从那台机器手上的目录读一遍、原地换上(owner 10-16「本地有缓存啊」)。重启后的第一帧也是它(kept-shelf.ts)。
  */
 const lastShelf = new Map<string, Extract<ShelfState, { status: 'ready' }>>();
+type KeptExtra = Pick<Extract<ShelfState, { status: 'ready' }>, 'invalid' | 'total' | 'page'>;
+
+function shelfOf(hostKey: string): Extract<ShelfState, { status: 'ready' }> | undefined {
+  const inRun = lastShelf.get(hostKey);
+  if (inRun) return inRun;
+  const kept = keptShelf<ShelfItem, KeptExtra>(hostKey);
+  if (!kept) return undefined;
+  const { featured, ...home } = kept.home;
+  const shelf = { status: 'ready' as const, query: '', errorKind: null, items: kept.items, hasMore: false, loadingMore: false, featured, home, ...kept.extra };
+  lastShelf.set(hostKey, shelf);
+  return shelf;
+}
 
 /** 「上次更新于」的那个时刻:今天的只写几点几分,不是今天的带上日期。 */
 function marketStaleTime(iso: string, locale: string): string {
@@ -162,7 +174,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const [query, setQuery] = useState('');
   // 搜索词打到服务端去,所以敲字要缓一拍 —— 每个字符一趟请求是在替用户刷自己的清单接口。
   const debouncedQuery = useDebounce(query.trim(), 250);
-  const [shelf, setShelf] = useState<ShelfState>(() => lastShelf.get(host.key) ?? { status: 'loading' });
+  const [shelf, setShelf] = useState<ShelfState>(() => shelfOf(host.key) ?? { status: 'loading' });
   const shelfRef = useRef(shelf);
   shelfRef.current = shelf;
   // 后台那趟没取到:手上那份照旧画,页头安静写一句「上次更新于 …」(那份的时刻)。❌ 弹错、❌ 错误面板。
@@ -351,6 +363,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
       // 下次打开先画这份完整目录与编排。
       if (search === '' && !ready.errorKind) {
         lastShelf.set(host.key, ready);
+        keepShelf<ShelfItem, KeptExtra>(host.key, items, { featured, ...home }, { invalid: ready.invalid, total: ready.total, page: ready.page });
       }
     } catch (error) {
       if (ticket !== shelfRequest.current) return;

@@ -30,7 +30,7 @@ import { SearchField } from '../ui/SearchField'
 import { Sheet } from '../ui/Sheet'
 import { SettingsNote } from './SettingsPrimitives'
 import { AppsSection } from './AppsSection'
-import { phoneMarketRows, phoneProductApi, readPhoneMarketPage } from './phoneMarketPage'
+import { PHONE_HOST, keptPhoneMarketPage, phoneMarketRows, phoneProductApi, readPhoneMarketPage } from './phoneMarketPage'
 import '@/session/renderer/index.css'
 import './mobile-app-market.css'
 
@@ -47,12 +47,15 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
   const client = useQueryClient()
-  // 这次运行里一直留着(桌面的 lastShelf):再进来先画它。画着一份时,新的那份等精选底图解码好再换上;取不到就留着画着的那份。
+  // 这次运行里一直留着(桌面的 lastShelf),重启后第一帧是上次画的那一页:先画它、挂上就重读。画着一份时,新的那份等精选底图解码好再换上;
+  // 取不到就留着画着的那份。
   const catalog = useQuery({
+    initialData: keptPhoneMarketPage,
+    initialDataUpdatedAt: 0,
     queryKey: MARKET_KEY,
     queryFn: async () => {
       const page = await readPhoneMarketPage()
-      if (client.getQueryData(MARKET_KEY)) await featuredShotsReady(client, phoneProductApi, 'phone', page.featured)
+      if (client.getQueryData(MARKET_KEY)) await featuredShotsReady(client, phoneProductApi, PHONE_HOST, page.featured)
       return page
     },
     gcTime: Infinity,
@@ -174,7 +177,7 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
               view={tab} onRetry={() => void catalog.refetch()}
               shelf={{ status: 'ready', query, errorKind: null, items: rows.slice(0, pages * MARKET_PAGE_SIZE), total: rows.length, page: pages - 1, hasMore, loadingMore: false, invalid: [], featured: catalog.data.featured, home: catalog.data.home }}
               chip={chip} onChipChange={setChip}
-              query={query.trim()} hostKey="phone" api={phoneProductApi}
+              query={query.trim()} hostKey={PHONE_HOST} api={phoneProductApi}
               lifecycleOf={lifecycleOf} installedIds={new Set(store.manifests.map((manifest) => manifest.id))}
               pending={pending} downloadPercent={{}} onOpen={setDetail} onAction={act} sentinelRef={sentinel}
             />

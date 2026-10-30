@@ -565,6 +565,31 @@ describe('市场页 (#7059)', () => {
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
   });
 
+  // 重启:渲染进程是新的(这一页的进程内缓存、查询缓存都是空的),上次画的那份在 localStorage(kept-shelf.ts)。
+  it('重启后第一帧:画上次那份清单和精选截图,❌ 骨架', async () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    await act(async () => root.render(null));
+
+    vi.resetModules();
+    const { ExtensionsSettingsCard: FreshCard } = await import('./ExtensionsSettingsCard');
+    const { SessionLocalizationProvider: FreshLocalization } = await import('@renderer/localization/localization-provider');
+    // 下载站那一趟没回来之前:第一帧全靠手上那份。
+    h.api.market.mockImplementation(() => new Promise(() => undefined));
+    act(() => root.render(React.createElement(QueryClientProvider, { client: new QueryClient() },
+      React.createElement(FreshLocalization, null, React.createElement(FreshCard)))));
+    const document = dom.window.document;
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.querySelector('[data-testid="extension-card-arxiv"]')).not.toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+  });
+
   it('browses complete New and Popular pages without subtracting featured Apps or capping at six', async () => {
     const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => app(`p${id}`, ['productivity']));
     many[0]!.cloud.firstPublishedAt = '2026-10-25T00:00:00Z';

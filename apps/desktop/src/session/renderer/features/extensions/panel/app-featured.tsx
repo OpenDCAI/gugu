@@ -7,13 +7,15 @@ import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import type { ProductPageApi } from './app-product-page';
 import { splitReadme } from './app-product-page';
 import { ExtensionMonogram } from './extension-monogram';
+import { keepShot, keptShot } from './kept-shelf';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ResourceMenu } from '@/components/ResourceMenu';
 import type { ResourceContext } from '@shared/resource-actions';
 
 /**
  * 精选卡的底图:这一版 README 的第一张图,解码好了才算取到。一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里,
- * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取 README,owner 10-30「既然曾经缓存过,为什么又要失效」)。
+ * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取 README,owner 10-30「既然曾经缓存过,为什么又要失效」),
+ * 也留到下次启动(kept-shelf.ts)。
  */
 export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hostKey: string, id: string, version: string) {
   return queryOptions({
@@ -28,8 +30,11 @@ export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hos
         image.src = artwork.src;
         await image.decode();
       }
+      keepShot(hostKey, id, version, artwork);
       return artwork;
     },
+    // 重启后的第一帧:上次取到的这一版底图(下载站的地址是内容哈希的,图在 HTTP 缓存里),❌ 先画骨架再问一遍 README。
+    initialData: () => keptShot(hostKey, id, version),
     staleTime: Infinity,
     gcTime: Infinity,
   });

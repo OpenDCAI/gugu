@@ -1,7 +1,8 @@
 import { chatDb } from '@/lib/supabase'
 import { rendererLogger } from '@/lib/log'
 import type { CloudMarketEntry, MarketListItem } from '@/session/shared/extensions/market'
-import { marketHome } from '@/session/shared/extensions/market-home'
+import { marketHome, type MarketHome } from '@/session/shared/extensions/market-home'
+import { keepShelf, keptShelf } from '@/session/renderer/features/extensions/panel/kept-shelf'
 import { searchApps } from '@/session/shared/extensions/app-search'
 import { marketCategoryOf, marketCategoryRank } from '@/session/shared/extensions/catalog'
 import type { ProductPageApi } from '@/session/renderer/features/extensions/panel/app-product-page'
@@ -20,6 +21,20 @@ export async function readPhoneMarketPage() {
   })
   const [entries, scores] = await Promise.all([phoneApps.market.entries(), ranking])
   const home = marketHome(entries, scores)
+  keepShelf(PHONE_HOST, entries, home, null)
+  return pageOf(entries, home)
+}
+
+/** 这台手机在市场缓存里的名字(桌面按机器分,手机只有自己)。 */
+export const PHONE_HOST = 'phone'
+
+/** 上次画出来的那一页(kept-shelf.ts):重启后第一帧先画它,❌ 等排名那一趟网络。 */
+export function keptPhoneMarketPage() {
+  const kept = keptShelf<CloudMarketEntry, null>(PHONE_HOST)
+  return kept ? pageOf(kept.items, kept.home) : undefined
+}
+
+function pageOf(entries: CloudMarketEntry[], home: MarketHome<CloudMarketEntry>) {
   return {
     entries,
     featured: home.featured.map(marketItem),
