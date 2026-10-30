@@ -7,7 +7,7 @@ export type AccountHandoff = { valid(): boolean; release(): Promise<void>; busy?
 /** Reuse the private account socket; this is a current-PID admission fence, not a cached busy flag. */
 export async function prepareAccountHandoff(
   account: { dataDir: string; email: string | null },
-  expected: { pid: number | undefined } | undefined,
+  expected: { pid?: number } | undefined,
   target: string,
 ): Promise<AccountHandoff | null> {
   if (!expected?.pid) return null

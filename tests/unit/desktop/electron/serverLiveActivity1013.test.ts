@@ -92,7 +92,7 @@ function bootRuntime(dir: string) {
     '@gugu/session-wire': { createEventStreamHost, withValidation },
     '@gugu/session-wire/util/process-runtime': {
       serveWorkerProcess: (factory: (s: typeof scope) => typeof controller) => { controller = factory(scope) },
-      workerValidatePolicy: () => 'all',
+      workerValidatePolicy: () => 'full',
     },
     '../api/controller': { createAcpRuntimeController },
     '../session/host-prompt-preparation': { createHostPromptPreparation },
@@ -107,7 +107,7 @@ function bootRuntime(dir: string) {
     require: (id: string) => id.startsWith('node:') ? requireBuiltin(id) : modules[id],
   })
   module.exports.bootAcpRuntimeProcess({ env: { GUGU_ACP_ATTACHMENTS_DIR: dir }, mergeEnvelopes: (texts: string[]) => texts.join('\n'), recoverDelivery: (text: string) => text })
-  const wire = createTestWire(acpRuntimeApiContract, controller, { validate: 'all' })
+  const wire = createTestWire(acpRuntimeApiContract, controller, { validate: 'full' })
   return { runtime, wire, scope }
 }
 
@@ -193,7 +193,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       // Both consumers use their real supervisor composition, including current-child identity.
       const versions = supervisorCall('createAccountVersionConverger', context) as ReturnType<typeof createAccountVersionConverger>
       recordDesktopReport(dir, { id: 'fixture-desktop', version: target, protocol: null })
-      requestVersionRetry(dir, 'retry when idle')
+      expect(requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dir })).toBe(true)
       versions.converge([account])
       expect(kill).not.toHaveBeenCalled()
       stopUpdater = supervisorCall('startServerUpdater', { ...context, versions }) as () => void
@@ -250,7 +250,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       admitted.resolve({ sessionId: 'provider-session' })
       expect((await starting).success).toBe(true)
       expect(changed).toHaveBeenCalled()
-      runtime.manager.onProcessClosed(runtime.adapterProvenance('conv-1')!.connectionKey, { exitCode: 1, signal: null })
+      runtime.manager.onProcessClosed(runtime.adapterProvenance('conv-1')!.connectionKey, { exitCode: 1, signal: null, stderrTail: '' })
       expect(runtime.liveSessionIds()).toEqual([])
       processOwnership.recordSessionProcess('fixture-host', { home: 'host', start: 'fresh' })
       processOwnership.recordSessionProcess('fixture-tmux', { home: 'tmux', start: 'reattach' })
