@@ -1,7 +1,7 @@
 import { act, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { page } from 'vitest/browser';
+import { cdp, page } from 'vitest/browser';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { ExtensionViewLayer } from '@renderer/features/extensions/extension-view-layer';
@@ -190,6 +190,62 @@ async function screenSplit() {
     harness.container.querySelectorAll('[data-extension-view] webview').length === 2 &&
     [...harness.container.querySelectorAll<HTMLElement>('[data-extension-view]')].every((box) => box.getBoundingClientRect().width > 400));
   return layouts;
+}
+
+async function resizeScreen(handle: HTMLElement, input: 'pointer' | 'keyboard') {
+  if (input === 'keyboard') {
+    // Also exercise the library's key listener if focus survives disabling it.
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  } else {
+    const rect = handle.getBoundingClientRect();
+    let x = rect.left + rect.width / 2;
+    let y = rect.top + rect.height / 2;
+    let scale = 1;
+    // CDP takes top-page coordinates; Vitest renders this test in an iframe.
+    for (let frameWindow: Window = window; frameWindow.frameElement; frameWindow = frameWindow.parent) {
+      const frame = frameWindow.frameElement as HTMLElement;
+      const outer = frame.getBoundingClientRect();
+      const factor = outer.width / frame.offsetWidth;
+      x = outer.left + (frame.clientLeft + x) * factor;
+      y = outer.top + (frame.clientTop + y) * factor;
+      scale *= factor;
+    }
+    const session = cdp() as unknown as { send(method: string, params: object): Promise<unknown> };
+    await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 });
+    await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+    try {
+      await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x - 140 * scale, y, button: 'left', buttons: 1 });
+    } finally {
+      await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x - 140 * scale, y, button: 'left', buttons: 0, clickCount: 1 });
+    }
+  }
+  for (let frame = 0; frame < 2; frame++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1]) for (const input of ['pointer', 'keyboard'] as const) {
+  it(`fullscreen ${contentKind} in real screen block ${side} ignores divider ${input} resizing and restores it on exit`, async () => {
+    const layouts = await screenSplit();
+    const { layout } = layouts[side]!;
+    const pane = layout.groups[0]!.pane;
+    const handle = harness.container.querySelector<HTMLElement>('[data-slot="resizable-handle"]')!;
+    const initial = handle.getBoundingClientRect().x;
+    await resizeScreen(handle, input);
+    await until('the normal divider resizes the screen', () => handle.getBoundingClientRect().x < initial - 1);
+    if (contentKind === 'pdf') act(() => { layout.open('pdf', {}, { preview: false }); });
+    const before = handle.getBoundingClientRect().toJSON();
+    const storedLayout = JSON.stringify(screenLayout.layout);
+    act(() => tabFullscreen.toggle(pane, pane.resolvedActiveTabId!));
+    await until('the pane fills the workspace', () => harness.container.querySelector('[data-tab-fullscreen]')?.getBoundingClientRect().width === 1000);
+    await resizeScreen(handle, input);
+    expect(handle.getBoundingClientRect().toJSON(), `fullscreen ignores divider ${input} resizing`).toEqual(before);
+    expect(JSON.stringify(screenLayout.layout)).toBe(storedLayout);
+    expect(handle.getAttribute('aria-disabled')).toBe('true');
+    act(() => tabFullscreen.exit());
+    await until('the same divider is enabled again', () => handle.getAttribute('aria-disabled') !== 'true');
+    expect(handle.getBoundingClientRect().toJSON()).toEqual(before);
+    await resizeScreen(handle, input);
+    await until('the restored divider resizes the screen', () => handle.getBoundingClientRect().x < before.x - 1);
+  });
 }
 
 for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1]) {
