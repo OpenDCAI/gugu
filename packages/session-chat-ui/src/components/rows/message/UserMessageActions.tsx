@@ -13,7 +13,7 @@ export function UserMessageActions(props: {
   at?: number;
   generating: boolean;
   readOnly?: boolean;
-  vars: MessageVars;
+  vars: Pick<MessageVars, 'footerH'>;
   /** 常驻在这一行最前面的一小段(对话布局里发出去的气泡:「发到 群名」)。 */
   prefix?: string;
 }) {
@@ -38,7 +38,7 @@ export function UserMessageActions(props: {
       <Show when={props.itemId} keyed>
         {(itemId) => {
           const { copied, copy } = createClipboard((error) => commands().onCopyError?.(error));
-          const copyLabel = () => copied() ? translate('transcript.copied') : translate('transcript.copyMessage');
+          const copyLabel = () => copied() ? translate('transcript.copied') : translate('transcript.copy');
           return <>
             <button type="button" class={userMessageActionButton}
               aria-label={copyLabel()} title={copyLabel()}

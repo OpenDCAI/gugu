@@ -255,12 +255,12 @@ describe('the reply\'s copy button in the caption tier (#7333 母版补页 05)',
     document.body.appendChild(host)
     const view = createChatView({ context: ctx, state, parent: host })
     try {
-      const replyCopy = () => host.querySelector<HTMLButtonElement>('[data-chat-canvas] [data-item-id="a1"] button[aria-label="Copy message"]')
+      const replyCopy = () => host.querySelector<HTMLButtonElement>('[data-chat-canvas] [data-item-id="a1"] button[aria-label="Copy"]')
       await until('the reply\'s copy button mounts', () => replyCopy() !== null)
       const button = replyCopy()!
       // User messages now have their own copy action too. Keep this typography/geometry
       // reading on the assistant reply even when the user's identically named button comes first.
-      const userCopy = host.querySelector('[data-user-message-actions] button[aria-label="Copy message"]')
+      const userCopy = host.querySelector('[data-user-message-actions] button[aria-label="Copy"]')
       expect(userCopy, 'the competing user copy action must be present').not.toBeNull()
       expect(button).not.toBe(userCopy)
       const footer = button.parentElement!

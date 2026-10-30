@@ -16,7 +16,7 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_FOOTER_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 export { isConversationMessage } from './conversation-body';
 import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
@@ -36,7 +36,7 @@ export function conversationContext(ctx: MeasureCtx, item?: ChatMessage): Measur
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
   const long = !item.conversationFull && (item.text.length > 700 || item.text.split('\n').length > 10);
-  return { ...vars, footerH: 16, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
+  return { ...vars, footerH: CONVERSATION_FOOTER_H, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
 function segments(item: ChatMessage): ChatMessage[] {
