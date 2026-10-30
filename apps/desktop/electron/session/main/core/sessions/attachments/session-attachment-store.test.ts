@@ -10,7 +10,6 @@
  *   · 清扫器不许碰**有主**的目录 —— 一个「无脑清空整棵树」的实现同样能让「孤儿被删掉」变绿。
  */
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -1080,7 +1080,7 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
   it('清单中缺失的任务归档名册,仍在的任务保持活动', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
-    const a = await provisionSessionpageAgentForSession(
+    await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-b', providerId: 'codex', surface: 'tui', cwd: '/w/b', projectId: 'proj-alpha' }, deps)
@@ -1121,16 +1121,24 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
   it('项目没了(群已归档)→ 忘掉映射,同 id 项目再出现时不复用归档群', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
+    const { readProjectGroupId } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups')
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const firstGroupId = groups[0].chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: [] }))
     expect(res.archivedGroups).toBe(1)
+    expect(roster).toHaveLength(1)
+    expect(roster[0].status).toBe('archived')
+    const archivedAgentId = roster[0].gugu_user_id
+    expect(await readProjectGroupId('proj-alpha', 'owner-1', deps.env)).toBeNull()
     groups.length = 0 // 归档的群不再算「可复用的活群」(替身的 groupExists 按这个数组回答)
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-d', providerId: 'codex', surface: 'tui', cwd: '/w/d', projectId: 'proj-alpha' }, deps)
     expect(groups[0].chatId, '建了新群,不复用归档的那个').not.toBe(firstGroupId)
     expect(groups).toHaveLength(1)
+    expect(await readProjectGroupId('proj-alpha', 'owner-1', deps.env)).toBe(groups[0].chatId)
+    expect(roster.find((agent) => agent.gugu_user_id === archivedAgentId)?.status).toBe('archived')
   })
   it('清单不自洽(有会话却零项目)→ 拒绝归档任何群,只按会话摘 agent', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)

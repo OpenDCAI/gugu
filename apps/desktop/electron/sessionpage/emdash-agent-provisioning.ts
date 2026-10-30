@@ -1650,11 +1650,8 @@ export function findGroupIdForProject(
   projectId: string,
   ownerUserId: string,
 ): string | null {
-  for (const agent of roster) {
+  for (const agent of agentsForOwner(roster, ownerUserId)) {
     if (cacheString(agent.cache, PROJECT_CACHE_KEY) !== projectId) continue
-    // #4277 别家的行记着别家的群,拿来只会白问一次云端(RLS 看不见)—— 只看归我的与不知道归谁的老行。
-    const rowOwner = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (rowOwner && rowOwner !== ownerUserId) continue
     const groupId = cacheString(agent.cache, GROUP_CACHE_KEY)
     if (groupId) return groupId
   }
