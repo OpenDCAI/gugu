@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { addNativeReplies, nativeMessageKey, nativeReadAliases, nativeReplyKeys, seeNativeReplies, unreadNativeMessages, type NativeReadJournal } from '@gugu/session-core/session-record/native-read';
 import { db, type AppDb } from '@main/db/client';
 import { kv, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
-import { noteNativeConversationActivity, truncateNativeConversationActivity } from './session-conversation-activity';
+import { isPersonalConversationTurn, noteNativeConversationActivity, truncateNativeConversationActivity } from './session-conversation-activity';
 
 type JournalDb = Pick<AppDb, 'select' | 'insert'>;
 const keyFor = (sessionId: string) => `native-conversation-read:${sessionId}`;
@@ -49,12 +49,13 @@ function publishActivity(sessionId: string): void {
 
 /** Delivery-envelope conversations retain IM read ownership. Raw personal inputs use the native journal. */
 export function noteNativeConversationReplies(sessionId: string, turn: TranscriptTurn, live: TranscriptTurn = turn, transaction?: JournalDb): (() => void) | undefined {
+  if (!isPersonalConversationTurn(turn)) return undefined;
   const activity = noteNativeConversationActivity(sessionId, turn, transaction ?? db);
   let nativeInput = true;
   const personal = new Set<string>();
   for (const item of turn.items) {
     if (item.kind !== 'message') continue;
-    if (item.role === 'user') nativeInput = !readDeliveryEnvelope(item.text);
+    if (item.role === 'user') nativeInput = !isDeliveryEnvelope(item.text);
     else if (item.role === 'assistant' && nativeInput) personal.add(item.id);
   }
   const keys = nativeReplyKeys(turn).filter(id => personal.has(id));

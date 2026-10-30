@@ -1680,7 +1680,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      <SessionInputQueue sessionId={store.runtimeSessionId} />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       {quoteComposer.preview}
       <ChatComposer

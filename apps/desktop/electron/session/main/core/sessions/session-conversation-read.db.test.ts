@@ -17,6 +17,16 @@ afterEach(() => { fixture.close(); mock.db = undefined; });
 const turn = (ids: string[]): TranscriptTurn => ({ id: 's:turn:1', seq: 1, initiator: 'user', items: ids.map((id, seq) => ({ kind: 'message', id: `s:turn:1:message:${id}`, seq, role: 'assistant', text: 'reply' })) });
 
 describe('native personal conversation unread', () => {
+  it.each(['agent', 'schedule', 'delivery'] as const)('does not turn %s background work into owner conversation activity', kind => {
+    const record: TranscriptTurn = { id: 's:turn:s1', seq: 1, initiator: kind === 'agent' ? 'agent' : 'user', trigger: { kind }, startedAt: 1000, endedAt: 2000, items: [
+      { kind: 'message', id: 'background-input', seq: 0, role: 'user', text: 'Background task notification', at: 1000 },
+      { kind: 'message', id: 'background-answer', seq: 1, role: 'assistant', text: 'Finished background work', at: 2000 },
+    ] };
+    noteNativeConversationReplies('s', record);
+    expect(nativeConversationActivity('s')).toBeNull();
+    expect(nativeConversationUnread('s')).toEqual([]);
+  });
+
   it('publishes the actual native reply and its original time without inventing another IM message', () => {
     const at = Date.parse('2026-10-29T11:00:00Z');
     const record: TranscriptTurn = { id: 's:turn:s1', seq: 1, initiator: 'user', startedAt: at, endedAt: at + 2000, items: [

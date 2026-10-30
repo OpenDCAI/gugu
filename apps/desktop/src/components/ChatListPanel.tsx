@@ -31,7 +31,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { isOwnedAgentPeer, openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
 import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, type ShellChatDialog } from '../lib/sidebarChatsBridge'
 import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
@@ -598,7 +598,7 @@ export function ChatListPanel({
       && chat.id !== shownAsLead
       && (!mobile || chat.kind !== 'topic')
       && (mobile || !isProjectGroupLine(chat))
-      && (hasSearchQuery || isOwnedAgentPeer(chat.peer_user_id) || isChatListed(chat, { activeChatId: selectedChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
+      && (hasSearchQuery || isChatListed(chat, { activeChatId: selectedChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
   // @@@5856 沉降:长期无活动的话题落到底部的「更早」。它**只是列表位置**,不是话题的一种状态 ——
   // 话题没有开关(product spec)。任何人发一句,last_message_at 前移,这一条自己就浮回来了。
   // 搜索时不分段:搜索是一次指名道姓,沉下去的照样要搜得到。

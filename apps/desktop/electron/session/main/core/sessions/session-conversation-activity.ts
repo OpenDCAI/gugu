@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db, type AppDb } from '@main/db/client';
 import { kv } from '@main/db/schema';
@@ -19,11 +19,12 @@ export function nativeConversationActivity(sessionId: string, source: ActivityDb
 
 /** A live committed turn, not replay time or a synthetic IM message, supplies the preview. */
 export function noteNativeConversationActivity(sessionId: string, turn: TranscriptTurn, source: ActivityDb): boolean {
+  if (!isPersonalConversationTurn(turn)) return false;
   let personal = true;
   let latest: Activity | null = null;
   for (const item of turn.items) {
     if (item.kind !== 'message') continue;
-    if (item.role === 'user') personal = !readDeliveryEnvelope(item.text);
+    if (item.role === 'user') personal = !isDeliveryEnvelope(item.text);
     const at = item.at ?? (item.role === 'assistant' ? turn.endedAt : turn.startedAt);
     if (!personal || !item.text.trim() || item.text.trim() === '[NO_REPLY]' || at === undefined) continue;
     // File mentions are input instructions. Do not expose local paths in a list preview.
@@ -37,6 +38,11 @@ export function noteNativeConversationActivity(sessionId: string, turn: Transcri
   source.insert(kv).values({ key: keyFor(sessionId), value: JSON.stringify(latest), updatedAt: Date.now() })
     .onConflictDoUpdate({ target: kv.key, set: { value: JSON.stringify(latest), updatedAt: Date.now() } }).run();
   return true;
+}
+
+/** Background work is activity in its own task, not an exchange with the owner. */
+export function isPersonalConversationTurn(turn: TranscriptTurn): boolean {
+  return turn.trigger ? turn.trigger.kind === 'owner' : turn.initiator === 'user';
 }
 
 export function truncateNativeConversationActivity(sessionId: string, fromSeq: number, source: ActivityDb): boolean {

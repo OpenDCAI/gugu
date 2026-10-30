@@ -52,7 +52,6 @@ import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttach
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
-import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
 import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'; import { PinnedTopicTabs } from './chat/PinnedTopicTabs'; import { PhoneChatTabs } from '../mobile/chat/PhoneChatTabs'; import { PhoneProjectEmpty } from '../mobile/chat/PhoneProjectEmpty'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'

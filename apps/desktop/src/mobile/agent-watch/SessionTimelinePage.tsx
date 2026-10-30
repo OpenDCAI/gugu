@@ -203,8 +203,8 @@ export function SessionTimelinePage({
         />
       ) : null}
 
-      {!online && (networkOnline || queuedInputs.length === 0) ? (
-        /* 本机断网且有待发消息时,连接提示只在队列旁显示;没有待发内容仍提示离线。 */
+      {!online && queuedInputs.length === 0 ? (
+        /* 待发消息只带正常发送中状态;没有待发内容时才显示机器连接状态。 */
         offlineNotice
       ) : null}
 
@@ -244,7 +244,7 @@ export function SessionTimelinePage({
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!online} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}

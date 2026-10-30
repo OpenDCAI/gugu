@@ -60,7 +60,6 @@ import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionFor
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
-import { useEnsureOwnedAgentChats } from '../hooks/useEnsureOwnedAgentChats'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
@@ -297,7 +296,6 @@ function InnerLayout({
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
-  useEnsureOwnedAgentChats({ ownerId: user.id, contacts, chats, active: effectsActive, upsertChat, refreshChats })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string): string | null => {
     if (openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
     if (openOwnedAgent(chatId, peerId, draft)) { setActiveTab('tasks'); return 'tasks' }

@@ -1269,3 +1269,18 @@ describe('MainLayout: agent sender-name entry', () => {
     }
   })
 })
+
+it('does not create private conversations or refresh their timestamps when owned agents appear at startup', async () => {
+  taskRoute.contacts = [
+    { id: 'unused-owned-agent', type: 'agent', owner_user_id: 'user-1' },
+    { id: 'existing-owned-agent', type: 'agent', owner_user_id: 'user-1' },
+  ]
+  const existing = { id: 'existing-private', kind: 'dm', peer_user_id: 'existing-owned-agent', created_at: '2026-10-01T00:00:00Z', last_message_at: '2026-10-28T00:00:00Z' }
+  chatStoreMock.chats = [existing] as never
+  chatServiceMock.getOrCreateDM.mockResolvedValue('unwanted-empty-private')
+  await renderMainLayoutWithToast()
+  expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+  expect(chatStoreMock.upsertChat).not.toHaveBeenCalled()
+  expect(chatStoreMock.refreshChats).not.toHaveBeenCalled()
+  expect(chatStoreMock.chats).toEqual([existing])
+})

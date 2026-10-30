@@ -17,15 +17,16 @@ vi.mock('../../../apps/desktop/src/components/ui/sheetStack', async original => 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); scope.enqueue.mockClear(); scope.pending = [] })
-it('shows one reconnect hint beside the queued input while the phone is offline', async () => {
+it('shows only the pending message and its sending indicator while the phone is offline', async () => {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   scope.pending = [{ id: 'input', accountId: 'owner', deviceId: 'host', sessionId: 'session', text: 'Queued original words', createdAt: 1 }]
   const session = { conversationId: 'session', projectId: 'project', title: 'Task', runtime: 'acp', nativeInputVersion: 1, agentStatus: 'idle', status: { status: 'idle', detail: null } } as SessionpageSessionSummary
   await renderWithAppProviders(harness, <SessionTimelinePage device={device('host', [], { is_online: true })} session={session} onBack={() => undefined} />)
   const text = harness.container.textContent ?? ''
-  const hints = ['composer.waitingForHost', 'conversation.connectionUnavailable'].map(key => translateSessionMessage(key))
-  expect(hints.reduce((count, hint) => count + text.split(hint).length - 1, 0)).toBe(1)
+  const hints = ['Sends when connected.', '连接后自动发送。', translateSessionMessage('conversation.connectionUnavailable')]
+  expect(hints.reduce((count, hint) => count + text.split(hint).length - 1, 0)).toBe(0)
   expect(harness.container.querySelector('[data-native-input-queue]')?.textContent).toContain('Queued original words')
+  expect(harness.container.querySelector('[data-native-input-id="input"] [data-send-state="sending"]')).not.toBeNull()
   expect(harness.container.querySelector('[data-cold-native-composer]')).not.toBeNull()
 })
 it('keeps the same native task composer when the phone is cold and offline, without blaming a healthy remote host', async () => {

@@ -140,3 +140,15 @@ it('desktop still opens by right click, with scoped read disabled when only othe
   expect(readAction().getAttribute('aria-disabled')).toBe('true')
   expect(document.querySelector('[data-testid=chat-row-mark-all-read]')?.getAttribute('aria-disabled')).not.toBe('true')
 })
+
+it.each([false, true])('hides an empty owned agent and uses message time on desktop and phone (mobile: %s)', async mobile => {
+  const { installOwnedAgentEntry } = await import('../../../apps/desktop/src/lib/ownedAgentConversation')
+  const remove = installOwnedAgentEntry({ owns: id => id === 'unused-agent', open: () => true })
+  try {
+    const empty = chat({ id: 'empty-owned', kind: 'dm', peer_user_id: 'unused-agent', created_at: '2026-10-30T03:48:07Z', last_message_at: null, last_message_preview: null, unread_count: 0, is_pinned: false, is_marked_unread: false })
+    const older = chat({ id: 'older-dm', kind: 'dm', peer_user_id: 'old-peer', last_message_at: '2026-10-29T00:00:00Z', unread_count: 99 })
+    const newer = chat({ id: 'newer-dm', kind: 'dm', peer_user_id: 'new-peer', last_message_at: '2026-10-30T01:00:00Z', unread_count: 0 })
+    await renderWithAppProviders(h, createNode(ChatListPanel, { mobile, activeTab: 'chats' }), { chat: { chats: [empty, older, newer], activeChatId: null } })
+    expect([...h.container.querySelectorAll('[data-chat-row]')].map(row => row.getAttribute('data-chat-row'))).toEqual(['newer-dm', 'older-dm'])
+  } finally { remove() }
+})
