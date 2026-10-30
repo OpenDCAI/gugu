@@ -66,7 +66,8 @@ void app.whenReady().then(async () => {
   const decode = createProjectionImageDecoder(nativeImage.createFromBuffer, { r: 0, g: 0, b: 0 });
   const feeds = new Map<unknown, ReturnType<typeof bridge.mediaFeed>>();
   const signals = new ProjectionSignals({
-    authorize: async (bound, sourceId) => {
+    authorize: async (bound, sourceId, signal) => {
+      signal.throwIfAborted();
       const feed = bridge.mediaFeed(page, sourceId, bound, async (frame, signal) => {
         const lease = await decode(frame, signal); pixels.push(lease.data); return lease;
       }, async (size, signal, onControl) => {

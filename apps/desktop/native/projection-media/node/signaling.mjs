@@ -78,7 +78,7 @@ export class ProjectionSignals {
     entry.timer = setTimeout(() => { void this.#close(entry).catch(() => undefined) }, 30000)
     entry.timer.unref()
     entry.opened = (async () => {
-      const lease = await this.authorize(context, command.sourceId)
+      const lease = await this.authorize(context, command.sourceId, entry.abort.signal)
       entry.lease = lease
       if (!same(context, lease.context) || lease.sourceId !== command.sourceId) throw new Error('Projection authority does not match its host binding')
       const abort = () => { void this.#close(entry).catch(() => undefined) }

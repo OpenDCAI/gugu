@@ -120,6 +120,33 @@ test('retarget while authority is pending never starts a child or revives an old
   await host.dispose()
 })
 
+test('cancels pending authority before waiting for a retargeted binding to close', { timeout: 2000 }, async t => {
+  const gate = deferred()
+  let authoritySignal, closed = false, started = 0
+  const host = new ProjectionSignals({
+    async authorize(binding, sourceId, signal) {
+      authoritySignal = signal
+      await new Promise(resolve => {
+        gate.promise.then(resolve)
+        signal?.addEventListener('abort', resolve, { once: true })
+      })
+      signal?.throwIfAborted()
+      return { context: binding, sourceId, signal: new AbortController().signal,
+        async assertCurrent() {}, async disconnect() {}, release() {} }
+    },
+    async openMedia() { started++; throw new Error('Retargeted page started media') },
+  })
+  t.after(() => { gate.resolve(); return host.dispose() })
+  const pending = assert.rejects(host.receive(context, open('abort-authority')), /binding closed/)
+  await nextTurn()
+  const closing = host.closeBinding(context).then(() => { closed = true })
+  await nextTurn()
+  assert.equal(authoritySignal?.aborted, true)
+  assert.equal(closed, true)
+  assert.equal(started, 0)
+  await Promise.all([pending, closing])
+})
+
 test('pending connections count toward the page limit before any asynchronous authority work finishes', { timeout: 10000 }, async t => {
   const gate = deferred()
   let authorized = 0

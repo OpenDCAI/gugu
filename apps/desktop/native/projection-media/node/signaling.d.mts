@@ -17,7 +17,8 @@ export type ProjectionSignalCommand =
   | { type: 'close'; id: string }
 export class ProjectionSignals {
   constructor(deps: {
-    authorize(context: ProjectionSignalContext, sourceId: string): Promise<ProjectionSignalLease>
+    /** Honor cancellation while resolving host authority; a closed page must not keep waiting. */
+    authorize(context: ProjectionSignalContext, sourceId: string, signal: AbortSignal): Promise<ProjectionSignalLease>
     openMedia(lease: ProjectionSignalLease, signal: AbortSignal, onControl: (data: string) => void): Promise<MediaProcess>
   })
   receive(context: ProjectionSignalContext, command: ProjectionSignalCommand): Promise<unknown>
