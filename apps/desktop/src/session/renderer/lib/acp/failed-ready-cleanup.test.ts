@@ -57,9 +57,6 @@ vi.mock('../agent-config/runtime-client', () => ({
   }),
 }));
 vi.mock('../pty/xterm-log-sink', () => ({ createXtermLogSink: () => ({ reset: () => {}, append: () => {} }) }));
-// AcpLiveSession.create 的超时闸用 window.setTimeout;这个 project 跑在 node 里。
-vi.stubGlobal('window', globalThis);
-
 const { AcpLiveSession } = await import('./acp-live-session');
 const { AcpAuthLoginBinding } = await import('./auth-login-binding');
 

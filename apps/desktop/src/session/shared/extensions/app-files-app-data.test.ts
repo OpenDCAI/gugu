@@ -16,9 +16,15 @@ const rpc = vi.fn((name: string, _args: Record<string, unknown>) => {
   return Object.assign(answer, { select: () => answer });
 });
 const readSettings = vi.fn(async () => ({ other: 'keep', workspace: { layout: 'list' } }));
-const writeSettings = vi.fn(async () => ({}));
+const writeSettings = vi.fn(async (..._args: unknown[]) => ({}));
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
-vi.mock('@gugu/core/cloud/userSettings', () => ({ readUserSettingsConfig: (...args: unknown[]) => readSettings(...args as []), writeUserSettingsConfig: (...args: unknown[]) => writeSettings(...args as []) }));
+vi.mock('@gugu/core/cloud/userSettings', () => ({
+  readUserSettingsConfig: (...args: unknown[]) => readSettings(...args as []),
+  updateUserSettingsConfig: async (client: unknown, userId: string, scope: string, edit: (config: Record<string, unknown>) => Record<string, unknown>) => {
+    const config = await readSettings();
+    return writeSettings(client, userId, scope, edit(config));
+  },
+}));
 const { createAppFiles } = await import('./app-files-core');
 const page = { pageId: 9, extensionId: 'kanban', itemId: null, asAgent: agent };
 let platform: FilesPlatform;

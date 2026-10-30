@@ -103,6 +103,7 @@ export function SegmentedTabs<T extends string>({
   const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
   const autoId = useId()
+  const focusIndex = Math.max(0, items.findIndex((item) => item.value === value))
 
   // 焦点跟着选中走：切换后把焦点放到新的 tab 上，否则键盘用户按完方向键
   // 焦点还留在旧节点上，下一次方向键的起点就错了。
@@ -112,8 +113,7 @@ export function SegmentedTabs<T extends string>({
   }, [])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    const current = items.findIndex((item) => item.value === value)
-    if (current < 0) return
+    const current = focusIndex
     let next = current
     switch (event.key) {
       case 'ArrowRight': next = (current + 1) % items.length; break
@@ -127,7 +127,7 @@ export function SegmentedTabs<T extends string>({
     if (!target) return
     onChange(target.value)
     focusTab(next)
-  }, [items, value, onChange, focusTab])
+  }, [items, focusIndex, onChange, focusTab])
 
   return (
     <div
@@ -138,7 +138,7 @@ export function SegmentedTabs<T extends string>({
       className={cn(`gg-segtabs gg-segtabs-${variant}`, tabListVariants({ variant }))}
       onKeyDown={onKeyDown}
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const selected = item.value === value
         return (
           <button
@@ -149,7 +149,7 @@ export function SegmentedTabs<T extends string>({
             aria-selected={selected}
             aria-controls={item.panelId}
             // roving tabindex：未选中的项退出 Tab 序列，靠 ←/→ 到达。
-            tabIndex={selected ? 0 : -1}
+            tabIndex={index === focusIndex ? 0 : -1}
             data-selected={selected || undefined}
             data-testid={item.testId}
             className={cn('gg-segtab', tabVariants({ variant }))}

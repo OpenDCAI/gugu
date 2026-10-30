@@ -247,3 +247,29 @@ describe('单元文件 / crontab 里的路径(#6264 gap 24)', () => {
     expect(cronQuote("/home/o'neil/50%")).toBe("'/home/o'\\''neil/50\\%'")
   })
 })
+
+
+describe('managed cloud service readiness', () => {
+  it('waits for actual accounts even when the correct supervisor is already running, without restarting it', async () => {
+    const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.112', supervisedBy: 'systemd' }, current: '0.2.112' })
+    const running = m.deps.running
+    m.deps.running = () => { const p = running(); return p ? { ...p, managedCloud: true } : null }
+    const deps = { ...m.deps, accountsMatchPackage: () => m.deps.now() >= 1_000 }
+    expect(await installServiceWith(m.out, deps)).toBe(true)
+    expect(m.deps.now()).toBeGreaterThanOrEqual(1_000)
+    expect(m.calls).toEqual([])
+  })
+  it('does not claim success when only the supervisor changed and the account still runs the old package', async () => {
+    const m = fakeMachine({ mode: 'systemd', current: '0.2.112' })
+    const running = m.deps.running
+    m.deps.running = () => { const p = running(); return p ? { ...p, managedCloud: true } : null }
+    expect(await installServiceWith(m.out, { ...m.deps, accountsMatchPackage: () => false })).toBe(false)
+    expect(m.lines.join('\n')).toContain('账号尚未运行目标包')
+    expect(m.lines.join('\n')).not.toContain('已在运行')
+  })
+  it('ordinary SSH does not require accounts to share the supervisor package', async () => {
+    const m = fakeMachine({ mode: 'systemd', old: { version: '0.2.112', supervisedBy: 'systemd' }, current: '0.2.112' })
+    expect(await installServiceWith(m.out, { ...m.deps, accountsMatchPackage: () => false })).toBe(true)
+    expect(m.deps.now()).toBe(0)
+  })
+})

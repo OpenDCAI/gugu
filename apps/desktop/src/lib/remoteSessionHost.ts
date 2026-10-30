@@ -247,13 +247,20 @@ export function openRemoteSessionHostPipe(
       void request?.then((late) => {
         if (!late.error) void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       }, () => undefined)
+      // The device attach can refuse the protocol before taskhost.open reaches
+      // its desktop report. Use the same SSH match-version path in that case.
+      if ((error as { code?: unknown } | null)?.code === 'server_outdated') {
+        if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+        else void deps.requestCloudUpgrade?.(deviceId)
+        throw new SessionHostTooOldError()
+      }
       throw error
     }
     abandonOpen = null
     if (opened.error) {
       closed = true
       unsubscribe()
-      if (opened.error.code === 'unknown_method') {
+      if (opened.error.code === 'unknown_method' || opened.error.code === 'server_outdated') {
         // 远程 SSH 的机器:这台桌面够得着,当场替它升级(升完自动重连);远程隧道的等它空闲时自己升。
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
         else void deps.requestCloudUpgrade?.(deviceId)
