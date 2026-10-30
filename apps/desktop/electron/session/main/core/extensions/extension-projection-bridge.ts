@@ -43,8 +43,8 @@ export class ExtensionProjectionBridge {
 
   /** Trusted host encoding adapter, not an App verb or a bitmap-over-RPC route. */
   mediaFeed(caller: BridgeCaller, sourceId: string, context: Parameters<typeof projectionVideoFeed>[2],
-    decode: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
-    return projectionVideoFeed(this.resources, this.mediaResource(caller, sourceId), context, decode, createMedia);
+    createDecoder: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
+    return projectionVideoFeed(this.resources, this.mediaResource(caller, sourceId), context, createDecoder, createMedia);
   }
 
   count(pageId: number): number {

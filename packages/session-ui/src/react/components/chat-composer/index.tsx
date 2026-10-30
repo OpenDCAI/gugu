@@ -200,7 +200,7 @@ import {
   pastedTextFile,
   readImageAttachment,
 } from './composer-attachment-file';
-import { ComposerAttachmentChip } from './composer-attachment-chip';
+import { ComposerAttachmentStrip } from './composer-attachment-strip';
 import { ComposerModelMenu, resolveComposerModelPanel } from './composer-model-menu';
 import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-selector';
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -296,6 +296,8 @@ export interface ChatComposerProps {
    * Hosts can override image handling with `onImageFilesDropped`.
    */
   attachments?: ComposerAttachment[];
+  /** Automatic-send waiting hint, displayed beside the attachment chips. */
+  attachmentStatus?: string;
   onAttachmentsChange?: (next: ComposerAttachment[]) => void;
   /**
    * Called with pasted or dropped image files before the default data-url attachment path.
@@ -440,6 +442,7 @@ export function ChatComposer({
   onAttach,
   contextUsage,
   attachments = [],
+  attachmentStatus,
   onAttachmentsChange,
   onImageFilesDropped,
   onFilesDropped,
@@ -797,19 +800,8 @@ export function ChatComposer({
         onDrop={queueEdit ? undefined : handleDrop}
       >
         {/* Attachment chips — anatomy vendored from assistant-ui (#5269), see composer-attachment-chip.tsx */}
-        {!queueEdit && attachments.length > 0 && (
-          <div data-slot="composer-attachments" className={styles.attachmentStrip}>
-            {attachments.map((att) => (
-              <ComposerAttachmentChip
-                key={att.id}
-                attachment={att}
-                onView={onViewAttachment}
-                onRemove={onAttachmentsChange ? removeAttachment : undefined}
-                onRetry={onRetryAttachment}
-              />
-            ))}
-          </div>
-        )}
+        {!queueEdit && <ComposerAttachmentStrip attachments={attachments} status={attachmentStatus}
+          onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} />}
 
         {/* Editor area */}
         <div

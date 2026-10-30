@@ -1687,10 +1687,9 @@ const ComposerForStore = observer(function ComposerForStore({
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
         isWorking={a.isWorking}
+        attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}
         notice={
-          sendHold === 'waiting'
-            ? { variant: 'info', message: translate('composer.attachmentWaiting') }
-            : sendHold === 'blocked'
+          sendHold === 'blocked'
               ? { variant: 'error', message: translate('composer.attachmentBlocked'), onDismiss: () => setSendHold(null) }
               : store.permissionModeChangeNotice
         }
