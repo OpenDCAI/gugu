@@ -255,7 +255,6 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       `session-page reap: owner not authenticated — ${stale.length} stale agent(s) left in place (retried on next trigger)`,
     )
   }
-  const chat = makeChatClient(auth.accessToken)
   const failures: string[] = []
 
   let archivedGroups = 0
@@ -304,7 +303,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       }
       // gugu has no group hard-delete (chat.chats has no DELETE policy — owner/admin may only UPDATE), so
       // removing a group means archiving it. Honest about the real capability rather than faking a delete.
-      await createGroupAdmin(chat, reaperUserId).archive(chatId)
+      await createGroupAdmin(makeChatClient(reaperAccessToken), reaperUserId).archive(chatId)
       archivedGroups++
       // 项目没了、群已归档 → 忘掉「项目 → 群」的映射,否则同 id 项目再出现时会复用一个归档群。
       await forgetDeadProjects(projectIds)
