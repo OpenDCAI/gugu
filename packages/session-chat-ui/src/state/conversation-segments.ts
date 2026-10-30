@@ -117,7 +117,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       // Completion is its own observed event, never an inferred reply target.
       close(at, item.id);
       blocks.push({ kind: 'input', item });
-      pendingInput = false;
+      pendingInput = true;
       continue;
     }
     const question = 'toolCallId' in item && isQuestionOrPlanToolName(toolCallName(item));

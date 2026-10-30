@@ -96,6 +96,14 @@ describe('replay conversation segment boundaries', () => {
     expect(segments[1]).toMatchObject({ live: true, startedAt: 4000 });
   });
 
+  it('keeps an active process after a standalone completion without turning it into a quote', () => {
+    const source = notice('wake', 5000);
+    const rows = flattenTier([turn([source])], context(true), segmenters);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'wake', 't:process@wake']);
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
+    expect(rows.some(row => (row.data as ChatMessage).conversationReply)).toBe(false);
+  });
+
   it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
