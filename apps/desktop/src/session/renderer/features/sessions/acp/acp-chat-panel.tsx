@@ -1863,7 +1863,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   } = useBoundChatView(store);
   useAskedSourceMessage({ activeChatId: store ? `task:${store.sessionId}` : null,
     enabled: visibility.shown, ready: Boolean(chatView) && Boolean(store && !store.historyLoading),
-    reveal: (reference, query) => { sourceMessage.reveal(reference); if (query) viewRef.current?.find(query); } });
+    reveal: reference => { sourceMessage.reveal(reference); } });
   const handleReady = useCallback(
     (view: ChatView) => {
       viewRef.current = view;
