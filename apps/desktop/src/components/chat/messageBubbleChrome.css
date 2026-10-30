@@ -31,7 +31,7 @@
 .msg-time {
   font-size: var(--font-caption);
   line-height: var(--lh-caption);
-  color: var(--faint-fg);
+  color: var(--muted-fg);
   white-space: nowrap;
   user-select: none;
 }

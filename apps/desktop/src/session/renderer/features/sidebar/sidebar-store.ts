@@ -28,6 +28,8 @@ import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessio
 import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
+import { taskStatusPresentation } from '@/lib/taskAgentStatus';
+import { sessionPresentation } from '@/mobile/agent-watch/watch-status';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import {
   EMPTY_PROJECT_GROUP_LAYOUT,
@@ -37,7 +39,6 @@ import {
 } from '@renderer/features/projects/stores/project-group-layout';
 import {
   SIDEBAR_STATE_GROUP_ORDER,
-  remoteAgentStatus,
   sidebarStateGroup,
   type SidebarStateGroup,
 } from './session-groups';
@@ -138,7 +139,7 @@ export type SidebarMachines = {
   homeDir(deviceId: string): string | null;
   /**
    * 那台机器上有哪些会话(会话目录,与手机同一份)。别的机器上的行只读它,❌ 读挂载的项目:列出不挂载,
-   * 打开就先画上次的样子。`live` = 此刻连着、对过账;否则是上次的(行上「在跑」不算数)。
+   * 打开就先画上次的样子。`live` 只说明目录连接；Agent 工作态由共享 presence 提供。
    */
   sessionsOf?(deviceId: string): { sessions: readonly SessionpageSessionSummary[]; live: boolean };
   /** #7199 这台是不是个人助理住的那台(它上面的项目并成一组,组名是它的名字)。 */
@@ -752,7 +753,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           time: session.data.lastInteractedAt
             ? new Date(session.data.lastInteractedAt).getTime()
             : 0,
-          group: sidebarStateGroup(session.groupStatus),
+          group: sidebarStateGroup(taskStatusPresentation(
+            sessionAgentNames.identityFor(session.data.id)?.agentUserId
+              ? { kind: 'agent', agentUserId: sessionAgentNames.identityFor(session.data.id)!.agentUserId }
+              : { kind: 'task', reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, online: true },
+          )),
           title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
         });
       }
@@ -784,8 +789,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         parentSessionId: session.parentConversationId ?? null,
         isPinned: session.isPinned === true,
         time: session.lastInteractedAt ? new Date(session.lastInteractedAt).getTime() : 0,
-        // 不是此刻的读数(底稿 / 离线):「在跑」不算数,与手机同一口径(remoteAgentStatus)。
-        group: sidebarStateGroup(remoteAgentStatus(session, listed.live)?.status ?? null),
+        // Direct-link freshness only governs access; identified agents share presence with avatars.
+        group: sidebarStateGroup(sessionPresentation(session, listed.live,
+          session.agent?.userId ?? sessionAgentNames.identityFor(session.conversationId)?.agentUserId)),
         title: formatSessionTitleForDisplay(session.harness, session.title),
       });
     }
@@ -928,7 +934,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             time: session.data.lastInteractedAt
               ? new Date(session.data.lastInteractedAt).getTime()
               : 0,
-            group: sidebarStateGroup(session.groupStatus),
+            group: sidebarStateGroup(taskStatusPresentation(
+              sessionAgentNames.identityFor(session.data.id)?.agentUserId
+                ? { kind: 'agent', agentUserId: sessionAgentNames.identityFor(session.data.id)!.agentUserId }
+                : { kind: 'task', reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, online: true },
+            )),
             title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
           });
         }

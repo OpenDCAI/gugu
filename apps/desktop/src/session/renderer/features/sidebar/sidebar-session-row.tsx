@@ -1,8 +1,8 @@
 import { Archive, Pin, PinOff } from '@/lib/icons'
 import React from 'react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
-import { AgentStatusGlyph, AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
-import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
+import { AgentStatusGlyph } from '@renderer/lib/components/agent-status-indicator';
+import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,7 +12,6 @@ import { RelativeTime } from '@renderer/lib/ui/relative-time';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
-import type { AgentStatus, AgentStatusDetail } from '@shared/core/agents/agentEvents';
 import {
   SidebarMenuAction,
   SidebarMenuRow,
@@ -54,10 +53,8 @@ export type SessionRowShellProps = {
   harness: { id: string; name: string } | null;
   /** 标题前的小图标(fork 谱系 / 扩展发起),hover 才出文字。 */
   badges?: React.ReactNode;
-  /** 行尾的状态;null = 状态未知(如机器离线时的「在跑」),只留时间。 */
-  status: AgentStatus | null;
-  /** 附属态(spec agent-status-vocabulary):只改画法与那一句 —— 后台运行中 = 同一枚转圈字形静止,需要你写出在等什么。 */
-  detail?: AgentStatusDetail | null;
+  /** The canonical presentation; this shell never derives running state. */
+  presentation: AgentStatusPresentation | null;
   /**
    * #6206 没有状态源(终端腿 + 这一家 hooks 为 none)的会话:宿主不陈述任何一态 ⇒ 行上如实说「状态不可用」。
    * 只在 status 为 null 时由调用方给:provider 阻塞等确定事实写出的状态照常优先。
@@ -114,8 +111,7 @@ export function SessionRowShell({
   title,
   harness,
   badges,
-  status,
-  detail = null,
+  presentation,
   statusUnavailable = false,
   lastInteractedAt,
   schedule = null,
@@ -143,15 +139,14 @@ export function SessionRowShell({
   // 时间墨色表达,❌ 不画点。seen=0 只由回合结束那条边写出,所以这里不会把出生 / 退出的 idle 加粗。
   // 点不开的行(#6264 机器离线)退到被动墨色 —— 列着、看得见,但一眼读得出「此刻点不动」。
   // 这一行的状态画成什么:与聊天、手机同一个 presentAgentStatus(#6448 owner 定表)。
-  const presentation = status ? presentAgentStatus({ reading: { status, detail }, unseen: doneUnread }) : null;
   // 行尾那一格画的是定时那枚钟吗(owner 10-19 C:空闲时盖掉时间,别的状态的标志优先)。与下面那条状态链同一个次序。
   const scheduleAtRest =
     schedule != null &&
-    status !== 'error' &&
-    status !== 'needs_user' &&
+    presentation?.tone !== 'error' &&
+    presentation?.tone !== 'needs_user' &&
     !needsAttention &&
     !statusUnavailable &&
-    !(status === 'working' && presentation);
+    presentation?.tone !== 'running' && presentation?.tone !== 'parked';
   const titleClass = cn(
     'text-left',
     disabled ? 'text-foreground-passive' : 'text-foreground',
@@ -287,8 +282,10 @@ export function SessionRowShell({
             ) : null}
             <span className={sidebarRowRestActionsClass}>
               {/* 自己的「需要你」先于子树汇总:否则一条出错的会话只显示「树里有事」那颗黄点,红点永远轮不到。 */}
-              {status === 'error' || status === 'needs_user' ? (
-                <AgentStatusIndicator status={status} detail={detail} disableTooltip />
+              {presentation?.tone === 'error' || presentation?.tone === 'needs_user' ? (
+                <span className="flex size-5 items-center justify-center">
+                  <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
+                </span>
               ) : needsAttention ? (
                 <span className="flex size-5 items-center justify-center">
                   <span
@@ -306,7 +303,7 @@ export function SessionRowShell({
                     data-status-unavailable
                   />
                 </span>
-              ) : status === 'working' && presentation ? (
+              ) : presentation && (presentation.tone === 'running' || presentation.tone === 'parked') ? (
                 <span className="flex size-5 items-center justify-center">
                   <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
                 </span>

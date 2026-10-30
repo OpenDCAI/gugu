@@ -5,6 +5,8 @@ import { SELECTED_MESSAGE_QUOTES_ENABLED } from '../../lib/messageQuoteRollout'
 export type MessageActionTarget = {
   isRetracted: boolean
   content: string | null
+  /** Limit the menu to handlers for the captured text selection. */
+  hasSelection?: boolean
   onReply?: () => void
   onQuoteSelection?: () => void
   onCopy?: (content?: string) => void
@@ -37,7 +39,12 @@ export type MessageActionItem = {
 }
 
 /** 一条消息能做的事。右键 / ⋯ / 长按 / 文件预览共用,按提供的 handler 取适合当前场景的动作。 */
-export function messageActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
+export function messageActionItems(input: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
+  const target: MessageActionTarget = input.hasSelection ? {
+    isRetracted: input.isRetracted, content: input.content,
+    onReply: selectionReply(input), onCopy: input.onCopy,
+    onCopyLink: input.onCopyLink, onOpenLink: input.onOpenLink,
+  } : input
   const hasContent = !!target.content && !target.isRetracted
   const items: (MessageActionItem | false)[] = [
     !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
@@ -58,8 +65,12 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
   return items.filter((item): item is MessageActionItem => item !== false)
 }
 
-/** Until excerpt-aware receivers ship, Reply keeps its whole-message meaning.
- * Permissions and every other action, including future extensions, still come from the same list. */
+/** Until excerpt-aware receivers ship, Reply on a selection keeps its whole-message meaning. */
+function selectionReply(target: MessageActionTarget) {
+  return SELECTED_MESSAGE_QUOTES_ENABLED ? target.onQuoteSelection ?? target.onReply : target.onReply
+}
+
+/** Permissions and every other action, including future extensions, still come from the same list. */
 export function messageSelectionActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
-  return messageActionItems({ ...target, onReply: SELECTED_MESSAGE_QUOTES_ENABLED ? target.onQuoteSelection ?? target.onReply : target.onReply, onQuoteSelection: undefined }, t)
+  return messageActionItems({ ...target, onReply: selectionReply(target), onQuoteSelection: undefined }, t)
 }

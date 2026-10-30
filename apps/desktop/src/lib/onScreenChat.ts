@@ -19,6 +19,11 @@ export function chatOnScreen(): string | null {
   return shown
 }
 
+/** 这条会话此刻在不在人眼前:屏上能同时摆几块对话(会话页一屏几块),哪一块摆着都算。 */
+export function isChatOnScreen(chatId: string): boolean {
+  return appActive && [...shownByReporter.values()].includes(chatId)
+}
+
 // 前后台只信宿主:安卓「后台守着」让页面在后台仍是 visible。宿主不报时退回 visibilityState。
 function watchAppActive(listener: (active: boolean) => void): () => void {
   if (platform.subscribeAppActive) return platform.subscribeAppActive(listener)
