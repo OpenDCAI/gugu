@@ -16,7 +16,7 @@ import {
 import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { log } from '@renderer/utils/logger';
 
-type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string };
+type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string; session_archived_at?: string | null };
 
 type MentionTool = Pick<LocalAgentCreationTool, 'icon'>;
 
@@ -66,6 +66,7 @@ function candidatesFromRows(
       id: users.id,
       sessionId: peer.sessionId,
       name,
+      ...(users.session_archived_at != null ? { session_archived_at: users.session_archived_at } : {}),
       number: users.gugu_number == null ? '' : String(users.gugu_number),
       title: session
         ? formatSessionTitleForDisplay(session.providerId, session.title).trim() || undefined
@@ -84,6 +85,8 @@ function mentionItemsFromLocalSessionCandidates(
   const searchable = candidates.map((candidate) => ({
     candidate,
     name: candidate.name,
+    type: 'agent' as const,
+    session_archived_at: candidate.session_archived_at,
     alias: candidate.title,
     guguNumber: candidate.number ? Number(candidate.number) : null,
   }));

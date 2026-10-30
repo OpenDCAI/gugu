@@ -3,18 +3,20 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
-import type { SessionUpdate, ToolCallStatus } from '@agentclientprotocol/sdk';
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
+import { claudeFilePatch } from '../../acp/transport/claude-file-patch';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/transcriptSources/claudeCode';
 
 import {
   type RecordEntry,
+  type RecordImageRef,
   type SessionRecordLocator,
   type SessionRecordResume,
   type SessionRecordSource,
   type SessionRecordSourceEvents
 } from '../contract';
 import { findUnder, isFile } from './find-file';
+import { locateImages, readRecordImage } from './record-images';
 import {
   SessionRecordNotFoundError,
   asRecord,
@@ -23,10 +25,10 @@ import {
   parseJson,
   parseTimestamp,
   pollInterval,
-  toJsonValue,
   warnOf,
   type RecordSourceWarn,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -35,7 +37,7 @@ import { withSubagentSources } from './subagent-sources';
 
 
 /** 续读点里那份 claude 自己的数据。形状或读法变了就升版本号,老存档一律作废重读。 */
-const CLAUDE_RESUME_VERSION = 5;
+const CLAUDE_RESUME_VERSION = 6;
 type Launch = { name: string; input: unknown };
 type ClaudeResumeData = {
   version: number;
@@ -107,7 +109,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
       path,
       pollInterval(this.options),
       {
-        onLines: (lines) => this.emitLines(lines),
+        onLines: (lines, offsets) => this.emitLines(lines, offsets),
         onRestart: (reason) => {
           // 先清去重表再转发：TailReader 在 onRestart 之后紧接着把整份文件当"新行"送进来，
           // 不清的话每一条都会撞上 seenUuids 被丢掉 —— 订阅者拿到一条空时间线。
@@ -151,7 +153,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.childRoots = data.childRoots;
     this.seenUuids = new Set(data.seenUuids);
     this.lastUuid = data.lastUuid;
-    const ok = await this.reader!.resumeFrom(data.tail, (lines) => this.emitLines(lines));
+    const ok = await this.reader!.resumeFrom(data.tail, (lines, offsets) => this.emitLines(lines, offsets));
     if (!ok) {
       // 尾读器判定续不上（inode 换了 / 文件变短 / 读不到）。把刚装回去的去重表清掉，
       // 交给调用方统一走「作废 + 整份重读」那条路。
@@ -188,6 +190,10 @@ class ClaudeJsonlSource implements SessionRecordSource {
     await this.reader?.catchUp();
   }
 
+  readImage(ref: RecordImageRef): Promise<string | null> {
+    return readRecordImage(ref);
+  }
+
   stop(): void {
     this.stopped = true;
     this.reader?.stop();
@@ -202,16 +208,19 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.seenUuids = new Set();
     this.lastUuid = null;
     this.anchors = new Set();
-    await this.reader!.readFromStart((lines) => this.emitLines(lines));
+    await this.reader!.readFromStart((lines, offsets) => this.emitLines(lines, offsets));
     // 分叉串联接在整份读之后：串上来的那份也是"已有内容"，尾读要交接到链条最后一份上。
     const tailPath = await this.chainForks(path);
     if (tailPath !== path) this.reader!.retarget(tailPath);
   }
 
-  private emitLines(lines: string[]): void {
+  /** `offsets` 只有尾读器读的行才有(分叉文件整份读进来的没有):有它才给工具图记原文位置。 */
+  private emitLines(lines: string[], offsets?: number[]): void {
     if (this.stopped || !this.events) return;
     const events = this.events;
-    emitJsonLines(lines, 'claude', this.warn, (entries) => events.onEntries(entries), (record) => this.decodeRecord(record));
+    const path = this.reader?.currentPath;
+    emitJsonLines(lines, 'claude', this.warn, (entries) => events.onEntries(entries), (record) => this.decodeRecord(record),
+      offsets && path ? (entries, index) => locateImages(entries, lines[index], offsets[index], path) : undefined);
   }
 
   private decodeRecord(record: Record<string, unknown>): RecordEntry[] {
@@ -235,39 +244,42 @@ class ClaudeJsonlSource implements SessionRecordSource {
     // as the Codex source does for collaboration calls and activity records.
     const decoded = decodeClaudeRecord(this.nativeChild ? { ...record, isSidechain: false } : record, uuid);
     return [...decoded.flatMap((entry): RecordEntry[] => {
-      const update = entry.update;
-      if (!update || (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update')) return [entry];
-      const launch = this.launches[update.toolCallId];
+      const event = entry.event;
+      if (!event || (event.kind !== 'tool_call' && event.kind !== 'tool_update')) return [entry];
+      const launch = this.launches[event.toolCallId];
       if (!launch) return [entry];
-      if (update.sessionUpdate === 'tool_call') return [];
+      if (event.kind === 'tool_call') return [];
       const result = asRecord(record.toolUseResult);
       const id = result?.agentId;
       if (typeof id !== 'string' || !id) return [
-        { ...entry, key: `${entry.key}#launch`, update: toolCallStart(update.toolCallId, launch.name, 'other', launch.input) },
+        { ...entry, key: `${entry.key}#launch`, event: toolCallStart(event.toolCallId, launch.name, 'other', launch.input) },
         entry,
       ];
       const input = asRecord(launch.input);
       this.childRoots[id] = this.nativeChild ? this.locator.roots : [join(dirname(this.primaryPath!),
         typeof record.sessionId === 'string' ? record.sessionId : this.locator.providerSessionId, 'subagents')];
+      const title = [input?.name, input?.description, launch.name].find((value): value is string => typeof value === 'string' && value !== '');
+      const task = [input?.description, input?.prompt].find((value): value is string => typeof value === 'string' && value !== '');
       return [
-        { ...entry, key: `${entry.key}#spawn`, update: subagentUpdate({
-          sessionUpdate: 'subagent_spawned', subagentSessionId: id,
-          name: input?.name ?? input?.description ?? launch.name,
-          task: input?.description ?? input?.prompt,
-          request: input?.prompt,
-          model: typeof result.resolvedModel === 'string' ? result.resolvedModel : undefined,
-          launchToolCallId: update.toolCallId,
-          background: result.isAsync === true,
-          capabilities: { cancel: false },
-        }) },
-        { ...entry, update: { sessionUpdate: 'tool_call_update', toolCallId: id, status: update.status } },
+        { ...entry, key: `${entry.key}#spawn`, event: {
+          kind: 'subagent', toolCallId: id, subagentSessionId: id,
+          ...(title ? { title } : {}),
+          ...(task ? { inputSummary: task } : {}),
+          status: result.isAsync === true ? 'completed' : 'in_progress',
+          parentToolCallId: null, canCancel: false,
+          ...(result.isAsync === true ? { background: true } : {}),
+          ...(typeof result.resolvedModel === 'string' && result.resolvedModel ? { model: result.resolvedModel } : {}),
+          agentToolUseId: event.toolCallId,
+          ...(typeof input?.prompt === 'string' && input.prompt ? { rawInput: input.prompt } : {}),
+        } },
+        { ...entry, event: { kind: 'tool_update', toolCallId: id, status: event.status } },
       ];
     }), ...this.backgroundTaskEntries(record, message, uuid)];
   }
 
   /**
-   * 后台命令(`run_in_background` 的 Bash,#5117)在记录里的两头,写成运行时 ACP 流里同名的那两条扩展更新
-   * (`async_task_spawned` / `async_task_state_update`),reducer 照常把任务 id 记到那次调用上、跑完时撤下:
+   * 后台命令(`run_in_background` 的 Bash,#5117)在记录里的两头,写成运行时同一个领域任务生命周期
+   * (`async_task` / `async_task_state`),reducer 照常把任务 id 记到那次调用上、跑完时撤下:
    *  · 起:tool_result 那条记录的 `toolUseResult.backgroundTaskId`;
    *  · 完:之后一条 user 字符串消息 `<task-notification>`,带 task-id / tool-use-id / status。
    * 手机看会话读的是这份记录,不是运行时的流 —— 没有这一路,它那一句「后台 · 1 条命令」永远不出来。
@@ -282,8 +294,9 @@ class ClaudeJsonlSource implements SessionRecordSource {
       const toolCallId = blocks.find((block) => block?.type === 'tool_result' && typeof block.tool_use_id === 'string')?.tool_use_id;
       if (typeof toolCallId !== 'string') return [];
       this.backgroundTasks.add(taskId);
-      return [{ key: `claude:${uuid}#bg-spawn`, ...stamp,
-        update: { sessionUpdate: 'async_task_spawned', asyncTaskId: taskId, toolCallId } as unknown as SessionUpdate }];
+      return [{ key: `claude:${uuid}#bg-spawn`, ...stamp, event: {
+        kind: 'async_task', asyncTaskId: taskId, name: '', taskType: '', description: '', showInTranscript: false, canStop: false, toolCallId,
+      } }];
     }
     const text = typeof message?.content === 'string' ? message.content : null;
     if (!text?.includes('<task-notification>')) return [];
@@ -294,7 +307,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
     const state = status === 'failed' ? 'failed' : status === 'killed' || status === 'stopped' ? 'stopped' : 'completed';
     const toolCallId = tag('tool-use-id');
     return [{ key: `claude:${uuid}#bg-done`, ...stamp,
-      update: { sessionUpdate: 'async_task_state_update', asyncTaskId: id, state, ...(toolCallId ? { toolCallId } : {}) } as unknown as SessionUpdate }];
+      event: { kind: 'async_task_state', asyncTaskId: id, state, ...(toolCallId ? { toolCallId } : {}) } }];
   }
 
   /**
@@ -423,7 +436,7 @@ async function resolveSessionFile(locator: SessionRecordLocator, nativeChild = f
 }
 
 // ─── 映射 ────────────────────────────────────────────────────────────────────
-// 一行记录是什么意思由 core 的 `readClaudeRecord` 读（导入清单读的是同一份）；这里只映射成 ACP update。
+// 一行记录是什么意思由 core 的 `readClaudeRecord` 读（导入清单读的是同一份）；这里只解码成领域事件。
 
 export function decodeClaudeRecord(
   line: Record<string, unknown>,
@@ -433,12 +446,12 @@ export function decodeClaudeRecord(
   if (record.sidechain) return [];
   const at = parseTimestamp(record.timestamp);
   const stamp = at !== undefined ? { at } : {};
-  const updates = record.items.map((item) => toUpdate(item, record.messageId, record.steering));
-  const entries: RecordEntry[] = updates.map((update, index) => ({
-    // 一条记录出多条 update 时按块序号加后缀：块数由记录本身定死，重读同一份记录得到同一批 key。
-    key: updates.length === 1 ? `claude:${uuid}` : `claude:${uuid}#${index}`,
+  const events = record.items.map((item) => toEvent(item, record.messageId, record.steering));
+  const entries: RecordEntry[] = events.map((event, index) => ({
+    // 一条记录出多条 event 时按块序号加后缀：块数由记录本身定死，重读同一份记录得到同一批 key。
+    key: events.length === 1 ? `claude:${uuid}` : `claude:${uuid}#${index}`,
     ...stamp,
-    update
+    event
   }));
   if (record.end) {
     entries.push(
@@ -457,20 +470,16 @@ export function decodeClaudeRecord(
   return entries;
 }
 
-function toUpdate(item: ClaudeRecordItem, messageId: string | null, steering = false): SessionUpdate {
+function toEvent(item: ClaudeRecordItem, messageId: string | null, steering = false): NormalizedEvent {
   switch (item.kind) {
-    case 'text': {
-      const content = { type: 'text' as const, text: item.text };
-      return item.role === 'user'
-        ? { sessionUpdate: 'user_message_chunk', content, messageId, ...(steering ? { _meta: { guguSteering: true } } : {}) }
-        : { sessionUpdate: 'agent_message_chunk', content, messageId };
-    }
+    case 'text':
+      return item.text ? { kind: 'message', role: item.role, messageId, text: item.text, ...(steering && item.role === 'user' ? { steering: true } : {}) } : { kind: 'ignored' };
     case 'thinking':
-      return { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: item.text }, messageId };
+      return item.text ? { kind: 'thinking', messageId, text: item.text } : { kind: 'ignored' };
     case 'tool_use':
       return toolCallStart(item.id, item.name, claudeToolKind(item.name), item.input);
     case 'tool_result': {
-      const status: ToolCallStatus = item.isError ? 'failed' : 'completed';
+      const status = item.isError ? 'failed' : 'completed';
       const text = toolResultText(item.content);
       // The result's pictures go as ACP image blocks, as the live ACP stream has them (148 10-14): the card draws them.
       const images = Array.isArray(item.content) ? item.content.flatMap(toolResultImage) : [];
@@ -480,17 +489,12 @@ function toUpdate(item: ClaudeRecordItem, messageId: string | null, steering = f
         ? item.content.some((block) => !['text', 'image'].includes(String(asRecord(block)?.type)))
         : typeof item.content !== 'string' && item.content !== undefined;
       const displayed = hasOther ? JSON.stringify(item.content, null, 2) : text;
-      const content = [
-        ...(displayed !== null ? [{ type: 'content' as const, content: { type: 'text' as const, text: displayed } }] : []),
-        ...images.map((image) => ({ type: 'content' as const, content: { type: 'image' as const, ...image } }))
-      ];
-      return {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: item.toolUseId,
-        status,
-        ...(hasOther ? { rawOutput: toJsonValue(item.content) } : {}),
-        ...(content.length > 0 ? { content } : {})
-      };
+      return toolCallResult(item.toolUseId, status, {
+        ...(item.fileChange ? { contentBlocks: [claudeFilePatch(item.fileChange)] } : {}),
+        ...(displayed != null ? { text: displayed } : {}),
+        images,
+        ...(hasOther ? { rawOutput: item.content } : {}),
+      });
     }
   }
 }

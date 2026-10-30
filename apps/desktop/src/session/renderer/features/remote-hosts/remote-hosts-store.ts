@@ -378,7 +378,8 @@ export class RemoteHostsStore {
       }
       return [{
         sessionId: session.conversationId,
-        identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number } },
+        identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number,
+          ...(identity.session_archived_at != null ? { session_archived_at: identity.session_archived_at } : {}) } },
         engine: engineOf(session.harness),
       }];
     }));
@@ -599,7 +600,7 @@ export class RemoteHostsStore {
       // 心跳说它在(远程 SSH:设备连接没报问题)就连;刚从离线回来的不等退避。
       if (remoteHostReachable(device)) {
         const client = machineClient(device.id);
-        if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id);
+        if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id, { automatic: true });
       }
     }
     for (const deviceId of [...this.hosts.keys()]) if (!seen.has(deviceId)) this.forget(deviceId);

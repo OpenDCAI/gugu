@@ -57,7 +57,7 @@ type MachineRpc = ReturnType<typeof machineRpc>
 /** Copy the authorization text; surface a refused clipboard write. */
 async function copyText(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text)
+    await platform.writeClipboardText(text)
     return true
   } catch (error) {
     rendererLogger('actions/PhoneConnectorSetup').error({ error: error }, 'action failed')
@@ -273,6 +273,13 @@ function FormSetup({ item, rpc, onConnected }: { item: IntegrationMetadata; rpc:
         )
       })}
       {method.help ? <p className="ta-page-sub ta-pad">{method.help}</p> : null}
+      {method.custody ? (
+        <p className="ta-page-sub ta-pad">
+          {method.custody === 'platform'
+            ? t('connectors.setup.platformCustody', { label: secretLabel ?? method.fields[0]?.label ?? '', name: item.name })
+            : t('connectors.setup.localCustody', { label: secretLabel ?? method.fields[0]?.label ?? '' })}
+        </p>
+      ) : null}
       {method.helpUrl ? (
         <Button variant="ghost" className="ta-pill-btn" onClick={() => openInBrowser(method.helpUrl ?? '')} data-testid="assistant-connector-guide">
           <ExternalLink />

@@ -63,8 +63,7 @@ const ctx = (extra: Partial<SegmentCtx> = {}): SegmentCtx =>
     plan: () => null,
     translate: defaultChatTranslator,
     pendingToolCallIds: () => new Set<string>(),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    terminalSnapshot: () => null,
     foldTurnProcess: true,
     ...extra,
   }) as unknown as SegmentCtx;

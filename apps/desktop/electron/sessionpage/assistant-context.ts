@@ -32,7 +32,8 @@ export function assistantHomeTaskContext(capabilities: Materialization, cwd: str
   claude.options = { ...claude.options,
     systemPrompt: ['你是个人助理委派的 Task Agent，只承接当前交代及其来源。个人助理的身份、全部个人记忆与主动日程不属于本任务。', capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
     settingSources: [],
-    tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+    // Skill loads the connected CLI applications' skills the assistant delegated this task for.
+    tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill'],
     env,
   }
   return materialized

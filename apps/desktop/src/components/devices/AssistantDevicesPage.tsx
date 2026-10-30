@@ -35,6 +35,7 @@ import { useDeviceMachineSections } from '../../lib/deviceMachines'
 import { DeviceMachineConfigurations } from './DeviceMachineConfigurations'
 import { DeviceMachineArchive } from './DeviceMachineArchive'
 import { useDeviceRemoval } from '../settings/useDeviceRemoval'
+import { useAssistantPanelBack } from '../../lib/assistantPanelPage'
 
 export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevice, panelNavigation = false }: {
   panelNavigation?: boolean
@@ -66,15 +67,17 @@ export function AssistantDevicesPage({ cloudDeviceId, openedDeviceId, onOpenDevi
 
   const openedMachine = deviceMachineFor(machines, open)
   const opened = openedMachine?.device
-  if ((thisPhone && open === 'this-phone') || (openedMachine?.current && opened && isPhoneDevice(opened))) {
+  const localPhone = (thisPhone && open === 'this-phone') || !!(openedMachine?.current && opened && isPhoneDevice(opened))
+  useAssistantPanelBack(panelNavigation && localPhone && !onOpenDevice ? 'device:this-phone' : null, () => setOpen(null))
+  if (localPhone) {
     if (onOpenDevice) return <><DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />{dialogs}</>
     return (
       <SettingsPage data-testid="assistant-this-phone-actions">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setOpen(null)} data-testid="assistant-devices-back">
+          {!panelNavigation && <Button variant="ghost" size="sm" onClick={() => setOpen(null)} data-testid="assistant-devices-back">
             <ChevronLeft size={16} />
             {t('devices.deviceActions.back')}
-          </Button>
+          </Button>}
           <div className="text-[length:var(--font-title)] font-medium">{t('devices.assistantPage.phoneTitle')}</div>
         </div>
         <DeviceMachineConfigurations devices={phone?.configurations} actions={configurationActions} /><PhoneDeviceActionsPage />

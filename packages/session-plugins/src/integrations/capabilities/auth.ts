@@ -14,9 +14,10 @@ const authFieldSchema = z.object({
 });
 
 /**
- * A vendor's hosted MCP that authorizes with the person's own key in the URL (AMap: `?key=`),
- * not OAuth. The key is one of the form's fields; the host builds the address from the stored
- * record on every call and forwards the vendor's tools to sessions unchanged.
+ * A vendor's hosted MCP that authorizes with the person's own key in the URL (AMap: `?key=`), not OAuth.
+ * With `custody: 'platform'` this is only the fallback for an installation that has no platform service
+ * (#921): there the device keeps the key and builds the address itself; everywhere else the platform's
+ * provider table holds the address and the key placement.
  */
 const keyedMcpSchema = z.object({
   serverUrl: z.string(),
@@ -37,6 +38,16 @@ const formMethodSchema = z.object({
   fields: z.array(authFieldSchema).min(1),
   help: localizedTextSchema.optional(),
   helpUrl: z.string().optional(),
+  /**
+   * #921 `'platform'`: the person types the credential once and the Gugu platform keeps it for them. The form goes
+   * to the platform, which checks it with the provider before storing it; every device of theirs (their cloud
+   * computer too) uses the provider's MCP tools through the platform's forwarder, and the credential never comes
+   * back to any device. The plugin declares its id and the fields only: the upstream address and where the
+   * credential goes on it live in the platform's provider table. Absent = kept in this device's credential store.
+   * The one exception is an installation with no such platform service at all (a self-hosted install without the
+   * cloud-computer controller): only there the credential is kept on the device, through `mcp`.
+   */
+  custody: z.literal('platform').optional(),
   mcp: keyedMcpSchema.optional(),
 });
 

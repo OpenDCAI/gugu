@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { entityContentSchema, type EntityContent, type EntityMeta } from '../entity-content';
 import type { TerminalExit } from '../terminals';
 import { terminalExitSchema } from '../terminals';
 import type { ToolCallGroupKind, ToolStatus } from './tools';
@@ -47,9 +48,14 @@ export interface BaseToolCallItem {
   seq: number;
   toolCallId: string;
   title: string;
+  toolKind?: string | null;
+  locations?: Array<{ path: string; line?: number | null }>;
+  /** Content and metadata are entity state; outputText/images are derived views. */
+  contentBlocks?: EntityContent[];
+  _meta?: EntityMeta;
   /**
    * 供应商报的工具名,标题是给人看的显示名时靠它认工具(Claude ACP 适配器每条调用都在 `_meta.claudeCode.toolName`
-   * 报,EnrichHook 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
+   * 报,transport decoder 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
    */
   toolName?: string;
   status: ToolStatus;
@@ -97,23 +103,9 @@ export interface ReadToolCall extends BaseToolCallItem {
   resource?: string;
 }
 
-export interface FileToolCallBase extends BaseToolCallItem {
-  path: string;
-}
-
-export interface CreateFileToolCall extends FileToolCallBase {
-  kind: 'create-file-tool-call';
-  content: string;
-}
-
-export interface ModifyFileToolCall extends FileToolCallBase {
-  kind: 'modify-file-tool-call';
-  oldText: string;
-  newText: string;
-}
-
-export interface DeleteFileToolCall extends FileToolCallBase {
-  kind: 'delete-file-tool-call';
+/** File changes live once, as canonical diff blocks in contentBlocks. */
+export interface PatchToolCall extends BaseToolCallItem {
+  kind: 'patch-tool-call';
 }
 
 export interface SearchToolCall extends BaseToolCallItem {
@@ -237,9 +229,7 @@ export interface ToolGroup {
 export type ToolCallItem =
   | ExecuteToolCall
   | ReadToolCall
-  | CreateFileToolCall
-  | ModifyFileToolCall
-  | DeleteFileToolCall
+  | PatchToolCall
   | SearchToolCall
   | McpToolCall
   | WebFetchToolCall
@@ -296,6 +286,10 @@ export function catalogCall(tool: string, rawInput: string | undefined): { tool:
 const toolChildrenSchema: z.ZodType<ToolNode[]> = z.lazy(() => z.array(toolNodeSchema));
 
 export const baseToolCallItemSchema = z.object({
+  toolKind: z.string().nullable().optional(),
+  locations: z.array(z.object({ path: z.string(), line: z.number().nullable().optional() })).optional(),
+  contentBlocks: z.array(entityContentSchema).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   id: z.string(),
   /** Stable order within the owning sibling list, assigned once by the reducer. */
   seq: z.number().int(),
@@ -355,24 +349,7 @@ export const readToolCallSchema = baseToolCallItemSchema.extend({
   resource: z.string().optional(),
 });
 
-export const fileToolCallBaseSchema = baseToolCallItemSchema.extend({
-  path: z.string(),
-});
-
-export const createFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('create-file-tool-call'),
-  content: z.string(),
-});
-
-export const modifyFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('modify-file-tool-call'),
-  oldText: z.string(),
-  newText: z.string(),
-});
-
-export const deleteFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('delete-file-tool-call'),
-});
+export const patchToolCallSchema = baseToolCallItemSchema.extend({ kind: z.literal('patch-tool-call') });
 
 export const searchToolCallSchema = baseToolCallItemSchema.extend({
   kind: z.literal('search-tool-call'),
@@ -443,9 +420,7 @@ export const unknownToolCallSchema = baseToolCallItemSchema.extend({
 export const toolCallItemSchema = z.discriminatedUnion('kind', [
   executeToolCallSchema,
   readToolCallSchema,
-  createFileToolCallSchema,
-  modifyFileToolCallSchema,
-  deleteFileToolCallSchema,
+  patchToolCallSchema,
   searchToolCallSchema,
   mcpToolCallSchema,
   webFetchToolCallSchema,
@@ -471,9 +446,7 @@ export const toolNodeSchema: z.ZodType<ToolNode> = z.lazy(() =>
   z.discriminatedUnion('kind', [
     executeToolCallSchema,
     readToolCallSchema,
-    createFileToolCallSchema,
-    modifyFileToolCallSchema,
-    deleteFileToolCallSchema,
+    patchToolCallSchema,
     searchToolCallSchema,
     mcpToolCallSchema,
     webFetchToolCallSchema,

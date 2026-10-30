@@ -12,15 +12,17 @@
  * - `reference` —— 有一条稳定的原路径:mention 指它。那是用户的东西,他可能正想让 agent
  *   就地改它,指向副本就改错了对象。
  * - `copy` —— 没有可给的原路径(粘贴、剪贴板、长文本收成的 .txt),mention 只能指副本。
+ *   原路径在别的 App 的私有目录或临时目录里(`mustCopyRatherThanReference`,#985)也归这一支:
+ *   前者让 agent 之后的读弹系统授权框,后者随时会没。
  *   HEIC/HEIF 也归这一支:它要先转成 PNG 才有 agent 读得懂,而原路径指着的还是 `.heic`。
  */
 export function composerAttachmentSource(args: {
   originalPath: string;
-  isUnstableDropPath: boolean;
+  mustCopy: boolean;
   isHeicLike: boolean;
 }): 'reference' | 'copy' {
   if (!args.originalPath) return 'copy';
-  if (args.isUnstableDropPath) return 'copy';
+  if (args.mustCopy) return 'copy';
   if (args.isHeicLike) return 'copy';
   return 'reference';
 }

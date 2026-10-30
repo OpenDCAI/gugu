@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { resolveConversationMessageReference, type ChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { revealSourceMessage, SOURCE_MESSAGE_FLASH_MS } from '@/lib/sourceMessageReveal';
+import { parseMessageQuoteLink } from '@gugu/core/shared/ui/messageQuote';
 import type { AcpChatStore } from './acp-chat-store';
 
 /** The chat reveal controller, with the session's history loader and virtual list. */
@@ -49,10 +50,15 @@ export function useSessionSourceMessage(store: AcpChatStore | null | undefined, 
     const currentView = view.current;
     if (!current || !currentView) return;
     const token = ++request.current;
+    const source = parseMessageQuoteLink(reference);
+    if (source?.kind === 'session' && source.sessionId !== current.sessionId) {
+      missing.current();
+      return;
+    }
     const valid = () => request.current === token && latest.current === current && view.current === currentView;
     const target = () => {
       const state = current.chatState.transcript.state;
-      return resolveConversationMessageReference([...state.committedTurns, ...(state.activeTurnSnapshot ? [state.activeTurnSnapshot] : [])], reference);
+      return resolveConversationMessageReference([...state.committedTurns, ...(state.activeTurnSnapshot ? [state.activeTurnSnapshot] : [])], reference, current.sessionId);
     };
     const showLoaded = () => {
       const id = target();

@@ -26,6 +26,7 @@ import {
   McpReauthorizationRequiredError,
   refreshMcpCredentials,
 } from './mcp-oauth-flow';
+import { platformCredentials } from './platform-credentials-instance';
 
 type ConnectResult =
   | { success: true; displayName?: string; displayDetail?: string }
@@ -421,6 +422,12 @@ export class IntegrationConnectionService {
   ): Promise<ConnectResult> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) return { success: false, error: `Unknown integration: ${integrationId}` };
+    // #921 凭据由平台保管:表单交给平台(它先向对方验过再存),本机只记一行,❌ 进本机凭据库。
+    // 只有这个安装压根没有这项平台服务时(`keepHere`),才照下面的老路存在这台电脑上。
+    if (platformCredentials.isPlatformProvider(integrationId)) {
+      const kept = await platformCredentials.connect(integrationId, input, { editing: !!editAccountId });
+      if (!('keepHere' in kept)) return kept;
+    }
     let credentials = input;
     if (editAccountId) {
       try {
@@ -510,6 +517,11 @@ export class IntegrationConnectionService {
   async checkAccounts(integrationId: string): Promise<IntegrationAccountCheck[]> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) throw new Error(`Unknown integration: ${integrationId}`);
+    if (platformCredentials.custody(integrationId) === 'platform') {
+      const checked = await platformCredentials.checkAccounts(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return checked;
+    }
     const accounts = await integrationCredentialStore.listAccounts(integrationId);
     return Promise.all(
       accounts.map(async (account): Promise<IntegrationAccountCheck> => {
@@ -529,6 +541,8 @@ export class IntegrationConnectionService {
   }
 
   async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string }> {
+    // #921 平台上删(一个人一份):所有设备一起断。
+    if (platformCredentials.custody(integrationId) === 'platform') return platformCredentials.disconnect(integrationId);
     if (accountId) {
       // #7240 多账号里断开一个:只删这一个(提示「只会断开 %s」)。
       try {
@@ -573,6 +587,12 @@ export class IntegrationConnectionService {
         error: `Unknown integration: ${integrationId}`,
         capabilities,
       };
+    }
+    // #921 设备上没有凭据可验:问平台。存着但对方不认了 = 要重连(authorization_expired),❌ 说成登录问题。
+    if (platformCredentials.custody(integrationId) === 'platform') {
+      const checked = await platformCredentials.check(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return { ...checked, capabilities };
     }
 
     let account: IntegrationAccountRecord | null;

@@ -18,7 +18,8 @@ export class TerminalPort {
   async createTerminal(
     sessionId: string,
     defaultCwd: string,
-    params: CreateTerminalRequest
+    params: CreateTerminalRequest,
+    connectionKey: string
   ): Promise<CreateTerminalResponse> {
     const envRecord = params.env
       ? Object.fromEntries(params.env.map((e) => [e.name, e.value]))
@@ -29,12 +30,13 @@ export class TerminalPort {
       env: envRecord,
       cwd: params.cwd ?? defaultCwd,
       outputByteLimit: params.outputByteLimit,
+      scope: JSON.stringify([connectionKey, params.sessionId]),
     });
     return { terminalId };
   }
 
-  async terminalOutput(params: TerminalOutputRequest): Promise<TerminalOutputResponse> {
-    const terminal = this.terminals.get(params.terminalId);
+  async terminalOutput(params: TerminalOutputRequest, connectionKey: string): Promise<TerminalOutputResponse> {
+    const terminal = this.terminals.getOwned(params.terminalId, JSON.stringify([connectionKey, params.sessionId]));
     if (!terminal) throw new Error(`AcpRuntime: terminal not found: ${params.terminalId}`);
     const snap = terminal.snapshot();
     return {
@@ -45,22 +47,26 @@ export class TerminalPort {
   }
 
   async waitForTerminalExit(
-    params: WaitForTerminalExitRequest
+    params: WaitForTerminalExitRequest,
+    connectionKey: string
   ): Promise<WaitForTerminalExitResponse> {
-    const terminal = this.terminals.get(params.terminalId);
+    const terminal = this.terminals.getOwned(params.terminalId, JSON.stringify([connectionKey, params.sessionId]));
     if (!terminal) throw new Error(`AcpRuntime: terminal not found: ${params.terminalId}`);
     const status = await terminal.waitForExit();
     return { exitCode: status.exitCode, signal: status.signal ?? undefined };
   }
 
-  async killTerminal(params: KillTerminalRequest): Promise<KillTerminalResponse> {
-    const terminal = this.terminals.get(params.terminalId);
+  async killTerminal(params: KillTerminalRequest, connectionKey: string): Promise<KillTerminalResponse> {
+    const terminal = this.terminals.getOwned(params.terminalId, JSON.stringify([connectionKey, params.sessionId]));
     if (!terminal) throw new Error(`AcpRuntime: terminal not found: ${params.terminalId}`);
     terminal.kill();
     return {};
   }
 
-  releaseTerminal(params: ReleaseTerminalRequest): ReleaseTerminalResponse {
+  releaseTerminal(params: ReleaseTerminalRequest, connectionKey: string): ReleaseTerminalResponse {
+    if (this.terminals.get(params.terminalId) && !this.terminals.getOwned(params.terminalId, JSON.stringify([connectionKey, params.sessionId]))) {
+      throw new Error(`AcpRuntime: terminal not found: ${params.terminalId}`);
+    }
     this.terminals.release(params.terminalId);
     return {};
   }

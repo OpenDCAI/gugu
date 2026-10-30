@@ -245,7 +245,7 @@ export const mimocodeSessionBundleDescriptor = {
     //     · `markdown`:**没有**。todo 只落 SQLite 的 `TodoTable`(todo.ts:41-55 的
     //       delete+insert 事务),厂商不写任何 markdown 待办文件。
     //    ℹ️ 另一条别走错的路:咕咕全仓消费 todo/plan 的入口**只有一个** ——
-    //       `session-core/src/acp/reducer/decode.ts:236` 的 `case 'plan'`(→ `normalized-event.ts:155`
+    //       `session-core/src/acp/transport/decode.ts:236` 的 `case 'plan'`(→ `normalized-event.ts:155`
     //       → `item-fold.ts:805`)。ACP 之外今天没有第二个入口,所以「厂商有 todo」离
     //       「咕咕读得到 todo」中间差的正是上面那一段。
   },

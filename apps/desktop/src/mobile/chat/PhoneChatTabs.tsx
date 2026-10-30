@@ -10,10 +10,9 @@ import { useChatStore } from '@/store/chatContext'
 import './phone-chat-tabs.css'
 
 const MAIN = 'main'
-const LABEL_MAX = 9
 
 // 页签只露话题名的前一截:一件任务的名字可能是整句话,整句摆上去一枚就占满一排。
-const shortName = (name: string) => (name.length > LABEL_MAX ? `${name.slice(0, LABEL_MAX)}…` : name)
+const shortName = (name: string, max: number) => (name.length > max ? `${name.slice(0, max)}…` : name)
 
 /**
  * 手机对话页头下面那排页签(owner 10-25「群-话题 项目-agent 是有主子关系的……和桌面类似分 tab」,
@@ -21,8 +20,10 @@ const shortName = (name: string) => (name.length > LABEL_MAX ? `${name.slice(0, 
  * 点一枚 = 消息区换成它,页头不动,输入框跟着对它说。任务的话题(开在任务卡上)后面跟它的状态(在跑 / 等你),
  * 停下了才挂未读数。没有话题的对话不露这一排。
  */
-export function PhoneChatTabs({ topics, messages, current, onPick }: {
+export function PhoneChatTabs({ topics, messages, current, onPick, dense = false, labelMax = 9 }: {
   topics: readonly TopicSummary[]
+  dense?: boolean
+  labelMax?: number
   /** 这段对话已读进来的消息:从里面认出哪个话题开在任务卡上、交给了谁。 */
   messages: readonly MessageItem[]
   /** 此刻摆着的话题;null = 群聊那一枚。 */
@@ -62,7 +63,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick }: {
       const busy = status === 'working' || status === 'parked' || status === 'needs_user' || status === 'error'
       return {
         value: topic.chat_id,
-        label: shortName(topic.name),
+        label: shortName(topic.name, labelMax),
         icon: <Hash size={14} aria-hidden />,
         marker: busy ? <TaskStatusMark status={status} /> : undefined,
         badge: chats.find((chat) => chat.id === topic.chat_id)?.unread_count ?? 0,
@@ -71,7 +72,7 @@ export function PhoneChatTabs({ topics, messages, current, onPick }: {
     }),
   ]
   return (
-    <div ref={bar} className="gg-phone-chat-tabs" data-testid="phone-chat-tabs">
+    <div ref={bar} className="gg-phone-chat-tabs" data-testid="phone-chat-tabs" data-dense={dense || undefined}>
       <SegmentedTabs
         variant="underline"
         ariaLabel={t('topic.phoneTabs.label')}

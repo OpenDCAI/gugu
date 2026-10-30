@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { RequestError, type SessionUpdate } from '@agentclientprotocol/sdk';
 import { isOk } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,12 +31,12 @@ describe('a stopped native delivery already in provider history', () => {
 
     // Canonical provider history, not the host's optimistic row recorded at admission.
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'user_message_chunk', messageId: 'native-persisted-user',
           content: { type: 'text', text: DELIVERY },
-        } as SessionUpdate,
+        }),
       });
       return {};
     });
@@ -62,9 +63,9 @@ describe('a stopped native delivery already in provider history', () => {
     await rt.queuePrompt(start.sessionId, { text: DELIVERY, origin: 'communication' });
     await rt.stopSession(start.sessionId);
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({ sessionId: 'session-1', update: {
+      await h.client().sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: DELIVERY },
-      } });
+      } as SessionUpdate) });
       return {};
     });
     await rt.startSession({ ...start, providerSessionId: 'session-1' });
@@ -77,9 +78,9 @@ describe('a stopped native delivery already in provider history', () => {
     const h = makeAcpHarness({ providerId: 'codex', recoverDelivery: recoverDeliveryEnvelopes });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession.mockImplementation(async () => {
-      await h.client().sessionUpdate({ sessionId: 'native-old', update: {
+      await h.client().sessionEvent({ sessionId: 'native-old', event: decodeSessionUpdate({
         sessionUpdate: 'user_message_chunk', content: { type: 'text', text: DELIVERY },
-      } });
+      } as SessionUpdate) });
       throw new RequestError(-32015, 'History unknown', {
         kind: 'history_unknown', sessionId: 'native-old', reason: 'history read failed',
       });
@@ -96,6 +97,48 @@ describe('a stopped native delivery already in provider history', () => {
     expect(text).toContain('This message may already have been received.');
     expect(h.agent.newSession).not.toHaveBeenCalled();
     expect(JSON.stringify(rt.getChatHistory('unknown-history'))).toContain('History unknown: history read failed');
+  });
+
+  it.each(['claude', 'codex'])('%s resumed without replay drops a delivery the host found in the record (#980)', async (providerId) => {
+    const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
+    const rt = new AcpRuntime(h.deps);
+    expect(isOk(await rt.startSession(makeStartInput({
+      providerId, sessionId: 'no-replay-received', providerSessionId: 'native-old',
+      replayHistory: false, recordedDeliveryIds: ['msg:accepted-1'],
+      initialQueue: [{ text: DELIVERY, origin: 'communication' }],
+    })))).toBe(true);
+    await vi.waitFor(() => expect(rt.getSessionState('no-replay-received').lifecycle).toBe('ready'));
+    expect(h.agent.loadSession.mock.calls[0][0]._meta).toMatchObject({ history: { replay: false } });
+    expect(h.agent.prompt).not.toHaveBeenCalled();
+    expect(h.deps.promptQueueStore?.load('no-replay-received')).toEqual([]);
+  });
+
+  it('resumed without replay numbers new turns after the stored ones instead of from zero (#980)', async () => {
+    const h = makeAcpHarness({ providerId: 'claude', recoverDelivery: recoverDeliveryEnvelopes });
+    const rt = new AcpRuntime(h.deps);
+    expect(isOk(await rt.startSession(makeStartInput({
+      providerId: 'claude', sessionId: 'no-replay-ids', providerSessionId: 'native-old',
+      replayHistory: false, recordedDeliveryIds: [], turnIndexBase: 7,
+    })))).toBe(true);
+    await vi.waitFor(() => expect(rt.getSessionState('no-replay-ids').lifecycle).toBe('ready'));
+    expect(isOk(await rt.sendPrompt('no-replay-ids', { text: 'hello again', origin: 'manual' }))).toBe(true);
+    await vi.waitFor(() => expect(rt.getChatHistory('no-replay-ids').committed.length
+      + (rt.getChatHistory('no-replay-ids').active ? 1 : 0)).toBeGreaterThan(0));
+    const history = rt.getChatHistory('no-replay-ids');
+    const first = history.committed[0] ?? history.active;
+    expect(first?.id).toBe('no-replay-ids:turn:7');
+  });
+
+  it('resumed without replay and an unreadable record redelivers marked as possibly received (#980)', async () => {
+    const h = makeAcpHarness({ providerId: 'codex', recoverDelivery: recoverDeliveryEnvelopes });
+    const rt = new AcpRuntime(h.deps);
+    expect(isOk(await rt.startSession(makeStartInput({
+      providerId: 'codex', sessionId: 'no-replay-unknown', providerSessionId: 'native-old',
+      replayHistory: false, recordedDeliveryIds: null,
+      initialQueue: [{ text: DELIVERY, origin: 'communication' }],
+    })))).toBe(true);
+    await vi.waitFor(() => expect(h.agent.prompt).toHaveBeenCalledTimes(1));
+    expect(requestText(h.agent.prompt.mock.calls[0][0] as PromptRequest)).toContain('possibly_received="true"');
   });
 
   it('does not mistake an ordinary failed load or another thread receipt for history_unknown', async () => {

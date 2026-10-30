@@ -334,6 +334,16 @@ describe('会话目录 → @ 与侧栏身份(directoryPeers)', () => {
     expect(ensure).toHaveBeenCalledWith(['agent-unknown']);
     // 阴控:dev-c 在线、列表还没到 —— 必须报出来;dev-d 读到了、真的一条都没有,dev-e 离线,都不报。
     expect(notRead.map((d) => d.id)).toEqual(['dev-c']);
+
+    const archivedAt = '2026-10-29T00:00:00Z';
+    publishIdentityDirectory({ 'agent-b': { id: 'agent-b', display_name: 'Codex 8', gugu_number: 1208,
+      session_archived_at: archivedAt } as never }, ensure);
+    const archivedPeers = store.directoryPeers().peers;
+    expect(archivedPeers).toHaveLength(3);
+    expect(archivedPeers.every((peer) => peer.identity.users.session_archived_at === archivedAt)).toBe(true);
+    publishIdentityDirectory({ 'agent-b': { id: 'agent-b', display_name: 'Codex 8', gugu_number: 1208,
+      session_archived_at: null } as never }, ensure);
+    expect(store.directoryPeers().peers).toEqual(peers);
     publishIdentityDirectory(null, null);
   });
 });

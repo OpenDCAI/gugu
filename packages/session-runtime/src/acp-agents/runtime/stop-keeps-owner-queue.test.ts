@@ -66,7 +66,7 @@ describe('stopping a session keeps the owner\'s queued message for the next star
 
   it('a turn that settles while the cell is closing does not dequeue — the queued prompt is not thrown away', async () => {
     const agent = new FakeAcpAgent();
-    agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(() => {}));
+    agent.prompt = vi.fn(async (_request, dispatch: { requestId: string }) => ({ status: 'dispatched', requestId: dispatch.requestId }));
     const cell = new SessionCell({
       mergeEnvelopes: (texts) => texts.join('\n'),
       sessionId: 'conv-closing',
@@ -79,11 +79,12 @@ describe('stopping a session keeps the owner\'s queued message for the next star
     });
     cell.applySessionReady();
     void cell.prompt({ text: 'the long task', origin: 'manual' });
-    await Promise.resolve();
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     await cell.queueBehindTurn({ text: 'and then this', origin: 'manual' });
 
     await cell.closeSession();
-    cell.settleTurn({ kind: 'cancelled', reason: 'cancelled' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'cancelled' });
     await Promise.resolve();
 
     expect(cell.sessionState.queuedPrompts.map((prompt) => prompt.text)).toEqual(['and then this']);

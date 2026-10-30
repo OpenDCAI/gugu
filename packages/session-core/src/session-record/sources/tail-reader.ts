@@ -6,12 +6,15 @@ import type { RecordSourceWarn } from './shared';
 
 export type TailRestartReason = 'source_replaced' | 'source_unreadable';
 
-/** 一块读到的完整行。整份读会调多次 —— 见 `readFromStart` 的说明。 */
-export type LineSink = (lines: string[]) => void;
+/**
+ * 一块读到的完整行。整份读会调多次 —— 见 `readFromStart` 的说明。
+ * `offsets[i]` 是 `lines[i]` 第一个字节在文件里的位置(工具图按它记原文位置,见 `RecordImageRef`)。
+ */
+export type LineSink = (lines: string[], offsets: number[]) => void;
 
 export type TailReaderEvents = {
   /** 新读到的**完整**行（不含结尾换行；末尾半行留在缓冲里等下一轮）。 */
-  onLines(lines: string[]): void;
+  onLines(lines: string[], offsets: number[]): void;
   /** 文件被截断 / 换了 inode / 读不到了 —— 已读到的东西全部作废。 */
   onRestart(reason: TailRestartReason): void;
 };
@@ -190,10 +193,10 @@ export class TailReader {
   private async readOnce(): Promise<void> {
     try {
       // restart 必须在任何一行之前送达，所以先攒着 —— 尾读的增量本来就只有一两块大小。
-      const pending: string[][] = [];
-      const restart = await this.readInto((lines) => pending.push(lines));
+      const pending: Array<[string[], number[]]> = [];
+      const restart = await this.readInto((lines, offsets) => pending.push([lines, offsets]));
       if (restart) this.events.onRestart(restart);
-      for (const lines of pending) this.events.onLines(lines);
+      for (const [lines, offsets] of pending) this.events.onLines(lines, offsets);
     } catch (error) {
       // 读一次失败不等于这份记录没了（EMFILE、临时 EACCES 都会这样）：报出来，下个节拍再试。
       this.warn('尾读失败，将在下个轮询节拍重试', {
@@ -277,12 +280,17 @@ export class TailReader {
         const text = this.partial + this.decoder.write(buffer.subarray(0, bytesRead));
         const parts = text.split('\n');
         this.partial = parts.pop() ?? '';
-        const consumedChars = text.length - this.partial.length;
-        if (consumedChars > 0) {
-          this.lineOffset += Buffer.byteLength(text.slice(0, consumedChars), 'utf8');
+        // 逐行量字节数(含换行符那一个字节):每行的起点顺手记下,总和就是推进量 —— 与整段量一次是同一笔开销。
+        const lines: string[] = [];
+        const offsets: number[] = [];
+        for (const part of parts) {
+          if (part.trim().length > 0) {
+            lines.push(part);
+            offsets.push(this.lineOffset);
+          }
+          this.lineOffset += Buffer.byteLength(part, 'utf8') + 1;
         }
-        const lines = parts.filter((part) => part.trim().length > 0);
-        if (lines.length > 0) sink(lines);
+        if (lines.length > 0) sink(lines, offsets);
       }
     } finally {
       await handle.close();

@@ -7,6 +7,8 @@
 // 版本错位:那台机器不认 `taskhost.open`,或开窗口的应答里报的协议低于 MIN_SERVER_PROTOCOL,开线失败并带
 // SessionHostTooOldError,界面据此把这台机器标成「版本太旧」,❌ 退回别的界面。
 import { unwrapPayload } from '@gugu/core/cloud/payload'
+import { protocol14FileChanges } from '@gugu/session-core/session-record/contract'
+import { decodeHostWsMessage, encodeHostWsMessage } from '../session/shared/lib/ipc/host-ws-protocol'
 import { desktopReportId, helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
 import { DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
@@ -178,7 +180,13 @@ export function openRemoteSessionHostPipe(
     let live = false
     /** 开线那一问还在路上时频道重接上了:那一问多半随断开的那段丢了,当场放弃,❌ 干等它超时。 */
     let abandonOpen: ((error: Error) => void) | null = null
-    const joiner = createPieceJoiner(onFrame)
+    /** 开窗应答里那台机器说的协议;差一档时收进来的帧在线上换成本端的实体(protocol14FileChanges,协议下次升级时删掉)。 */
+    let hostProtocol = REMOTE_PROTOCOL_VERSION
+    const joiner = createPieceJoiner((frame) => {
+      if (hostProtocol >= REMOTE_PROTOCOL_VERSION) return onFrame(frame)
+      const message = decodeHostWsMessage(frame)
+      onFrame(message ? encodeHostWsMessage(protocol14FileChanges(message, hostProtocol, 'from-peer')) : frame)
+    })
     const order = createSeqOrderer<SessionHostPiece[]>(joiner)
     /** 听到那台机器多少回(推来的一批、对哪一批的应答)。探活那一问没回,可期间听到过它 = 它还在,只是线上正忙。 */
     let heard = 0
@@ -239,13 +247,20 @@ export function openRemoteSessionHostPipe(
       void request?.then((late) => {
         if (!late.error) void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       }, () => undefined)
+      // The device attach can refuse the protocol before taskhost.open reaches
+      // its desktop report. Use the same SSH match-version path in that case.
+      if ((error as { code?: unknown } | null)?.code === 'server_outdated') {
+        if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+        else void deps.requestCloudUpgrade?.(deviceId)
+        throw new SessionHostTooOldError()
+      }
       throw error
     }
     abandonOpen = null
     if (opened.error) {
       closed = true
       unsubscribe()
-      if (opened.error.code === 'unknown_method') {
+      if (opened.error.code === 'unknown_method' || opened.error.code === 'server_outdated') {
         // 远程 SSH 的机器:这台桌面够得着,当场替它升级(升完自动重连);远程隧道的等它空闲时自己升。
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
         else void deps.requestCloudUpgrade?.(deviceId)
@@ -262,6 +277,7 @@ export function openRemoteSessionHostPipe(
       else void deps.requestCloudUpgrade?.(deviceId)
       throw new SessionHostTooOldError()
     }
+    hostProtocol = said
 
     live = true
     log.info({ deviceId, client }, 'session host window opened')

@@ -350,7 +350,7 @@ export const antigravitySessionBundleDescriptor = {
      *
      * `injection: next-tool-call` 不靠它自己的 steering(1.2.1 `initialize` 不报,忙时并发第二条
      * `session/prompt` 整条连接当场断,「Concurrent receive_steps()」),而靠咕咕的
-     * `acp.midTurnSteer: 'interrupt-at-tool-boundary'`:当前工具跑完就 `session/cancel` 这一轮,
+     * `interruptForMessage` transport control:当前工具跑完就 `session/cancel` 这一轮,
      * 插话随即作为下一轮发出。`session/cancel` 保留全部历史(SDK 文档见 evidence;2026-09-24 本地
      * 假端点实测:打断后下一轮的请求里原任务、执行中的工具调用与结果、插话四样都在)。
      */

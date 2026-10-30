@@ -216,6 +216,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
     },
     async uploadAttachment(
       input: {
+        uploadId?: string;
         originalPath?: string;
       },
       file: WireFile
@@ -223,6 +224,7 @@ export function createAcpProcedures(runtime: AcpRuntime) {
       // 字节**恒**读进来 —— ❌ 不再「有原路径就不读」(#5269)。原路径只是来历:那件东西
       // 一旦被挪走或删掉,只记指向的记录当场作废,而消息里那张图要长期画得出来。
       return runtime.uploadAttachment({
+        uploadId: input.uploadId,
         data: await file.bytes(),
         mimeType: file.mimeType as AttachmentMimeType,
         name: file.name,

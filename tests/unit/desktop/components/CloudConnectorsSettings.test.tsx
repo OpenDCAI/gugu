@@ -8,6 +8,7 @@ import { observable, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
+import { useAssistantPanelPage } from '../../../../apps/desktop/src/lib/assistantPanelPage'
 
 vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('@/lib/assistantPanelBridge',() => ({ useAssistantPanelAccountId: () => 'owner',requireAssistantPanelBridge: () => { throw new Error('Unexpected identity lookup') } }))
@@ -177,6 +178,18 @@ describe('咕咕 · 连接应用 · 云端', () => {
 
 describe('咕咕 · 连接应用 · 住在电脑上(非会员)', () => {
   const here = { kind: 'computer', deviceId: 'mac-1', thisDevice: true, label: 'MacBook', online: true, known: true } as const
+
+  it.each(['github', 'feishu', 'notion', 'wechat'])('uses the panel toolbar for the %s detail without a content breadcrumb', async id => {
+    integrations.value = state()
+    function Toolbar() { const page = useAssistantPanelPage(); return page ? <button data-testid="toolbar-back" onClick={page.back}>Back</button> : null }
+    await renderNode(<><Toolbar /><HomeConnectorsSettings home={here} assistantName="小咕" panelNavigation /></>)
+    await clickElement(q(`assistant-connector-${id}`)!)
+    expect(q('assistant-connector-detail')).not.toBeNull()
+    expect(q('assistant-connector-back')).toBeNull()
+    await clickElement(q('toolbar-back')!)
+    expect(q(`assistant-connector-${id}`)).not.toBeNull()
+    expect(q('toolbar-back')).toBeNull()
+  })
 
   it('账号授权明确写保存设备MacBook,详情说明当前电脑可用,不写云端', async () => {
     integrations.value = state()

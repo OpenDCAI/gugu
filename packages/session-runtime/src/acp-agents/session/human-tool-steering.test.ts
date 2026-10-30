@@ -1,7 +1,6 @@
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeAcpAgent } from '../acp-test-support';
-import { SessionCell } from './cell';
+import { FakeAcpAgent, requestActivityCell } from '../acp-test-support';
 
 function harness() {
   let finishTool!: () => void;
@@ -19,9 +18,9 @@ function harness() {
     return { stopReason: 'end_turn' as const };
   });
   const yielded = vi.fn(finishTool);
-  const cell = new SessionCell({
+  const cell = requestActivityCell(agent, {
     sessionId: 'human-wait', projectId: 'project', providerId: 'claude', acpSessionId: 'native',
-    agent, supportsSteering: true, resolveAttachment: vi.fn(), logger: noopLogger,
+    supportsSteering: true, resolveAttachment: vi.fn(), logger: noopLogger,
     callbacks: { onSessionStateChanged: () => undefined, ...{ onPromptSteered: yielded } },
   });
   cell.applySessionReady();
@@ -33,7 +32,7 @@ describe('human tools do not hold admitted steering behind a tool boundary', () 
     const h = harness();
     const turn = h.cell.prompt({ text: 'delegated work', origin: 'typed' });
     await Promise.resolve();
-    h.cell.push({ kind: 'tool_call', toolKind: 'execute', parentToolCallId: null, diffs: [], locations: [],
+    h.cell.push({ kind: 'tool_call', toolKind: 'execute', parentToolCallId: null, locations: [],
       toolCallId: 'human-tool', title: 'app_install', status: 'in_progress' });
 
     await h.cell.queueBehindTurn({ text: 'answer this now', origin: 'manual' });

@@ -1,17 +1,48 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
 import { MessageSendStatus } from '../../../../apps/desktop/src/components/chat/MessageSendStatus'
 import { deriveMessageSendState } from '@gugu/core/shared/ui/messageState'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { setAttachmentUploadProgress } from '../../../../apps/desktop/src/lib/attachmentUploadProgress'
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
 })
 afterEach(() => {
   harness.cleanup()
+  setAttachmentUploadProgress('progress-message')
 })
 describe('MessageSendStatus', () => {
+  it('keeps zero-byte upload events indeterminate, including a retry reset', async () => {
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'sending', messageId: 'progress-message' }),
+      { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    for (const attempt of [1, 2]) {
+      await act(async () => setAttachmentUploadProgress('progress-message', { loaded: 0, total: 1024, attempt }))
+      expect(document.body.querySelector('[role="progressbar"]')).toBeNull()
+      expect(document.body.querySelector('.gg-ring-march')).not.toBeNull()
+      await act(async () => setAttachmentUploadProgress('progress-message', { loaded: 256, total: 1024, attempt }))
+      expect(document.body.querySelector('[role="progressbar"]')?.textContent).toBe('25%')
+      expect(document.body.querySelector('.gg-ring-march')).toBeNull()
+    }
+  })
+  it('shows the measured upload percentage in the existing sending indicator', async () => {
+    setAttachmentUploadProgress('progress-message', { loaded: 512, total: 1024, attempt: 1 })
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'sending', messageId: 'progress-message' }),
+      { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    const progress = document.body.querySelector('[role="progressbar"]')!
+    expect(progress.getAttribute('aria-valuenow')).toBe('50')
+    expect(progress.textContent).toBe('50%')
+    expect(document.body.querySelector('.gg-ring-march')).toBeNull()
+  })
+  it('keeps the sending ring when the transport cannot measure the total', async () => {
+    setAttachmentUploadProgress('progress-message', { loaded: 512, attempt: 1 })
+    await renderWithAppProviders(harness, createNode(MessageSendStatus, { state: 'sending', messageId: 'progress-message' }),
+      { chat: { retrySend: vi.fn(), discardSend: vi.fn() } })
+    expect(document.body.querySelector('[role="progressbar"]')).toBeNull()
+    expect(document.body.querySelector('.gg-ring-march')).not.toBeNull()
+  })
   it('keeps an ambiguous attachment visibly unknown without a sending spinner or resend action', async () => {
     const state = deriveMessageSendState({ seq: -1, local_send_state: 'unknown' } as MessageItem, {})
     await renderWithAppProviders(harness, createNode(MessageSendStatus, { state, messageId: 'message-1' }),

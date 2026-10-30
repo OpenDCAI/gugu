@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { unit, type ItemSegmenter, type SegmentCtx } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
-import { flattenTier } from './flatten';
+import { flattenTier as flattenTierWithViewports } from './flatten';
+// Assert chronological leaves independently of their bounded viewport wrapper.
+const flattenTier = (...args: Parameters<typeof flattenTierWithViewports>) => flattenTierWithViewports(...args).flatMap(row => row.children ?? [row]);
 import { conversationOutput } from './conversation-process';
 import { conversationBackgroundOwner } from './conversation-background';
 import { planConversationSegments } from './conversation-segments';
@@ -21,10 +23,21 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('starts a new Stop segment at the authentic hook clock, preserving both replies', () => {
+    const hook: ChatItem = { kind: 'session-notice', id: 'stop', seq: 3, code: 'provider-notice', title: 'Stop says: Check.', detail: 'Stop says: Check.', at: 4000 };
+    const blocks = planConversationSegments(turn([message('u', 'user', 1000), call('one'), message('before', 'assistant', 3000), hook, call('two'), message('after', 'assistant', 7000)]), false);
+    const segments = blocks.filter(block => block.kind === 'segment');
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ id: 't:process', startedAt: 1000, endedAt: 3000 });
+    expect(segments[1]).toMatchObject({ id: 't:process@stop', startedAt: 4000, endedAt: 9000 });
+    expect(segments.map(segment => conversationOutput(segment.items).reply?.id)).toEqual(['before', 'after']);
+    expect(segments[1].items.map(item => item.id)).toEqual(['stop', 'two', 'after']);
+  });
+
   it('keeps the latest live words in a bubble and earlier words in the process', () => {
     const record = turn([message('u', 'user'), call('one'), message('first', 'assistant'), call('two'), message('latest', 'assistant')]);
     const rows = flattenTier([record], context(true), segmenters);
-    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 'one', 'first', 'two', 'latest']);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'u', 't:process:head', 't:run:one', 'first', 't:run:two', 'latest']);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationNarration).toBeUndefined();
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(true);
     expect((rows.find(row => row.itemId === 'first')!.data as ChatMessage).conversationNarration).toBe(true);
@@ -82,52 +95,66 @@ describe('replay conversation segment boundaries', () => {
     expect(segments[1]).toMatchObject({ live: true, startedAt: 4000 });
   });
 
-  it('excludes silence and the visible reply before grouping parts, and limits live parts to three', () => {
+  it('excludes silence and the visible reply without dropping earlier live parts', () => {
     const record = turn([message('u', 'user'), call('one'), message('a', 'assistant'), call('two'), message('b', 'assistant'), call('three'), message('latest', 'assistant'), { ...message('silent', 'assistant'), text: '[NO_REPLY]' }]);
     const rows = flattenTier([record], context(true), segmenters);
-    const earlier = rows.find(row => row.itemId === 't:process:earlier');
-    expect(earlier?.data).toMatchObject({ stepCount: 2, label: '2 earlier parts' });
-    expect(rows.map(row => row.itemId)).not.toContain('one');
-    expect(rows.map(row => row.itemId)).not.toContain('a');
+    expect(rows.map(row => row.itemId)).not.toContain('t:process:earlier');
+    expect(rows.map(row => row.itemId)).toContain('t:run:one');
+    expect(rows.map(row => row.itemId)).toContain('a');
     expect(rows.map(row => row.itemId)).not.toContain('silent');
     expect(rows.filter(row => row.itemId === 'latest')).toHaveLength(1);
     expect((rows.find(row => row.itemId === 'latest')!.data as ChatMessage).conversationCaret).toBe(false);
   });
 
-  it('carries the live trigger through the bubble process and never invents historical clocks', () => {
+  it('does not infer process labels from runtime triggers or invent historical clocks', () => {
     const record: TranscriptTurn = { ...turn([message('u', 'user'), message('reply', 'assistant')]), startedAt: undefined, endedAt: undefined, trigger: { kind: 'schedule' } };
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
-    expect(head.conversationProcess).toMatchObject({ trigger: { kind: 'schedule' } });
+    expect(head.conversationProcess).not.toHaveProperty('trigger');
     expect(head.conversationProcess?.startedAt).toBeUndefined();
     expect(head.conversationProcess?.endedAt).toBeUndefined();
   });
 
-  it('carries a schedule trigger before the first model output arrives', () => {
+  it('keeps an observable placeholder before scheduled model output arrives', () => {
     const record = { ...turn([]), initiator: 'agent' as const, trigger: { kind: 'schedule' as const } };
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true,
-      placeholder: true, trigger: { kind: 'schedule' }, startedAt: 1000, steps: 0 });
+      placeholder: true, startedAt: 1000, steps: 0 });
   });
 
-  it('uses each segment input as its trigger instead of inheriting the agent turn', () => {
+  it('does not expose trigger labels when later input comes from another source', () => {
     const incoming = { ...message('delivery', 'user', 8000), text: '<gugu_delivery route="chat" from="Peer" from_id="user:11111111-1111-4111-8111-111111111111" chat="206258" chat_kind="group" source_link="gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333"><![CDATA[update]]></gugu_delivery>' };
     const record = { ...turn([message('before', 'assistant', 2000), message('owner', 'user', 5000)]), initiator: 'agent' as const, trigger: { kind: 'agent' as const } };
     let rows = flattenTier([record], context(true), segmenters);
     expect(rows.at(-1)?.data).not.toHaveProperty('trigger');
     record.items = [...record.items, message('after', 'assistant', 6000), incoming] as TranscriptTurn['items'];
     rows = flattenTier([record], context(true), segmenters);
-    expect(rows.at(-1)?.data).toMatchObject({ trigger: { kind: 'delivery', chatIds: ['22222222-2222-4222-8222-222222222222'] } });
+    expect(rows.at(-1)?.data).not.toHaveProperty('trigger');
     const old = rows.find(row => row.itemId === 't:process:head')!.data as ChatMessage;
-    expect(old.conversationProcess?.trigger).toBeUndefined();
+    expect(old.conversationProcess).not.toHaveProperty('trigger');
   });
 
   it('quotes a completion source as background even when the notice has no summary property', () => {
     const record = turn([message('before', 'assistant', 2000), notice('wake', 5000), message('after', 'assistant', 6000)]);
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => row.itemId === 't:process@wake:head')!.data as ChatMessage;
-    expect(head.conversationReply).toMatchObject({ from: 'Background', text: 'wake' });
-    expect(head.conversationProcess?.trigger).toEqual({ kind: 'agent' });
+    expect(head.conversationReply).toMatchObject({ background: true, text: 'subagent finished' });
+    expect(head.conversationProcess).not.toHaveProperty('trigger');
+  });
+
+  it.each([
+    ['command', 'completed', 'background command finished'], ['command', 'failed', 'background command failed'],
+    ['command', 'stopped', 'background command stopped'], ['subagent', 'completed', 'subagent finished'],
+    ['subagent', 'failed', 'subagent failed'], ['subagent', 'stopped', 'subagent stopped'],
+  ] as const)('uses only the observed %s %s event as the wake-up caption', (kind, outcome, label) => {
+    const base = { id: 'wake', toolCallId: 'wake', seq: 1, title: 'cd /tmp/raw-command && export PATH=fixture; echo RAW-WAKE-991',
+      name: 'RAW-WAKE-991', status: 'done' as const, launchToolCallId: 'launch', outcome, at: 5000 };
+    const source: ChatItem = kind === 'command' ? { ...base, kind: 'background-command-done-tool-call' }
+      : { ...base, kind: 'subagent-done-tool-call', agentId: 'child' };
+    const rows = flattenTier([turn([source, message('after', 'assistant', 6000)])], context(false), segmenters);
+    const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
+    expect(head.conversationReply).toMatchObject({ itemId: 'wake', text: label, background: true });
+    expect(head.conversationReply!.text).not.toContain('RAW-WAKE-991');
   });
 
   it('does not add the generic message margin between process parts or after an action lane', () => {
@@ -153,7 +180,8 @@ describe('replay conversation segment boundaries', () => {
     const rows = flattenTier([record], context(true), segmenters);
     expect(rows.some(row => row.kind === 'agent-send')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'head')).toHaveLength(1);
-    expect(rows.find(row => row.itemId === 'pending')?.kind).toBe('mcp-tool-call');
+    expect(rows.find(row => row.itemId === 't:run:pending')?.data).toMatchObject({ kind: 'tool-run', stepCount: 1, label: 'Called 1 MCP tool' });
+    expect(rows.some(row => row.kind === 'mcp-tool-call')).toBe(false);
     expect(rows.filter(row => (row.data as ChatMessage).conversationPart === 'body').map(row => row.itemId)).toEqual(['ready']);
   });
 });

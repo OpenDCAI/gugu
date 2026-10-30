@@ -179,7 +179,7 @@ describe('main-composer queue edit reservation (#7324)', () => {
     expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } }))).toEqual([]);
     expect(machine.queuedPrompts.map((p) => p.id)).toEqual(['a', 'b']);
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'a', input: { text: 'edited' }, updatedAt: 3, queueEdit: null });
-    expect(sent(machine.apply({ type: 'SettingsReady' }))).toEqual([['a', 'b']]);
+    expect(sent(machine.apply({ type: 'AdmissionReady' }))).toEqual([['a', 'b']]);
   });
 
   it('stops a merged batch before the edited item and keeps its identity and committed text', () => {
@@ -189,10 +189,10 @@ describe('main-composer queue edit reservation (#7324)', () => {
       queueEdit: { draftText: 'not committed', originalDraftText: '' } });
     expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } }))).toEqual([['a']]);
     expect(machine.queuedPrompts[0]).toMatchObject({ id: 'b', text: 'b', createdAt: 1 });
-    expect(sent(machine.apply({ type: 'SettingsReady' }))).toEqual([]);
+    expect(sent(machine.apply({ type: 'AdmissionReady' }))).toEqual([]);
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'b', input: { text: 'b' }, updatedAt: 3, queueEdit: null });
     expect(machine.queuedPrompts[0].queueEdit).toBeUndefined();
-    expect(sent(machine.apply({ type: 'SettingsReady' }))).toEqual([['b', 'c']]);
+    expect(sent(machine.apply({ type: 'AdmissionReady' }))).toEqual([['b', 'c']]);
   });
 
   it('reserves the current server text rather than overwriting it with a stale preview', () => {

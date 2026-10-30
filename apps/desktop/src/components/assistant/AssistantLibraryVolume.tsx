@@ -71,8 +71,7 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   const { t } = useTranslation('assistant')
   const [selected, setSelected] = useState<string | null>(null)
   const [editing, setEditing] = useState<UserLibraryEntry | 'new' | null>(null)
-  const panelNavigation = platform.kind === 'electron'
-  useAssistantPanelBack(panelNavigation && (editing || selected) ? `library:${kind}:${editing ? 'edit' : selected}` : null, () => editing ? setEditing(null) : setSelected(null))
+  useAssistantPanelBack(editing || selected ? `library:${kind}:${editing ? 'edit' : selected}` : null, () => editing ? setEditing(null) : setSelected(null))
   const read = usePhoneRead(sourceKey(machine, kind, assistantId), () => readVolume(machine, kind), 'read Gugu library',undefined,
     () => machine?.panel ? assistantPanelLibrary(machine.panel).peekVolume(kind) : undefined)
   const entry = usePhoneRead(machine && selected ? `${sourceKey(machine, kind, assistantId)}|${selected}` : null,
@@ -95,7 +94,6 @@ function FileLibraryVolume({ machine, assistantId, kind, askInChat }: Omit<Libra
   return <div className="ta-page" data-testid={`assistant-library-page-${kind}`}>
     <PageHead title={opened?.name ?? title} action={machine && <Button variant="ghost" className="ta-pill-btn" disabled={read.state !== 'ok'} onClick={() => setEditing(opened || 'new')}>{t(opened ? 'library.edit' : 'library.add')}</Button>} />
     {read.state==='ok'&&!!read.refreshError&&<p role="status" className="ta-page-sub">{assistantPanelFailure(read.refreshError,t)}</p>}
-    {selected && !panelNavigation && <Button variant="ghost" className="ta-pill-btn self-start" onClick={() => setSelected(null)}>{t('library.backToIndex')}</Button>}
     {!selected && kind === 'devices' && (platform.capabilities.agentRuntime ? <ShellSlot name="devices" className="ta-skin" /> : <AssistantDevicesPage cloudDeviceId={null} />)}
     {!selected && <AssistantRow title={t('library.organize')} onClick={() => askInChat(t('library.setupPrompt', { kind: title }))} />}
     {failed ? <AssistantEmpty><span role="alert">{assistantPanelFailure(selected && entry.state === 'error' ? entry.error : read.state === 'error' ? read.error : null,t)}</span></AssistantEmpty>

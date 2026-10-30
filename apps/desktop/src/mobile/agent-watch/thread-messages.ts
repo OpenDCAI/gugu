@@ -1,7 +1,8 @@
+import type { TerminalState } from '@gugu/session-core/acp/client'
 import type { ThreadMessageLike } from '@assistant-ui/react'
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker'
 import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type TranscriptItem, type TranscriptTurn } from '@gugu/session-core/acp/client'
-import { pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
+import { isEmptyAgentTurn, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
 import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened-outputs'
 import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer'
@@ -187,6 +188,7 @@ export function unsettledLastTurnId(turns: readonly TranscriptTurn[]): string | 
 }
 
 export type ThreadMessageOptions = {
+  terminals?: readonly TerminalState[]
   trimmedNote?: (chars: number) => string
   /** 远端正在跑的那一轮(最后一轮还没结算)。它的最后一段过程是活的:头在数秒、默认摊开,同桌面。 */
   liveTurnId?: string | null
@@ -200,7 +202,8 @@ function withTrimNote(text: string, chars: number, options?: ThreadMessageOption
 }
 
 function toolPart(node: ToolNode, options?: ThreadMessageOptions): ContentPart {
-  const rawOutput = node.kind === 'tool-group' ? null : (node.outputText ?? node.rawOutput ?? null)
+  const terminal = !('terminalId' in node) ? undefined : options?.terminals?.find(terminal => terminal.terminalId === node.terminalId)
+  const rawOutput = node.kind === 'tool-group' ? null : (terminal?.output ?? node.outputText ?? node.rawOutput ?? null)
   // 传输层裁过多少字（transport-trim；桌面侧恒缺这一格）。
   const trimmed = node.kind === 'tool-group' ? 0 : (node.trimmedChars ?? 0)
   const output = rawOutput !== null && trimmed > 0 ? withTrimNote(rawOutput, trimmed, options) : rawOutput
@@ -247,6 +250,9 @@ export function toThreadMessages(
   options?: ThreadMessageOptions,
 ): ThreadMessageLike[] {
   const messages: ThreadMessageLike[] = []
+  const latestTurnId = turns.at(-1)?.id
+  const hidden = new Set(turns.filter(turn => turn.id !== latestTurnId && turn.id !== options?.liveTurnId && isEmptyAgentTurn(turn)).map(turn => turn.id))
+  turns = turns.map(turn => hidden.has(turn.id) ? { ...turn, items: turn.items.filter(item => item.kind === 'message' && item.role === 'user') } : turn)
   // 桌面把正在跑的那一轮单独当一层折(活动层),已结算的轮是另一层 —— 两层之间不合并。
   const liveIndex = turns.findIndex((turn) => turn.id === options?.liveTurnId)
   const tiers = liveIndex < 0
@@ -259,14 +265,20 @@ export function toThreadMessages(
     const opened = collectOpenedOutputs(tier.turns, { live: tier.live })
     const { folds, runs, absorbed } = planTurnFoldRuns(tier.turns, undefined, true, tier.live)
     tier.turns.forEach((turn, index) => {
+      if (hidden.has(turn.id)) {
+        for (const item of turn.items) if (item.kind === 'message') messages.push(userMessage(item.id, item.text))
+        return
+      }
       // 被前一轮的折叠吸收了:它的条目已经排进那一轮的过程与收尾里。
       if (absorbed[index]) return
       const assistantParts: ContentPart[] = []
       // id 只取轮内位置:往前补进更早的轮时,已画出的每条消息必须还是同一个 id(外部 store 只加不删)。
       const turnStart = messages.length
+      let processShown = false
 
       const flushAssistant = (metadata?: TurnProcessMetadata): void => {
         if (assistantParts.length === 0) return
+        if (metadata?.turnProcess) processShown = true
         messages.push({
           role: 'assistant',
           id: `${turn.id}:assistant:${messages.length - turnStart}`,
@@ -320,6 +332,7 @@ export function toThreadMessages(
       // 只有头、没有内容的一条过程消息(占位,见 `placeholderTurnHeader`)。id 与过程到了之后那一条相同 ——
       // 它们落进同一个头,头不换。
       const pushHeaderOnly = (turnProcess: TurnProcessHeader): void => {
+        processShown = true
         messages.push({
           role: 'assistant',
           id: `${turn.id}:assistant:${messages.length - turnStart}`,
@@ -368,6 +381,11 @@ export function toThreadMessages(
           name: OUTPUTS_DATA_PART,
           data: { turnId: turn.id, items: outputs.map(({ item }) => item as TranscriptItem) } satisfies OpenedOutputsData,
         })
+      }
+      if (!tier.live && turn.id === latestTurnId && isEmptyAgentTurn(turn) && !processShown) {
+        const turnProcess = { id: `${turn.id}:process`, live: false, startedAt: turn.startedAt, endedAt: turn.endedAt }
+        if (assistantParts.length) flushAssistant({ turnProcess })
+        else pushHeaderOnly(turnProcess)
       }
       flushAssistant()
     })

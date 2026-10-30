@@ -3,6 +3,7 @@ import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { ROW_H } from '@session-chat/components/engine/row-metrics';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
 import { PreviewWindow } from '@session-chat/components/primitives/PreviewWindow';
+import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
 import { proseLinesHeight } from '@session-chat/components/rows/markdown/html/layout';
 import type { StackLayout } from '@session-chat/core/compose';
 import { type Measured, type MeasureCtx, type RenderCtx } from '@session-chat/core/define';
@@ -50,11 +51,14 @@ export function planFromItem(
   item: Extract<ToolNode, { kind: 'create-plan-tool-call' }>,
   ctx: SegmentCtx
 ): ChatPlan {
-  const plan = ctx.plan();
+  const plan = ctx.plan()?.[item.planId];
+  const body = plan?.body;
   return {
     kind: 'plan',
     id: item.id,
     entries: plan?.entries ?? [],
+    ...(body?.type === 'markdown' && typeof body.content === 'string' ? { body: { type: 'markdown' as const, content: body.content } } : {}),
+    ...(body?.type === 'file' && typeof body.uri === 'string' ? { body: { type: 'file' as const, uri: body.uri } } : {}),
     streaming: item.status === 'running',
   };
 }
@@ -93,6 +97,15 @@ function listHeight(entries: PlanEntryLaid[], vars: PlanVars): number {
   return totalEntryH + gaps + 2 * vars.padY;
 }
 
+function planBodyText(item: ChatPlan): string | undefined {
+  return item.body?.type === 'markdown' ? item.body.content : item.body?.type === 'file' ? `[${item.body.uri}](${item.body.uri})` : undefined;
+}
+
+function measurePlanBody(item: ChatPlan, ctx: MeasureCtx) {
+  const text = planBodyText(item);
+  return text === undefined ? undefined : layoutBlockStack(ctx.caches.parseBlocks(`${item.id}:body`, text), ctx, { padY: 0 });
+}
+
 /**
  * 进度条占的高度。空计划不画条（没有进度可言），所以它一条目都没有时是 0 ——
  * ❌ 别恒定加上：那会让空计划行凭空高出 5px，而 measure 与渲染各自算一遍就会分叉。
@@ -105,7 +118,8 @@ function planMeasure(item: ChatPlan, ctx: MeasureCtx, vars: PlanVars): number {
   const headerH = vars.rowH;
   const isExpanded = ctx.expanded(item.id);
   const entries = measureEntries(item, ctx, vars);
-  const listH = listHeight(entries, vars);
+  const body = measurePlanBody(item, ctx);
+  const listH = body ? body.height + 2 * vars.padY : listHeight(entries, vars);
   const bodyH = isExpanded ? listH : Math.min(listH, vars.windowH);
   return headerH + barHeight(item, vars) + bodyH;
 }
@@ -123,7 +137,9 @@ function PlanUnitRender(props: { data: ChatPlan; ctx: RenderCtx; vars: PlanVars 
     return measureEntries(props.data, ctx, props.vars);
   });
 
-  const listH = createMemo(() => listHeight(entries(), props.vars));
+  const body = createMemo(() => { const ctx = mCtx(); return ctx ? measurePlanBody(props.data, ctx) : undefined; });
+  const listH = createMemo(() => body() ? body()!.height + 2 * props.vars.padY : listHeight(entries(), props.vars));
+  const contents = () => <Show when={body()} fallback={<PlanList entries={entries()} />}>{node => <div style={{ padding: `${props.vars.padY}px 0` }}><BlockStackView node={node()} /></div>}</Show>;
   const bodyH = createMemo(() => (isExpanded() ? listH() : Math.min(listH(), props.vars.windowH)));
   // A plan short enough to fit the preview window is already showing all of
   // itself: the collapsed body is `min(listH, windowH)`, so expanding a short
@@ -178,7 +194,7 @@ function PlanUnitRender(props: { data: ChatPlan; ctx: RenderCtx; vars: PlanVars 
             它在 JSX 文本位置上确实有英文字面量，但这个文件当时没被那把尺子扫到）。
             换皮顺手接进 translator —— 在一个正在重画的表头里留着写死的英文，
             比留在原处更糟：下一个人会以为它是有意为之。 */}
-        {translate('transcript.planProgress', { done: done(), total: total() })}
+        {props.data.body ? translate('transcript.planReview') : translate('transcript.planProgress', { done: done(), total: total() })}
       </CollapseHeader>
       <Show when={total() > 0}>
         <div
@@ -192,7 +208,7 @@ function PlanUnitRender(props: { data: ChatPlan; ctx: RenderCtx; vars: PlanVars 
           <span class={planProgressFill} style={{ width: `${progressPct()}%` }} />
         </div>
       </Show>
-      <Show when={!isExpanded()} fallback={<PlanList entries={entries()} />}>
+      <Show when={!isExpanded()} fallback={contents()}>
         <PreviewWindow
           height={bodyH()}
           maxH={props.vars.windowH}
@@ -204,7 +220,7 @@ function PlanUnitRender(props: { data: ChatPlan; ctx: RenderCtx; vars: PlanVars 
           autoScrollBottom={autoScroll()}
           contentHeight={() => listH()}
         >
-          <PlanList entries={entries()} />
+          {contents()}
         </PreviewWindow>
       </Show>
     </div>
@@ -231,7 +247,8 @@ export const planUnitDef = defineUnit<ChatPlan, PlanVars>({
     const isExpanded = ctx.expanded(item.id);
     const entryH = proseLinesHeight(2, ctx.theme);
     const gaps = item.entries.length > 1 ? (item.entries.length - 1) * vars.entryGap : 0;
-    const listH = item.entries.length * entryH + gaps + 2 * vars.padY;
+    const text = planBodyText(item);
+    const listH = text === undefined ? item.entries.length * entryH + gaps + 2 * vars.padY : proseLinesHeight(Math.max(1, text.split('\n').length), ctx.theme) + 2 * vars.padY;
     const bodyH = isExpanded ? listH : Math.min(listH, vars.windowH);
     return headerH + barHeight(item, vars) + bodyH;
   },

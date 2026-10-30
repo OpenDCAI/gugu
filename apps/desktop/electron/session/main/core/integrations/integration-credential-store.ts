@@ -1,4 +1,5 @@
 import type { IntegrationCredentials } from '@gugu/session-plugins/integrations';
+import { PLATFORM_CREDENTIAL_SOURCE, REJECTED_KEY_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
 import type {
   ProviderAccount,
   ProviderAccountRegistry,
@@ -108,6 +109,7 @@ export class IntegrationCredentialStore {
     await this.migrateLegacyOnce(integrationId);
     const account = await this.accounts.getAccount(integrationId, accountId);
     if (!account) return null;
+    if (keptByPlatform(account)) return toIntegrationAccount(account, {});
 
     const raw = await this.accounts.resolveSecret(integrationId, account.accountId);
     const credentials = raw ? parseJson(raw) : null;
@@ -132,6 +134,11 @@ export class IntegrationCredentialStore {
     const accounts: StoredIntegrationAccount[] = [];
     const unreadable: string[] = [];
     for (const account of await this.accounts.listAccounts(integrationId)) {
+      if (keptByPlatform(account)) {
+        // #921 平台保管的那一份:本机这一行只是平台答复的镜像,背后没有密钥,❌ 去解密、❌ 当成读不出来。
+        accounts.push({ ...toIntegrationAccount(account, {}), connectedAt: account.createdAt, isDefault: account.isDefault });
+        continue;
+      }
       const raw = await this.accounts.resolveSecret(integrationId, account.accountId);
       const credentials = raw ? parseJson(raw) : null;
       if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
@@ -331,6 +338,11 @@ export class IntegrationCredentialStore {
       }
     }
   }
+}
+
+/** #921 rows with nothing behind their credentialRef by design: the platform keeps it, or the key was rejected. */
+function keptByPlatform(account: ProviderAccount): boolean {
+  return account.meta?.credentialSource === PLATFORM_CREDENTIAL_SOURCE || account.meta?.credentialSource === REJECTED_KEY_SOURCE;
 }
 
 function toIntegrationAccount(

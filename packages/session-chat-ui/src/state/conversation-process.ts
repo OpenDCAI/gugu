@@ -1,8 +1,6 @@
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
-import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
-import { parseHookNotice } from '@session-chat/lib/hook-notice';
-import type { ChatItem, ChatMessage, TranscriptTurn, TurnProcessItem } from '@session-chat/model';
+import { parseHookNotice, processHookNotice } from '@session-chat/lib/hook-notice';
+import type { ChatItem, ChatMessage } from '@session-chat/model';
 import type { TurnProcessHeader } from './turn-fold';
 
 /** Bind a process segment to its reply; notices retain their own status row. */
@@ -11,28 +9,6 @@ export function conversationProcessReply(header: TurnProcessHeader | null, tail:
   if (!header || reply?.kind !== 'message' || reply.role !== 'assistant'
     || !reply.text.trim() || isGuguSilence(reply.text) || parseHookNotice(reply.text)) return null;
   return { ...reply, conversationProcess: { id: header.id, ...(header.live ? { live: true } : {}), startedAt: header.startedAt, endedAt: header.endedAt } };
-}
-
-/**
- * Who started a live turn, when it was not the owner typing — the process line says what the agent is busy with
- * (butler 10-28: the owner's typed message must not look blocked by something he did not start). Older records have
- * no `trigger`: an agent-initiated turn reads as background work, a user turn as before.
- */
-export function processTrigger(turn: Pick<TranscriptTurn, 'initiator' | 'trigger' | 'items'>): TurnProcessItem['trigger'] {
-  const trigger = turn.trigger ?? (turn.initiator === 'agent' ? { kind: 'agent' as const } : undefined);
-  if (!trigger || trigger.kind === 'owner') return undefined;
-  if (!trigger.chatIds?.length) return { kind: trigger.kind };
-  // `chatIds` 是信封里的 `chat=`(公开号,Claude 205 10-28),宿主按对话 id 认群名:从这一轮自己的群投递信封里换过去。
-  // 换不到的(私聊、认不出)原样留着,宿主认不出就只写「处理收到的消息」,❌ 把私聊当群。
-  const groups = new Map<string, string>();
-  for (const item of turn.items) {
-    if (item.kind !== 'message') continue;
-    for (const { facts } of readDeliveryEnvelope(item.text)?.segments ?? []) {
-      const chatId = facts?.chatKind === 'group' && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId : undefined;
-      if (chatId && facts?.chat) groups.set(facts.chat, chatId);
-    }
-  }
-  return { kind: trigger.kind, chatIds: trigger.chatIds.map(id => groups.get(id) ?? id) };
 }
 
 /** An assistant text the agent said itself (not a message_send projection, a delivery, silence or a hook notice). */
@@ -48,7 +24,7 @@ function isSpoken(item: ChatItem): item is ChatMessage {
  * Called after segmentation: the last spoken text is a bubble even while running.
  * A confirmed send overrides it. Earlier spoken texts remain process narration.
  */
-export function conversationOutput(items: readonly ChatItem[], _live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[]; steps: ChatItem[]; silent: boolean } {
+export function conversationOutput(items: readonly ChatItem[], live = false): { reply: ChatMessage | null; sent: ChatMessage[]; rest: ChatItem[]; steps: ChatItem[]; silent: boolean; stopReason?: ChatMessage } {
   const spoken = items.filter(isSpoken);
   // A group reply can exist only as a confirmed message_send projection,
   // followed by [NO_REPLY]. Bind that delivered bubble to the process too.
@@ -61,10 +37,16 @@ export function conversationOutput(items: readonly ChatItem[], _live = false): {
   const out = new Set<ChatItem>([...sent, ...(reply ? [reply] : [])]);
   // 发出去的那条已经是气泡了:它的 message_send 调用 ❌ 在过程里再画一遍同一句话(MBP 验收 10-28「完成」出现两次)。
   const sentCalls = new Set([...out].map(item => /^(.*):sent:[^:]+$/.exec(item.id)?.[1]).filter((id): id is string => id !== undefined));
+  const last = items.findLast(item => !(item.kind === 'message' && (!item.text.trim() || isGuguSilence(item.text))));
+  const hook = last && !reply && !live ? processHookNotice(last) : null;
+  const stopReason: ChatMessage | undefined = last && hook?.hookName === 'Stop'
+    ? { kind: 'message', id: `${last.id}:reason`, role: 'assistant', text: hook.body, conversationNarration: true, conversationTerminalReason: true }
+    : undefined;
   return {
     reply,
     sent,
     silent: !reply && items.some(item => item.kind === 'message' && isGuguSilence(item.text)),
+    ...(stopReason ? { stopReason } : {}),
     rest: items.filter(item => !out.has(item) && !sentCalls.has(item.id)
       && !(item.kind === 'message' && (!item.text.trim() || isGuguSilence(item.text))))
       .map(item => isSpoken(item) ? { ...item, conversationNarration: true } : item),

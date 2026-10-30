@@ -1,6 +1,5 @@
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
-
-import type { RecordEntry, SessionRecordResume, SessionRecordSource, SessionRecordSourceEvents } from '../contract';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
+import type { RecordEntry, RecordImageRef, SessionRecordResume, SessionRecordSource, SessionRecordSourceEvents } from '../contract';
 import type { SessionRecordSourceOptions } from './shared';
 
 /** Follow native child records through the same lifecycle and stream projection as Codex. */
@@ -39,17 +38,14 @@ export function withSubagentSources(
     children.set(id, source);
     const read = source.start({
       onEntries(entries) {
-        const mapped: RecordEntry[] = entries.flatMap((entry): RecordEntry[] => {
-          if (entry.boundary) return [{ key: entry.key, at: entry.at, update: subagentUpdate({
-            sessionUpdate: 'subagent_state_update', subagentSessionId: id,
-            state: entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'cancelled' : 'completed',
-          }) }];
-          const inner = entry.update._meta?.['gugu.draftSessionUpdate'] as { sessionUpdate?: string } | undefined;
-          if (inner && inner.sessionUpdate !== 'subagent_spawned') return [entry];
-          if (entry.update.sessionUpdate === 'user_message_chunk') return [{ key: entry.key, at: entry.at, update: subagentUpdate({
-            sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: 'running', canCancel: false,
-          }) }];
-          return [{ ...entry, update: subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: id, update: entry.update }) }];
+        const mapped: RecordEntry[] = entries.map((entry): RecordEntry => {
+          if (entry.boundary) return { key: entry.key, at: entry.at, event: childState(id,
+            entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'stopped' : 'completed') };
+          const event = entry.event;
+          // A nested launch belongs to this child's stream; nested lifecycle facts already name their own child.
+          if (event.kind === 'subagent_update' || event.kind === 'subagent_done' || event.kind === 'subagent_stream') return entry;
+          if (event.kind === 'message' && event.role === 'user') return { key: entry.key, at: entry.at, event: childState(id, 'in_progress') };
+          return { ...entry, event: { kind: 'subagent_stream', subagentSessionId: id, event } };
         });
         if (!stopped && children.get(id) === source) sink?.onEntries(mapped);
       },
@@ -80,13 +76,10 @@ export function withSubagentSources(
           events.onEntries(entries);
           // Deliver the launch before its child records so the reducer can resolve their owner.
           for (const entry of entries) {
-            const inner = entry.update?._meta?.['gugu.draftSessionUpdate'] as { sessionUpdate?: string; subagentSessionId?: string } | undefined;
-            if (inner?.sessionUpdate === 'subagent_spawned' && inner.subagentSessionId) childIds.add(inner.subagentSessionId);
+            if (entry.event?.kind === 'subagent' && entry.event.subagentSessionId) childIds.add(entry.event.subagentSessionId);
           }
           if (!initializing) for (const id of childIds) {
-            void ensureChild(id).catch((error: unknown) => events.onEntries([{ key: `native-child-error:${id}`, update: subagentUpdate({
-              sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: 'disconnected', summary: String(error),
-            }) }]));
+            void ensureChild(id).catch((error: unknown) => events.onEntries([{ key: `native-child-error:${id}`, event: childState(id, 'disconnected', String(error)) }]));
           }
         },
       }, saved?.nativeChildren === 2 ? saved.root : resume);
@@ -95,6 +88,8 @@ export function withSubagentSources(
       await Promise.all(starting.values());
     },
     async catchUp() { if (replacement) return replacement.catchUp?.(); await root.catchUp?.(); await Promise.all(starting.values()); await Promise.all([...children.values()].map((child) => child.catchUp?.())); },
+    // The position names its own file (a child's pictures are in the child's record), so any reader of this harness reads it.
+    ...(root.readImage ? { readImage: (ref: RecordImageRef) => root.readImage!(ref) } : {}),
     async resumePoint() {
       if (replacement) return replacement.resumePoint!();
       // The host starts archiving and immediately stops the source. Start every
@@ -108,5 +103,17 @@ export function withSubagentSources(
       return { data: { nativeChildren: 2, root: point, children: savedChildren }, fingerprint: [point.fingerprint, ...Object.entries(savedChildren).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.fingerprint}`)].join('|') };
     },
     stop() { stopped = true; replacement?.stop(); root.stop(); stopChildren(); },
+  };
+}
+
+/** Recorded children cannot be interrupted; their own boundaries decide their outcome. */
+export function childState(id: string, status: 'in_progress' | 'completed' | 'failed' | 'stopped' | 'disconnected', summary?: string): NormalizedEvent {
+  if (status === 'in_progress') return {
+    kind: 'subagent_update', toolCallId: id, agentId: id, subagentSessionId: id,
+    status, canCancel: false,
+  };
+  return {
+    kind: 'subagent_done', toolCallId: id, agentId: id, subagentSessionId: id,
+    ...(summary ? { summary } : {}), status,
   };
 }
