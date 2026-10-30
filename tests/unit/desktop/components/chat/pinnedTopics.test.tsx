@@ -3,14 +3,11 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 
-const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failRead: false, listeners: [] as (() => void)[] }))
-vi.mock('@/lib/supabase', async (original) => ({ ...await original<typeof import('@/lib/supabase')>(), identityDb: { from: () => ({
-  select: () => ({ eq: (_: string, userId: string) => ({ eq: (_: string, scope: string) => ({ maybeSingle: async () => ({ data: io.rows.get(`${userId}/${scope}`) ?? null, error: io.failRead ? { message: 'read refused' } : null }) }) }) }),
-  upsert: (row: Record<string, unknown>) => ({ select: () => ({ single: async () => {
-    io.rows.set(`${row.user_id}/${row.scope}`, structuredClone(row))
-    return { data: row, error: null }
-  } }) }),
-}) } }))
+const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failRead: false, failWrite: false, listeners: [] as (() => void)[] }))
+vi.mock('@/lib/supabase', async (original) => {
+  const { versionedSettingsClient } = await import('../../../../support/versionedSettingsTestDouble')
+  return { ...await original<typeof import('@/lib/supabase')>(), identityDb: versionedSettingsClient(io) }
+})
 vi.mock('@/lib/realtimeChannel', () => ({ subscribePrivateUserEventBus: (_user: string, _event: string, receive: (payload: unknown) => void) => {
   io.listeners.push(() => receive({ setting: { user_id: 'u', scope: 'chat:g' } }))
   return {}
@@ -28,7 +25,7 @@ const topics = [
   chat({ id: 'old', kind: 'topic', source_chat_id: 'g', name: 'Older topic', last_message_at: '2026-10-20T00:00:00Z', last_message_preview: 'Muted preview', unread_count: 120, is_muted: true }),
 ]
 const summaries = topics.map((topic) => ({ chat_id: topic.id, name: topic.name, source_message_id: topic.id, creator_user_id: 'u', last_message_at: topic.last_message_at, message_count: 2, participant_count: 2, is_participant: true }))
-function save(ids: string[], userId = 'u') { io.rows.set(`${userId}/chat:g`, { scope: 'chat:g', config: { pinnedTopicIds: ids }, updated_at: 'now' }) }
+function save(ids: string[], userId = 'u') { io.rows.set(`${userId}/chat:g`, { scope: 'chat:g', config: { pinnedTopicIds: ids }, updated_at: '2026-10-29T00:00:00.000Z' }) }
 const options = (userId = 'u') => ({ auth: { id: userId }, chat: { activeChatId: 'g', chats: topics } })
 const savedPins = () => (io.rows.get('u/chat:g')?.config as { pinnedTopicIds?: string[] } | undefined)?.pinnedTopicIds
 const tabs = () => [...document.querySelectorAll('[role="tab"]')]
@@ -102,14 +99,14 @@ describe.each([false, true])('pinned topic tabs (mobile=%s)', (mobile) => {
     await renderWithAppProviders(harness, strip(mobile, vi.fn(), 'new'), options())
     await vi.waitFor(() => expect(tabs()).toHaveLength(2))
     const group = document.querySelector<HTMLElement>('[data-testid="phone-chat-tab-main"]')!
-    expect(group.getAttribute('aria-selected')).toBe('true')
+    expect(group.getAttribute('aria-selected')).toBe('false')
     expect(group.tabIndex).toBe(0)
   })
 
   it('hides the entire strip when no topic is pinned, even when the group has topics', async () => {
     save([])
     await renderWithAppProviders(harness, strip(mobile), options())
-    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-topic-pins', 'u', 'g'])).toEqual([]))
+    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'u', 'g'])).toEqual({ appIds: [], topicIds: [] }))
     expect(document.querySelector('[data-testid="phone-chat-tabs"]')).toBeNull()
   })
 

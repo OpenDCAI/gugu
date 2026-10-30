@@ -2,18 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 
 const io = vi.hoisted(() => ({ rows: new Map<string, Record<string, unknown>>(), failWrite: false }))
-vi.mock('@/lib/supabase', () => ({ identityDb: { from: () => ({
-  select: () => ({ eq: (_: string, userId: string) => ({ eq: (_: string, scope: string) => ({ maybeSingle: async () => ({ data: io.rows.get(`${userId}/${scope}`) ?? null, error: null }) }) }) }),
-  upsert: (row: Record<string, unknown>) => ({ select: () => ({ single: async () => {
-    if (io.failWrite) return { data: null, error: { message: 'write refused' } }
-    io.rows.set(`${row.user_id}/${row.scope}`, structuredClone(row))
-    return { data: row, error: null }
-  } }) }),
-}) } }))
+vi.mock('@/lib/supabase', async () => {
+  const { versionedSettingsClient } = await import('../../../../support/versionedSettingsTestDouble')
+  return { identityDb: versionedSettingsClient(io) }
+})
 vi.mock('@/lib/realtimeChannel', () => ({ subscribePrivateUserEventBus: vi.fn(), unsubscribePrivateUserEventBus: vi.fn() }))
 vi.mock('@/platform', () => ({ platform: { subscribeAppForeground: () => () => {} } }))
 
 const { readChatTopicPins, setChatTopicPin } = await import('@/lib/chatTopicPins')
+const { readChatAppPins, setChatAppPin } = await import('@/lib/chatAppPins')
 const { topicPinGroups, topicUnreadTotal } = await import('@/components/chat/topicPinsModel')
 function topic(id: string, activity: string, overrides: Partial<ChatItem> = {}): ChatItem {
   return { id, kind: 'topic', status: 'active', name: id, source_chat_id: 'g', created_at: activity,
@@ -22,8 +19,17 @@ function topic(id: string, activity: string, overrides: Partial<ChatItem> = {}):
 beforeEach(() => { io.rows.clear(); io.failWrite = false })
 
 describe('personal topic preferences', () => {
+  it.each([false, true])('retains both devices edits when topic/App writes start together (App first=%s)', async (appFirst) => {
+    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: ['not-synced-here'], workspace: { layout: 'list' } }, updated_at: '2026-10-29T00:00:00.000Z' })
+    const actions = [() => setChatTopicPin('u', 'g', 'live', true, ['live']), () => setChatAppPin('u', 'g', 'board', true)]
+    await Promise.all((appFirst ? actions.toReversed() : actions).map((write) => write()))
+    expect(await readChatTopicPins('u', 'g')).toEqual(['not-synced-here', 'live'])
+    expect(await readChatAppPins('u', 'g')).toEqual(['board'])
+    expect(io.rows.get('u/chat:g')?.config).toEqual({ pinnedTopicIds: ['not-synced-here', 'live'], pinnedAppIds: ['board'], workspace: { layout: 'list' } })
+  })
+
   it('keeps account/group isolation and unrelated chat preferences while maintaining pin order', async () => {
-    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedAppIds: ['board'], other: true }, updated_at: 'now' })
+    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedAppIds: ['board'], other: true }, updated_at: '2026-10-29T00:00:00.000Z' })
     expect(await readChatTopicPins('u', 'g')).toEqual([])
     await setChatTopicPin('u', 'g', 'second', true, ['first', 'second'])
     await setChatTopicPin('u', 'g', 'first', true, ['first', 'second'])
@@ -34,15 +40,15 @@ describe('personal topic preferences', () => {
     expect(await readChatTopicPins('u', 'other-group')).toEqual([])
   })
 
-  it('removes unavailable pins on the next write and persists removing the final pin', async () => {
-    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: ['deleted', 'live'] }, updated_at: 'now' })
-    expect(await setChatTopicPin('u', 'g', 'live', false, ['live'])).toEqual([])
-    expect(await readChatTopicPins('u', 'g')).toEqual([])
+  it('preserves pins missing from this device while removing the explicitly selected pin', async () => {
+    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: ['not-synced-here', 'live'] }, updated_at: '2026-10-29T00:00:00.000Z' })
+    expect(await setChatTopicPin('u', 'g', 'live', false, ['live'])).toEqual(['not-synced-here'])
+    expect(await readChatTopicPins('u', 'g')).toEqual(['not-synced-here'])
     await expect(setChatTopicPin('u', 'g', 'deleted', true, ['live'])).rejects.toThrow('no longer available')
   })
 
   it('reports corrupt preferences and rejected writes without acknowledging an unsaved pin', async () => {
-    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: 'bad' }, updated_at: 'now' })
+    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedTopicIds: 'bad' }, updated_at: '2026-10-29T00:00:00.000Z' })
     await expect(readChatTopicPins('u', 'g')).rejects.toThrow('Invalid pinned topic')
     io.rows.clear(); io.failWrite = true
     await expect(setChatTopicPin('u', 'g', 'live', true, ['live'])).rejects.toThrow('write refused')
