@@ -421,6 +421,7 @@ type BatchWaiter = {
 
 let batchQueue: BatchWaiter[] = []
 let batchScheduled = false
+let presenceClient: Promise<typeof import('./supabase')> | null = null
 
 function fetchSnapshot(entry: Entry, throwOnError = false): Promise<void> {
   if (entry.snapshotPromise) return entry.snapshotPromise
@@ -468,7 +469,7 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
   const ids = waiters.map((waiter) => waiter.entry.agentUserId)
   try {
     // Reading presence is platform-independent; initialize browser auth only for network I/O.
-    const { dataClient } = await import('./supabase')
+    const { dataClient } = await (presenceClient ??= import('./supabase'))
     recordPresenceBatch(ids.length)
     const { data, error } = await dataClient
       .schema('identity')
