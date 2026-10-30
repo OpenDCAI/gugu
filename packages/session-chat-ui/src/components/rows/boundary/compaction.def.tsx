@@ -33,6 +33,8 @@
  * `session-compaction` RFD 的 `compaction_update`（还没有一家发）。
  * ❌ 别改成去匹配 `"Compact conversation"` 这类标题文案 —— 那是供应商的措辞，改一次就静默失灵。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TranscriptCompaction } from '@gugu/session-core/acp';
@@ -51,20 +53,8 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-export const compactionUnitDef = defineUnit<TranscriptCompaction, { rowH: number }>({
-  kind: 'compaction',
-  // 与日界行同一档呼吸：它也是一个分节符。
-  margin: { top: 16, bottom: 12 },
-  vars: { rowH: COMPACTION_ROW_H },
-
-  measure(_data, _ctx, vars_) {
-    return vars_.rowH;
-  },
-
-  Render(props) {
-    const translate = useChatTranslator();
-    const label = (): string => {
-      switch (props.data.status) {
+function compactionLabel(data: TranscriptCompaction, translate: import('@session-chat/localization').ChatTranslator): string {
+      switch (data.status) {
         case 'in_progress':
           return translate('transcript.compacting');
         case 'failed':
@@ -72,7 +62,25 @@ export const compactionUnitDef = defineUnit<TranscriptCompaction, { rowH: number
         default:
           return translate('transcript.compacted');
       }
-    };
+    }
+
+function boundaryLayout(data: TranscriptCompaction, ctx: MeasureCtx) {
+  const actions = 0;
+  return readableLabel(compactionLabel(data, rowTranslator(ctx)), ctx, ctx.width - 20 - actions, 12, 18);
+}
+
+export const compactionUnitDef = defineUnit<TranscriptCompaction, { rowH: number }>({
+  kind: 'compaction',
+  // 与日界行同一档呼吸：它也是一个分节符。
+  margin: { top: 16, bottom: 12 },
+  vars: { rowH: COMPACTION_ROW_H },
+
+  measure(data, ctx, vars_) { return Math.max(vars_.rowH, boundaryLayout(data, ctx).height + 6); },
+
+  Render(props) {
+    const translate = useChatTranslator();
+    const layout = () => boundaryLayout(props.data, props.ctx.measureCtx!());
+    const label = () => compactionLabel(props.data, translate);
 
     /** 悬停详情。每一格都可能缺（RFD 那条通道一个数都不给），缺了就不占位。 */
     const detail = (): string | undefined => {
@@ -97,11 +105,11 @@ export const compactionUnitDef = defineUnit<TranscriptCompaction, { rowH: number
         // 标签窄时会收成省略号(boundary.css.ts),title 先给整句,再给排查细节。
         title={[label(), detail()].filter(Boolean).join('\n')}
         class={boundaryRow}
-        style={{ height: `${props.vars.rowH}px` }}
+        style={{ height: `${Math.max(props.vars.rowH, layout().height + 6)}px` }}
       >
         <span data-slot="compaction-rule" aria-hidden="true" class={boundaryRule} />
-        <span data-slot="compaction-label" class={boundaryLabel}>
-          {label()}
+        <span data-slot="compaction-label" class={boundaryLabel} style={{ 'flex-shrink': 0, width: `${Math.min(layout().width, props.ctx.measureCtx!().width - 20)}px` }}>
+          {layout().text}
         </span>
         <span data-slot="compaction-rule" aria-hidden="true" class={boundaryRule} />
       </div>

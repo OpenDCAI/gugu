@@ -1,11 +1,11 @@
 /** @jsxImportSource solid-js */
 import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, splitProps, type JSX } from 'solid-js';
-import { textShimmer, textShimmerBaseSweep, textShimmerClip, textShimmerInk, textShimmerLightInk, textShimmerSweep } from '@session-chat/styles/effects.css';
+import { textShimmer, textShimmerBaseSweep, textShimmerClip, textShimmerInk, textShimmerLightInk, textShimmerMultiline, textShimmerSweep } from '@session-chat/styles/effects.css';
 
 /** Stationary text with a composited light sweep. The decorative copy has no DOM text or semantics. */
-export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { active: boolean }) {
-  const [local, rest] = splitProps(props, ['active', 'children', 'class', 'classList']);
+export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { active: boolean; multiline?: boolean }) {
+  const [local, rest] = splitProps(props, ['active', 'multiline', 'children', 'class', 'classList']);
   // One boolean, ❌ the caller's getter: a row's data object is rebuilt on every transcript update while
   // it stays active. Tracking the getter re-ran the effect below on each rebuild, its cleanup cleared the
   // pending replay, and a sweep that finished in that hold never ran again (10-23: the turn header swept once).
@@ -47,7 +47,7 @@ export function ShimmerText(props: JSX.HTMLAttributes<HTMLSpanElement> & { activ
 
   return (
     <span {...rest} ref={host} class={local.class}
-      classList={{ ...local.classList, [textShimmer]: active() }}
+      classList={{ ...local.classList, [textShimmer]: active(), [textShimmerMultiline]: !!local.multiline }}
       data-shimmer-visible={active() && visible() ? 'true' : undefined}>
       {local.children}
       <Show when={active()}>
