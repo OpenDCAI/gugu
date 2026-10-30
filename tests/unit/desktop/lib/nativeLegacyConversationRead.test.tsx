@@ -12,10 +12,11 @@ const harness = createReactHarness()
 afterEach(() => { harness.cleanup(); scope.first = null; scope.aliases = new Map() })
 it('places a newly arrived MCP first-unread after a native reply already consumed its own landing', async () => {
   const place = vi.fn()
+  const revealItem = (itemId: string) => { place({ kind: 'anchor', itemId, edge: 'top', offset: -8 }); return true }
   let reading!: ReturnType<typeof useNativeConversationRead>
   function Fixture() { reading = useNativeConversationRead('host', 'session', true, () => [{ id: 'turn', seq: 0, initiator: 'user', items: [{ id: 'native', seq: 0, kind: 'message', role: 'assistant', text: 'Native reply' }] }]); return null }
   await harness.render(<Fixture />)
-  await act(async () => { reading.onReady({ setScrollMode: place } as unknown as ChatView) })
+  await act(async () => { reading.onReady({ revealItem } as unknown as ChatView) })
   expect(place).toHaveBeenLastCalledWith({ kind: 'anchor', itemId: 'native', edge: 'top', offset: -8 })
   scope.first = 'im-first'; scope.aliases = new Map([['tool:sent:im-first', ['im-first']]])
   await harness.render(<Fixture />)

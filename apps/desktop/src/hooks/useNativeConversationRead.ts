@@ -36,13 +36,12 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     // The two counters have separate ownership. An earlier native landing
     // cannot consume a later IM entry before its first receipt is readable.
     if (legacyItem && !state.legacy.placed) {
-      state.legacy.placed = true
-      state.view.setScrollMode({ kind: 'anchor', itemId: legacyItem, edge: 'top', offset: -8 })
+      state.legacy.placed = state.view.revealItem(legacyItem)
       return
     }
     if (state.placed || !first) return
     const itemId = readTurns.current().flatMap(turn => turn.items).find(item => (summary?.nativeUnreadAliases?.[nativeMessageKey(item.id)] ?? nativeMessageKey(item.id)) === first)?.id
-    if (itemId) { state.placed = true; state.view.setScrollMode({ kind: 'anchor', itemId, edge: 'top', offset: -8 }) }
+    if (itemId) state.placed = state.view.revealItem(itemId)
   }, [summary, legacyFirst])
   useEffect(place, [place, shown])
   useEffect(() => {
