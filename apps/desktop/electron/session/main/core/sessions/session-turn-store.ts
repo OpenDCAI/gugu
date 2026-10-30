@@ -196,7 +196,7 @@ export async function readStoredTailNow(sessionId: string, limit: number): Promi
  */
 export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTurn): Promise<void> {
   const next = await nextSeq(sessionId);
-  await db
+  const inserted = db
     .insert(sessionTurns)
     .values({
       id: `${sessionId}:${next}`,
@@ -205,8 +205,8 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
       turnId: `record:${turn.id}`,
       data: JSON.stringify(renumberStoredTurn(turn, sessionId, next)),
     })
-    .onConflictDoNothing();
-  sessionEvents._emit('session:history-changed', { sessionId, seq: next });
+    .onConflictDoNothing().run();
+  if (inserted.changes > 0) sessionEvents._emit('session:history-changed', { sessionId, seq: next });
 }
 
 /**
@@ -377,7 +377,7 @@ export async function truncateStoredHistory(sessionId: string, fromSeq: number |
     const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
     return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
   });
-  sessionEvents._emit('session:history-changed', { sessionId, fromSeq });
+  if (removed.rows.length > 0) sessionEvents._emit('session:history-changed', { sessionId, fromSeq });
   removed.publish?.();
   // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
   if (removed.rows.length > 0) {

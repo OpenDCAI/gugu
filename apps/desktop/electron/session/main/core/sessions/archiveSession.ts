@@ -91,7 +91,6 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
     projectId,
     changes: { archivedAt },
   });
-  sessionEvents._emit('session:archived', sessionId);
   await publishProjectVisibility(projectId);
   return [{ projectId, sessionId }];
 }
@@ -140,8 +139,8 @@ async function restoreSessionLocked(projectId: string, sessionId: string): Promi
     changes: { archivedAt: null },
   });
   const session = mapSessionRowToSession(restored, false);
-  await publishProjectVisibility(projectId);
   sessionEvents._emit('session:created', session);
+  await publishProjectVisibility(projectId);
   events.emit(sessionCreatedChannel, { session });
   return session;
 }

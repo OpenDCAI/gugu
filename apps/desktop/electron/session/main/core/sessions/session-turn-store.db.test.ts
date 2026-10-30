@@ -23,6 +23,7 @@ vi.mock('@main/db/client', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
 import { sessionEvents } from './session-events';
+import { setSessionArchival } from './session-archival';
 import { nativeConversationUnread } from './session-conversation-read';
 import { startNativeConversationInboxHost } from './native-conversation-inbox';
 import { events } from '@main/lib/events';
@@ -65,6 +66,18 @@ describe('conversation-turn-store', () => {
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
 
+  it('publishes the existing archive fact after the row commits and never for a no-op', () => {
+    const seen: (string | null)[] = [];
+    const off = sessionEvents.on('session:archived', id => {
+      seen.push((fixture.sqlite.prepare('SELECT archived_at FROM sessions WHERE id=?').get(id) as { archived_at: string | null }).archived_at);
+    });
+    try {
+      setSessionArchival('c1', true, '2026-10-30T12:00:00Z');
+      setSessionArchival('c1', true, '2026-10-30T12:00:01Z');
+      expect(seen).toEqual(['2026-10-30T12:00:00Z']);
+    } finally { off(); }
+  });
+
   it('publishes source facts only after insert, revision, record append and truncation commit', async () => {
     const facts: unknown[] = [];
     const off = sessionEvents.on('session:history-changed', change => {
@@ -81,6 +94,8 @@ describe('conversation-turn-store', () => {
       expect(facts[1]).toMatchObject({ rows: [{ data: expect.stringContaining('revised') }] });
       expect(facts[2]).toMatchObject({ change: { seq: 1 }, rows: [{ seq: 0 }, { seq: 1 }] });
       expect(facts[3]).toMatchObject({ change: { fromSeq: 1 }, rows: [{ seq: 0 }] });
+      await truncateStoredHistory('c1', 99);
+      expect(facts).toHaveLength(4);
     } finally { off(); }
   });
 
