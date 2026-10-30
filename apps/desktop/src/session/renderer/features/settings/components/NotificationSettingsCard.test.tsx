@@ -3,12 +3,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createLogger } from '../../../../../../electron/lib/logger';
 import { createNode, createReactHarness, clickElement } from '../../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../../tests/support/awaitCondition';
 import { ExtensionsService } from '@main/core/extensions/extensions-service';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 
+const log = createLogger('test/notification-settings-card');
 const h = vi.hoisted(() => ({ service: null as unknown as ExtensionsService, setPermission: vi.fn() }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({
   value: { enabled: true, sound: true }, update: vi.fn(), isLoading: false, isFieldOverridden: () => false, resetField: vi.fn(),
@@ -41,7 +43,7 @@ let root: string;
 beforeEach(() => { ui = createReactHarness(); });
 afterEach(() => {
   ui.cleanup();
-  if (root) { expect(root.startsWith(join(tmpdir(), 'gugu-notification-card-'))).toBe(true); console.info('cleanup owned fixture', root); rmSync(root, { recursive: true }); }
+  if (root) { expect(root.startsWith(join(tmpdir(), 'gugu-notification-card-'))).toBe(true); log.info({ root }, 'cleanup owned fixture'); rmSync(root, { recursive: true }); }
 });
 
 describe('App notification permission in the task settings', () => {
