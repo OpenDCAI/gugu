@@ -2,7 +2,6 @@ import { isDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { pluginRegistry, type AgentProviderId } from '@gugu/session-plugins/agents';
 import type { GuguPermissionMode } from '@gugu/session-core/acp';
 import type { sessions } from '@main/db/schema';
-import { taskAgentName } from '@gugu/core/shared/taskAgentName';
 import type { LinkedIssue } from '@shared/core/linked-issue';
 import type {
   SessionConfig,
@@ -116,7 +115,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   const initialQueue = input.initialQueue?.filter((prompt) => prompt.text.trim());
   const resident = input.origin?.kind === 'resident';
   const explicitName = input.agentDisplayName?.trim() || (!resident && input.titleSource === 'manual' ? input.title.trim() : undefined);
-  const agentDisplayName = explicitName ? (resident ? explicitName : taskAgentName(explicitName)) : undefined;
+  const agentDisplayName = explicitName || undefined;
 
   // 一条规则,两种写法。**创建必须有第一轮内容**:
   // - 载荷里带着它(initialPrompt / initialQueue)⇒ 那就是这一轮的内容,不必再声明一遍

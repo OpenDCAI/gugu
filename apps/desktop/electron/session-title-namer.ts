@@ -23,11 +23,6 @@ const log = createLogger('session-title-namer')
 /** 签票时报的「引擎」:不是哪个 harness,只是账本上认得出这张票是起名签的。 */
 const SESSION_TITLE_ENGINE_ID = 'gugu-session-title'
 const SESSION_TITLE_PROTOCOL = 'openai-chat-completions'
-/**
- * 建会话到拿到身份之间最多等这么久;也用来认出「新建」—— 恢复归档也发 `session:created`,
- * 那是一条老会话,❌ 为它花一次调用。
- */
-const PENDING_WINDOW_MS = 2 * 60_000
 
 export type SessionTitleOutcome =
   | 'named'
@@ -49,7 +44,7 @@ export interface SessionTitleNamerDeps {
   /** 设置里选的起名模型(null = 关掉了)与追加的起名要求。 */
   titleSettings: () => Promise<{ model: string | null; instructions: string }>
   /** 这条会话的标题此刻是不是首轮兜底,以及它的首轮。 */
-  titleState: (sessionId: string) => { fallback: boolean; firstUtterance: string | undefined }
+  titleState: (sessionId: string) => { fallback: boolean; firstUtterance: string | undefined; managed: boolean }
   /** 落名;返回 false = 这一刻已经有别的名(人改的 / harness 起的),不收。 */
   applyTitle: (sessionId: string, title: string) => boolean | Promise<boolean>
   now?: () => number
@@ -58,14 +53,6 @@ export interface SessionTitleNamerDeps {
 function netFetch(url: string, init: RequestInit): Promise<Response> {
   const fetcher = (electron as { net?: { fetch?: typeof fetch } } | undefined)?.net?.fetch
   return fetcher ? fetcher(url, init) : fetch(url, init)
-}
-
-/** SQLite 的 `CURRENT_TIMESTAMP` 是不带时区的 UTC(`2026-10-16 19:00:00`);ISO 串照常解析。 */
-function parseCreatedAt(value: string | undefined): number | null {
-  if (!value) return null
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value
-  const at = Date.parse(iso)
-  return Number.isFinite(at) ? at : null
 }
 
 /** 模型回的 content:字符串,或 [{type:'text', text}] 一串。 */
@@ -87,7 +74,7 @@ class Timeout extends Error {}
 
 export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
   const now = deps.now ?? Date.now
-  const pending = new Set<string>()
+  const running = new Set<string>()
 
   async function name(sessionId: string, agentUserId: string, startedAt: number): Promise<SessionTitleOutcome> {
     const { model, instructions } = await deps.titleSettings()
@@ -193,19 +180,17 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
   }
 
   return {
-    /** 一条会话出现在列表里。只认刚建的(恢复归档的老会话也走这条事件)。 */
-    sessionCreated(session: { id: string; createdAt?: string }): void {
-      const createdAt = parseCreatedAt(session.createdAt)
-      if (createdAt !== null && now() - createdAt > PENDING_WINDOW_MS) return
-      pending.add(session.id)
-    },
-    sessionDeleted(sessionId: string): void { pending.delete(sessionId) },
     /** The host calls after the first completed turn, when the identity is available. */
     async firstTurnCompleted(sessionId: string, agentUserId: string): Promise<SessionTitleOutcome> {
-      if (!pending.delete(sessionId)) return 'not-pending'
-      const outcome = await name(sessionId, agentUserId, now())
-      if (outcome === 'timeout') log.info({ sessionId, budgetMs: SESSION_TITLE_TIMEOUT_MS }, 'session title: no name within budget, keeping the current title')
-      return outcome
+      const state = deps.titleState(sessionId)
+      if (!state.managed || running.has(sessionId)) return 'not-pending'
+      if (!state.fallback) return 'not-fallback'
+      running.add(sessionId)
+      try {
+        const outcome = await name(sessionId, agentUserId, now())
+        if (outcome === 'timeout') log.info({ sessionId, budgetMs: SESSION_TITLE_TIMEOUT_MS }, 'session title: no name within budget, keeping the current title')
+        return outcome
+      } finally { running.delete(sessionId) }
     },
   }
 }

@@ -9,6 +9,7 @@ import { installedExtensionsStore } from '@/session/renderer/features/extensions
 import { useForwardedSource } from '../../hooks/useForwardedSource'
 import { useChatStore } from '../../store/chatContext'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
+import { identityDisplayName } from '../../lib/displayIdentity'
 
 // @@@2017 — 一条消息气泡下方的**元指示行**:小号、非正文的注记(不是消息内容本身)。
 // 各类注记都渲染成气泡列(flex column,见 MessageBubble 父容器)里各自独占一行的小字:
@@ -90,8 +91,10 @@ function ForwardedBadge({ forwardedFromMessageId }: { forwardedFromMessageId: st
   // 就说明读者本来就在那条线里 ⇒ 它一定在自己的会话列表里,本地就叫得出名字。
   // 名字仍然叫不出(线还没同步到本地)→ sourceName 为空 → 照旧退回只显「转发」。
   const sourceChat = source ? chats.find((chat) => chat.id === source.chatId) : undefined
+  const peer = sourceChat?.peer_user_id ? identitiesById[sourceChat.peer_user_id] : undefined
+  const members = sourceChat?.member_user_ids?.flatMap((id) => identitiesById[id] ? [identitiesById[id]] : []) ?? []
   const sourceName = source?.name?.trim()
-    || (sourceChat ? chatDisplayName(sourceChat, identitiesById[sourceChat.peer_user_id ?? '']?.display_name) : '')
+    || (sourceChat ? chatDisplayName(sourceChat, peer ? identityDisplayName(peer, members) : undefined) : '')
   return (
     <span
       data-testid={AUTOMATION_TEST_IDS.messageForwardedBadge}

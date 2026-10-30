@@ -278,7 +278,7 @@ import { SESSION_SHELL_CHANNELS, agentNamesFromPeers, type SessionShellAgentName
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
 import type { EventDefinition } from '../src/session/shared/lib/ipc/events'
 import { MAIN_UI_EVENTS } from '../src/lib/mainUiEvents'
-import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identity-host'
+import { createSessionpageIdentityHost, reconcileSessionpageOwnerNames } from './sessionpage/sessionpage-identity-host'
 import { createSessionpageProjectGroupHost, ensureProjectNoticeAccess } from './sessionpage/sessionpage-project-group-binding'
 import { prepareProjectAgentNotice } from './sessionpage/project-agent-notice'
 import { onProjectGroupMappingChanged } from './sessionpage/sessionpage-project-groups'
@@ -339,8 +339,7 @@ import {
 import { release as releaseVoiceNoteTicket, transcribeVoiceNoteSegment, upcomingMeetings, voiceNoteMicrophone } from './voice-notes'
 import { createSessionTitleNamer } from './session-title-namer'
 import { SESSION_TITLE_MODELS_CHANNEL } from '../src/session/shared/core/sessions/session-title-namer'
-import { sessionEvents } from './session/main/core/sessions/session-events'
-import { applyGeneratedTitle, sessionTitleIsFallback, setTaskIdentityRename, mirrorTaskIdentityName } from './session/main/core/sessions/renameSession'
+import { applyGeneratedTitle, sessionTaskNameState, writeManualTaskName, setTaskIdentityRename, mirrorTaskIdentityName } from './session/main/core/sessions/renameSession'
 import { appSettingsService } from './session/main/core/settings/settings-service'
 import { platformWebSearchForSession } from './sessionpage/sessionpage-platform-search'
 import {
@@ -4084,11 +4083,9 @@ const sessionTitleNamer = createSessionTitleNamer({
     const sessions = await appSettingsService.get('sessions')
     return { model: sessions.titleModel, instructions: sessions.titleInstructions }
   },
-  titleState: sessionTitleIsFallback,
+  titleState: sessionTaskNameState,
   applyTitle: applyGeneratedTitle,
 })
-sessionEvents.on('session:created', (session) => sessionTitleNamer.sessionCreated(session))
-sessionEvents.on('session:deleted', (sessionId) => sessionTitleNamer.sessionDeleted(sessionId))
 onSessionpageAgentProvisioned((event) => {
   void awaitSessionpageCloudIdentity(event.agentUserId).then(() => sessionpageIdentityHost?.synchronizeNames())
     .catch((error: unknown) => createLogger('sessionpage/provision').warn({ err: error }, 'Task identity name synchronization failed'))
@@ -4952,7 +4949,7 @@ app.whenReady().then(async () => {
       takeBirthGroup: (sessionId: string) => emdash.emdashTakeBirthGroup(sessionId),
       sessionFacts: (target) => emdash.emdashSessionProvisionInput(target),
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
-      taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, state: sessionTitleIsFallback },
+      taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, writeManual: writeManualTaskName, state: sessionTaskNameState },
       onRenamed: (renamed) => {
         sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
         sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
@@ -6343,7 +6340,9 @@ app.whenReady().then(async () => {
                 if (auth.accessToken && auth.userId) {
                   refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
                 }
-                runSessionpageReap('boot-owner')
+                reconcileSessionpageOwnerNames(identityHost, (error) =>
+                  createLogger('sessionpage/provision').warn({ err: error }, 'Task identity name migration/synchronization failed'),
+                () => runSessionpageReap('boot-owner'))
                 return
               }
               await new Promise((resolve) => setTimeout(resolve, 500))

@@ -30,7 +30,11 @@ type TitleRow = {
 export async function renameSession(sessionId: string, name: string) {
   name = taskAgentName(name);
   if (renameIdentity && await renameIdentity(sessionId, name, 'manual') !== null) return;
-  writeSessionTitle(sessionId, name, 'manual', () => true);
+  writeManualTaskName(sessionId, name);
+}
+
+export function writeManualTaskName(sessionId: string, name: string): void {
+  writeSessionTitle(sessionId, taskAgentName(name), 'manual', () => true);
 }
 
 /**
@@ -69,7 +73,7 @@ export function mirrorTaskIdentityName(sessionId: string, name: string, source?:
     const row = tx.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (!row) return null;
     const config = row.config ?? { version: '1' as const, type: row.runtime };
-    const titleSource = source ?? (config.identityNameManaged && config.agentDisplayName && row.title !== name ? 'manual' : config.titleSource);
+    const titleSource = source ?? titleSourceOf(row);
     if (row.title === name && config.agentDisplayName === name && config.identityNameManaged && config.titleSource === titleSource) return null;
     tx.update(sessions).set({ title: name, config: { ...config, agentDisplayName: name, identityNameManaged: true, titleSource } })
       .where(eq(sessions.id, sessionId)).run();
@@ -85,14 +89,22 @@ export function mirrorTaskIdentityName(sessionId: string, name: string, source?:
  * 只是省钱的预判:真正的判据在 `applyGeneratedTitle` 落库那一刻。
  */
 export function sessionTitleIsFallback(sessionId: string): { fallback: boolean; firstUtterance: string | undefined } {
+  const state = sessionTaskNameState(sessionId);
+  return { fallback: state.fallback, firstUtterance: state.firstUtterance };
+}
+
+/** One persisted naming fact for migration, offline manual edits and automatic-name eligibility. */
+export function sessionTaskNameState(sessionId: string) {
   const row = db
     .select({ title: sessions.title, provider: sessions.provider, config: sessions.config })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1)
     .get();
-  if (!row) return { fallback: false, firstUtterance: undefined };
-  return { fallback: titleSourceOf(row) === undefined, firstUtterance: row.config?.firstUtterance };
+  const source = row ? titleSourceOf(row) : undefined;
+  return { fallback: !!row && source === undefined, firstUtterance: row?.config?.firstUtterance,
+    title: row?.title, source, managed: row?.config?.identityNameManaged === true,
+    identityName: row?.config?.agentDisplayName };
 }
 
 /**
@@ -117,6 +129,7 @@ function writeSessionTitle(
         projectId: sessions.projectId,
         title: sessions.title,
         provider: sessions.provider,
+        runtime: sessions.runtime,
         config: sessions.config,
       })
       .from(sessions)
@@ -126,10 +139,10 @@ function writeSessionTitle(
     if (!row || !accept(row, title)) return null;
     if (row.title === title && row.config?.titleSource === source) return null;
 
-    // 老会话的 config 可能是 null:那一行记不下来历,由 `titleSourceOf` 按标题形状判。
+    // Legacy null configs become a valid v1 config so the explicit name source survives restart.
     tx.update(sessions)
-      .set({ title, ...(row.config && { config: { ...row.config, titleSource: source,
-        ...(source === 'manual' ? { agentDisplayName: title } : {}) } }) })
+      .set({ title, config: { ...(row.config ?? { version: '1' as const, type: row.runtime }), titleSource: source,
+        ...(source === 'manual' && !row.config?.identityNameManaged ? { agentDisplayName: title } : {}) } })
       .where(eq(sessions.id, sessionId))
       .run();
     return row;

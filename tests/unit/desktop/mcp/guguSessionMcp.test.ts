@@ -385,6 +385,11 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     expect(responseText(strayField).toLowerCase()).toContain('unrecognized key')
     expect(responseText(strayField)).toContain('name')
 
+    const longName = await client.callTool({ name: 'session_spawn', arguments: { title: '👨‍👩‍👧‍👦'.repeat(41), prompt: 'p' } })
+    expect(longName.isError).toBe(true)
+    expect(responseText(longName)).toContain('1–40 graphemes')
+    expect(seen).toEqual(calls.map(({ dispatched }) => dispatched))
+
     // A bare id or an id of another type never reaches the host: the boundary refuses it by name.
     const bare = await client.callTool({ name: 'session_stop', arguments: { session_id: 'child' } })
     expect(bare.isError).toBe(true)

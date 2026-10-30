@@ -18,6 +18,7 @@ import {
   type AttachmentCommit,
 } from './attachments/attachment-upload';
 import { sessionService } from './session-service';
+import { sessionConfigSchema } from '@shared/core/sessions/new-session-config';
 
 /** 按块收附件的失败:带原因码(界面按码说人话),原文进日志。 */
 function uploadFailure(verb: string, sessionId: string, e: unknown) {
@@ -29,6 +30,7 @@ function uploadFailure(verb: string, sessionId: string, e: unknown) {
 
 export const sessionCreateController = createRPCController({
   async createSession(params: CreateSessionParams) {
+    sessionConfigSchema.parse(params.sessionConfig);
     return sessionService.createSession(params);
   },
   /**

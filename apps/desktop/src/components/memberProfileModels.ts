@@ -52,12 +52,13 @@ export function buildMemberProfileMap(
   identities: Readonly<Record<string, DisplayIdentity>>,
   agentStatuses: Record<string, AgentDisplayStatus> = {},
   senderIds: Iterable<string | null | undefined> = [],
+  aliases: Readonly<Record<string, string | null | undefined>> = {},
 ): Record<string, MemberProfileCardModel> {
   const profiles: Record<string, MemberProfileCardModel> = {}
   for (const member of snapshot.humans) if (identities[member.id]) profiles[member.id] = toHumanProfile(member, identities[member.id])
   for (const agent of snapshot.agents) if (identities[agent.id]) profiles[agent.id] = toAgentProfile(agent, identities[agent.id], agentStatuses[agent.id], agentOwnerDisplayName(identities[agent.id], identities))
   for (const id of senderIds) if (id && !profiles[id] && identities[id]) profiles[id] = { ...toIdentityProfile(identities[id], 'member', 'group', undefined, undefined, agentOwnerDisplayName(identities[id], identities)), membership: 'former' }
   const members = Object.keys(profiles).map((id) => identities[id])
-  for (const id of Object.keys(profiles)) profiles[id].displayName = identityDisplayName(identities[id], members)
+  for (const id of Object.keys(profiles)) profiles[id].displayName = identityDisplayName(identities[id], members, aliases[id])
   return profiles
 }

@@ -68,7 +68,8 @@ export interface SessionpageIdentityHostDeps {
   taskNames?: {
     installRename: (rename: (sessionId: string, name: string, source: 'manual' | 'generated') => Promise<boolean | null>) => void
     mirror: (sessionId: string, name: string, source?: 'manual' | 'generated') => void
-    state: (sessionId: string) => { fallback: boolean }
+    writeManual: (sessionId: string, name: string) => void
+    state: (sessionId: string) => { fallback: boolean; title?: string; source?: 'manual' | 'generated' | 'harness'; managed: boolean; identityName?: string }
   }
   onRenamed?: (renamed: SessionShellAgentName) => void
   env?: NodeJS.ProcessEnv
@@ -106,6 +107,16 @@ export interface SessionpageIdentityHost {
   provisionSessionStart(facts: SessionpageSessionStartFacts): Promise<ProvisionedSessionpageAgent | null>
 }
 
+/** Name synchronization is a boot-owner side chain; it must not delay the existing reap. */
+export function reconcileSessionpageOwnerNames(
+  host: Pick<SessionpageIdentityHost, 'synchronizeNames'>,
+  onFailure: (error: unknown) => void,
+  reap: () => void,
+): void {
+  void host.synchronizeNames().catch(onFailure)
+  reap()
+}
+
 function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
   const target = input as Partial<SessionShellAgentAddressInput> | null
   if (!target?.projectId || !target.sessionId) {
@@ -116,35 +127,12 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
-  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => withSessionpageProvisionLock('task identity names', async () => {
-    const roster = await listAgents(env, { includeGuests: true })
-    return resolveSessionpageSessionPeers({
+  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => resolveSessionpageSessionPeers({
       sessionId,
-      listRoster: async () => roster,
+      listRoster: () => listAgents(env, { includeGuests: true }),
       ownerUserId: auth.userId,
-      lookupIdentities: async (agentUserIds) => {
-        const identities = await loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId))
-        if (deps.taskNames) for (const identity of identities) {
-          const agent = roster.find((row) => row.gugu_user_id === identity.id)
-          if (!agent) continue
-          // Only the host can attest a legacy task binding. Reuse the backend's exact-placeholder
-          // migration; renamed historical identities deliberately keep an unproven serial as null.
-          const agentType = normalizeAgentType(agent.agent_type)
-          const label = getAgentTypeLabel(agentType)
-          if (identity.name_serial == null && agentNameSerial(identity.display_name, label) !== null) {
-            const deviceId = await deps.resolveDeviceId()
-            if (!deviceId) throw new Error('Task name migration requires the host device identity')
-            const migrated = await provisionDeps.provisionOneTrip({ supabaseUrl: getSupabaseUrl(), anonKey: getSupabaseAnonKey(),
-              accessToken: auth.accessToken, agentId: identity.id, displayName: identity.display_name,
-              nameMode: 'serial', nameSerialBase: label, agentType, deviceId })
-            identity.display_name = migrated.displayName
-          }
-          await adoptRecordName(agent, identity.display_name)
-        }
-        return identities
-      },
+      lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
       listSessionFacts: deps.listSessionFacts,
-    })
   })
   const provisionDeps: SessionpageProvisionDeps = {
     getAuth: deps.getAuth,
@@ -193,34 +181,36 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     return agent ? adoptRecordName(agent, name, source) : null
   }
 
-  async function renameBoundAgent(sessionId: string, value: string, source: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
+  async function renameBoundAgent(sessionId: string, value: string, source: 'manual' | 'generated'): Promise<SessionShellAgentName | false | null> {
     const name = taskAgentName(value, source === 'generated')
-    const auth = await deps.getAuth()
-    if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
-    const agent = await localAgentForSession(sessionId, env, auth.userId)
+    const agent = await localAgentForSession(sessionId, env)
     if (!agent?.gugu_user_id) return null
-    await awaitSessionpageCloudIdentity(agent.gugu_user_id)
-    if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return null
-    const client = makeIdentityClient(auth.accessToken)
-    let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
-    // A remote manual rename received while the automatic name was in flight wins too.
-    if (source === 'generated') write = write.eq('display_name', agent.name)
-    const { data, error } = await write.maybeSingle()
-    if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
-    if (!data) {
-      if (source === 'generated') return null
-      throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
-    }
-    return adoptAgentName(agent.gugu_user_id, name, source)
+    if (source === 'manual') deps.taskNames?.writeManual(sessionId, name)
+    const auth = await deps.getAuth()
+    if (!auth) return false
+    if (!agentMayBelongTo(agent, auth.userId)) return null
+    return withSessionpageProvisionLock('task identity rename', async () => {
+      await awaitSessionpageCloudIdentity(agent.gugu_user_id)
+      if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
+      const client = makeIdentityClient(auth.accessToken)
+      let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
+      // A remote manual rename received while the automatic name was in flight wins too.
+      if (source === 'generated') write = write.eq('display_name', agent.name)
+      const { data, error } = await write.maybeSingle()
+      if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
+      if (!data) {
+        if (source === 'generated') return false
+        throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
+      }
+      return adoptAgentName(agent.gugu_user_id, name, source)
+    })
   }
 
-  deps.taskNames?.installRename((sessionId, name, source) => withSessionpageProvisionLock('task identity rename', async () => {
-    const auth = await deps.getAuth()
-    if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
-    const agent = await localAgentForSession(sessionId, env, auth.userId)
-    if (!agent?.gugu_user_id) return null
-    return Boolean(await renameBoundAgent(sessionId, name, source))
-  }))
+  deps.taskNames?.installRename(async (sessionId, name, source) => {
+    const renamed = await renameBoundAgent(sessionId, name, source)
+    // A local manual edit remains durable while the host cannot publish its identity name.
+    return renamed ? true : renamed
+  })
 
   const host: SessionpageIdentityHost = {
     provisionDeps,
@@ -249,7 +239,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     async renameAgent(input) {
       const sessionId = input?.sessionId?.trim()
       if (!sessionId) throw new Error('Session-page agent rename requires sessionId')
-      const renamed = await withSessionpageProvisionLock('task identity rename', () => renameBoundAgent(sessionId, input.name, 'manual'))
+      const renamed = await renameBoundAgent(sessionId, input.name, 'manual')
       if (!renamed) throw new Error(`Session-page session ${sessionId} has no agent identity to rename`)
       return renamed
     },
@@ -257,7 +247,42 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     async synchronizeNames() {
       if (!deps.taskNames) return
       const auth = await deps.getAuth()
-      if (auth) await peersForAuth(auth)
+      if (!auth) return
+      await withSessionpageProvisionLock('task identity name changes', async () => {
+        const roster = (await listAgents(env, { includeGuests: true }))
+          .filter((agent) => agentMayBelongTo(agent, auth.userId) && typeof agent.cache?.[SESSION_CACHE_KEY] === 'string')
+        const identities = await loadSessionpageCanonicalAgentIdentities(auth, roster.map((agent) => agent.gugu_user_id), false)
+        for (const agent of roster) {
+          const sessionId = agent.cache![SESSION_CACHE_KEY] as string
+          const state = deps.taskNames!.state(sessionId)
+          if (!state.title) continue
+          const identity = identities.find((row) => row.id === agent.gugu_user_id)
+          if (!identity?.display_name) continue
+          // A legacy manual title and an offline manual edit are intent, never a cloud-name fallback.
+          const localManual = state.source === 'manual' && (!state.managed || state.title !== state.identityName)
+          let name = identity.display_name
+          if (localManual) {
+            const { data, error } = await updateOwnedAgentIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id,
+              { display_name: state.title }, 'id', auth.userId).maybeSingle()
+            if (error) throw new Error(error.message)
+            if (!data) throw new Error('Task identity name update was not authorized')
+            name = state.title
+          } else if (!state.managed) {
+            const agentType = normalizeAgentType(agent.agent_type)
+            const label = getAgentTypeLabel(agentType)
+            if (identity.name_serial == null && agentNameSerial(name, label) !== null) {
+              const deviceId = await deps.resolveDeviceId()
+              if (!deviceId) throw new Error('Task name migration requires the host device identity')
+              const migrated = await provisionDeps.provisionOneTrip({ supabaseUrl: getSupabaseUrl(), anonKey: getSupabaseAnonKey(),
+                accessToken: auth.accessToken, agentId: identity.id, displayName: name,
+                nameMode: 'serial', nameSerialBase: label, agentType, deviceId })
+              name = migrated.displayName
+            }
+          }
+          const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
+          await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
+        }
+      })
     },
     async ensureAgentAddress(input) {
       const target = requireAddressInput(input)

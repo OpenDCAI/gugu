@@ -44,28 +44,6 @@ export function nextAgentDefaultName(
 }
 
 /**
- * #4007 — 显式给的名字也要唯一。可读名就是寻址名(spec agent-provisioning「命名即寻址名」):一旦出现
- * 两个逐字相同的显示名,「查通讯录把名字解析成 ID」就没有确定答案了 —— 所以派活的一方指定名字这条路
- * 不能绕过唯一性,只能换一种达成方式。
- *
- * 与上面那条自增的 bump 同型,只是起点不同:自增名天生带序号,显式名不带,所以精确重名时从 2 开始追加
- * (`小弟` → `小弟 2`)。❌ 不按 agent_type 分组比对 —— 寻址用的是名字本身,跨类型重名一样解析不出人。
- */
-export function uniqueAgentDisplayName(
-  ownedAgents: OwnedAgentLike[],
-  requested: string,
-  reservedNames: Iterable<string> = [],
-): string {
-  const name = requested.trim()
-  if (!name) throw new Error('uniqueAgentDisplayName: requested name is blank')
-  const taken = new Set([...ownedAgents.map((a) => a.display_name), ...reservedNames])
-  if (!taken.has(name)) return name
-  let serial = 2
-  while (taken.has(`${name} ${serial}`)) serial += 1
-  return `${name} ${serial}`
-}
-
-/**
  * #1586 — derive the default name from the FRESHEST owned-agents list at submit time, not a snapshot
  * captured when the modal opened (a second agent created within ~1.5s must see the first one).
  * #6396 — together with the server's record of the highest number used, fetched in the same beat.

@@ -4,6 +4,7 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import type { ChatContextValue } from '../../store/chatContext'
 import { Avatar } from '../Avatar'
+import { identityDisplayName } from '../../lib/displayIdentity'
 
 /**
  * gugu-dev#181 聊天画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost)时的头:块顶上那条页签条就是头,
@@ -19,6 +20,7 @@ export function ChatBlockHead({ host, actions, chat, name, avatar, isAgent, iden
   identitiesById: ChatContextValue['identitiesById']
 }) {
   const room = isRoomChat(chat.kind)
+  const members = chat.member_user_ids?.flatMap((id) => identitiesById[id] ? [identitiesById[id]] : []) ?? []
   return (
     <>
       {host.actions ? createPortal(actions, host.actions) : null}
@@ -30,7 +32,7 @@ export function ChatBlockHead({ host, actions, chat, name, avatar, isAgent, iden
             seed={chat.peer_user_id ?? undefined}
             isAgent={isAgent}
             variant={room ? 'group' : 'default'}
-            memberAvatars={room ? chat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : []) : undefined}
+            memberAvatars={room ? members.map((identity) => ({ id: identity.id, name: identityDisplayName(identity, members), avatar: identity.avatar })) : undefined}
             size={16}
             still
           />

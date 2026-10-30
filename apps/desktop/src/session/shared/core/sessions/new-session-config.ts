@@ -3,6 +3,7 @@ import { GUGU_PERMISSION_MODES, promptInputSchema } from '@gugu/session-core/acp
 import { defineVersionedSchema } from '@shared/lib/versioned-schema/versioned-schema';
 import { sessionTitleSourceSchema } from './session-config';
 import { linkedIssue } from '../linked-issue';
+import { MAX_TASK_AGENT_NAME_GRAPHEMES, taskAgentNameLength } from '@gugu/core/shared/taskAgentName';
 
 const initialQueuePromptSchema = z.object({
   text: z.string(),
@@ -72,7 +73,8 @@ const v1Schema = z.object({
        * 到不了产品层。
        */
       type: z.enum(['pty', 'acp']).optional(),
-    })
+    }).refine((session) => session.titleSource !== 'manual' || session.title === undefined || (session.title.trim().length > 0 && taskAgentNameLength(session.title.trim()) <= MAX_TASK_AGENT_NAME_GRAPHEMES),
+      { message: 'Task agent name must contain 1–40 graphemes', path: ['title'] })
     .optional(),
 });
 

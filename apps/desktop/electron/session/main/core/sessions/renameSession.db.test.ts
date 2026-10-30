@@ -2,6 +2,7 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
+import { sessionConfig } from '@shared/core/sessions/session-config';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -24,7 +25,7 @@ vi.mock('./session-events', () => ({
   sessionEvents: { _emit: mocks.renamed },
 }));
 
-import { applyGeneratedTitle, applyHarnessTitle, renameSession, sessionTitleIsFallback, mirrorTaskIdentityName, setTaskIdentityRename } from './renameSession';
+import { applyGeneratedTitle, applyHarnessTitle, renameSession, sessionTitleIsFallback, sessionTaskNameState, writeManualTaskName, mirrorTaskIdentityName, setTaskIdentityRename } from './renameSession';
 
 // 优先级:显式命名(人/agent)> harness 自己拟的名 > 首轮兜底。
 describe('conversation title precedence', () => {
@@ -150,9 +151,9 @@ describe('conversation title precedence', () => {
   it('a row without config treats its title as explicit and can still be renamed', async () => {
     expect(applyHarnessTitle('no-config', 'Something')).toBe(false);
     await renameSession('no-config', 'New name');
-    expect(
-      fixture.sqlite.prepare('SELECT title, config FROM sessions WHERE id = ?').get('no-config')
-    ).toEqual({ title: 'New name', config: null });
+    const row = fixture.sqlite.prepare('SELECT title, config FROM sessions WHERE id = ?').get('no-config') as { title: string; config: string };
+    expect(row.title).toBe('New name');
+    expect(sessionConfig.schema.parse(JSON.parse(row.config))).toMatchObject({ version: '1', type: 'pty', titleSource: 'manual' });
   });
 
   // #7337 自动名有两个来源(咕咕起的、harness 起的):先到先得、只起一次;显式命名照样压过两者。
@@ -218,6 +219,19 @@ describe('conversation title precedence', () => {
     await renameSession('fallback', 'Owner choice');
     expect(writes).toEqual(['Login repair', 'Owner choice']);
     expect(rowOf('fallback')).toEqual({ title: 'Owner choice', titleSource: 'manual' });
+  });
+
+  it('keeps an offline manual edit and the last mirrored identity value until synchronization succeeds', async () => {
+    fixture.sqlite.prepare("UPDATE sessions SET config = json_set(config, '$.identityNameManaged', json('true')) WHERE id = ?").run('fallback');
+    mirrorTaskIdentityName('fallback', 'Claude 12');
+    setTaskIdentityRename(async (id, name) => {
+      writeManualTaskName(id, name);
+      throw new Error('offline');
+    });
+    await expect(renameSession('fallback', 'Offline choice')).rejects.toThrow('offline');
+    expect(sessionTaskNameState('fallback')).toMatchObject({ title: 'Offline choice', source: 'manual', managed: true, identityName: 'Claude 12' });
+    mirrorTaskIdentityName('fallback', 'Offline choice', 'manual');
+    expect(sessionTaskNameState('fallback')).toMatchObject({ title: 'Offline choice', identityName: 'Offline choice' });
   });
 
   it('adopts remote names on the host without changing identity or archive/Restore bindings', () => {

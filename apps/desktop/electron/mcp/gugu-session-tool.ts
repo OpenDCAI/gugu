@@ -11,6 +11,7 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import type { GuguMcpRequestTracker } from '../gugu-mcp-host'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { taskAgentNameLength, MAX_TASK_AGENT_NAME_GRAPHEMES } from '@gugu/core/shared/taskAgentName'
 import { workReportSchema } from '../../src/session/shared/assistant-work'
 import { SESSION_MESSAGE_REPLY_TO, SESSION_MESSAGE_THEN } from '@gugu/core/local/agent/deliveryEnvelope'
 import {
@@ -125,7 +126,8 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     schema: z.object({
       prompt: z.string().min(1),
       source_link: sourceLinkSchema.optional(),
-      title: z.string().min(1).describe('Short name; default automatic.').optional(),
+      title: z.string().trim().min(1).refine((name) => taskAgentNameLength(name) <= MAX_TASK_AGENT_NAME_GRAPHEMES,
+        { message: 'Task agent name must contain 1–40 graphemes' }).describe('Name of 1–40 graphemes; default automatic.').optional(),
       device: deviceSchema.describe(DEVICE_DESCRIPTION).optional(),
       // #7331 先复用:描述只说「新目录当场登记」时,agent 把每个自己切的 worktree 都传进来,对方机器上一个 worktree 一个项目。
       project: z.string().min(1).describe('Existing project:<id> or root. New projects only when requested; subfolders/worktrees go in prompt. Omit: current directory (remote: home).').optional(),

@@ -40,4 +40,9 @@ describe('a resident agent waits for its first message (#7199)', () => {
     expect(row.config?.agentDisplayName).toBe('x'.repeat(60));
     expect(row.config).not.toHaveProperty('identityNameManaged');
   });
+
+  it('does not turn a legacy or internal long title into a late row-construction failure', () => {
+    const title = 'x'.repeat(60);
+    expect(buildSessionRow({ ...base, provider: 'codex', title, titleSource: 'manual', initialPrompt: 'Review the patch' }).title).toBe(title);
+  });
 });

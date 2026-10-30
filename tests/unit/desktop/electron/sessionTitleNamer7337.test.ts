@@ -31,7 +31,7 @@ function reply(status: number, body: unknown) {
 let clock = Date.parse('2026-10-16T19:00:00Z')
 const applyTitle = vi.fn((..._args: unknown[]) => true)
 const awaitAgentIdentity = vi.fn(async (_agentUserId: string) => undefined)
-let state = { fallback: true, firstUtterance: LONG as string | undefined }
+let state = { fallback: true, managed: true, firstUtterance: LONG as string | undefined }
 let model: string | null = 'glm-5.3-flash'
 let instructions = ''
 
@@ -48,10 +48,10 @@ function namer() {
 
 beforeEach(() => {
   clock = Date.parse('2026-10-16T19:00:00Z')
-  state = { fallback: true, firstUtterance: LONG }
+  state = { fallback: true, managed: true, firstUtterance: LONG }
   model = 'glm-5.3-flash'
   instructions = ''
-  applyTitle.mockReset().mockReturnValue(true)
+  applyTitle.mockReset().mockImplementation(() => { state.fallback = false; return true })
   awaitAgentIdentity.mockReset().mockResolvedValue(undefined)
   issuePlatformModelAccess.mockReset().mockResolvedValue(ticket())
   revokePlatformModelAccess.mockClear()
@@ -62,19 +62,19 @@ afterEach(() => {
 })
 
 describe('起名', () => {
-  it('keeps the serial throughout a long first turn and names only when that turn completes', async () => {
-    const n = namer()
-    n.sessionCreated({ id: 'long-turn' })
+  it('uses persisted naming eligibility after a restart during a long unfinished first turn', async () => {
+    namer()
     expect(applyTitle).not.toHaveBeenCalled()
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
     clock += 30 * 60_000
+    const n = namer()
     await expect(n.firstTurnCompleted('long-turn', 'agent-1')).resolves.toBe('named')
-    await expect(n.firstTurnCompleted('long-turn', 'agent-1')).resolves.toBe('not-pending')
+    await expect(n.firstTurnCompleted('long-turn', 'agent-1')).resolves.toBe('not-fallback')
     expect(issuePlatformModelAccess).toHaveBeenCalledTimes(1)
   })
   it('新建的会话拿到身份后以它的名义签票,把首轮交给设置里的模型,落下起出来的名,结掉票', async () => {
     const n = namer()
-    n.sessionCreated({ id: 's1', createdAt: '2026-10-16 19:00:00' })
+
     await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('named')
 
     expect(issuePlatformModelAccess).toHaveBeenCalledWith(expect.objectContaining({
@@ -91,7 +91,7 @@ describe('起名', () => {
     let landed: () => void = () => undefined
     awaitAgentIdentity.mockReturnValueOnce(new Promise<undefined>((resolve) => { landed = () => resolve(undefined) }))
     let n = namer()
-    n.sessionCreated({ id: 's1' })
+
     const outcome = n.firstTurnCompleted('s1', 'agent-1')
     await Promise.resolve()
     expect(awaitAgentIdentity).toHaveBeenCalledWith('agent-1')
@@ -99,9 +99,10 @@ describe('起名', () => {
     landed()
     await expect(outcome).resolves.toBe('named')
 
+    state.fallback = true
     awaitAgentIdentity.mockRejectedValueOnce(new Error('cloud identity provisioning failed'))
     n = namer()
-    n.sessionCreated({ id: 's2' })
+
     await expect(n.firstTurnCompleted('s2', 'agent-2')).resolves.toBe('failed')
     expect(issuePlatformModelAccess).toHaveBeenCalledTimes(1)
   })
@@ -109,7 +110,7 @@ describe('起名', () => {
   it('设置里的「起名要求」随请求带上,排在硬规则之前', async () => {
     instructions = '用英文'
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     await n.firstTurnCompleted('s1', 'agent-1')
     const system = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)).messages[0].content as string
     expect(system).toContain('用英文')
@@ -118,35 +119,37 @@ describe('起名', () => {
 
   it('同一条会话只起一次:身份事件再来一遍不再签票', async () => {
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     await n.firstTurnCompleted('s1', 'agent-1')
-    await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('not-pending')
+    await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('not-fallback')
     expect(issuePlatformModelAccess).toHaveBeenCalledTimes(1)
   })
 
-  it('恢复归档的老会话(也发 session:created)不起名', async () => {
+  it('a legacy task without the managed-name fact is not automatically named', async () => {
+    state.managed = false
     const n = namer()
-    n.sessionCreated({ id: 'old', createdAt: '2026-09-01 08:00:00' })
+
     await expect(n.firstTurnCompleted('old', 'agent-1')).resolves.toBe('not-pending')
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
   })
 
-  it('没建过的会话(开旧会话也会供给身份)不起名', async () => {
-    await expect(namer().firstTurnCompleted('resumed', 'agent-1')).resolves.toBe('not-pending')
+  it('a named restored task is not automatically named', async () => {
+    state.fallback = false
+    await expect(namer().firstTurnCompleted('resumed', 'agent-1')).resolves.toBe('not-fallback')
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
   })
 
   it('设置里关掉了、标题已不是兜底、首轮太短:都不签票', async () => {
     for (const [setup, outcome] of [
       [() => { model = null }, 'disabled'],
-      [() => { state = { fallback: false, firstUtterance: LONG } }, 'not-fallback'],
-      [() => { state = { fallback: true, firstUtterance: '你好' } }, 'too-short'],
+      [() => { state = { fallback: false, managed: true, firstUtterance: LONG } }, 'not-fallback'],
+      [() => { state = { fallback: true, managed: true, firstUtterance: '你好' } }, 'too-short'],
     ] as const) {
       model = 'glm-5.3-flash'
-      state = { fallback: true, firstUtterance: LONG }
+      state = { fallback: true, managed: true, firstUtterance: LONG }
       setup()
       const n = namer()
-      n.sessionCreated({ id: 's1' })
+
       await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe(outcome)
     }
     expect(issuePlatformModelAccess).not.toHaveBeenCalled()
@@ -155,7 +158,7 @@ describe('起名', () => {
   it('模型回来时人已经改了名 / harness 已经起了名:不收,票照样结掉', async () => {
     applyTitle.mockReturnValue(false)
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('superseded')
     expect(revokePlatformModelAccess).toHaveBeenCalledTimes(1)
   })
@@ -163,23 +166,23 @@ describe('起名', () => {
   it('签不出票(没积分 / 没登录)、模型要会员、网关 402/403:安静地留着当前标题', async () => {
     issuePlatformModelAccess.mockRejectedValueOnce(new Error('insufficient credits'))
     let n = namer()
-    n.sessionCreated({ id: 'a' })
+
     await expect(n.firstTurnCompleted('a', 'agent-1')).resolves.toBe('refused')
 
     issuePlatformModelAccess.mockResolvedValueOnce(ticket({ membershipLocked: ['glm-5.3-flash'] }))
     n = namer()
-    n.sessionCreated({ id: 'b' })
+
     await expect(n.firstTurnCompleted('b', 'agent-1')).resolves.toBe('refused')
 
     fetchMock.mockResolvedValueOnce(reply(402, { error: { message: '积分用完' } }))
     n = namer()
-    n.sessionCreated({ id: 'c' })
+
     await expect(n.firstTurnCompleted('c', 'agent-1')).resolves.toBe('refused')
 
     // 积分为 0 时票照常签,网关实测回 400 + credits_exhausted(2026-10-16 预发)。
     fetchMock.mockResolvedValueOnce(reply(400, { error: { message: '咕咕积分不足。', code: 'credits_exhausted' } }))
     n = namer()
-    n.sessionCreated({ id: 'd' })
+
     await expect(n.firstTurnCompleted('d', 'agent-1')).resolves.toBe('refused')
 
     expect(applyTitle).not.toHaveBeenCalled()
@@ -190,14 +193,14 @@ describe('起名', () => {
   it('别的 4xx / 5xx 是真故障,不当成「不给」', async () => {
     fetchMock.mockResolvedValueOnce(reply(400, { error: { message: 'bad request', code: 'invalid_value' } }))
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('failed')
   })
 
   it('模型回的不是一个能用的名:不落', async () => {
     fetchMock.mockResolvedValueOnce(reply(200, { choices: [{ message: { content: '' } }] }))
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     await expect(n.firstTurnCompleted('s1', 'agent-1')).resolves.toBe('unusable')
     expect(applyTitle).not.toHaveBeenCalled()
   })
@@ -208,7 +211,7 @@ describe('起名', () => {
       init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
     }))
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     const outcome = n.firstTurnCompleted('s1', 'agent-1')
     await vi.advanceTimersByTimeAsync(5_000)
     await expect(outcome).resolves.toBe('timeout')
@@ -221,7 +224,7 @@ describe('起名', () => {
     let resolveIssue: (value: unknown) => void = () => undefined
     issuePlatformModelAccess.mockReturnValueOnce(new Promise((resolve) => { resolveIssue = resolve }))
     const n = namer()
-    n.sessionCreated({ id: 's1' })
+
     const outcome = n.firstTurnCompleted('s1', 'agent-1')
     await vi.advanceTimersByTimeAsync(5_000)
     await expect(outcome).resolves.toBe('timeout')

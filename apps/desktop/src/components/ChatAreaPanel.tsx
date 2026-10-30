@@ -559,7 +559,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   )
   // 每条新消息/每次会话行补丁都会重拼这张表;内容没变就沿用旧引用,否则每条可见气泡的 memo 都被打穿。
   const messageMemberProfiles = useStructurallyShared(useMemo((): Record<string, MemberProfileCardModel> => {
-    if (isRoomChatSurface) return buildMemberProfileMap(groupCollabSnapshot, identitiesById, shownAgent.statuses(groupAgentStatuses), messages.map((message) => message.sender_user_id)) // 退群成员的消息也要有名字 (#5610)
+    if (isRoomChatSurface) return buildMemberProfileMap(groupCollabSnapshot, identitiesById, shownAgent.statuses(groupAgentStatuses), messages.map((message) => message.sender_user_id), Object.fromEntries(contacts.map((contact) => [contact.id, contact.alias]))) // 退群成员的消息也要有名字 (#5610)
     if (!activeChat || !user) return {}
     const profiles: Record<string, MemberProfileCardModel> = {}
     const ownIdentity = identitiesById[user.id]
@@ -567,7 +567,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     const peerProfile = activeChat.peer_user_id && peerIdentity ? toIdentityProfile(peerIdentity, 'member', 'direct', undefined, shownAgent.status(activeChat.peer_user_id, agentHeaderStatus)) : null
     if (peerProfile) profiles[peerProfile.id] = peerProfile
     return profiles
-  }, [activeChat, agentHeaderStatus, groupAgentStatuses, groupCollabSnapshot, identitiesById, isRoomChatSurface, messages, peerIdentity, shownAgent, user]))
+  }, [activeChat, agentHeaderStatus, contacts, groupAgentStatuses, groupCollabSnapshot, identitiesById, isRoomChatSurface, messages, peerIdentity, shownAgent, user]))
 
   const liveStream = useAgentStream(activeChatId, threadScope.rootId) // @@@1196-q5 thread-scoped
   // @@@1577 phase3 — canonical (chat,thread) 键单一派生(消手拼 chatId:rootId)。

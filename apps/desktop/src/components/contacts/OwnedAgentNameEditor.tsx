@@ -7,6 +7,7 @@ import { useAuth } from '../../store/auth'
 import { useContactsStore } from '../../store/contactsContext'
 import { IconButton } from '../ui/IconButton'
 import { Hint } from '../ui/Tooltip'
+import { readIdentityDirectoryBridge } from '../../lib/identityDirectoryBridge'
 
 /**
  * The agent's name line: its owner renames it in place from a pencil beside the name (the assistant's name in
@@ -31,6 +32,7 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
   const [saving, setSaving] = useState(false)
   const pending = useRef(false)
   const canRename = !!user?.id && ownerUserId === user.id && status !== 'removed' && membership !== 'removed'
+  const editableName = () => readIdentityDirectoryBridge()?.getSnapshot()?.[agentId]?.display_name ?? name
 
   const cancel = () => {
     if (pending.current) return
@@ -42,7 +44,7 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
     const next = draft.trim()
     if (!next) { setError(t('errors.nameRequired')); return }
     // A failed local publication may follow a successful cloud write; allow retrying the same name.
-    if (next === name && !error) { cancel(); return }
+    if (next === editableName() && !error) { cancel(); return }
     pending.current = true
     setSaving(true)
     setError(null)
@@ -61,7 +63,7 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
       {children}
       {canRename && (
         <Hint label={t('agentName.edit')} side="top">
-          <IconButton size="sm" aria-label={t('agentName.edit')} className="shrink-0 text-[var(--muted-fg)]" onClick={() => setDraft(name)}><Pencil /></IconButton>
+          <IconButton size="sm" aria-label={t('agentName.edit')} className="shrink-0 text-[var(--muted-fg)]" onClick={() => setDraft(editableName())}><Pencil /></IconButton>
         </Hint>
       )}
     </div>

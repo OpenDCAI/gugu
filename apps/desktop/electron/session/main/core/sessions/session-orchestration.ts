@@ -85,6 +85,7 @@ import {
 } from '@gugu/session-plugins/agents';
 import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins';
 import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
+import { taskAgentName } from '@gugu/core/shared/taskAgentName';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
@@ -1036,7 +1037,7 @@ async function createChildSession(input: {
   const { ledger, projectId, provider, transport, signal } = input;
   const prompt = withActivitySource(input.prompt, input.sourceLink);
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
-  const title = input.title?.trim() || undefined;
+  const title = input.title?.trim() ? taskAgentName(input.title) : undefined;
   // A gugu-spawned child is a chat member, not a session-page session with a person present to answer
   // permission prompts. Its autonomy is therefore decided here, once, before either transport sees it.
   // Keep the session-page composer's durable choice unchanged; only this delegated child is fully automatic.

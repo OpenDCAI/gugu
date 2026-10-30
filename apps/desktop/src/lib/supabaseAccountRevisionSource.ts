@@ -51,7 +51,12 @@ export function createSupabaseAccountRevisionSource(): AccountRevisionSource {
         // 广播 payload 就是 `{revision: <head>}`(publish_user_revision)。从前这里把它扔了,
         // 于是每条通知都要花一次往返去重新发现 head;现在把它交给 runtime 判是否已被涵盖。
         (payload) => onWake(parseWakeHead(payload)),
-        { onSubscribed },
+        { onSubscribed: () => {
+          onSubscribed()
+          // An offline local task rename has no cloud revision yet. The same identity-bus
+          // reconnection signal resumes its existing host synchronization operation.
+          platform.notifyOwnedAgentsChanged?.()
+        } },
       )
       // R2 广播之外的拉取时机(定时对账 + 前台/可见/联网/唤醒),head 未知 ⇒ 按游标增量拉一次。
       const stopReconcile = watchRevisionReconcile(() => onWake(null), rendererReconcileSignals())

@@ -1,5 +1,5 @@
 import { setUserLibraryOwner } from '../session/main/core/app/user-library'
-import { setTaskIdentityRename, mirrorTaskIdentityName, sessionTitleIsFallback } from '../session/main/core/sessions/renameSession'
+import { setTaskIdentityRename, mirrorTaskIdentityName, writeManualTaskName, sessionTaskNameState } from '../session/main/core/sessions/renameSession'
 // @@@task-shell-port (#5012) — 网页版无头宿主的会话身份接线:浏览器交登录态 → 宿主开账号并绑到会话。
 //
 // 桌面版里这些活由 electron/main.ts 在十几个融合钩子里做;这里只接「会话有身份」这一层:
@@ -87,7 +87,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     takeBirthGroup: (sessionId) => emdashTakeBirthGroup(sessionId),
     sessionFacts: (target) => emdashSessionProvisionInput(target),
     listSessionFacts: () => emdashSessionpageSessionFacts(),
-    taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, state: sessionTitleIsFallback },
+    taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, writeManual: writeManualTaskName, state: sessionTaskNameState },
     onRenamed: (renamed) => broadcast(sessionpageAgentRenamedEvent, renamed),
   })
   // 自营模型这一套:与桌面主进程共用的实现,只喂它这个宿主的三样(登录态 / 身份供给 / 文案)。
@@ -172,6 +172,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     setAuth: async (next) => {
       auth.set(next)
       log.info('[session-host] identity auth ' + (next ? `set for ${next.userId}` : 'cleared'))
+      if (next) void identity.synchronizeNames().catch((error: unknown) => log.warn('[session-host] task identity name sync failed', error))
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),
     agentNames: () => identity.agentNames(),

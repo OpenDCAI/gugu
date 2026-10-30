@@ -6,6 +6,7 @@ import { filterMentionCandidates } from '../../../../apps/desktop/src/lib/mentio
 import { buildMemberProfileMap } from '../../../../apps/desktop/src/components/memberProfileModels'
 import { buildMentionRender } from '../../../../apps/desktop/src/lib/mentionRenderModel'
 import type { GroupCollabSnapshot } from '../../../../packages/core/src/shared/types/chat'
+import { sessionConfigSchema } from '../../../../apps/desktop/src/session/shared/core/sessions/new-session-config'
 
 const identity = (id: string, serial: number, name = 'Review') => displayIdentityFromRow({
   id, name_serial: serial, display_name: name, type: 'agent', avatar: null, gugu_number: null,
@@ -32,6 +33,14 @@ describe('one task-agent display name', () => {
     expect(identityDisplayName(a, [a])).toBe('Review')
     expect(identityDisplayName(a, [a, b])).toBe('Review · 2')
     expect(identityDisplayName(a, [a, b], 'My reviewer')).toBe('My reviewer')
+    expect(buildMemberProfileMap(group, { claude: a, codex: b }, {}, [], { claude: 'My reviewer' }).claude.displayName).toBe('My reviewer')
+  })
+
+  it('rejects a long explicit creation name at the typed entry while preserving derived prompt titles', () => {
+    const input = { version: '1', name: 'Task', initialSession: { id: 's1', provider: 'codex', title: '👨‍👩‍👧‍👦'.repeat(40), titleSource: 'manual' } }
+    expect(sessionConfigSchema.safeParse(input).success).toBe(true)
+    expect(sessionConfigSchema.safeParse({ ...input, initialSession: { ...input.initialSession, title: `${input.initialSession.title}x` } }).success).toBe(false)
+    expect(sessionConfigSchema.safeParse({ ...input, initialSession: { ...input.initialSession, titleSource: undefined, title: 'x'.repeat(100) } }).success).toBe(true)
   })
 
   it('keeps same-name, same-serial selections ID based, including old mention labels', () => {

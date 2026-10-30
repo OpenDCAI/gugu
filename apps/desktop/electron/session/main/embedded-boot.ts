@@ -68,7 +68,6 @@ import {
   type HostIpc,
 } from '@main/lib/host-ipc'
 import type { SessionSummary } from '@gugu/session-core/acp'
-import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils'
 import { sessionViewOfRuntime, type SessionView } from '@shared/core/sessions/sessions'
 
 import { registerRPCRouter } from '@shared/lib/ipc/rpc'
@@ -2401,7 +2400,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
   return rows.map((session) => ({
     sessionId: session.id,
     projectId: session.projectId,
-    title: formatSessionTitleForDisplay(session.providerId, session.title),
+    title: session.agentDisplayName ?? session.title,
     projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
     status: session.agentStatus

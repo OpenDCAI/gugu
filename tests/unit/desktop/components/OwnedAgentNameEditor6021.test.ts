@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OwnedAgentNameEditor } from '../../../../apps/desktop/src/components/contacts/OwnedAgentNameEditor'
 
-const { renameAgent, viewer } = vi.hoisted(() => ({ renameAgent: vi.fn(), viewer: { id: 'owner' } }))
+const { renameAgent, viewer, identity } = vi.hoisted(() => ({ renameAgent: vi.fn(), viewer: { id: 'owner' }, identity: { name: null as string | null } }))
+vi.mock('../../../../apps/desktop/src/lib/identityDirectoryBridge', () => ({ readIdentityDirectoryBridge: () => ({ getSnapshot: () => identity.name ? { 'stable-id': { display_name: identity.name } } : {} }) }))
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({ useAuth: () => ({ user: viewer }) }))
 vi.mock('../../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ renameAgent }) }))
 let container: HTMLDivElement
@@ -31,6 +32,7 @@ function type(value: string) {
 }
 async function save() { await act(async () => click('保存')) }
 beforeEach(() => {
+  identity.name = null
   renameAgent.mockReset().mockResolvedValue(undefined)
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -38,6 +40,14 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root.unmount()); container.remove() })
 describe('owner agent name editor #6021', () => {
+  it('edits the canonical identity name rather than persisting a collision suffix or alias', async () => {
+    identity.name = 'Reviewer'
+    render({ name: 'Reviewer · 2', children: 'Reviewer · 2' })
+    click('重命名')
+    expect(input().value).toBe('Reviewer')
+    await save()
+    expect(renameAgent).not.toHaveBeenCalled()
+  })
   it.each([{ ownerUserId: 'other' }, { ownerUserId: null }, { status: 'removed' as const }, { membership: 'removed' }])('never offers rename for non-owned or removed identities: %j', (props) => {
     render(props)
     expect(container.querySelector('button')).toBeNull()
