@@ -498,4 +498,12 @@ export type NormalizedEvent =
       kind: 'agent_state';
       summary?: string;
     } & import('../session-protocol').SessionForegroundState
+  | {
+      /**
+       * harness 自己报的这条会话记录的路径(Claude:桥接把 SDK hook 的 `transcript_path` 转来)。包装器在进程里设的配置目录
+       * 只有它知道;宿主据此认会话记录在哪(harness-config-roots)。不进转录。
+       */
+      kind: 'transcript_path';
+      path: string;
+    }
   | { kind: 'ignored' };
