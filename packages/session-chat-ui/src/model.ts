@@ -102,7 +102,6 @@ export type ChatMessage = {
   sentReplyTo?: string;
   /** Density uses actual previous-message identity; absent/unknown senders never merge. */
   conversationPreviousSpeaker?: string;
-  conversationReplyAdjacent?: boolean;
   /**
    * View-only: something the agent said along the way (not the turn's reply). Drawn as one gray line among the
    * steps under the process line (design 0), ❌ a bubble of its own.

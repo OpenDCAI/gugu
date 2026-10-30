@@ -18,16 +18,12 @@ export function lastConversationMessage(units: readonly RenderUnit[]): ChatMessa
   }
 }
 
-export function isAdjacentConversationReply(item: ChatMessage, previous?: ChatMessage): boolean {
-  const reference = item.conversationReply?.messageId ?? item.conversationReply?.itemId;
-  if (!reference || !previous) return false;
-  if (reference === previous.id) return true;
-  const link = parseMessageQuoteLink(reference);
-  if (link?.kind === 'session') return link.itemId === previous.sourceItemId;
-  const id = (link?.kind === 'chat' ? link.messageId : reference).replace(/^msg:/, '');
-  if (/:sent:([^:]+)$/.exec(previous.id)?.[1] === id) return true;
-  const delivery = previous.guguDelivery ?? readDeliveryEnvelope(previous.text);
-  return delivery?.segments.at(-1)?.facts?.messageId?.replace(/^msg:/, '') === id;
+/** Direct model output has no reference chrome; message transport also requires an explicit anchor. */
+export function messageReplyReference(item: ChatMessage): ChatMessage['conversationReply'] | null {
+  if (item.conversationPart === 'body' || !item.conversationReply) return null;
+  const delivered = item.guguDelivery ?? readDeliveryEnvelope(item.text);
+  const quotedInput = item.role === 'user' && parseMessageQuoteLink(item.conversationReply.itemId);
+  return item.sentReplyTo || item.sentTo || item.sentChat || delivered || quotedInput ? item.conversationReply : null;
 }
 
 export function decorateConversationDensity(units: RenderUnit[], previous?: ChatMessage): RenderUnit[] {
@@ -36,8 +32,7 @@ export function decorateConversationDensity(units: RenderUnit[], previous?: Chat
     if (unit.kind !== 'message') continue;
     const item = unit.data as ChatMessage;
     if (item.conversationNarration || item.hookNotice || item.questionAnswer || (item.role !== 'user' && item.role !== 'assistant')) continue;
-    unit.data = { ...item, conversationPreviousSpeaker: previous && conversationSpeaker(previous),
-      conversationReplyAdjacent: isAdjacentConversationReply(item, previous) };
+    unit.data = { ...item, conversationPreviousSpeaker: previous && conversationSpeaker(previous) };
     if (item.conversationPart !== 'head') previous = item;
   }
   return units;

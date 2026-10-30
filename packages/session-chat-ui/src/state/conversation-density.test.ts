@@ -1,34 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from '@session-chat/model';
 import type { RenderUnit } from '@session-chat/core/units';
-import { conversationSpeaker, decorateConversationDensity, isAdjacentConversationReply, lastConversationMessage } from './conversation-density';
+import { conversationSpeaker, decorateConversationDensity, messageReplyReference, lastConversationMessage } from './conversation-density';
 const message = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ kind: 'message', id, role: 'assistant', text: id, ...extra });
 const unit = (data: ChatMessage): RenderUnit => ({ id: data.id, itemId: data.id, groupId: data.id, kind: 'message', groupRole: 'solo', gapBefore: 0, data });
 
 describe('conversation density identities', () => {
-  it('matches exact native or IM identity, never equal text', () => {
-    const previous = message('runtime', { sourceItemId: 'persisted', role: 'user', text: 'same words' });
-    expect(isAdjacentConversationReply(message('next', { conversationReply: { itemId: 'runtime', text: 'other words' } }), previous)).toBe(true);
-    expect(isAdjacentConversationReply(message('next', { conversationReply: { itemId: 'gugu-session://11111111-1111-4111-8111-111111111111?message=persisted', text: '' } }), previous)).toBe(true);
-    expect(isAdjacentConversationReply(message('next', { conversationReply: { itemId: 'different', text: 'same words' } }), previous)).toBe(false);
-    const incoming = message('envelope', { role: 'user', text: '<gugu_delivery route="chat" msg="msg:original" from_id="user:peer"><![CDATA[same words]]></gugu_delivery>' });
-    expect(isAdjacentConversationReply(message('sent', { conversationReply: { itemId: 'original', text: '' } }), incoming)).toBe(true);
-    expect(isAdjacentConversationReply(message('sent', { conversationReply: { itemId: 'unknown', text: 'same words' } }), incoming)).toBe(false);
-  });
-  it('compares the exact segment of a batched delivery', () => {
-    const previous = message('batch', { role: 'user', text: '', guguDelivery: { body: '', segments: [
-      { body: 'first', facts: { messageId: 'msg:first', fromId: 'user:one' } },
-      { body: 'last', facts: { messageId: 'msg:last', fromId: 'user:two' } },
-    ] } as ChatMessage['guguDelivery'] });
-    expect(isAdjacentConversationReply(message('reply', { conversationReply: { itemId: 'batch', messageId: 'first', text: '' } }), previous)).toBe(false);
-    expect(isAdjacentConversationReply(message('reply', { conversationReply: { itemId: 'batch', messageId: 'last', text: '' } }), previous)).toBe(true);
+  it('requires message transport and an explicit anchor, regardless of target author or position', () => {
+    const quote = { itemId: 'source', text: 'original', fromId: 'user:owner' };
+    expect(messageReplyReference(message('direct', { conversationReply: quote }))).toBeNull();
+    expect(messageReplyReference(message('tool', { sentReplyTo: 'source', conversationReply: quote }))).toBe(quote);
+    expect(messageReplyReference(message('tool', { sentReplyTo: 'older', conversationReply: { ...quote, fromId: 'user:peer' } }))).not.toBeNull();
+    expect(messageReplyReference(message('tool', { sentReplyTo: 'source' }))).toBeNull();
+    const native = { ...quote, itemId: 'gugu-session://11111111-1111-4111-8111-111111111111?message=source' };
+    expect(messageReplyReference(message('quoted-input', { role: 'user', conversationReply: native }))).toBe(native);
+    expect(messageReplyReference(message('direct', { conversationReply: native }))).toBeNull();
+    const delivery = message('envelope', { role: 'user', text: '<gugu_delivery route="chat" msg="msg:original" from_id="user:owner"><![CDATA[body]]></gugu_delivery>', conversationReply: quote });
+    expect(messageReplyReference(delivery)).toBe(quote);
+    expect(messageReplyReference({ ...delivery, conversationPart: 'body' })).toBeNull();
   });
   it('preserves the preceding actual message across head/body rows and tier seams', () => {
     const input = message('input', { role: 'user' });
     const head = message('head', { conversationPart: 'head', conversationReply: { itemId: 'input', text: 'input' } });
     const body = message('body', { conversationPart: 'body', conversationHead: 'head' });
     const units = decorateConversationDensity([unit(head), unit(body)], input);
-    expect((units[0]!.data as ChatMessage).conversationReplyAdjacent).toBe(true);
     expect((units[0]!.data as ChatMessage).conversationPreviousSpeaker).toBe('$owner');
     expect(lastConversationMessage(units)?.id).toBe('body');
     const next = decorateConversationDensity([unit(message('next', { conversationPart: 'head' }))], lastConversationMessage(units));

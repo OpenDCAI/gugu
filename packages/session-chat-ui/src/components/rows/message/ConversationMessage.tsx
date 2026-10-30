@@ -1,7 +1,6 @@
 /** @jsxImportSource solid-js */
-import { conversationSpeaker } from '@session-chat/state/conversation-density';
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js';
-import { useConversationHover } from '@session-chat/components/contexts/ConversationHoverContext';
+import { conversationSpeaker, messageReplyReference } from '@session-chat/state/conversation-density';
+import { For, Show } from 'solid-js';
 import { conversationHeaderLayout } from './conversation-header-layout';
 export { conversationDestinationLayout } from './conversation-destination';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
@@ -22,12 +21,13 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
+import { ConversationReplyReference } from './ConversationReplyReference';
 import { CONVERSATION_EXPAND_H, CONVERSATION_FOOTER_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 export { isConversationMessage } from './conversation-body';
 import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator, conversationReferenceSeparator } from './conversation-message.css';
 
 import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
 
@@ -44,7 +44,13 @@ export function conversationVars(item: ChatMessage, vars: MessageVars): MessageV
 
 function segments(item: ChatMessage): ChatMessage[] {
   const batch = item.guguDelivery?.segments;
-  return batch && batch.length > 1 ? batch.map((segment, index) => ({ ...segmentItem(item, segment, index), conversationReply: undefined, conversationPreviousSpeaker: index ? conversationSpeaker(segmentItem(item, batch[index - 1]!, index - 1)) : item.conversationPreviousSpeaker })) : [item];
+  return batch && batch.length > 1 ? batch.map((segment, index) => {
+    const reply = segment.facts?.replyTo;
+    return { ...segmentItem(item, segment, index), conversationReply: reply ? {
+      itemId: reply.messageId.replace(/^msg:/, ''), text: reply.preview ?? '',
+      ...(reply.from ? { from: reply.from } : {}), ...(reply.fromId ? { fromId: reply.fromId } : {}), unloaded: true,
+    } : undefined, conversationPreviousSpeaker: index ? conversationSpeaker(segmentItem(item, batch[index - 1]!, index - 1)) : item.conversationPreviousSpeaker };
+  }) : [item];
 }
 
 export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
@@ -53,14 +59,7 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 /** Only an explicit IM reply or persisted timeline source gets a clickable quote. */
 function messageQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
-  return item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
-}
-
-/** 引用里的摘要截短一点(owner 10-28「比现在短一点」);一行放不下再由 CSS 省略。 */
-const QUOTE_CHARS = 60;
-function quoteSummary(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length > QUOTE_CHARS ? `${flat.slice(0, QUOTE_CHARS)}…` : flat;
+  return messageReplyReference(item) ?? null;
 }
 
 export function conversationSenderName(item: ChatMessage, ctx: MeasureCtx): string {
@@ -119,14 +118,6 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
 }
 
 function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
-  const [localHover, setLocalHover] = createSignal<string | null>(null);
-  const hover = useConversationHover() ?? { current: localHover, set: setLocalHover };
-  const hoverId = () => props.data.conversationHead ?? props.data.id;
-  const hovered = () => hover.current() === hoverId();
-  createEffect(() => {
-    const id = hoverId();
-    onCleanup(() => { if (hover.current() === id) hover.set(null); });
-  });
   const self = useSelfIdentity();
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -143,33 +134,21 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => replySenderLabel(quote, measuredCtx());
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
-    data-conversation-part={props.data.conversationPart} data-conversation-hovered={hovered() ? 'true' : undefined}
-    onPointerEnter={event => { if (event.pointerType !== 'touch') hover.set(hoverId()); }}
-    onPointerLeave={() => { if (hovered()) hover.set(null); }}
-    onFocusIn={() => hover.set(hoverId())} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) hover.set(null); }}>
-    <Show when={props.data.conversationPart !== 'body' && (head().height > 0 || messageQuote(props.data))}>
-    <div class={conversationHeader} data-floating-quote={head().height === 0 ? 'true' : undefined}
-      style={{ height: head().height ? `${head().height}px` : undefined }}>
+    data-conversation-part={props.data.conversationPart}>
+    <Show when={props.data.conversationPart !== 'body' && head().height > 0}>
+    <div class={conversationHeader} style={{ height: `${head().height}px` }}>
       <Show when={head().name}>{label => <SenderName class={conversationName} name={label().text} target={senderTarget()} style={{ width: `${head().nameWidth}px` }} />}</Show>
+      <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
+        text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}：` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>
+      <Show when={messageQuote(props.data) && subject() && props.data.conversationProcess}>
+        <span class={conversationReferenceSeparator} data-slot="conversation-reference-separator" aria-hidden="true">·</span>
+      </Show>
       <Show when={subject() && props.data.conversationProcess}>{process =>
         <div class={conversationTime} style={{ width: `${head().processWidth}px`, height: `${processRowHeight(props.data.id, process(), head().processCtx)}px` }}>
           <ConversationProcess measureCtx={() => head().processCtx} process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
           <ProcessBackgroundPill ownerId={props.data.id} ctx={{ ...props.ctx, measureCtx: () => head().processCtx }} />
         </div>
       }</Show>
-      <Show when={messageQuote(props.data)}>{quote => <>
-        <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
-          data-compact={head().quoteWidth < 40 ? 'true' : undefined}
-          data-adjacent={props.data.conversationReplyAdjacent ? 'true' : 'false'}
-          style={{ 'max-width': `${head().quoteWidth}px` }}
-          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
-          aria-label={translate('transcript.showOriginalMessage')}>
-          <span class={conversationTimeSeparator} data-slot="conversation-quote-separator" aria-hidden="true" />
-          <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
-          <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
-        </button>
-      </>}</Show>
     </div>
     </Show>
     <Show when={subject() && props.data.conversationProcess}>

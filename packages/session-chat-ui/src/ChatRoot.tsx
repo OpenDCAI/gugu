@@ -53,7 +53,7 @@ import { itemScrollTarget } from './core/scroll-to-item';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { CachesContext } from './components/contexts/CachesContext';
-import { ConversationCommandsProvider } from './components/contexts/ConversationHoverContext';
+import { CommandsContext } from './components/contexts/CommandsContext';
 import { DebugContext } from './components/contexts/debug-context';
 import { ThemeContext } from './components/contexts/ThemeContext';
 import { TurnStateContext } from './components/contexts/TurnStateContext';
@@ -2038,7 +2038,7 @@ export function ChatRoot(props: ChatRootProps) {
       <DebugContext.Provider value={debugValue}>
         <ThemeContext.Provider value={theme}>
         <CachesContext.Provider value={caches()}>
-          <ConversationCommandsProvider value={commands}>
+          <CommandsContext.Provider value={commands}>
             <TurnStateContext.Provider value={{ currentMessageId, turnStatus }}>
               <div
                 ref={(el) => {
@@ -2175,7 +2175,7 @@ export function ChatRoot(props: ChatRootProps) {
                 </Show>
               </div>
             </TurnStateContext.Provider>
-          </ConversationCommandsProvider>
+          </CommandsContext.Provider>
         </CachesContext.Provider>
         </ThemeContext.Provider>
       </DebugContext.Provider>

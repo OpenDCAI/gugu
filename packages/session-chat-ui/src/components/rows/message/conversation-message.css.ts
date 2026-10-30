@@ -7,18 +7,15 @@ import { vars } from '@session-chat/styles/theme.css';
 
 export const conversationRoot = style({ position: 'relative', color: vars.fgBody });
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
-// A repeated speaker's adjacent citation uses the existing gap on hover, without a blank title row.
-globalStyle(`${conversationHeader}[data-floating-quote="true"]`, { position: 'absolute', bottom: '100%', width: '100%', height: 18, paddingBottom: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 1 });
 export const conversationName = style({ fontWeight: 650, whiteSpace: 'pre-wrap', maxWidth: '100%', flexShrink: 0 });
 export const senderNameLink = style({ border: 0, padding: 0, background: 'transparent', color: 'inherit', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', textAlign: 'inherit', cursor: 'pointer', selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { textDecoration: 'underline', outlineOffset: 2 } } });
 const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } });
 globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
-/** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
-export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', minWidth: 0, maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px', background: 'transparent', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
-globalStyle(`${conversationHeader}[data-floating-quote="true"] ${conversationQuote}`, { pointerEvents: 'auto' });
-globalStyle(`${conversationQuote} > span:last-of-type`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
+export const conversationReference = style({ position: 'relative', display: 'inline-flex', width: 14, height: 18, flexShrink: 0, color: vars.fgMuted });
+export const conversationQuote = style({ display: 'inline-flex', alignItems: 'center', width: 14, height: 18, flexShrink: 0, color: 'inherit', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
+export const conversationQuotePreview = style({ position: 'absolute', top: '100%', left: 0, zIndex: 10, width: 320, maxWidth: 'calc(100vw - 16px)', maxHeight: 224, overflow: 'auto', padding: 8, borderRadius: 8, border: `1px solid ${vars.border}`, background: vars.bg, color: vars.fg, fontSize: vars.typeChromeTinyFontSize, whiteSpace: 'pre-wrap' });
+export const conversationReferenceSeparator = style({ width: 4, flexShrink: 0, color: vars.fgMuted, textAlign: 'center' });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });
-export const conversationQuoteFrom = style({ fontWeight: 600, flexShrink: 0, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' });
 export const conversationTime = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', alignContent: 'start', columnGap: 9, rowGap: 0, color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
 globalStyle(`${conversationRoot}[data-side="right"] ${conversationHeader}`, { justifyContent: 'flex-end' });
 globalStyle(`${conversationRoot}[data-side="right"] ${conversationName}`, { order: 3 });
@@ -69,12 +66,4 @@ globalStyle(`${conversationRoot}[data-side="left"] ${cardFadeOverlay}`, {
   background: 'linear-gradient(to top, var(--bubble-other, var(--chat-bg-2)) 0%, transparent 100%)',
 });
 
-// Quotes at rest occupy only a non-adjacent return mark. Hover never changes row height.
-globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conversationQuote} > span`, { display: 'none' });
-globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conversationQuote}[data-adjacent="true"]`, { display: 'none' });
-globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) [data-slot="conversation-quote-separator"]`, { display: 'none' });
 export const conversationDestination = style({ display: 'block', marginTop: 4, height: 18, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
-
-// The source control remains usable even when the inline text has no room.
-globalStyle(`${conversationQuote}[data-compact="true"]`, { gap: 0 });
-globalStyle(`${conversationQuote}[data-compact="true"] > span`, { display: 'none' });

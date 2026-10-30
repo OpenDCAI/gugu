@@ -34,6 +34,7 @@ import type {
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Hint } from '@/components/ui/Tooltip';
+import { ConversationSourcePopover } from './conversation-source-popover';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -106,7 +107,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
   propsRef.current = props;
 
   const viewRef = useRef<ChatView | null>(null);
-  const [tooltips, setTooltips] = useState<{ root: HTMLElement; text: string }[]>([]);
+  const [tooltips, setTooltips] = useState<Parameters<NonNullable<ChatCommands['onTooltipMount']>>[0][]>([]);
   const onTooltipMount = useCallback<NonNullable<ChatCommands['onTooltipMount']>>(target => {
     setTooltips(current => [...current, target]);
     return () => setTooltips(current => current.filter(entry => entry !== target));
@@ -204,7 +205,8 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
     ref,
     style: { height: '100%', ...props.style },
     className: props.className,
-  }), tooltips.map((entry, index) => createPortal(createElement(Hint, { label: entry.text, side: 'top', children:
+  }), tooltips.map((entry, index) => createPortal(entry.onOpenOriginal ? createElement(ConversationSourcePopover,
+    { text: entry.text, label: entry.originalLabel ?? entry.text, onOpenOriginal: entry.onOpenOriginal }) : createElement(Hint, { label: entry.text, side: 'top', children:
     createElement('span', { style: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' } }, entry.text),
   }), entry.root, String(index))));
 }
