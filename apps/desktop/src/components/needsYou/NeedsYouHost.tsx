@@ -44,7 +44,7 @@ function taskKey(task: NeedsYouTask): string {
 }
 
 /** One actionable entrance to the existing pending settlements, over every shell page. */
-export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }: { onAttentionChange?: (attention: AgentAttention) => void }) {
+export const NeedsYouHost = observer(function NeedsYouHost({ enabled, onAttentionChange }: { enabled: boolean; onAttentionChange?: (attention: AgentAttention) => void }) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
   const { tasks: waiting, attention, error } = useNeedsYouTasks()
@@ -67,7 +67,9 @@ export const NeedsYouHost = observer(function NeedsYouHost({ onAttentionChange }
   const task = tasks.find(task => taskKey(task) === selected) ?? (tasks.length === 1 ? tasks[0] : undefined)
   const shown = opened && tasks.length > 0
   // Closing after the last wait also resets the next visit, without retaining a hidden dialog.
-  if (opened && tasks.length === 0) setOpened(false)
+  if (opened && (!enabled || tasks.length === 0)) setOpened(false)
+  // #901 The entry and phone rows are opt-in; the rail attention above stays live either way.
+  if (!enabled) return null
   return <>
     {mobile && [...entries].filter(([key]) => key.startsWith(NEEDS_YOU_LIST_SLOT_PREFIX)).map(([key, element]) => createPortal(waiting.map(item => {
       const open = () => { followLink({ kind: 'session', sessionId: item.session.conversationId }) }

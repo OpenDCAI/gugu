@@ -61,6 +61,9 @@ import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
+import { useQuery } from '@tanstack/react-query'
+import { queryClient } from '@renderer/lib/query-client'
+import { APP_SETTINGS_STALE_TIME_MS, appSettingsMetaQueryKey, requestAppSettingsMeta } from '@renderer/features/settings/app-settings-client'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
 import { SESSIONPAGE_SHARE_ANCHOR_SELECTOR } from '../lib/sessionpageShareAnchor'
@@ -168,6 +171,9 @@ function InnerLayout({
   useSessionpageReveal(setActiveTab)
   // The same live task directory drives pending actions and the existing rail attention priority.
   const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
+  // #901 Extra attention surfaces follow the existing interface setting (default off); phone has no host settings, so stays off.
+  const { data: interfaceSettings } = useQuery({ queryKey: appSettingsMetaQueryKey('interface'), queryFn: () => requestAppSettingsMeta('interface'), staleTime: APP_SETTINGS_STALE_TIME_MS, enabled: sessionHostAvailable }, queryClient)
+  const attentionSurfaces = interfaceSettings?.value.showLeftSidebarStateGroups ?? false
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   // @@@1507 设置面板初始 section;侧栏「额度」直接开到 quota,齿轮入口回 account。
@@ -1202,7 +1208,7 @@ function InnerLayout({
                       activeTab={activeTab}
                       mobile={mobile}
                       hidden={chatListHidden}
-                      lead={mobile && (phoneAssistant.available || sessionAttention === 'needs_user') ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
+                      lead={mobile && (phoneAssistant.available || (attentionSurfaces && sessionAttention === 'needs_user')) ? <>{phoneAssistant.available && <PhoneAssistantRow state={phoneAssistant} onOpen={openPhoneAssistant} />}<NeedsYouSlot list /></> : undefined}
                       leadChatId={phoneAssistant.chatId}
                       headerLeading={mobile ? <PhoneMeButton user={user} onOpen={() => selectTab('settings')} /> : undefined}
                       onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
@@ -1410,7 +1416,7 @@ function InnerLayout({
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
-      <NeedsYouHost onAttentionChange={setSessionAttention} />
+      <NeedsYouHost enabled={attentionSurfaces} onAttentionChange={setSessionAttention} />
 
       {/* @@@822 frameless 自绘窗口控制(Windows/Linux 右上角 min/max/close);Mac/web 自渲染为 null。
           ⚠️ **必须挂在整棵壳的最后** —— Electron 把 Blink 收集到的 drag / no-drag 矩形按 **DOM 序**

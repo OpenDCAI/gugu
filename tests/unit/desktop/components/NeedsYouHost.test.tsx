@@ -42,7 +42,7 @@ beforeEach(() => {
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
-const render = () => renderWithAppProviders(harness, <><main>Group conversation<NeedsYouSlot /></main><NeedsYouHost /></>)
+const render = (enabled = true) => renderWithAppProviders(harness, <><main>Group conversation<NeedsYouSlot /></main><NeedsYouHost enabled={enabled} /></>)
 async function open() {
   await render()
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-testid="needs-you-trigger"]')!.click() })
@@ -178,18 +178,18 @@ it('keeps the phone request while a session App replaces the timeline', async ()
 })
 
 it('has no floating entry on a page without a composer slot', async () => {
-  await renderWithAppProviders(harness, <><main>Settings</main><NeedsYouHost /></>)
+  await renderWithAppProviders(harness, <><main>Settings</main><NeedsYouHost enabled /></>)
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
 })
 
 it('reports waiting tasks to the existing rail even when the current task has its own approval', async () => {
   const onAttentionChange = vi.fn()
   state.pages = [{ projectId: 'project', sessionId: 'task' }]
-  await renderWithAppProviders(harness, <NeedsYouHost onAttentionChange={onAttentionChange} />)
+  await renderWithAppProviders(harness, <NeedsYouHost enabled onAttentionChange={onAttentionChange} />)
   expect(onAttentionChange).toHaveBeenLastCalledWith('needs_user')
   expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
   state.tasks = []
-  await renderWithAppProviders(harness, <NeedsYouHost onAttentionChange={onAttentionChange} />)
+  await renderWithAppProviders(harness, <NeedsYouHost enabled onAttentionChange={onAttentionChange} />)
   expect(onAttentionChange).toHaveBeenLastCalledWith(null)
 })
 
@@ -197,7 +197,7 @@ it('shows local and remote pending tasks in the phone list with the existing sid
   state.mobile = true
   state.tasks.push({ deviceId: 'local', machine: 'This computer', local: true, session: { conversationId: 'local-task', title: 'Review local task', projectId: 'project', runtime: 'acp', supported: true, lastInteractedAt: null } })
   const onAttentionChange = vi.fn()
-  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost onAttentionChange={onAttentionChange} /></>)
+  await renderWithAppProviders(harness, <><NeedsYouSlot list /><NeedsYouHost enabled onAttentionChange={onAttentionChange} /></>)
   const rows = document.querySelectorAll('[data-needs-you-list-slot] [data-session-line]')
   expect([...rows].map(row => row.getAttribute('data-session-line'))).toEqual(['task', 'local-task'])
   expect([...rows].every(row => row.querySelector('[data-agent-status-glyph="needs_user"]'))).toBe(true)
@@ -212,11 +212,23 @@ it('shows local and remote pending tasks in the phone list with the existing sid
 it('withdraws the phone warning row and rail signal together after the last pending task resolves', async () => {
   state.mobile = true
   const onAttentionChange = vi.fn()
-  const surface = <><NeedsYouSlot list /><NeedsYouHost onAttentionChange={onAttentionChange} /></>
+  const surface = <><NeedsYouSlot list /><NeedsYouHost enabled onAttentionChange={onAttentionChange} /></>
   await renderWithAppProviders(harness, surface)
   expect(document.querySelector('[data-needs-you-list-slot] [data-agent-status-glyph="needs_user"]')).not.toBeNull()
   state.tasks = []
   await renderWithAppProviders(harness, surface)
   expect(document.querySelector('[data-needs-you-list-slot] [data-session-line]')).toBeNull()
   expect(onAttentionChange).toHaveBeenLastCalledWith(null)
+})
+
+it.each([false, true])('#901 renders no extra entry or phone row while switched off, and both when on (mobile=%s)', async mobile => {
+  state.mobile = mobile
+  const onAttentionChange = vi.fn()
+  const surface = (enabled: boolean) => <><NeedsYouSlot /><NeedsYouSlot list /><NeedsYouHost enabled={enabled} onAttentionChange={onAttentionChange} /></>
+  await renderWithAppProviders(harness, surface(false))
+  expect(document.querySelector('[data-testid="needs-you-trigger"]')).toBeNull()
+  expect(document.querySelector('[data-needs-you-list-slot] [data-session-line]')).toBeNull()
+  expect(onAttentionChange).toHaveBeenLastCalledWith('needs_user')
+  await renderWithAppProviders(harness, surface(true))
+  expect(document.querySelector(mobile ? '[data-needs-you-list-slot] [data-session-line]' : '[data-testid="needs-you-trigger"]')).not.toBeNull()
 })
