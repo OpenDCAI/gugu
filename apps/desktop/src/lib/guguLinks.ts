@@ -24,15 +24,15 @@ export function openLinkTarget(target: GuguLinkTarget | SenderChatTarget, source
 }
 
 /** A click is parsed once here; main receives the target, not a URL to parse a second time. */
-export function openLink(raw: string | OpenTarget): Promise<boolean> | null {
+export function openLink(raw: string | OpenTarget, groupParticipantRequestId?: string): Promise<boolean> | null {
   const target = typeof raw === 'string' ? parseGuguLink(raw, { supabaseUrl: readMobileShell() ? getSupabaseUrl() : undefined }) : raw
   if (!target) return null
-  return openTarget(target)
+  return openTarget(target, groupParticipantRequestId)
 }
 
-export async function openTarget(target: OpenTarget): Promise<boolean> {
+export async function openTarget(target: OpenTarget, groupParticipantRequestId?: string): Promise<boolean> {
   const outcome = platform.kind === 'electron'
-    ? await (await import('../session/renderer/lib/ipc')).rpc.extensions.openLink({ target })
+    ? await (await import('../session/renderer/lib/ipc')).rpc.extensions.openLink({ target, ...(groupParticipantRequestId ? { groupParticipantRequestId } : {}) })
     : await (await import('../components/appSlot/phoneAppHost')).openPhoneLink(target)
   if (outcome.kind === 'not-gugu-link') return false
   if (outcome.kind === 'failed') throw new Error(`${outcome.name}: ${outcome.detail ?? outcome.reason}`)

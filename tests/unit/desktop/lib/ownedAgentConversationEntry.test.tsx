@@ -90,7 +90,7 @@ it('retains the old draft when its destination cannot accept the attachment', as
 it('keeps the source group selected while resolving a participant, then prepares placement before opening the authorized session', async () => {
   let resolve!: (value: unknown) => void
   scope.lookup.mockImplementation(() => new Promise(value => { resolve = value }))
-  const prepare = vi.fn(() => vi.fn())
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-open-request' }))
   installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare })
   await harness.render(<Fixture />)
   expect(openOwnedAgentEntry('dm', 'agent', undefined, 'source-group')).toBe(true)
@@ -101,6 +101,7 @@ it('keeps the source group selected while resolving a participant, then prepares
   await vi.waitFor(() => expect(scope.open).toHaveBeenCalledOnce())
   expect(prepare).toHaveBeenCalledWith('source-group', expect.objectContaining({ projectId: 'project', sessionId: 'session' }))
   expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(scope.open.mock.invocationCallOrder[0]!)
+  expect(scope.open).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session' }), 'group-open-request')
 })
 
 it('retains the group when the participant cannot be resolved instead of showing a new-task page', async () => {
@@ -115,7 +116,7 @@ it('retains the group when the participant cannot be resolved instead of showing
 })
 
 it('opens an owned group participant without an IM conversation or draft key', async () => {
-  const prepare = vi.fn(() => vi.fn());
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-no-dm-request' }));
   installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
   await harness.render(<Fixture />);
   expect(openEntry(undefined, 'agent', undefined, 'source-group')).toBe(true);
@@ -123,4 +124,14 @@ it('opens an owned group participant without an IM conversation or draft key', a
   expect(prepare).toHaveBeenCalledOnce();
   expect(scope.select).not.toHaveBeenCalled();
   expect(scope.write).not.toHaveBeenCalled();
+});
+
+it('carries the group request receipt through the existing draft-opening path', async () => {
+  scope.drafts = { dm: 'group draft' };
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-draft-request' }));
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  openOwnedAgentEntry('dm', 'agent', undefined, 'source-group');
+  await vi.waitFor(() => expect(scope.compose).toHaveBeenCalledWith(expect.anything(), 'group draft', false, [], 'group-draft-request'));
+  expect(scope.open).not.toHaveBeenCalled();
 });

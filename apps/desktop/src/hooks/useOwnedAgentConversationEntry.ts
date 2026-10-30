@@ -15,6 +15,7 @@ import { openTarget } from '@/lib/guguLinks'
 import { notify } from '@/lib/notices'
 import { messageForUser } from '@/lib/userFacingError'
 import { readSessionpageViewRequestBridge } from '@/lib/sessionpageViewRequestBridge'
+import type { GroupParticipantRequest } from '@/session/renderer/features/chats/group-participant-requests'
 
 /** Ownership is checked before looking up a private timeline. An async open cannot cross an account switch. */
 export function useOwnedAgentConversationEntry(input: {
@@ -29,7 +30,7 @@ export function useOwnedAgentConversationEntry(input: {
   const current = useRef({ ...input, identitiesById, setActiveChatId })
   current.current = { ...input, identitiesById, setActiveChatId }
   const generation = useRef(0)
-  const cancelGroupRequest = useRef<(() => void) | undefined>(undefined)
+  const cancelGroupRequest = useRef<GroupParticipantRequest | undefined>(undefined)
   useEffect(() => () => { ++generation.current; cancelGroupRequest.current?.() }, [input.ownerId])
   const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string) => {
     const state = current.current
@@ -51,15 +52,18 @@ export function useOwnedAgentConversationEntry(input: {
       localContext: async () => api ? parseSessionpageAgentContext(await api.invoke('sessionpage:agent-context', contact.id)) : null,
     }).then(async target => {
       if (asked !== generation.current || current.current.ownerId !== state.ownerId) return
+      let groupParticipantRequestId: string | undefined
       if (sourceChatId && !state.mobile) {
         const bridge = readSessionpageViewRequestBridge()
         if (!bridge?.prepareGroupSession) throw new Error('The session page is not ready to open a group participant')
         cancelGroupRequest.current = bridge.prepareGroupSession(sourceChatId, target.kind === 'local'
           ? target : { projectId: target.session.projectId, sessionId: target.session.conversationId })
+        groupParticipantRequestId = cancelGroupRequest.current.requestId
       }
+      const requestArgs: [] | [string] = groupParticipantRequestId ? [groupParticipantRequestId] : []
       if (text || carried.length) {
         const row = target.kind === 'remote' ? target : { session: { conversationId: target.sessionId, projectId: target.projectId } as import('@gugu/session-core/session-record/contract').SessionpageSessionSummary }
-        await composeTaskDraft(row, text, state.mobile, carried.map(one => one.file))
+        await composeTaskDraft(row, text, state.mobile, carried.map(one => one.file), ...requestArgs)
         if (chatId && asked === generation.current && current.current.ownerId === state.ownerId) {
           const latest = draftState.current
           if (latest.drafts?.[chatId] === text) latest.writeDraft(chatId, '')
@@ -71,7 +75,7 @@ export function useOwnedAgentConversationEntry(input: {
       } else {
         await openTarget(target.kind === 'local'
           ? { kind: 'session', sessionId: target.sessionId, projectId: target.projectId }
-          : { kind: 'session', sessionId: target.session.conversationId, projectId: target.session.projectId, deviceId: target.deviceId })
+          : { kind: 'session', sessionId: target.session.conversationId, projectId: target.session.projectId, deviceId: target.deviceId }, ...requestArgs)
       }
     }).catch(error => {
       if (asked === generation.current) cancelGroupRequest.current?.()

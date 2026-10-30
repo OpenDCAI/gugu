@@ -16,7 +16,7 @@ export interface SessionViewRequestBridge {
   openChat(chatId: string, beside: boolean): void;
   /** Desktop group-name entry: preserve the group and let the session page own the single auxiliary pane. */
   openGroupChat?(sourceChatId: string, chatId: string): void;
-  prepareGroupSession?(sourceChatId: string, target: { projectId: string; sessionId: string }): () => void;
+  prepareGroupSession?(sourceChatId: string, target: { projectId: string; sessionId: string }): import('@renderer/features/chats/group-participant-requests').GroupParticipantRequest;
 }
 
 /** 装到宿主文档的 window 上,让 gugu 那棵树读得到。幂等。打开对话那一下由入口接到这屏上(这里不认这屏)。 */

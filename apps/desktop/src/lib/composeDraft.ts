@@ -6,7 +6,7 @@ import { readMobileShell } from '@/hooks/useMobileShell'
 export function composeChatDraft(detail: AppComposeDetail) {
   document.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail, bubbles: true }))
 }
-export async function composeTaskDraft(row: Pick<SessionDirectoryRow, 'session'> & Partial<Pick<SessionDirectoryRow, 'deviceId'>>, text: string, phone = readMobileShell(), files: File[] = []) {
+export async function composeTaskDraft(row: Pick<SessionDirectoryRow, 'session'> & Partial<Pick<SessionDirectoryRow, 'deviceId'>>, text: string, phone = readMobileShell(), files: File[] = [], groupParticipantRequestId?: string) {
   if (phone) {
     window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: row }))
     await handoffNativeComposer(row.session.conversationId, { text, files }); return
@@ -16,7 +16,7 @@ export async function composeTaskDraft(row: Pick<SessionDirectoryRow, 'session'>
     import('@/session/renderer/features/extensions/compose-in-session'),
   ])
   // Opened the one way a session is opened, then the draft in its composer.
-  await openLink({ kind: 'session', sessionId: row.session.conversationId, projectId: row.session.projectId, ...(row.deviceId ? { deviceId: row.deviceId } : {}) })
+  await openLink({ kind: 'session', sessionId: row.session.conversationId, projectId: row.session.projectId, ...(row.deviceId ? { deviceId: row.deviceId } : {}) }, groupParticipantRequestId)
   if (files.length || row.session.runtime === 'acp') { await handoffNativeComposer(row.session.conversationId, { text, files }); return }
   await composeWhenOpen(() => getProjectManagerStore().projects.get(row.session.projectId)?.mountedProject?.sessionManager.sessions.get(row.session.conversationId)?.viewModel ?? undefined, text)
 }

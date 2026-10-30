@@ -31,10 +31,18 @@ beforeEach(() => {
 afterEach(() => disposers.splice(0).forEach(dispose => dispose()));
 
 describe('authorized focus notification to participant workspace', () => {
+  it('leaves a normal focus alone after a group open fails before sending a notification', () => {
+    const cancel = groupParticipantRequests.prepare(source.chatId, target);
+    // The authorized host lookup failed; no group focus event will be emitted.
+    cancel();
+    // AppMenuEvents navigates normally only when this returns undefined.
+    expect(openRequestedGroupParticipant(target)).toBeUndefined();
+  });
+
   it('waits for a workspace, then places it while retaining its original tabs', () => {
-    groupParticipantRequests.prepare(source.chatId, target);
+    const request = groupParticipantRequests.prepare(source.chatId, target);
     const tabs = state.tabs;
-    disposers.push(openRequestedGroupParticipant(target)!);
+    disposers.push(openRequestedGroupParticipant(target, request.requestId)!);
     expect(screenLayout.order.map(id => screenLayout.blocks.get(id))).toEqual([source]);
     runInAction(() => ready.set(true));
     expect(screenLayout.order.map(id => screenLayout.blocks.get(id))).toEqual([source, { kind: 'session', ...target }]);
@@ -45,8 +53,8 @@ describe('authorized focus notification to participant workspace', () => {
 
   it('opens the conversation when the existing workspace has no tabs', () => {
     state.tabs = [];
-    groupParticipantRequests.prepare(source.chatId, target);
-    disposers.push(openRequestedGroupParticipant(target)!);
+    const request = groupParticipantRequests.prepare(source.chatId, target);
+    disposers.push(openRequestedGroupParticipant(target, request.requestId)!);
     runInAction(() => ready.set(true));
     expect(state.open).toHaveBeenCalledExactlyOnceWith('acp-chat', { sessionId: 'a' }, { preview: false });
     expect(screenLayout.sessions.map(one => one.sessionId)).toEqual(['a']);
@@ -54,18 +62,30 @@ describe('authorized focus notification to participant workspace', () => {
 
   it('does not let a delayed workspace replace the participant clicked afterward', () => {
     const later = { ...target, sessionId: 'b' };
-    groupParticipantRequests.prepare(source.chatId, target);
-    disposers.push(openRequestedGroupParticipant(target)!);
-    groupParticipantRequests.prepare(source.chatId, later);
-    disposers.push(openRequestedGroupParticipant(later)!);
+    const first = groupParticipantRequests.prepare(source.chatId, target);
+    disposers.push(openRequestedGroupParticipant(target, first.requestId)!);
+    const second = groupParticipantRequests.prepare(source.chatId, later);
+    disposers.push(openRequestedGroupParticipant(later, second.requestId)!);
     runInAction(() => ready.set(true));
     expect(screenLayout.sessions.map(one => one.sessionId)).toEqual(['b']);
   });
 
   it('consumes a cancelled group notification and leaves an independent entry alone', () => {
-    groupParticipantRequests.prepare(source.chatId, target)();
-    expect(openRequestedGroupParticipant(target)).toBeTypeOf('function');
+    const request = groupParticipantRequests.prepare(source.chatId, target);
+    request();
+    expect(openRequestedGroupParticipant(target, request.requestId)).toBeTypeOf('function');
     expect(openRequestedGroupParticipant(target)).toBeUndefined();
     expect(screenLayout.order.map(id => screenLayout.blocks.get(id))).toEqual([source]);
+  });
+
+  it('keeps an old same-session receipt from taking a newer group placement', () => {
+    const first = groupParticipantRequests.prepare(source.chatId, target);
+    first();
+    const second = groupParticipantRequests.prepare(source.chatId, target);
+    disposers.push(openRequestedGroupParticipant(target, first.requestId)!);
+    runInAction(() => ready.set(true));
+    expect(screenLayout.sessions).toHaveLength(0);
+    disposers.push(openRequestedGroupParticipant(target, second.requestId)!);
+    expect(screenLayout.sessions.map(one => one.sessionId)).toEqual(['a']);
   });
 });

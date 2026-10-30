@@ -24,7 +24,7 @@ export function setSessionOpening(next: SessionOpening | null): void {
 }
 
 /** The live path: main.ts hands every URL the OS gives it to this, and every click that opens a session comes here. */
-export async function openLink(raw: string | OpenTarget): Promise<LinkOpenOutcome> {
+export async function openLink(raw: string | OpenTarget, groupParticipantRequestId?: string): Promise<LinkOpenOutcome> {
   const [{ extensionsService }, bridge, { sessionHere }, { actInWindow, listedSessionProject }] = await Promise.all([
     import('./extensions-root'),
     import('./extension-bridge'),
@@ -53,7 +53,7 @@ export async function openLink(raw: string | OpenTarget): Promise<LinkOpenOutcom
       openResource: (target) => actInWindow({ kind: 'openLinkTarget', target }),
       bringUp: async (session) => {
         if (await sessionHere(session.sessionId)) await opening?.ensureReady(session.sessionId);
-        await bridge.bringSessionUp(session);
+        await bridge.bringSessionUp({ ...session, ...(groupParticipantRequestId ? { groupParticipantRequestId } : {}) });
       },
       deliver: (id, event, opened) => {
         bridge.deliverToExtension(id, event, opened);

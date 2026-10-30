@@ -83,8 +83,8 @@ export function AppMenuEvents() {
 
     const unlisten = events.on(
       notificationFocusSessionChannel,
-      ({ projectId, sessionId, beside }) => {
-        const groupEntry = sessionId ? openRequestedGroupParticipant({ projectId, sessionId }) : undefined;
+      ({ projectId, sessionId, beside, groupParticipantRequestId }) => {
+        const groupEntry = sessionId ? openRequestedGroupParticipant({ projectId, sessionId }, groupParticipantRequestId) : undefined;
         if (groupEntry) {
           disposers.add(groupEntry);
           return;

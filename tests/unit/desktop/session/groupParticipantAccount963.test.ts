@@ -12,10 +12,11 @@ it('switches preference scopes and consumes late opens when the shell account ch
   const target = { projectId: 'p', sessionId: 's' };
   try {
     groupParticipantPanes.rememberWidth(610);
-    groupParticipantRequests.prepare('group', target);
+    const request = groupParticipantRequests.prepare('group', target);
     publishSelfIdentity(identity('account-second'));
     expect(groupParticipantPanes.rightWidth).toBe(480);
-    expect(groupParticipantRequests.take(target)).toEqual({});
+    expect(groupParticipantRequests.take(target, request.requestId)).toEqual({});
+    expect(groupParticipantRequests.take(target)).toBeUndefined();
     groupParticipantPanes.rememberWidth(420);
     publishSelfIdentity(identity('account-first'));
     expect(groupParticipantPanes.rightWidth).toBe(610);
