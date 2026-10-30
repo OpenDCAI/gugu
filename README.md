@@ -54,8 +54,6 @@ Attachments use your own Supabase Storage. Collaborative file editing also requi
 | [gugu](https://github.com/OpenDCAI/gugu) (this repository) | Desktop client, Android shell, headless server, and shared session, assistant, memory and task-orchestration code |
 | [gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) | Identity, messaging, sync, device communication, permissions and basic file services |
 
-The servers for official cloud hosting, the model gateway, payments and the remote-tunnel relay are operated separately and are not included in these two open-source repositories. Community deployments use their own backend and model credentials.
-
 ## License
 
 This repository uses a [modified Apache License 2.0](LICENSE). Personal use and use inside a single organization need no commercial license; operating a multi-tenant service for multiple unrelated individuals or organizations requires one. When using the frontend, you must not remove or modify Gugu's logo or copyright information; see the full license for its conditions.
