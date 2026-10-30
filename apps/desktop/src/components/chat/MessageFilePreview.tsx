@@ -39,8 +39,7 @@ async function previewBytes(file: PreviewFile): Promise<Blob> {
  */
 type PreviewRead = { content: string | ArrayBuffer | null; videoUrl?: string; expiresAt?: number; renew?: () => Promise<{ videoUrl: string; expiresAt: number }>; release?: () => Promise<void>; error?: string; errorStatus?: 'gone' | 'expired' | 'missing' | 'failed' }
 function previewFailure(error: unknown, t: TFunction<'messaging'>): PreviewRead {
-  const reason = error instanceof Error ? error.message : ''
-  const errorStatus = reason === 'gone' || reason === 'expired' || reason === 'missing' ? reason : 'failed'
+  const errorStatus = error instanceof Error && (error.message === 'gone' || error.message === 'expired' || error.message === 'missing') ? error.message : 'failed'
   return { content: null, errorStatus, error: t(errorStatus === 'gone' ? 'attachmentView.fileGone' : errorStatus === 'expired' ? 'attachmentView.fileExpired' : errorStatus === 'missing' ? 'attachmentView.fileMissing' : 'attachmentView.fileUnavailable') }
 }
 async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promise<PreviewRead> {
