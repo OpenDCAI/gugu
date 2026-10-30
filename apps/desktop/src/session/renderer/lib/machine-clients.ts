@@ -65,6 +65,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
         return !!device && remoteHostReachable(device);
       },
       subscribeReachability: (listener) => bridge.subscribeDevices(listener),
+      peerVersion: () => bridge.listDevices().find(device => device.id === deviceId)?.version ?? null,
       subscribeEvents: true,
       heartbeatMs: MACHINE_LINK_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -82,7 +83,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
       },
       warn: (message, detail) => log.warn(`[machine:${deviceId.slice(0, 8)}] ${message}`, detail),
       onOpenFailed: (error) => {
-        const tooOld = error instanceof Error && error.name === 'SessionHostTooOldError';
+        const tooOld = (error as { code?: unknown } | null)?.code === 'server_outdated';
         if (tooOld !== entry.tooOld) {
           entry.tooOld = tooOld;
           notify(entry);
@@ -161,8 +162,8 @@ export function onMachineReconnected(deviceId: string, cb: () => void): () => vo
 }
 
 /** 那台机器刚上线 / 刚登上:别等退避。 */
-export function reconnectMachine(deviceId: string): void {
-  entries.get(deviceId)?.client.reconnectNow();
+export function reconnectMachine(deviceId: string, options?: { automatic?: boolean }): void {
+  entries.get(deviceId)?.client.reconnectNow(options);
 }
 
 /** 那台机器被移除 / 换了账号:关掉它的线。 */
