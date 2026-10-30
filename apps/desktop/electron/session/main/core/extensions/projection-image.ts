@@ -3,6 +3,7 @@ import type { ProjectionFrame } from '@shared/extensions/projection-protocol';
 
 type ReadImage = (bytes: Buffer) => NativeImage;
 type Matte = Readonly<{ r: number; g: number; b: number }>;
+export type ProjectionPixelLease = Readonly<{ data: Uint8Array; release(): void }>;
 // Two known sRGB pixels: opaque and half-transparent RGBA(200,100,40).
 const pixelProbe = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGM4kaLxH4gbABQMBChdYZXzAAAAAElFTkSuQmCC';
 
@@ -12,6 +13,7 @@ export function createProjectionImageDecoder(read: ReadImage, matte: Matte) {
     throw new Error('Invalid projection video background');
   }
   let layout: { channels: number[]; alpha: number; premultiplied: boolean } | undefined;
+  let storage = new Uint8Array(0), leased = false;
   const format = () => {
     if (layout) return layout;
     const image = read(Buffer.from(pixelProbe, 'base64'));
@@ -31,8 +33,9 @@ export function createProjectionImageDecoder(read: ReadImage, matte: Matte) {
     layout = { channels, alpha, premultiplied };
     return layout;
   };
-  return async (frame: Readonly<ProjectionFrame>, signal: AbortSignal): Promise<Uint8Array> => {
+  return async (frame: Readonly<ProjectionFrame>, signal: AbortSignal): Promise<ProjectionPixelLease> => {
     signal.throwIfAborted();
+    if (leased) throw new Error('Projection video pixels are still leased');
     if (![frame.width, frame.height].every(v => Number.isSafeInteger(v) && v >= 2 && v <= 2560)
       || frame.width * frame.height > 921600) throw new Error('Projection image exceeds the video pixel limit');
     const { channels, alpha, premultiplied } = format();
@@ -49,7 +52,10 @@ export function createProjectionImageDecoder(read: ReadImage, matte: Matte) {
     const pixels = target.toBitmap({ scaleFactor: 1 });
     signal.throwIfAborted();
     if (pixels.length !== frame.width * frame.height * 4) throw new Error('Projection image has unexpected pixel dimensions');
-    const bgra = new Uint8Array(pixels.length);
+    // NativeImage.toBitmap still makes its own copy; reuse the normalized video
+    // storage only after the encoder has returned the previous borrow.
+    if (storage.length !== pixels.length) storage = new Uint8Array(pixels.length);
+    const bgra = storage;
     const background = [matte.b, matte.g, matte.r];
     for (let at = 0; at < pixels.length; at += 4) {
       const opacity = pixels[at + alpha]! / 255;
@@ -59,6 +65,12 @@ export function createProjectionImageDecoder(read: ReadImage, matte: Matte) {
       }
       bgra[at + 3] = 255;
     }
-    return bgra;
+    leased = true;
+    let returned = false;
+    return Object.freeze({ data: bgra, release() {
+      if (returned) return;
+      returned = true;
+      leased = false;
+    } });
   };
 }

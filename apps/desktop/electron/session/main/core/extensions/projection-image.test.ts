@@ -9,6 +9,20 @@ const image = (pixels: number[], size = { width: 2, height: 2 }) => ({
 }) as unknown as NativeImage;
 
 describe('native image → host video pixels', () => {
+  it('does not overwrite leased pixels, reuses returned storage, and ignores an old release', async () => {
+    const probe = image([40, 100, 200, 255, 20, 50, 100, 128]);
+    const read = vi.fn().mockReturnValueOnce(probe).mockReturnValue(image(Array(16).fill(255)));
+    const decode = createProjectionImageDecoder(read, { r: 0, g: 0, b: 0 });
+    const first = await decode(frame, signal);
+    await expect(decode(frame, signal)).rejects.toThrow(/leased/);
+    const storage = first.data;
+    first.release();
+    const second = await decode(frame, signal);
+    expect(second.data).toBe(storage);
+    first.release(); // Returning an old lease twice cannot unlock a newer lease.
+    await expect(decode(frame, signal)).rejects.toThrow(/leased/);
+    second.release();
+  });
   it.each(['BGRA', 'RGBA', 'ARGB'])('converts %s without assuming native byte order or alpha representation', async order => {
     for (const premultiplied of [true, false]) {
       const pixel = (alpha: number) => {
@@ -19,12 +33,14 @@ describe('native image → host video pixels', () => {
       const probe = [...pixel(255), ...pixel(128)];
       const read = vi.fn().mockReturnValueOnce(image(probe)).mockReturnValue(image([...probe, ...probe]));
       const decode = createProjectionImageDecoder(read, { r: 10, g: 20, b: 30 });
-      const output = await decode(Object.freeze({ ...frame }), signal);
+      const lease = await decode(Object.freeze({ ...frame }), signal);
+      const output = lease.data;
       expect([...output.subarray(0, 4)]).toEqual([40, 100, 200, 255]);
       for (const [i, expected] of [35, 60, 105].entries()) expect(Math.abs(output[4 + i]! - expected)).toBeLessThanOrEqual(1);
       expect(output[7]).toBe(255);
       expect(frame.data).toBe('YQ==');
-      await decode(frame, signal); expect(read).toHaveBeenCalledTimes(3); // format probed once
+      lease.release();
+      (await decode(frame, signal)).release(); expect(read).toHaveBeenCalledTimes(3); // format probed once
     }
   });
 
@@ -33,7 +49,9 @@ describe('native image → host video pixels', () => {
     vi.mocked(source.resize).mockReturnValue(image(Array(16).fill(255)));
     const read = vi.fn().mockReturnValueOnce(image([40, 100, 200, 255, 20, 50, 100, 128])).mockReturnValue(source);
     const decode = createProjectionImageDecoder(read, { r: 0, g: 0, b: 0 });
-    expect((await decode(frame, signal)).length).toBe(16);
+    const pixels = await decode(frame, signal);
+    expect(pixels.data.length).toBe(16);
+    pixels.release();
     expect(source.resize).toHaveBeenCalledWith({ width: 2, height: 2, quality: 'good' });
   });
 

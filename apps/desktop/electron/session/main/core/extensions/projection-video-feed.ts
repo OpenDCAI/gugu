@@ -6,10 +6,12 @@ import type { MediaProcess } from '../../../../../native/projection-media/node/h
 import type { ProjectionSignalContext, ProjectionSignalLease } from '../../../../../native/projection-media/node/signaling.mjs';
 import { ProjectionInputFailure, type ExtensionProjections } from './extension-projections';
 import type { ProjectionMediaAccess } from './projection-media-access';
+import type { ProjectionPixelLease } from './projection-image';
+import { ProjectionFrameAcks } from './projection-frame-acks';
 
 type Authority = ReturnType<ProjectionMediaAccess['open']>;
 type Connection = ReturnType<ExtensionProjections['connect']>;
-type Decoder = (frame: Readonly<ProjectionFrame>, signal: AbortSignal) => Promise<Uint8Array>;
+type Decoder = (frame: Readonly<ProjectionFrame>, signal: AbortSignal) => Promise<ProjectionPixelLease>;
 type CreateMedia = (size: { width: number; height: number }, signal: AbortSignal,
   onControl: (data: string) => void) => Promise<MediaProcess>;
 
@@ -52,16 +54,18 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
         // the old geometry and then accept input in a different target space.
         if (frame.width !== size!.width || frame.height !== size!.height) throw new Error('Projection video geometry changed');
         const pixels = await decode(Object.freeze({ ...frame }), lifetime.signal);
-        check();
-        if (!(pixels instanceof Uint8Array) || pixels.byteLength !== frame.width * frame.height * 4) {
-          throw new Error('Projection decoder returned invalid BGRA pixels');
-        }
-        published = frame.sequence;
-        const receipt = await media!.publish(frame.sequence, pixels);
-        check();
-        if (receipt.sequence !== frame.sequence || receipt.width !== frame.width || receipt.height !== frame.height) {
-          throw new Error('Projection encoded receipt does not match its resource frame');
-        }
+        try {
+          check();
+          if (!(pixels.data instanceof Uint8Array) || pixels.data.byteLength !== frame.width * frame.height * 4) {
+            throw new Error('Projection decoder returned invalid BGRA pixels');
+          }
+          published = frame.sequence;
+          const receipt = await media!.publish(frame.sequence, pixels.data);
+          check();
+          if (receipt.sequence !== frame.sequence || receipt.width !== frame.width || receipt.height !== frame.height) {
+            throw new Error('Projection encoded receipt does not match its resource frame');
+          }
+        } finally { pixels.release(); }
       }
     } catch (error) { stop(error); }
     finally { encoding = false; }
@@ -90,6 +94,7 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
     });
     check();
   } catch (error) { authority.signal.removeEventListener('abort', revoke); stop(error); authority.release(); throw error; }
+  const acks = new ProjectionFrameAcks(check, () => generation, packet => connection!.receive(packet));
 
   const lease: ProjectionSignalLease = {
     context: Object.freeze({ ...context }), sourceId: authority.sourceId, signal: lifetime.signal,
@@ -102,7 +107,8 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
       const cancelled = () => stop(signal.reason);
       signal.addEventListener('abort', cancelled, { once: true });
       try {
-        await connection!.receive(packet);
+        if (packet.type === 'ack') await acks.receiveAck(packet);
+        else await connection!.receive(packet);
         check(); signal.throwIfAborted();
         return packet.type === 'input'
           ? JSON.stringify({ type: 'input-result', generation: packet.generation, sequence: packet.sequence, status: 'applied' }) : undefined;

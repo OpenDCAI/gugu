@@ -32,7 +32,7 @@ describe.skipIf(!electron)('projection video pixels with real Electron', () => {
     cases = report.cases;
   }, 15_000);
   afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: true }); });
-  it.each(['native-channel-alpha-and-size', 'native-explicit-video-matte', 'native-cancellation', 'native-invalid-source'])('%s', name => {
+  it.each(['native-channel-alpha-and-size', 'native-explicit-video-matte', 'native-cancellation', 'native-invalid-source', 'native-pixel-lease-reuse'])('%s', name => {
     expect(cases[name], JSON.stringify(cases[name])).toEqual({ passed: true });
   });
 });
