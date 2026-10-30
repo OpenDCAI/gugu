@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Ellipsis, Reply, Smile } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { popupMotion } from '../ui/variants'
+import { TOOLTIP_OPEN_DELAY_MS } from '@/styles/motion'
 import { claimHoverOwner, readHoverOwner, releaseHoverOwner, setHoverOwner, subscribeHoverOwner } from './hover-owner'
 
 const barStyle: CSSProperties = {
@@ -52,8 +53,13 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
   )
 }
 
+/**
+ * 没有浮窗开着:0 延迟就开(#902)。别的行的浮窗开着:照旧等按钮提示那一拍 —— 指针正穿过这一行去够那只浮窗,❌ 一碰就把它抢走。
+ * 只订「有没有浮窗开着」:换行时它不变,各行不跟着重渲。
+ */
 export function MessageHoverTrigger(props: ComponentProps<typeof PreviewCard.Trigger>) {
-  return <PreviewCard.Trigger {...props} render={<div />} delay={0} />
+  const handover = useSyncExternalStore(subscribeHoverOwner, () => readHoverOwner() !== null)
+  return <PreviewCard.Trigger {...props} render={<div />} delay={handover ? TOOLTIP_OPEN_DELAY_MS : 0} />
 }
 
 export function HoverActionBar({ isMine, isRetracted, anchorRef, reactButtonRef, moreButtonRef, onReact, onReply, onMore }: {
