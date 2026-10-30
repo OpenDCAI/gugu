@@ -11,7 +11,7 @@ import type { BackgroundCommandEntry } from '@session-chat/lib/background-comman
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { SubagentProgress } from './SubagentProgress';
 import {
@@ -72,10 +72,13 @@ const PANEL_W = 320;
 export function placeSubagentPanel(
   anchor: { top: number; bottom: number; left: number; right: number },
   panel: { width: number; height: number },
-  viewport: { width: number; height: number }
+  viewport: { width: number; height: number },
+  previous?: { top: number; left: number }
 ): { top: number; left: number } {
   const clampTop = (top: number): number => Math.max(VIEWPORT_PAD, Math.min(top, viewport.height - VIEWPORT_PAD - panel.height));
   const clampLeft = (left: number): number => Math.max(VIEWPORT_PAD, Math.min(left, viewport.width - VIEWPORT_PAD - panel.width));
+  // 内容展开时只把原位置夹回窗口内,不翻到行的另一侧把静止的指针留在卡外。
+  if (previous) return { top: clampTop(previous.top), left: clampLeft(previous.left) };
   const beside = anchor.right + PANEL_GAP;
   if (beside + panel.width <= viewport.width - VIEWPORT_PAD) return { top: clampTop(anchor.top), left: beside };
   const below = anchor.bottom + PANEL_GAP;
@@ -238,18 +241,22 @@ function SubagentPanel(props: {
   const translate = useChatTranslator();
   const [pos, setPos] = createSignal<{ top: number; left: number } | null>(null);
   let panelEl: HTMLDivElement | undefined;
+  let placementKey: string | undefined;
 
   const place = (): void => {
     const anchor = props.anchor();
     if (!anchor || !panelEl || !anchor.isConnected) return;
     const rect = anchor.getBoundingClientRect();
+    const nextKey = [rect.top, rect.bottom, rect.left, rect.right, window.innerWidth, window.innerHeight].join(',');
     setPos(
       placeSubagentPanel(
         rect,
         { width: panelEl.offsetWidth || PANEL_W, height: panelEl.offsetHeight },
-        { width: window.innerWidth, height: window.innerHeight }
+        { width: window.innerWidth, height: window.innerHeight },
+        nextKey === placementKey ? untrack(pos) ?? undefined : undefined
       )
     );
+    placementKey = nextKey;
   };
   // 步数变了浮层会长高,重新放一次;滚动(行跟着虚拟列表挪)与窗口变化也一样。
   createEffect(() => {

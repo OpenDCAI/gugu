@@ -1,15 +1,16 @@
 /** @jsxImportSource solid-js */
 import { afterEach, describe, expect, it } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
 import { collectSubagentRoster } from '@session-chat/lib/subagent-roster';
 import type { TranscriptTurn } from '@session-chat/model';
-import { until } from '../../../../tests/support/awaitCondition';
+import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 const longCommand = `printf '%s\\n' '${'long-command-argument-'.repeat(24)}END1022'`;
-const teardown: Array<() => void> = [];
-afterEach(() => { while (teardown.length) teardown.pop()!(); });
+const teardown: Array<() => void | Promise<void>> = [];
+afterEach(async () => { while (teardown.length) await teardown.pop()!(); });
 
 function recordedTurn(command = longCommand): TranscriptTurn {
   return {
@@ -107,5 +108,38 @@ describe('subagent compact progress (#1022)', () => {
     await until('same-title argument update arrives', () => steps()[1].querySelector('[data-slot="subagent-step-detail"]')?.textContent?.endsWith('UPDATED1022') === true);
     expect(steps()[1].querySelector('button')).toBe(button);
     expect(button.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('keeps the pointer inside a narrow-window panel when opening a long step', async () => {
+    await page.viewport(900, 900);
+    teardown.push(() => page.viewport(1280, 900));
+    const { host, panel, steps } = await mount();
+    const anchor = host.querySelector<HTMLElement>('[data-slot="background-task"][data-task-kind="subagent"]')!;
+    // The real narrow-window card sits below a running row near the bottom.
+    anchor.style.cssText += ';position:fixed;top:620px;left:330px;width:550px';
+    window.dispatchEvent(new Event('resize'));
+    await untilStable('collapsed panel position settles', () => panel()?.getBoundingClientRect().top);
+    const button = steps()[1].querySelector<HTMLButtonElement>('button')!;
+    const before = button.getBoundingClientRect();
+    const pointer = { x: before.left + before.width / 2, y: before.top + before.height / 2 };
+    expect(panel()!.getBoundingClientRect().top).toBeGreaterThan(anchor.getBoundingClientRect().bottom);
+    await userEvent.click(button);
+    await until('long detail is visible', () => !!panel()?.querySelector('[data-slot="subagent-step-detail"]'));
+    await untilStable('expanded panel position settles', () => panel()?.getBoundingClientRect().top);
+    expect(panel(), 'opening a step must not close the hover panel').not.toBeNull();
+    const after = panel()!.getBoundingClientRect();
+    expect(after.top).toBeLessThanOrEqual(pointer.y);
+    expect(after.bottom).toBeGreaterThanOrEqual(pointer.y);
+    expect(after.top).toBeGreaterThanOrEqual(8);
+    expect(after.bottom).toBeLessThanOrEqual(innerHeight - 8);
+    expect(panel()!.contains(document.elementFromPoint(pointer.x, pointer.y))).toBe(true);
+    await userEvent.click(button);
+    await until('long detail is collapsed', () => !panel()?.querySelector('[data-slot="subagent-step-detail"]'));
+    await untilStable('collapsed position settles again', () => panel()?.getBoundingClientRect().top);
+    expect(panel()).not.toBeNull();
+    await page.viewport(1280, 900);
+    await until('window resize places the panel beside its anchor', () => (panel()?.getBoundingClientRect().left ?? 0) > anchor.getBoundingClientRect().right);
+    await userEvent.hover(document.body);
+    await until('leaving the panel still closes it', () => panel() === null);
   });
 });
