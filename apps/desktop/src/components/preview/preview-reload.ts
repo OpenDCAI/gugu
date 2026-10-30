@@ -6,6 +6,7 @@ export function previewReloadQueue(check: (paths?: string[]) => Promise<boolean>
   let pending = false;
   let resync = false;
   let dirty = false;
+  let cancelCheck: (() => void) | undefined;
   const paths = new Set<string>();
   function schedule() {
     clearTimeout(timer);
@@ -18,9 +19,16 @@ export function previewReloadQueue(check: (paths?: string[]) => Promise<boolean>
     const batch = resync ? undefined : [...paths];
     paths.clear();
     resync = false;
-    try { dirty = await check(batch) || dirty; }
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<boolean>((_resolve, reject) => {
+      deadline = setTimeout(() => reject(new Error('Preview dependency check timed out')), 90_000);
+      cancelCheck = () => reject(new Error('Preview dependency check cancelled'));
+    });
+    try { dirty = await Promise.race([check(batch), expired]) || dirty; }
     catch (error) { if (!disposed) onError(error); }
     finally {
+      clearTimeout(deadline);
+      cancelCheck = undefined;
       running = false;
       if (!disposed) {
         if (pending) schedule();
@@ -36,6 +44,6 @@ export function previewReloadQueue(check: (paths?: string[]) => Promise<boolean>
       else for (const path of changedPaths) paths.add(path);
       schedule();
     },
-    dispose() { disposed = true; clearTimeout(timer); paths.clear(); },
+    dispose() { disposed = true; clearTimeout(timer); cancelCheck?.(); paths.clear(); },
   };
 }

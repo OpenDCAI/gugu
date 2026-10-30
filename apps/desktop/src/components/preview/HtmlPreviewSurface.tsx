@@ -4,11 +4,16 @@ import { PREVIEW_LINK_MESSAGE_TYPE, PREVIEW_SCROLL_MESSAGE_TYPE, PREVIEW_RESTORE
 /** Keep the last page painted until its replacement has loaded and restored its scroll. */
 export function HtmlPreviewSurface({ fileName, url, onLink }: { fileName: string; url: string; onLink: (href: string) => void }) {
   const [visible, setVisible] = useState(url);
+  const [loaded, setLoaded] = useState<{ frame: HTMLIFrameElement }>();
   const frames = useRef(new Map<string, HTMLIFrameElement>());
   const scroll = useRef({ x: 0, y: 0 });
-  const fallback = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // A load's fallback belongs to its URL, not to the current link callback.
   useEffect(() => {
-    clearTimeout(fallback.current);
+    if (loaded?.frame !== frames.current.get(url) || visible === url) return;
+    const timer = setTimeout(() => setVisible(url), 500);
+    return () => clearTimeout(timer);
+  }, [loaded, url, visible]);
+  useEffect(() => {
     function onMessage(event: MessageEvent) {
       const source = [...frames.current].find(([, frame]) => frame.contentWindow === event.source)?.[0];
       if (!source) return;
@@ -18,12 +23,11 @@ export function HtmlPreviewSurface({ fileName, url, onLink }: { fileName: string
         scroll.current = { x: Math.max(0, data.x!), y: Math.max(0, data.y!) };
       }
       if (data?.type === PREVIEW_RESTORED_MESSAGE_TYPE && source === url) {
-        clearTimeout(fallback.current);
         setVisible(url);
       }
     }
     window.addEventListener('message', onMessage);
-    return () => { clearTimeout(fallback.current); window.removeEventListener('message', onMessage); };
+    return () => window.removeEventListener('message', onMessage);
   }, [url, visible, onLink]);
   return (
     <div className="relative min-h-0 flex-1">
@@ -36,11 +40,11 @@ export function HtmlPreviewSurface({ fileName, url, onLink }: { fileName: string
           // Keep the existing opaque sandbox; scroll/link messages never grant same-origin access.
           sandbox="allow-scripts"
           className={`absolute inset-0 h-full w-full border-0 bg-[var(--bg-primary)] ${source === visible ? 'visible' : 'invisible'}`}
-          onLoad={() => {
+          onLoad={(event) => {
             if (source !== url) return;
             frames.current.get(source)?.contentWindow?.postMessage({ type: PREVIEW_RESTORE_MESSAGE_TYPE, ...scroll.current }, '*');
             // A page's own CSP can block the injected script. Still reveal that page after load.
-            fallback.current = setTimeout(() => setVisible(url), 500);
+            setLoaded({ frame: event.currentTarget });
           }}
         />
       ))}

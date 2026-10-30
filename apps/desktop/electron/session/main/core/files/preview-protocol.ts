@@ -57,7 +57,7 @@ interface PreviewRegistration {
   surface: PreviewSurface;
   root: PreviewRoot;
   /** Only paths actually supplied to this page; reset when its owner updates the document. */
-  assets?: Map<string, string>;
+  assets?: Map<string, { fingerprint?: string }>;
   generation?: number;
   /** 被打开的那份文档的绝对路径 —— 只有它会被注入链接拦截脚本。浏览器页签没有这一份(整页可以导航到别处)。 */
   documentPath?: string;
@@ -200,17 +200,32 @@ export function releasePreview(previewId: string): void {
 }
 
 /** Compare served bytes, never a directory guess. Omitted paths means a watcher resync. */
-export async function previewAssetsChanged(previewId: string, changedPaths?: readonly string[]): Promise<boolean> {
+export function previewAssetsChanged(previewId: string, changedPaths?: readonly string[]): Promise<boolean> {
+  const operation = new AbortController();
+  return withDeadline(comparePreviewAssets(previewId, changedPaths, operation.signal), PREVIEW_REQUEST_DEADLINE_MS, () => {
+    operation.abort();
+    throw new Error('Preview dependency check timed out');
+  });
+}
+
+async function comparePreviewAssets(previewId: string, changedPaths: readonly string[] | undefined, signal: AbortSignal): Promise<boolean> {
   const registration = registry.get(previewId);
   if (!registration || !('root' in registration)) return false;
   const changed = changedPaths && new Set(changedPaths.map((path) => path.replace(/\\/g, '/')));
   const generation = registration.generation;
-  for (const [path, served] of registration.assets ?? []) {
+  for (const [path, served] of [...(registration.assets ?? [])]) {
+    if (signal.aborted) return false;
+    if (served.fingerprint === undefined) continue; // The initial response has not finished yet.
     if (changed && !changed.has(path.replace(/\\/g, '/'))) continue;
     const read = await readPreviewBytes(registration, path);
-    if (registry.get(previewId) !== registration || registration.generation !== generation) return false;
+    if (signal.aborted || registry.get(previewId) !== registration || registration.generation !== generation) return false;
+    if (registration.assets?.get(path) !== served) continue;
+    if (!read.ok && read.response.status === 403) {
+      registration.assets.delete(path);
+      continue;
+    }
     const current = read.ok ? assetHash(read.bytes) : `error:${read.response.status}`;
-    if (current !== served) return true;
+    if (current !== served.fingerprint) return true;
   }
   return false;
 }
@@ -276,7 +291,10 @@ export const PREVIEW_REQUEST_DEADLINE_MS = 90_000;
 
 function withDeadline<T>(work: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => resolve(onTimeout()), ms);
+    const timer = setTimeout(() => {
+      try { resolve(onTimeout()); }
+      catch (error) { reject(error); }
+    }, ms);
     timer.unref?.();
     work.then(
       (value) => {
@@ -358,9 +376,19 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
     return htmlResponse(registration.documentHtml, registration);
   }
 
-  const read = await readPreviewBytes(registration, resolved);
-  if (registration.generation === generation && registry.get(url.hostname) === registration) {
-    (registration.assets ??= new Map()).set(resolved, read.ok ? assetHash(read.bytes) : `error:${read.response.status}`);
+  const asset: { fingerprint?: string } = {};
+  const assets = (registration.assets ??= new Map());
+  assets.set(resolved, asset);
+  const read = await withDeadline(readPreviewBytes(registration, resolved), PREVIEW_REQUEST_DEADLINE_MS, () => ({
+    ok: false as const,
+    response: failurePage(registration.failureCopy, 'unavailable', 504, 'timeout'),
+  })).catch((error: unknown) => {
+    log.error('Preview resource read failed', { path: resolved, error: String(error) });
+    return { ok: false as const, response: failurePage(registration.failureCopy, 'unavailable', 500, 'error') };
+  });
+  if (registration.generation === generation && registry.get(url.hostname) === registration && assets.get(resolved) === asset) {
+    if (!read.ok && read.response.status === 403) assets.delete(resolved);
+    else asset.fingerprint = read.ok ? assetHash(read.bytes) : `error:${read.response.status}`;
   }
   if (!read.ok) return read.response;
 
