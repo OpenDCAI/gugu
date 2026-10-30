@@ -758,7 +758,7 @@ if (args[0] === 'pr') {
     expect(names).toContain('Renderer build (web target)')
     // #6270: linux 原生重编并进 desktop-build —— 清单里再出现它,PR 会一直等一个永远不会出现的检查。
     expect(names).not.toContain('Linux native addon rebuild (Electron headers)')
-    expect(names).toContain('Desktop app build (macos-14)')
+    expect(names).toContain('Desktop app build (macos-15)')
     expect(names).toContain('Desktop app build (ubuntu-24.04)')
     expect(names).toContain('Typecheck, lint, and test')
     // 共享那两片 2026-08-12 摘出了必过闸(见 ci.yml 的 matrix 注释与 ci-spec-coverage.json 的
@@ -791,7 +791,7 @@ if (args[0] === 'pr') {
 
   describe('builds that the changes job skipped by design (@@@path-filtered-jobs)', () => {
     const DECIDER = 'Detect changed areas'
-    const MAC = 'Desktop app build (macos-14)'
+    const MAC = 'Desktop app build (macos-15)'
     const ANDROID = 'Android debug build'
 
     function realCiProfiles() {
