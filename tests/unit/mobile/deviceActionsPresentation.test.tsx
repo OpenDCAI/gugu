@@ -132,14 +132,16 @@ it('lets the permissions frame own a single title and its back action', async ()
 })
 
 
-it('uses product names for public versions while retaining development and unknown version labels', async () => {
+it('uses device labels as version titles and retains public, development, and unknown version details', async () => {
   const tiers = ['production', 'beta', 'acceptance-tasks431', undefined]
   await h.render(<DeviceActionsPage device={device(true)} isThisDevice={false} embedded
-    configurations={tiers.map((tier, index) => ({ ...device(true), device_id: `version-${index}`, tier }))} />)
+    configurations={tiers.map((tier, index) => ({ ...device(true), device_id: `version-${index}`, label: `Device ${index}`, tier }))} />)
   const versions = h.container.querySelector('[data-testid="device-machine-configurations"]')!
   expect(versions.textContent).toContain('版本')
-  for (const [index, title] of ['咕咕', '咕咕 Beta', 'acceptance-tasks431', '版本未知'].entries()) {
-    expect(versions.querySelector(`[data-testid="device-configuration-version-${index}"] .gg-settings-row-title`)?.textContent).toBe(title)
+  for (const [index, version] of ['咕咕', '咕咕 Beta', 'acceptance-tasks431', '版本未知'].entries()) {
+    const row = versions.querySelector(`[data-testid="device-configuration-version-${index}"]`)!
+    expect(row.querySelector('.gg-settings-row-title')?.textContent).toBe(`Device ${index}`)
+    expect(row.querySelector('.gg-settings-row-description')?.textContent).toContain(version)
   }
 })
 

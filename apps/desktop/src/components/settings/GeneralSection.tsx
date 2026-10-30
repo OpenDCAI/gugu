@@ -37,12 +37,6 @@ const NOTIFICATION_ROWS: ReadonlyArray<{
     ariaKey: 'settings.general.notificationsChatAria',
   },
   {
-    key: 'agentEvents',
-    labelKey: 'settings.general.notificationsAgent',
-    descriptionKey: 'settings.general.notificationsAgentDescription',
-    ariaKey: 'settings.general.notificationsAgentAria',
-  },
-  {
     key: 'sound',
     labelKey: 'settings.general.notificationsSound',
     ariaKey: 'settings.general.notificationsSoundAria',

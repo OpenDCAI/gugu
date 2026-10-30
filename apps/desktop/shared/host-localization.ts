@@ -59,12 +59,11 @@ const HOST_CATALOG = {
      * 一句英文,而且讲的是它作者关心的事(2026-09-16 在模拟器通知栏里实际看到)。
      */
     backgroundWatch: {
-      text: '干完了或需要你回话时，第一时间提醒你',
+      text: '有人需要你回话时，第一时间提醒你',
     },
     /** @@@5301 会话页 agent 的系统通知正文。这条链在 session/main/core/agent-hooks/notification.ts,
         与上面 notifications 那条(聊天/托盘)彼此独立,但文案同样要跟宿主语言走。 */
     sessionAgentNotifications: {
-      finished: '智能体已经干完了',
       needsApproval: '智能体需要你批准',
       needsAnswer: '智能体在等你回答',
     },
@@ -150,10 +149,9 @@ const HOST_CATALOG = {
     },
     /** 见 zh-CN 那条的说明:插件不给正文就会填一句英文默认句,所以这一行必须自己写。 */
     backgroundWatch: {
-      text: 'You will hear the moment an agent finishes or needs you',
+      text: 'You will hear the moment someone needs your reply',
     },
     sessionAgentNotifications: {
-      finished: 'Your agent has finished working',
       needsApproval: 'Your agent needs your approval',
       needsAnswer: 'Your agent is waiting for your answer',
     },

@@ -91,9 +91,12 @@ async function finishTurn() {
   // 回合结束 = idle + 未读(四态合同里没有 completed;未读位只由回合结束那条边写出)。
   await act(async () => { mocks.onList?.({ sessions: [{ ...session('idle'), unseen: true }] }) })
 }
-async function mountAndFinish(focus: { deviceId: string; sessionId: string } | null = null) {
+async function askApproval() {
+  await act(async () => { mocks.onList?.({ sessions: [{ ...session('needs_approval'), unseen: true }] }) })
+}
+async function mountAndAsk(focus: { deviceId: string; sessionId: string } | null = null) {
   await mount(focus)
-  await finishTurn()
+  await askApproval()
 }
 
 /**
@@ -105,17 +108,25 @@ describe('agent watch alert delivery', () => {
   for (const state of ['visible', 'hidden'] as const) {
     it(`posts a system banner and nothing else while the page is ${state}`, async () => {
       setVisibility(state)
-      await mountAndFinish()
+      await mountAndAsk()
       expect(mocks.showNotification).toHaveBeenCalledTimes(1)
       expect(String(mocks.showNotification.mock.calls[0][0].title)).toContain('分析下北京经济')
       expect(mocks.toast).not.toHaveBeenCalled()
     })
   }
 
+  it('a turn finishing or erroring is a state change and posts nothing (owner 10-30)', async () => {
+    setVisibility('hidden')
+    await mount()
+    await finishTurn()
+    await act(async () => { mocks.onList?.({ sessions: [session('error')] }) })
+    expect(mocks.showNotification).not.toHaveBeenCalled()
+  })
+
   it('does not grow a second channel when the system banner cannot be posted', async () => {
     setVisibility('visible')
     mocks.showNotification.mockResolvedValue({ success: false, displayed: false, error: 'NOTIFICATIONS_NOT_GRANTED' })
-    await mountAndFinish()
+    await mountAndAsk()
     expect(mocks.showNotification).toHaveBeenCalledTimes(1)
     // 没给通知权限就没有提醒 —— 那是「我的 → 权限」那一页要解决的事,❌ 不在这里另开一条路。
     expect(mocks.toast).not.toHaveBeenCalled()
@@ -123,7 +134,7 @@ describe('agent watch alert delivery', () => {
 
   it('stays quiet for the session the user is already watching', async () => {
     setVisibility('visible')
-    await mountAndFinish({ deviceId: 'machine-1', sessionId: 'conversation-1' })
+    await mountAndAsk({ deviceId: 'machine-1', sessionId: 'conversation-1' })
     expect(mocks.showNotification).not.toHaveBeenCalled()
     expect(mocks.toast).not.toHaveBeenCalled()
   })
@@ -134,7 +145,7 @@ describe('agent watch alert delivery', () => {
     const watched = { deviceId: 'machine-1', sessionId: 'conversation-1' }
     await mount(watched)
     await harness.render(createNode(Probe, { focus: watched, page: false }))
-    await finishTurn()
+    await askApproval()
     expect(mocks.showNotification, 'the tasks page is gone, so nobody is watching that session any more').toHaveBeenCalledTimes(1)
   })
 

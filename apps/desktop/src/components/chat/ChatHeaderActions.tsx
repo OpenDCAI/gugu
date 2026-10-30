@@ -147,7 +147,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           }}
         >
           <Users />
-          {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
+          {memberCount !== undefined && <span data-member-count="" className="text-[var(--muted-fg)]">{memberCount}</span>}
         </IconButton>
       )}
       {/* Settings stays reachable from More in every layout, independently of pinned Apps. */}

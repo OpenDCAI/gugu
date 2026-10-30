@@ -22,6 +22,46 @@ const device = (overrides: Partial<RemoteHostDevice> = {}): RemoteHostDevice => 
   ...overrides,
 });
 
+describe('machine picker projection', () => {
+  it('shares one representative per remote machine while preserving configuration routes and following removals', () => {
+    const store = new RemoteHostsStore();
+    store.start();
+    let listed = [
+      device({ id: 'old', machineId: 'remote', label: 'Previous install', isOnline: false, directTerminal: false }),
+      device({ id: 'active', machineId: 'remote', label: 'Current install', directTerminal: false }),
+      device({ id: 'local-other-version', machineId: 'local', directTerminal: false }),
+      device({ id: 'local-current', machineId: 'local', isCurrentMachine: true, isOnline: false, directTerminal: false }),
+      device({ id: 'assistant', machineId: 'home', assistantHome: true, directTerminal: false }),
+      device({ id: 'other', machineId: 'different-hardware', label: 'Current install', directTerminal: false }),
+    ];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+    } as never);
+    try {
+      expect(store.pickableMachineIds()).toEqual(['active', 'other']);
+      expect([...store.hosts.keys()]).toEqual(listed.map(device => device.id));
+      expect(store.device('old')?.label).toBe('Previous install');
+
+      listed = listed.filter(device => device.id !== 'old');
+      listeners.forEach(listener => listener());
+      expect(store.pickableMachineIds()).toEqual(['active', 'other']);
+      expect(store.device('old')).toBeNull();
+
+      listed = listed.filter(device => device.id !== 'active');
+      listeners.forEach(listener => listener());
+      expect(store.pickableMachineIds()).toEqual(['other']);
+      listeners.forEach(listener => listener());
+      expect(store.pickableMachineIds()).toEqual(['other']);
+      expect(store.device('active')).toBeNull();
+    } finally {
+      off();
+    }
+  });
+});
+
 describe('侧栏那颗点:设备状况 + 到它任务页宿主的线(#6264 一套工作台)', () => {
   it('连上了 = 已连接;第一次连着还没拿到清单 = 正在连接', () => {
     expect(machineConnectionState({ device: device(), link: 'open', synced: true })).toBe('connected');
