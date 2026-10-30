@@ -40,7 +40,6 @@ import { useTheme } from '@/store/theme'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { ConversationErrorBoundary } from './ConversationErrorBoundary'
 import { useAgentDmRead } from './useAgentDmRead'
-import { useMessageQuote } from '@/hooks/useMessageQuote'
 import { useConversationVisibility } from './useConversationVisibility'
 
 type Chrome = { attachGlyph: import('react').ReactNode; attachMenu?: readonly ComposerAttachAction[]; composerHeader?: import('react').ReactNode }
@@ -96,11 +95,6 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
   const options = useConversationOptions(target)
   const queue = useConversationQueue(target, read.timeline.queuedPrompts, working, options.steers)
   const aliases = useMemo(() => dmRecordIds(turns), [turns])
-  const quotes = useMessageQuote(chat.id, id => identitiesById[id ?? '']?.display_name ?? '', t('chatArea.attachment'))
-  const quoteSource = (itemId: string) => {
-    const ids = aliases.get(itemId)
-    return ids?.length === 1 ? messages.find(message => message.id === ids[0]) : undefined
-  }
   const visibleMessages = useMemo(() => displayedDmMessages(messages), [messages])
   const ignoredMessageIds = useMemo(() => messages.filter(message => !visibleMessages.includes(message)).map(message => message.id), [messages, visibleMessages])
   const reading = useAgentDmRead({ chat, shown, messages: visibleMessages, ignoredMessageIds, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
@@ -127,7 +121,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
     {messages.filter(message => message.local_send_state === 'failed').map(message => <button key={message.id} type="button" data-failed-message={message.id} onClick={() => retrySend(message.id)}>{t('outbox.sendFailed')} · {t('agent.dm.retry')}</button>)}
     {read.actionError ? <div role="alert">{read.actionError}</div> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
-    <ChatMessageComposer currentUserId={user?.id} quoteContent={quotes.quote} onQuoteConsumed={() => quotes.setQuote(null)} chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
+    <ChatMessageComposer currentUserId={user?.id} chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
       beforeSend={createSessionpageChatSendPreflight(true, chat.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
       disabled={gate.disabled} disabledReason={gate.disabledReason ? t(`composer.agent.disabledReason.${gate.disabledReason}`) : undefined} conversation={{ ...options.props, ...queue.props, isWorking: working,
       onStop: target ? () => { void read.cancel() } : undefined }}
@@ -139,8 +133,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={`dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
-      commands={{ ...(target ? outputs.handlers : {}), canQuoteMessage: message => !!quoteSource(message.id),
-        onQuoteMessage: ({ message }) => { const source = quoteSource(message.id); if (source) quotes.onQuote(source) }, onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
         conversationProcessNotice: processId => {
           const notice = visibleMessages.find(message => message.content_type === 'system' && processId === `im:${message.id}:process`)
           return notice ? { id: notice.id, text: notice.content ?? '' } : null

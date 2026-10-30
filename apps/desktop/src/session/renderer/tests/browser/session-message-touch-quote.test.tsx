@@ -3,7 +3,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createChatContext, createChatState, createChatView, buildChatTheme, DEFAULT_CONFIG } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../features/sessions/acp/acp-chat-store';
 import { useSessionMessageQuotes } from '../../features/sessions/acp/use-session-message-quotes';
-import { getSessionQuote } from '../../features/sessions/acp/session-quote-draft';
 import { finishRendererContentMenu, RENDERER_CONTENT_MENU_OPEN } from '@/lib/contentContextMenu';
 import type { ContentContextMenu } from '@shared/content-context-menu';
 import { createReactHarness } from '../../../../../../../tests/support/testHarness';
@@ -16,7 +15,7 @@ let harness: ReturnType<typeof createReactHarness>;
 afterEach(() => { vi.useRealTimers(); harness?.cleanup(); document.getSelection()?.removeAllRanges(); });
 
 async function mountMessage() {
-  const store = { sessionId: 'task-a' } as AcpChatStore;
+  const store = { sessionId: 'task-a', setDraftText: vi.fn() } as unknown as AcpChatStore;
   function Harness() {
     const parent = useRef<HTMLDivElement>(null);
     const quotes = useSessionMessageQuotes(store, useRef(null));
@@ -41,7 +40,7 @@ function touch(target: HTMLElement, type: string, x = 20, y = 20) {
   target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', clientX: x, clientY: y }));
 }
 
-it('opens the whole-message quote menu from phone bubble padding and preserves its real source', async () => {
+it('offers copying without a whole-message quote entry from phone bubble padding', async () => {
   const { store, bubble } = await mountMessage();
   const requests: ContentContextMenu[] = [];
   const capture = (event: Event) => requests.push((event as CustomEvent<ContentContextMenu>).detail);
@@ -51,10 +50,10 @@ it('opens the whole-message quote menu from phone bubble padding and preserves i
     touch(bubble, 'pointerdown');
     await vi.advanceTimersByTimeAsync(501);
     expect(requests).toHaveLength(1);
-    expect(requests[0].items.some(item => 'id' in item && item.id === 'quote')).toBe(true);
-    finishRendererContentMenu(requests[0].requestId, 'quote');
+    expect(requests[0].items.some(item => 'id' in item && item.id === 'quote')).toBe(false);
+    finishRendererContentMenu(requests[0].requestId, 'copy');
     await Promise.resolve();
-    expect(getSessionQuote(store)).toMatchObject({ source: { kind: 'session', sessionId: 'task-a', itemId: 'source' }, text: 'Original message words' });
+    expect(store.setDraftText).not.toHaveBeenCalled();
   } finally { window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 });
 
@@ -91,7 +90,7 @@ it.each(['before', 'after'] as const)('handles an Android context menu arriving 
     await vi.advanceTimersByTimeAsync(501);
     expect(capture).toHaveBeenCalledOnce();
     const request = (capture.mock.calls[0][0] as CustomEvent<ContentContextMenu>).detail;
-    expect(request.items.some(item => 'id' in item && item.id === 'quote')).toBe(true);
+    expect(request.items.some(item => 'id' in item && item.id === 'quote')).toBe(false);
     finishRendererContentMenu(request.requestId);
   } finally { window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 });

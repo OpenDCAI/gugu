@@ -8,6 +8,7 @@ import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
 import { SelfIdentityProvider } from '@session-chat/lib/self-identity';
 import { ConversationProcess } from './ConversationProcess';
+import { conversationBubbleKey } from './conversation-body';
 import { createChatCaches } from '@session-chat/core/caches';
 import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -38,6 +39,58 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {},
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   return { host, item, ctx, update: (next: ChatMessage) => setData(normalizeMessage(next)), dispose: () => { dispose(); host.remove(); } };
 }
+
+it('does not render the removed quote-to-composer footer action for a legacy host callback', async () => {
+  const quote = vi.fn();
+  const legacy = { onQuoteMessage: quote, conversationAgentName: () => 'Agent' };
+  const view = await mount({ kind: 'message', id: 'no-composer-quote', sourceItemId: 'stable-source', role: 'assistant', text: 'A short reply', at: 1700000000000 }, 390, legacy);
+  try {
+    const footer = view.host.querySelector('[data-user-message-actions]')!;
+    expect(footer.querySelectorAll('button')).toHaveLength(1);
+    expect(footer.querySelector('[data-slot="message-copy"]')).not.toBeNull();
+    expect(quote).not.toHaveBeenCalled();
+  } finally { view.dispose(); }
+});
+
+it.each([188, 220, 390, 600])('keeps collapse, source, time and copy in one measured footer at %spx without a quote-to-composer button', async width => {
+  const item: ChatMessage = { kind: 'message', id: 'expanded-density', sourceItemId: 'source-expanded', role: 'assistant',
+    text: 'A long Markdown paragraph with **emphasis**.\n\n'.repeat(35), at: 1700000000000,
+    conversationTail: true, conversationPreviousSpeaker: '$agent', sentReplyTo: 'older',
+    conversationReply: { itemId: 'older', text: 'The earlier source', from: 'Peer' } };
+  const legacyQuote = vi.fn();
+  const commands = { onQuoteMessage: legacyQuote, onConversationReply: vi.fn() };
+  const key = conversationBubbleKey(item);
+  const view = await mount(item, width, commands, undefined, { expanded: id => id === key, latestConversationMessageId: 'later' });
+  try {
+    const footer = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
+    const controls = [footer.querySelector<HTMLElement>('[data-collapse-id]')!, footer.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!,
+      footer.querySelector<HTMLElement>('time')!, footer.querySelector<HTMLElement>('[data-slot="message-copy"]')!];
+    expect(controls.every(Boolean)).toBe(true);
+    const centers = controls.map(element => { const b = element.getBoundingClientRect(); return b.top + b.height / 2; });
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+    expect(footer.querySelectorAll('button')).toHaveLength(3);
+    expect(legacyQuote).not.toHaveBeenCalled();
+    expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth);
+    expect(controls[0].getAttribute('data-collapse-id')).toBe(key);
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+  } finally { view.dispose(); }
+});
+
+it('uses the same bounded Markdown preview in the standalone shared transcript', async () => {
+  const text = '| Key | Value |\n| --- | --- |\n' + '| **Opening** | Value |\n'.repeat(30) + 'TAIL_MARKER';
+  const view = await mount({ kind: 'message', id: 'markdown-source', role: 'assistant', text: 'Reply', sentReplyTo: 'source',
+    conversationReply: { itemId: 'source', text, from: 'Peer' } }, 390, { onConversationReply: () => {} });
+  try {
+    view.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+    const preview = document.querySelector<HTMLElement>('[data-conversation-source-markdown]')!;
+    expect(preview.querySelector('table')).not.toBeNull();
+    expect(preview.querySelector('strong')?.textContent).toBe('Opening');
+    expect(preview.textContent).not.toContain('TAIL_MARKER');
+    expect(preview.getBoundingClientRect().height).toBeLessThanOrEqual(54);
+    expect(preview.hasAttribute('data-source-truncated')).toBe(true);
+  } finally { view.dispose(); }
+});
 
 describe('agent-centered conversation bubbles', () => {
   it('keeps an authorized system notice visible in a closed zero-step process header', () => {
@@ -181,7 +234,7 @@ describe('agent-centered conversation bubbles', () => {
       const arrow = rows[1]!.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
       expect(arrow.textContent).toBe('');
       arrow.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
-      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other：original message');
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other\noriginal message');
       arrow.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('older');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
@@ -311,9 +364,9 @@ describe('agent-centered conversation bubbles', () => {
   });
 
   it.each([
-    [{ from: 'Peer' }, 'Peer：original words'],
-    [{ fromId: 'user:owner' }, '刘威：original words'],
-    [{ self: true }, 'Codex 11：original words'],
+    [{ from: 'Peer' }, 'Peer\noriginal words'],
+    [{ fromId: 'user:owner' }, '刘威\noriginal words'],
+    [{ self: true }, 'Codex 11\noriginal words'],
   ] as const)('uses known source identity %j for an explicit quote', async (identity, expected) => {
     const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
       sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'original words', ...identity } }, 600, { onConversationReply: () => {} });
@@ -459,7 +512,7 @@ describe('conversation density', () => {
       body.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
       quote.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
-      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Cleo：原始私聊');
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Cleo\n原始私聊');
       expect(row.getBoundingClientRect().height).toBe(height);
       expect(quote.getBoundingClientRect().left).toBe(before.left);
       expect(document.elementFromPoint(before.left + before.width / 2, before.top + before.height / 2)?.closest('[data-slot="conversation-quote"]')).toBe(quote);
@@ -475,8 +528,8 @@ describe('conversation density', () => {
       quote.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); quote.click();
       expect(reveal).not.toHaveBeenCalled();
       const preview = document.querySelector<HTMLDivElement>('[data-slot="conversation-quote-preview"]')!;
-      expect(preview.textContent).toBe('Peer：触摸原文');
-      preview.querySelector('button')!.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('source');
+      expect(preview.textContent).toBe('Peer\n触摸原文');
+      preview.querySelector<HTMLElement>('[data-slot="conversation-quote-preview-content"]')!.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('source');
     } finally { view.dispose(); }
   });
   it('truncates long destinations inside each bubble and mounts the existing host tooltip with full text', async () => {
@@ -675,12 +728,12 @@ it.each([188, 220, 320, 600])('keeps a repeated speaker reference in the existin
       row.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
       arrow.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
-      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other：Exact original');
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other\nExact original');
       arrow.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith(target);
       reference.dispatchEvent(new PointerEvent('pointerleave'));
       arrow.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); arrow.click();
       expect(reveal).toHaveBeenCalledTimes(1);
-      document.querySelector<HTMLButtonElement>('[data-slot="conversation-quote-preview"] button')!.click();
+      document.querySelector<HTMLElement>('[data-slot="conversation-quote-preview-content"]')!.click();
       expect(reveal).toHaveBeenCalledTimes(2); expect(reveal).toHaveBeenLastCalledWith(target);
     } finally { view.dispose(); plain.dispose(); }
   }
