@@ -1,9 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { sidebarChatSignals } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
-import { topicsReadOnOpen, useMarkTopicsReadWhenShown } from '../../../../apps/desktop/src/hooks/useMarkProjectTopicsReadOnOpen'
-import { chat, createReactHarness } from '../../../support/testHarness'
+import { topicsReadOnOpen, useMarkProjectTopicsReadOnOpen } from '../../../../apps/desktop/src/hooks/useMarkProjectTopicsReadOnOpen'
+import { chat, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { openImRepository, replaceChatRows, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
+
+const write = vi.hoisted(() => vi.fn<(deps: { chats: readonly ChatItem[]; refresh: () => Promise<void> }) => Promise<{ failedChats: number }>>().mockResolvedValue({ failedChats: 0 }))
+const host = vi.hoisted(() => ({
+  listener: null as null | ((active: boolean) => void),
+  subscribeAppActive: undefined as undefined | ((listener: (active: boolean) => void) => () => void),
+}))
+vi.mock('../../../../apps/desktop/src/lib/chatUnreadLocator', () => ({ markChatsReadAndRefresh: write }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
+  get subscribeAppActive() { return host.subscribeAppActive },
+} }))
 
 const GROUP = 'group-1'
 
@@ -41,35 +55,147 @@ describe('topicsReadOnOpen', () => {
 })
 
 let harness: ReturnType<typeof createReactHarness>
-function Probe({ shown, chatsRead, markRead }: { shown: ReadonlySet<string>; chatsRead: boolean; markRead: (topics: ChatItem[]) => void }) {
-  useMarkTopicsReadWhenShown(shown, CHATS, chatsRead, markRead)
-  return null
-}
+describe('project-slot lifecycle', () => {
+  let repository: AccountImRepository
+  let target: HTMLDivElement
+  let entries: ReadonlyMap<string, HTMLElement>
+  let callback: IntersectionObserverCallback
+  const groups = new Set([GROUP])
+  let finishRefresh: () => void
+  let refreshChats: ReturnType<typeof vi.fn<() => Promise<void>>>
+  let getImRepository: () => Promise<AccountImRepository>
+  function SlotProbe() { useMarkProjectTopicsReadOnOpen(entries, groups); return null }
+  const render = (chats: ChatItem[], chatsRead = true) => renderWithAppProviders(harness, <SlotProbe />, {
+    chat: { chats, chatsRead, refreshChats, getImRepository },
+  })
+  const intersect = (isIntersecting: boolean) => act(async () => callback([
+    { target, isIntersecting, intersectionRatio: isIntersecting ? 1 : 0, time: 0,
+      boundingClientRect: new DOMRect(0, 0, 300, 300), intersectionRect: new DOMRect(0, 0, 300, 300), rootBounds: null },
+  ], {} as IntersectionObserver))
+  const visible = (value: 'visible' | 'hidden') => act(async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(value)
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  beforeEach(async () => {
+    harness = createReactHarness()
+    write.mockClear()
+    host.listener = null
+    host.subscribeAppActive = undefined
+    repository = await openImRepository('user-1', { adapter: createMemoryLocalSyncDb() })
+    getImRepository = async () => repository
+    const pending = new Promise<void>((resolve) => { finishRefresh = resolve })
+    refreshChats = vi.fn(() => pending)
+    target = document.createElement('div')
+    document.body.append(target)
+    entries = new Map([[`chat:${GROUP}`, target]])
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(cb: IntersectionObserverCallback) { callback = cb }
+      observe() {}
+      disconnect() {}
+    })
+  })
+  afterEach(() => { harness.cleanup(); target.remove(); repository.close(); vi.unstubAllGlobals() })
 
-describe('useMarkTopicsReadWhenShown', () => {
-  beforeEach(() => { harness = createReactHarness() })
-  afterEach(() => harness.cleanup())
-
-  it('reads once per opening: not while hidden, once when shown, again only after it was closed', async () => {
-    const markRead = vi.fn()
-    const render = (shown: string[]) => harness.render(<Probe shown={new Set(shown)} chatsRead markRead={markRead} />)
-    await render([])
-    expect(markRead).not.toHaveBeenCalled()
-    await render([GROUP])
-    expect(markRead).toHaveBeenCalledTimes(1)
-    expect(markRead.mock.calls[0][0].map((c: ChatItem) => c.id)).toEqual(['topic-17', 'topic-2'])
-    await render([GROUP])
-    expect(markRead).toHaveBeenCalledTimes(1)
-    await render([])
-    await render([GROUP])
-    expect(markRead).toHaveBeenCalledTimes(2)
+  it('waits for this opening’s authoritative refresh even when cached rows are already displayable', async () => {
+    await render([CHATS[0]])
+    await intersect(true)
+    expect(write).not.toHaveBeenCalled()
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    await render(CHATS)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(refreshChats).toHaveBeenCalledWith({ acceptEmpty: true, throwOnError: true })
+    expect(chatOnScreen(), 'a foreground project slot needs no primary-chat reporter').toBeNull()
+    expect(write.mock.calls[0][0].chats.map(c => c.id)).toEqual(['topic-17', 'topic-2'])
   })
 
-  it('waits for the chat list before counting an opening', async () => {
-    const markRead = vi.fn()
-    await harness.render(<Probe shown={new Set([GROUP])} chatsRead={false} markRead={markRead} />)
-    expect(markRead).not.toHaveBeenCalled()
-    await harness.render(<Probe shown={new Set([GROUP])} chatsRead markRead={markRead} />)
-    expect(markRead).toHaveBeenCalledTimes(1)
+  it('keeps a visible opening pending when its list arrives in the background, then reads on return', async () => {
+    await render([CHATS[0]], false)
+    await intersect(true)
+    await visible('hidden')
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    await render(CHATS)
+    expect(write).not.toHaveBeenCalled()
+    await visible('visible')
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses host active state even if the document still says visible', async () => {
+    host.subscribeAppActive = (listener) => {
+      host.listener = listener; listener(true)
+      return () => { host.listener = null }
+    }
+    await render(CHATS)
+    await intersect(true)
+    await act(async () => { host.listener?.(false) })
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(document.visibilityState).toBe('visible')
+    expect(write).not.toHaveBeenCalled()
+    await act(async () => { host.listener?.(true) })
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads once per opening and keeps later messages until the slot is hidden and reopened', async () => {
+    await render(CHATS)
+    expect(refreshChats).not.toHaveBeenCalled()
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(write).toHaveBeenCalledTimes(1)
+    const later = [topic('topic-17', 40, 25)]
+    await act(async () => { await replaceChatRows(repository, later) })
+    await render(later)
+    expect(write).toHaveBeenCalledTimes(1)
+    await intersect(false)
+    await intersect(true)
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(write.mock.calls[1][0].chats[0].next_message_seq).toBe(41)
+  })
+
+  it('keeps the completed snapshot watermark while waiting in the background', async () => {
+    await render(CHATS)
+    await intersect(true)
+    await visible('hidden')
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    await act(async () => { await replaceChatRows(repository, [topic('topic-17', 50, 40)]) })
+    await render([topic('topic-17', 50, 40)])
+    await visible('visible')
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[0][0].chats[0].next_message_seq).toBe(31)
+  })
+
+  it('does not consume a closed slot when its authoritative refresh finishes late', async () => {
+    await render(CHATS)
+    await intersect(true)
+    await intersect(false)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(write).not.toHaveBeenCalled()
+    await intersect(true)
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('consumes an authoritative empty result without swallowing a later new topic', async () => {
+    await render([CHATS[0]])
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, [CHATS[0]]); finishRefresh() })
+    await act(async () => { await replaceChatRows(repository, CHATS) })
+    await render(CHATS)
+    expect(refreshChats).toHaveBeenCalledTimes(1)
+    expect(write).not.toHaveBeenCalled()
+    await intersect(false)
+    await intersect(true)
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a failed authoritative read alone until the next opening', async () => {
+    refreshChats.mockRejectedValueOnce(new Error('refresh failed'))
+    await render(CHATS)
+    await intersect(true)
+    expect(write).not.toHaveBeenCalled()
+    await render(CHATS)
+    expect(refreshChats).toHaveBeenCalledTimes(1)
+    await intersect(false)
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(write).toHaveBeenCalledTimes(1)
   })
 })

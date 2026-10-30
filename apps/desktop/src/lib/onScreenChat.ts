@@ -19,6 +19,9 @@ export function chatOnScreen(): string | null {
   return shown
 }
 
+/** 与会话是否上报无关的同一份宿主前后台真值,供会话页的项目格子复用。 */
+export function isAppActive(): boolean { return appActive }
+
 // 前后台只信宿主:安卓「后台守着」让页面在后台仍是 visible。宿主不报时退回 visibilityState。
 function watchAppActive(listener: (active: boolean) => void): () => void {
   if (platform.subscribeAppActive) return platform.subscribeAppActive(listener)
@@ -28,14 +31,19 @@ function watchAppActive(listener: (active: boolean) => void): () => void {
   return () => document.removeEventListener('visibilitychange', sync)
 }
 
-/** 壳报此刻摆在屏幕上的会话;返回值按入参同步算,切会话那一帧不会先变成「没在看」。 */
-export function useReportChatOnScreen(shown: string | null): string | null {
+export function useAppActive(): boolean {
   const active = useSyncExternalStore(subscribe, () => appActive)
-  const [reporter] = useState(() => ({}))
   useEffect(() => watchAppActive((next) => {
     appActive = next
     for (const listener of listeners) listener()
   }), [])
+  return active
+}
+
+/** 壳报此刻摆在屏幕上的会话;返回值按入参同步算,切会话那一帧不会先变成「没在看」。 */
+export function useReportChatOnScreen(shown: string | null): string | null {
+  const active = useAppActive()
+  const [reporter] = useState(() => ({}))
   useEffect(() => {
     if (!shown) return
     shownByReporter.set(reporter, shown)

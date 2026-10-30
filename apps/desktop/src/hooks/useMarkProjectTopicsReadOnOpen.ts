@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { unreadForYou } from '@gugu/core/shared/ui/chatModels'
 import { CHAT_SLOT_PREFIX } from '../lib/shellSlots'
 import { markChatsReadAndRefresh } from '../lib/chatUnreadLocator'
 import { rendererLogger } from '../lib/log'
 import { useChatStore } from '../store/chatContext'
+import { readChatRows } from '../lib/imRepository'
+import { isAppActive, useAppActive } from '../lib/onScreenChat'
 
 const log = rendererLogger('chat/project-topics-read')
 
@@ -17,27 +19,40 @@ export function topicsReadOnOpen(chats: readonly ChatItem[], groupId: string): C
   return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && unreadForYou(chat) > 0)
 }
 
-/** 一个项目群摆到眼前(从看不见变成看得见)读一次;一直开着不再读,收起再打开算又一次。 */
-export function useMarkTopicsReadWhenShown(
+type Opening = { chats?: ChatItem[]; handled: boolean }
+
+/** 每次打开取一次权威快照,后台到达的结果留到前台。快照以后的消息不进入本次水位。 */
+function useReadTopicsOnOpening(
   shown: ReadonlySet<string>,
-  chats: readonly ChatItem[],
-  chatsRead: boolean,
+  active: boolean,
+  readChats: () => Promise<ChatItem[]>,
   markRead: (topics: ChatItem[]) => void,
 ): void {
-  const handled = useRef(new Set<string>())
-  const chatsRef = useRef(chats)
-  chatsRef.current = chats
+  const openings = useRef(new Map<string, Opening>())
+  const shownRef = useRef(shown)
+  shownRef.current = shown
+  const flush = useCallback((id: string, opening: Opening) => {
+    if (openings.current.get(id) !== opening || opening.handled || !opening.chats || !shownRef.current.has(id) || !isAppActive()) return
+    opening.handled = true
+    const topics = topicsReadOnOpen(opening.chats, id)
+    if (topics.length > 0) markRead(topics)
+  }, [markRead])
+  // 换号(读端换身份)或卸载后,旧请求的结果没有资格写已读。
+  useEffect(() => () => openings.current.clear(), [readChats])
   useEffect(() => {
-    for (const id of handled.current) if (!shown.has(id)) handled.current.delete(id)
-    // 列表还没读到 = 还不知道话题有哪些:先不算这一次打开,读到了再读。
-    if (!chatsRead) return
+    for (const id of openings.current.keys()) if (!shown.has(id)) openings.current.delete(id)
+    if (!active) return
     for (const id of shown) {
-      if (handled.current.has(id)) continue
-      handled.current.add(id)
-      const topics = topicsReadOnOpen(chatsRef.current, id)
-      if (topics.length > 0) markRead(topics)
+      const pending = openings.current.get(id)
+      if (pending) { flush(id, pending); continue }
+      const opening: Opening = { handled: false }
+      openings.current.set(id, opening)
+      void readChats().then((chats) => { opening.chats = chats; flush(id, opening) }).catch((error: unknown) => {
+        opening.handled = true // 失败留到下次打开重试,不因列表更新反复触发。
+        log.error({ error: String(error), groupId: id }, 'refresh project topics on open failed')
+      })
     }
-  }, [shown, chatsRead, markRead])
+  }, [shown, active, readChats, flush])
 }
 
 /** 壳画进会话页的那些格子里,哪几个项目群此刻在视口里(块藏在背后、页签没选中都不算)。 */
@@ -52,7 +67,7 @@ function useShownProjectGroups(entries: ReadonlyMap<string, HTMLElement>, projec
       for (const record of records) {
         const id = idOf.get(record.target as HTMLElement)
         if (id === undefined) continue
-        if (record.isIntersecting) visible.add(id)
+        if (record.isIntersecting && record.intersectionRatio > 0) visible.add(id)
         else visible.delete(id)
       }
       setShown(new Set(visible))
@@ -65,8 +80,26 @@ function useShownProjectGroups(entries: ReadonlyMap<string, HTMLElement>, projec
 
 /** 会话页里的项目群(ChatSlotHost 画的那些格子):打开时把它开出去、叫到你的话题一起标已读。失败只记日志 —— 下次打开再读。 */
 export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTMLElement>, projectGroupChats: ReadonlySet<string>): void {
-  const { chats, chatsRead, refreshChats } = useChatStore('chats', 'chatsRead', 'refreshChats')
+  const { refreshChats, getImRepository } = useChatStore('refreshChats', 'getImRepository')
   const shown = useShownProjectGroups(entries, projectGroupChats)
+  const active = useAppActive()
+  const readChats = useMemo(() => {
+    let inFlight: Promise<ChatItem[]> | null = null
+    return () => {
+      if (inFlight) return inFlight
+      const request = (async () => {
+        const repository = await getImRepository()
+        // chatsRead 可能只是缓存已可展示。refresh 成功后权威投影已落进同一 repository,
+        // 立即读那份快照,不等 React 下一帧,也不另开一条会话列表拉取路。
+        await refreshChats({ acceptEmpty: true, throwOnError: true })
+        return readChatRows(repository)
+      })()
+      inFlight = request
+      const clear = () => { if (inFlight === request) inFlight = null }
+      void request.then(clear, clear)
+      return request
+    }
+  }, [refreshChats, getImRepository])
   const markRead = useCallback((topics: ChatItem[]) => {
     void markChatsReadAndRefresh({ chats: topics, refresh: refreshChats })
       .then(({ failedChats, error }) => {
@@ -74,5 +107,5 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
       })
       .catch((error: unknown) => log.error({ error: String(error) }, 'mark project topics read failed'))
   }, [refreshChats])
-  useMarkTopicsReadWhenShown(shown, chats, chatsRead, markRead)
+  useReadTopicsOnOpening(shown, active, readChats, markRead)
 }
