@@ -20,4 +20,14 @@
   /* ui.css 把 App 自己的勾选框画成咕咕多选的那颗圈；文档里的任务项是 gugu 每个 markdown 面都一样的那种勾选框。 */
   .gg-md li input[type='checkbox'] { appearance: auto; -webkit-appearance: auto; border: 0; border-radius: 0; background: none; }
   .gg-md li input[type='checkbox']::after { content: none; }
+
+  /* 文档里指向群文件的图（markdown-entry.ts paintImages）：读到了就画在原来那颗图片小块里，点它照旧打开那个文件；
+     还在读是淡的小块，读不到就是小块后面接宿主给的原因。没有破图标。 */
+  .gg-md a.gg-md-image[data-gg-image='shown'] { display: inline-block; max-width: 100%; padding: 0; background: none; box-shadow: none; }
+  .gg-md a.gg-md-image[data-gg-image='shown']::before { content: none; }
+  .gg-md img.gg-md-img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+  /* 文档里（comfortable）再加一圈细框：白底截图放在白页上也看得出边。 */
+  .gg-md--comfortable img.gg-md-img { box-shadow: 0 0 0 1px var(--em-border); }
+  .gg-md a.gg-md-image[data-gg-image='loading'] { color: var(--em-foreground-muted); }
+  .gg-md a.gg-md-image[data-gg-image='failed'] { color: var(--em-foreground-muted); white-space: normal; }
 }

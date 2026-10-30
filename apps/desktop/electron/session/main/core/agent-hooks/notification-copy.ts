@@ -9,7 +9,6 @@
  * 装作一切正常 —— 那正是中文用户收到英文横幅、日志里却一个字都没有的形状。
  */
 export type SessionAgentNotificationCopy = {
-  finished: string;
   needsApproval: string;
   /** 停在问题 / 计划上等人回答(#6448:needs_user 的 question / plan 附属态)。 */
   needsAnswer: string;

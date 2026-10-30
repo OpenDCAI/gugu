@@ -319,13 +319,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
 vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => ({ messages: false, requests: false })
 }))
-const agentEventMock = vi.hoisted(() => ({
-  readStarted: vi.fn<(event: Event) => unknown>(() => null),
-}))
-vi.mock('../../../../apps/desktop/src/lib/agentConversationEvents', () => ({
-  AGENT_SESSION_STARTED_EVENT: 'agent-conversation-started',
-  readAgentConversationStartedEvent: agentEventMock.readStarted
-}))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: platformMock
 }))
@@ -348,8 +341,6 @@ beforeEach(() => {
   agentWatchProbe.rootMounts = 0
   agentWatchProbe.rootUnmounts = 0
   activationProbe.prewarm.mockReset()
-  agentEventMock.readStarted.mockReset()
-  agentEventMock.readStarted.mockReturnValue(null)
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
   chatStoreMock.chats = []
@@ -605,34 +596,12 @@ describe('MainLayout', () => {
       'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
     ).toBeNull()
   })
-  it('never navigates on the agent-conversation-started broadcast, on any tab', async () => {
-    const activity = {
-      agentId: 'agent-1',
-      chatId: 'agent-dm',
-      threadRootId: null,
-      displayName: 'Agent',
-      avatar: null,
-      startedAt: '2026-08-18T00:00:00.000Z',
-      status: 'running',
-    }
-    agentEventMock.readStarted.mockReturnValue(activity)
+  it('opens the created agent conversation on the session page, never by switching the shell chat', async () => {
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
     // gugu-dev#181 桌面上没有单独的聊天页可切过去。
     expect(chatSurfaceOf(harness.container)).toBeNull()
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
-      await Promise.resolve()
-    })
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-    expect(sessionPageViewRequests.openChat, 'agent started — nothing is opened for it').not.toHaveBeenCalled()
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
-      await Promise.resolve()
-    })
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
       .__GUGU_SESSIONPAGE_MESSAGES__
     expect(host, 'the create flow reaches the shell through this host').toBeTruthy()
@@ -1019,7 +988,7 @@ describe('MainLayout', () => {
     })
     expect(pager.style.overflowX).toBe('auto')
   })
-  // 「我的」那一层常驻只藏:退回后再直达某个 section(充值 → 用量),落在那个 section 上,❌ 停在上次看的那页。
+  // 「我的」常驻只藏:充值回到有积分卡的账户页,不能留在上次看的统计页。
   it('reopens the retained settings layer on the section a deep link asks for', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
@@ -1027,16 +996,21 @@ describe('MainLayout', () => {
     const settings = () => harness.container.querySelector('[data-testid="mobile-settings-layer"] [data-testid="mock-settings-panel"]') as HTMLElement
     const recharge = () => act(async () => { rechargeProbe.onRecharge?.() })
     await recharge()
-    expect(settings().getAttribute('data-section')).toBe('usage')
+    expect(settings().getAttribute('data-section')).toBe('account')
     await clickElement(harness.container.querySelector('[data-testid="mock-settings-pick-about"]') as HTMLElement)
     expect(settings().getAttribute('data-section'), 'positive control: the user moved on inside the panel').toBe('about')
     await nativeBack()
     expect(layerOpen('mobile-settings-layer'), 'the first back only leaves the detail page').toBe(true)
     await nativeBack()
     expect(layerOpen('mobile-settings-layer')).toBe(false)
-    expect(settings().getAttribute('data-section'), 'once it is closed the layer is back at its root').toBe('account')
+    expect(settings().getAttribute('data-section'), 'closing resets the controlled phone settings page').toBe('account')
     await recharge()
-    expect(settings().getAttribute('data-section')).toBe('usage')
+    expect(settings().getAttribute('data-section')).toBe('account')
+  })
+  it('opens desktop subscriptions from the low-balance recharge action (#986)', async () => {
+    await renderMainLayoutWithToast()
+    await act(async () => { rechargeProbe.onRecharge?.() })
+    expect(document.querySelector('[data-testid="mock-settings-panel"]')?.getAttribute('data-section')).toBe('subscriptions')
   })
   // 桌面壳不分页:两层包裹都是 display:contents,聊天面照旧直接参与主区 flex 布局。
   it('keeps the desktop layout flat around the pager wrappers', async () => {

@@ -216,13 +216,15 @@ const DRIVE_LETTERS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].flatMap((letter) => [let
 /**
  * GitHub's schema plus `tel:` links, Windows drive paths (agents link files that way; the host classifies
  * and opens them) and `gugu-file:` links to a group's files (摩擦单 F10 — without it the link lost its href and
- * clicked to nothing). Math is typeset after sanitizing, so KaTeX output is not filtered.
+ * clicked to nothing). An image may name a group's file too (`![](gugu-file://<id>)`): an App page's markdown loads it
+ * through the host (`gugu.markdown()`). Math is typeset after sanitizing, so KaTeX output is not filtered.
  */
 export const MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
   protocols: {
     ...defaultSchema.protocols,
     href: [...(defaultSchema.protocols?.href ?? []), 'tel', 'gugu-file', 'gugu-chat', guguLinkScheme({ tier: 'production', devLaunch: false }), guguLinkScheme({ tier: 'beta', devLaunch: false }), guguLinkScheme({ tier: undefined, devLaunch: true }), ...DRIVE_LETTERS],
+    src: [...(defaultSchema.protocols?.src ?? []), 'gugu-file'],
   },
 };
 

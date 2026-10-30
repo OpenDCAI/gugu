@@ -65,7 +65,52 @@ export const codemirror = Object.freeze({
   lezerMarkdown,
 });
 
-export function bindCodemirror(view: unknown, file: unknown): () => void {
+/** What pasting a picture needs of `gugu` (create-gugu.ts hands its own): the page's upload, and its error report. */
+export type PictureVerbs = { upload(place: unknown, files: File[]): Promise<unknown>; reportError(message: string): Promise<unknown> };
+
+/** Pictures only, and no text with them (a copied page's text pastes as text): the files a paste or a drop carries. */
+function picturesIn(data: DataTransfer | null): File[] {
+  const files = [...(data?.files ?? [])];
+  return files.length > 0 && files.every((f) => f.type.startsWith('image/')) && !data!.types.includes('text/plain') ? files : [];
+}
+
+/**
+ * A picture pasted or dropped into a chat file's editor is saved first, a file in the document's folder (`files.upload`,
+ * the folder's one way in), then named where it was put: `![name](gugu-file://<id>)`, which `gugu.markdown()` draws.
+ * The place is carried through what is typed while it uploads. A working copy's file keeps the editor's own handling.
+ */
+function pictureDrops(view: cmView.EditorView, file: { entry?: { chat?: unknown; path?: unknown } }, verbs: PictureVerbs): Extension {
+  const waiting = new Set<{ at: number }>();
+  const put = (event: Event, files: File[], at: number) => {
+    // Where the file is now (it may have moved since it was bound).
+    const { chat, path } = file.entry ?? {};
+    if (files.length === 0 || view.state.readOnly || typeof chat !== 'string') return false;
+    const folder = typeof path === 'string' ? path.slice(0, Math.max(path.lastIndexOf('/'), 0)) : '';
+    event.preventDefault();
+    const place = { at };
+    waiting.add(place);
+    verbs
+      .upload(folder ? { chat, folder } : { chat }, files)
+      .then((entries) => {
+        const named = (entries as { id: string; name: string }[]).map((e) => `![${e.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${e.id})`);
+        if (named.length > 0) view.dispatch({ changes: { from: place.at, insert: named.join('\n') } });
+      })
+      .catch((error: unknown) => verbs.reportError(error instanceof Error ? error.message : String(error)))
+      .finally(() => waiting.delete(place));
+    return true;
+  };
+  return [
+    EditorView.updateListener.of((update) => {
+      for (const place of waiting) place.at = update.changes.mapPos(place.at);
+    }),
+    EditorView.domEventHandlers({
+      paste: (event, v) => put(event, picturesIn(event.clipboardData), v.state.selection.main.head),
+      drop: (event, v) => put(event, picturesIn(event.dataTransfer), v.posAtCoords({ x: event.clientX, y: event.clientY }) ?? v.state.selection.main.head),
+    }),
+  ];
+}
+
+export function bindCodemirror(view: unknown, file: unknown, verbs?: PictureVerbs): () => void {
   if (!(view instanceof EditorView)) {
     throw guguError('invalid', 'Create the editor with the EditorView from gugu.codemirror(); another copy of CodeMirror cannot be bound');
   }
@@ -95,6 +140,7 @@ export function bindCodemirror(view: unknown, file: unknown): () => void {
       Prec.highest(keymap.of(yUndoManagerKeymap)),
       EditorState.readOnly.of(inner.readOnly),
       hold.extension,
+      verbs ? pictureDrops(view, file as { entry?: { chat?: unknown; path?: unknown } }, verbs) : [],
     ];
   };
 

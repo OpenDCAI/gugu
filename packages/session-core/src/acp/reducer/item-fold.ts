@@ -929,6 +929,7 @@ function foldItemContent(
     // session-config / meta variants never reach foldItem (router intercepts them),
     // but the extended NormalizedEvent union requires a total switch.
     case 'agent_state':
+    case 'transcript_path':
     case 'ignored':
     // falls through
     default:

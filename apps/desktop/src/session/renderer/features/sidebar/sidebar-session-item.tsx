@@ -46,7 +46,9 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { RemoteSidebarSession } from './sidebar-store';
-import { remoteAgentStatus } from './session-groups';
+import { sessionPresentation, sessionReading } from '@/mobile/agent-watch/watch-status';
+import { taskStatusPresentation } from '@/lib/taskAgentStatus';
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
@@ -96,6 +98,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { params } = useParams('session');
   const { data: agents } = useAgents();
   const { translate } = useSessionMessages();
+  const shownStatus = useShownAgentStatus();
   const assistantName = useAssistantShell()?.assistant?.display_name ?? null;
   // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;#7334 起只有任务名 / agent 名,点一行复制「标签：值」)。
   // 它取代了 #5818 那次「标题就地翻成 agent 名」。会话 ID 不在卡上,在下面右键菜单的「复制会话 ID」。
@@ -111,7 +114,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
 
   // 挂着的会话读它自己的 store;别的机器上还没挂的读会话目录那一行(列出不挂载,见 sidebar-store)。
   const session = sessionRegistry.get(sessionId)?.sessions.get(sessionId);
-  const listed = session ? null : sidebarStore.remoteSession(projectId, sessionId);
+  const listed = sidebarStore.remoteSession(projectId, sessionId);
   const machine = machineRegistry.machineOf(projectId);
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
@@ -122,6 +125,12 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
   const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
+  const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
+  const presentation = shownStatus.presentation(agentUserId, session
+    ? taskStatusPresentation(agentUserId
+      ? { kind: 'agent', agentUserId }
+      : { kind: 'task', reading: row.status ? { status: row.status, detail: row.detail } : null, unseen: !row.seen, online: true })
+    : sessionPresentation(listed!.summary, listed!.live, agentUserId));
   const sessionIsActive =
     currentView === 'session' && params.sessionId === sessionId && params.projectId === projectId;
   const sessionView = getSessionView(projectId, sessionId);
@@ -136,7 +145,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // #6206:没有状态源(终端腿 + 这一家 hooks 为 none)的会话,宿主不陈述任何一态 ⇒ 行上如实说「状态不可用」。
   // 只在 status 为 null 时出现:provider 阻塞等确定事实写出的状态照常优先。
   const statusUnavailable =
-    row.status === null &&
+    !agentUserId && row.status === null &&
     harness !== undefined &&
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
   const title = formatSessionTitleForDisplay(providerId, row.title);
@@ -260,7 +269,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   );
 
   // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
-  const doneUnread = row.status === 'idle' && !row.seen;
+  const doneUnread = agentUserId ? presentation?.emphasis === true : row.status === 'idle' && !row.seen;
 
   // owner 10-28:会话列表里不标机器(机器只在悬停卡里写)。只剩一样:挂在父会话下、与父会话不在同一个项目行的 child 标它的项目。
   const projectLabel =
@@ -348,8 +357,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       title={title}
       harness={harness ? { id: providerId, name: harness.name } : null}
       badges={badges}
-      status={row.status}
-      detail={row.detail}
+      presentation={presentation}
       statusUnavailable={statusUnavailable}
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
@@ -502,9 +510,9 @@ function rowOfStore(session: SessionInRegistry, schedule: SessionpageScheduleDig
   };
 }
 
-/** 会话目录里的一行:不是此刻的读数(底稿 / 离线)时「在跑」不算数,与手机同一口径。 */
-function rowOfListing({ summary, live }: RemoteSidebarSession): SidebarRowData {
-  const reading = remoteAgentStatus(summary, live);
+/** Metadata plus identity-free task readings; identified agents use presence above. */
+function rowOfListing({ summary }: RemoteSidebarSession): SidebarRowData {
+  const reading = summary.agent?.userId ? null : sessionReading(summary);
   return {
     providerId: summary.harness,
     title: summary.title,

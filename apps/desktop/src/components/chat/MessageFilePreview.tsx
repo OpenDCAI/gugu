@@ -95,7 +95,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     setRead(null)
     const source = file.source
     const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage) : readPreview(file, kind)).then(
+    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage, message ? { chatId: message.chat_id, messageId: message.id } : undefined) : readPreview(file, kind)).then(
       (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
       async (error) => {
         // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
@@ -107,7 +107,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     )
     return () => { live = false; void release?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes; attempt reads them again
-  }, [key, kind, file.document, t, attempt])
+  }, [key, kind, file.document, message?.id, message?.chat_id, t, attempt])
   const renewVideo = async (video: HTMLVideoElement) => {
     const current = read
     if (video.dataset.renewing) return

@@ -1085,7 +1085,7 @@ export default {
       "balanceBlocked": "Used up",
       "periodCredits": "Membership credits",
       "walletCredits": "Non-expiring credits",
-      "openWebBilling": "Top up & manage membership on the web",
+      "openWebBilling": "Top up on the web",
       "statTokensHint": "Gugu models, including cache reads/writes"
     },
     "noCompare": "Nothing to compare with",

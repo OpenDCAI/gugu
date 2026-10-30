@@ -57,7 +57,7 @@ const local = (
   statusSourceFault: null,
 })
 async function settle(): Promise<void> {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  await vi.dynamicImportSettled()
 }
 // #3839 presence 缓存按**账号**划界,并且刻意地跨视图卸载存活 —— 所以每条判据必须自建它自己的
 // 账号边界。沿用同一个身份会让上一条判据留下的 entry 变成下一条的隐式前置(实测:留下的 removed

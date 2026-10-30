@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
@@ -21,6 +22,7 @@ import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
 import { useCloudComputerWake } from '../../hooks/useWakeCloudComputer'
 import { deriveAttention } from './agent-watch-store'
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer'
 import { sessionPresentation } from './watch-status'
 import { agentStatusText } from '@/lib/agentStatusText'
 import { agentStatusColorVar } from '@gugu/core/shared/agentStatusPresentation'
@@ -50,7 +52,7 @@ function useSessionApps(): Array<{ kind: string; name: string }> {
  * 页头状态是宿主写下的那份读数(`session` 是机器推来的最新一份,见 AgentWatchPage),与列表、提醒、桌面同一句话;
  * 时间线自己的推导(deriveAttention)只管这一页内部:最后一轮还没结算时线尾画「在干活」。
  */
-export function SessionTimelinePage({
+export const SessionTimelinePage = observer(function SessionTimelinePage({
   device,
   session,
   agent,
@@ -103,8 +105,11 @@ export function SessionTimelinePage({
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
-  // Header state uses the host summary; an unreachable host never advertises a running snapshot.
-  const presentation = online ? sessionPresentation(session, true) : null
+  // Identified agents share the group/avatar reading; transport only governs timeline access.
+  const shownStatus = useShownAgentStatus()
+  const agentUserId = agent?.agentUserId ?? session.agent?.userId
+  const presentation = !agentUserId && !online ? null
+    : shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
@@ -271,4 +276,4 @@ export function SessionTimelinePage({
         />
     </AgentWatchScreen>
   )
-}
+})

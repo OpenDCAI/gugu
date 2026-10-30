@@ -27,6 +27,8 @@ export interface PhoneMarket {
   entries(fresh?: boolean): Promise<CloudMarketEntry[]>
   /** This published version's README, including its market screenshot URLs. */
   readme(extensionId: string, version: string): Promise<string | null>
+  /** One file under the market's `media/` (a README screenshot), through the shell: the page cannot read its bytes itself. */
+  media(relativePath: string): Promise<Uint8Array>
   /** Every version of one App, newest first, each with whether this phone can install it — the desktop's version history. */
   history(extensionId: string): Promise<MarketVersionHistoryEntry[]>
   /** Updates, withdrawn versions, deprecations for these installed Apps — from the index in hand. */
@@ -56,6 +58,10 @@ export function phoneMarket(
     readme: async (extensionId, version) => {
       const path = (await index(false)).apps.find((app) => app.id === extensionId)?.versions.find((entry) => entry.version === version)?.readme
       return path ? new TextDecoder().decode(await read(path)) : null
+    },
+    media: async (relativePath) => {
+      if (!relativePath.startsWith('media/')) throw new Error(`Not a market media path: ${relativePath}`)
+      return read(relativePath)
     },
     history: async (extensionId) => marketHistoryFrom((await index(false)).apps.find((app) => app.id === extensionId) ?? null, host()),
     updatesFor: async (installed) => marketUpdatesFrom(await index(false), host(), installed, new Date().toISOString()),

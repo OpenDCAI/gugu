@@ -108,7 +108,8 @@ describe('手机:短按 @ 它,长按看详情', () => {
   beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }) })
   afterEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth }) })
 
-  it('手机把全部 agent 放在横滚运行栏里,可直接 @', async () => {
+  it('手机和桌面一样只排一行,点 +N 展开其余的,可直接 @', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360)
     const onTokenClick = vi.fn()
     await harness.render(
       <RunningTokenBar previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
@@ -116,9 +117,9 @@ describe('手机:短按 @ 它,长按看详情', () => {
         stateKey: 'running', toolCount: 2, lastActiveAt: null,
       }))} />,
     )
-    expect(document.body.querySelectorAll('.rtb-bar > [data-message-preview-trigger]')).toHaveLength(5)
-    expect(document.body.querySelector('.rtb-more')).toBeNull()
-    const last = document.body.querySelector<HTMLElement>('[data-message-preview-trigger="agent-5"]')!
+    expect([...document.body.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')].filter(e => e.style.visibility !== 'hidden')).toHaveLength(2)
+    await act(async () => { document.body.querySelector<HTMLElement>('.rtb-more')!.click() })
+    const last = document.body.querySelector<HTMLElement>('.rtb-ov [data-message-preview-trigger="agent-5"]')!
     await act(async () => { last.click() })
     expect(onTokenClick).toHaveBeenCalledExactlyOnceWith('agent-5')
     expect(card()).toBeNull()
@@ -243,6 +244,8 @@ describe('桌面: +n 只展开 agent,整条运行条共用一张预览', () => {
   })
   it('从 +n 移到第二个溢出 agent: 只显示它的 preview', async () => {
     const more = await expand()
+    // Pin it open with a click: the hover path from +n into the panel needs real geometry (browser test running-token-one-line-951).
+    await act(async () => { more.click() })
     await hover(more, trigger('agent-3'))
     await wait(450)
     expect(count()).toBe(1)

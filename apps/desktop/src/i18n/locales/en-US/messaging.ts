@@ -12,12 +12,6 @@ export default {
       "hint": "This Agent's device runs an older Gugu, so some activity may be missing.",
       "label": "Host outdated"
     },
-    "notification": {
-      "online": "Agent is online",
-      "replyFailed": "Agent reply failed",
-      "startedWorking": "Agent started working",
-      "startFailed": "Agent startup failed"
-    },
     "offlineWarning": "Currently offline and may not respond promptly",
     "archivedWarning": "Recipient is archived.",
     "wakeRefused": "{{name}} can't come online right now: ",

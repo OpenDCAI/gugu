@@ -242,10 +242,6 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => ({ messages: false, requests: false }),
 }))
-vi.mock('../../../../apps/desktop/src/lib/agentConversationEvents', () => ({
-  AGENT_SESSION_STARTED_EVENT: 'agent-conversation-started',
-  readAgentConversationStartedEvent: () => null,
-}))
 
 function setSessionUser(user: SessionUser | null) {
   probe.session = { status: user ? 'authenticated' : 'anonymous', user }
