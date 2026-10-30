@@ -23,6 +23,7 @@ vi.mock('@main/db/client', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
 import { nativeConversationUnread } from './session-conversation-read';
+import { startNativeConversationInboxHost } from './native-conversation-inbox';
 import { events } from '@main/lib/events';
 import { appendRecordTurnNow, getStoredToolImage, persistCommittedTurn, readStoredTailNow, readStoredTurns, storedRevertBoundary, storedTurnIndexBase, truncateStoredHistory, withStoredTurns } from './session-turn-store';
 
@@ -62,6 +63,39 @@ describe('conversation-turn-store', () => {
   });
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+
+  it('requests the inbox address when a new task records its first real owner exchange', async () => {
+    const open = vi.fn(async () => 'canonical-dm');
+    const inbox = startNativeConversationInboxHost({ open, failed: error => { throw error; } });
+    try {
+      await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: {
+        ...turn('first-owner-turn', 'First personal input'), trigger: { kind: 'owner' }, startedAt: 1000, endedAt: 2000,
+        items: [
+          { kind: 'message', id: 'owner-input', seq: 0, role: 'user', text: 'First personal input', at: 1000 },
+          { kind: 'message', id: 'owner-reply', seq: 1, role: 'assistant', text: 'First personal reply', at: 2000 },
+        ],
+      } });
+      await inbox.flush();
+      expect(open).toHaveBeenCalledExactlyOnceWith({ sessionId: 'c1', projectId: 'p1' });
+      const entry = fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1') as { value: string } | undefined;
+      expect(entry && JSON.parse(entry.value)).toEqual({ projectId: 'p1', chatId: 'canonical-dm' });
+    } finally { inbox.dispose(); }
+  });
+
+  it.each(['agent', 'schedule', 'delivery'] as const)('does not request a personal DM for live %s work', async kind => {
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: {
+      ...turn('background', 'Background activity'), trigger: { kind }, startedAt: 1000, endedAt: 2000,
+      items: [{ kind: 'message', id: 'background', seq: 0, role: 'assistant', text: 'Background reply', at: 2000 }],
+    } });
+    expect(fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1')).toBeUndefined();
+  });
+
+  it('does not request a DM when startup replay or a historical revision brings back old personal messages', async () => {
+    const old = { ...turn('old-personal', 'Historical personal input'), trigger: { kind: 'owner' as const }, startedAt: 1000, endedAt: 2000 };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: old });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'revision', turn: old });
+    expect(fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1')).toBeUndefined();
+  });
 
   it('#980 continues runtime turn numbers after every stored run, ignoring store-renumbered and record rows', async () => {
     expect(await storedTurnIndexBase('c1')).toBe(0);

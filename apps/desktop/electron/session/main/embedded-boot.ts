@@ -56,6 +56,7 @@ export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
+export { startNativeConversationInboxHost } from './core/sessions/native-conversation-inbox'
 import { createHash, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { app, BrowserWindow, MessageChannelMain, session as electronSession, type IpcMain } from 'electron'

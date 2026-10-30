@@ -6,6 +6,8 @@ import { sessionTurns } from '@main/db/schema';
 import { randomUUID } from 'node:crypto';
 import { activitySignal } from '../activity/signals';
 import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
+import { nativeConversationActivity } from './session-conversation-activity';
+import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
 import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
 
 /**
@@ -143,9 +145,12 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     .onConflictDoNothing()
     .returning({ seq: sessionTurns.seq }).all();
     const publish = input.source === 'live' && result.length ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx) : undefined;
-    return { rows: result, publish };
+    const inbox = input.source === 'live' && result.length > 0 && nativeConversationActivity(input.sessionId, tx)?.turnSeq === turn.seq
+      ? queueNativeConversationInbox(input.sessionId, tx) : false;
+    return { rows: result, publish, inbox };
   });
   inserted.publish?.();
+  if (inserted.inbox) publishNativeConversationInbox();
   if (input.source === 'replay' && inserted.rows.length) didFillReplay(input.sessionId, input.turn.seq);
   // The activity index names a turn by this stored sequence, assigned here and nowhere else: the runtime's own turn
   // ids restart at 0 with every run, and the provider record numbers its turns from a different stream. A replayed

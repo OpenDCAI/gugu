@@ -4962,6 +4962,11 @@ app.whenReady().then(async () => {
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    const nativeInbox = emdash.startNativeConversationInboxHost({
+      open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
+      failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
+    })
+    app.once('will-quit', nativeInbox.dispose)
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
     const assistantPanel = createAssistantPanelRuntime({

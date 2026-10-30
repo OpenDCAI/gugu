@@ -20,7 +20,7 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
   const [data, setData] = createSignal(item);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
   const caches = createChatCaches();
-  const ctx: MeasureCtx = { theme, caches, width, isCollapsed: () => false, expanded: () => false };
+  const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false };
   const renderCtx: RenderCtx = { measureCtx: () => ctx, viewState: { isCollapsed: () => false } };
   const host = document.createElement('div');
   host.style.width = `${width}px`;
@@ -45,8 +45,9 @@ describe('agent-centered conversation bubbles', () => {
     document.body.append(host);
     const text = '消息已保留，助理就绪后回复。';
     const [pending, setPending] = createSignal(true);
+    const measureCtx: MeasureCtx = { theme: buildChatTheme(DEFAULT_CONFIG), caches: createChatCaches(), width: 320, isCollapsed: () => false, expanded: () => false };
     const dispose = render(() => <CommandsContext.Provider value={() => ({ conversationProcessNotice: () => pending() ? { id: 'notice', text } : null })}>
-      <ConversationProcess process={{ id: 'im:notice:process', steps: 0 }} anchorId="p" expanded={false} />
+      <ConversationProcess measureCtx={() => measureCtx} process={{ id: 'im:notice:process', steps: 0 }} anchorId="p" expanded={false} />
     </CommandsContext.Provider>, host);
     try {
       const header = host.querySelector<HTMLElement>('[data-conversation-process]')!;
@@ -261,7 +262,7 @@ describe('agent-centered conversation bubbles', () => {
   it('keeps the quote in the name row and never repeats it on the body', async () => {
     const quote = { itemId: 'src', text: '这是被引用的那条消息，'.repeat(12), from: '小王' };
     const quoted = await mount({ kind: 'message', id: 'send:head', role: 'assistant', text: '', at: Date.now(), conversationPart: 'head', sentReplyTo: 'src', conversationReply: quote,
-      conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } });
+      conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } }, 600, { onConversationReply: () => {} });
     const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
     try {
       const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;

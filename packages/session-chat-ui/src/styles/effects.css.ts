@@ -8,7 +8,7 @@
  * The keyframe names are scoped by VE so they never collide in the host app.
  */
 
-import { keyframes, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from './theme.css';
 
 // ── Keyframes ─────────────────────────────────────────────────────────────────
@@ -173,3 +173,7 @@ export const planSpinner = style({
     },
   },
 });
+
+/** Multiline labels use the same measured line breaks in the composited glyph texture. */
+export const textShimmerMultiline = style({});
+globalStyle(`${textShimmerMultiline} ${textShimmerInk}`, { whiteSpace: 'inherit', overflowWrap: 'inherit', textOverflow: 'clip' });

@@ -16,6 +16,7 @@ export function UserMessageActions(props: {
   vars: MessageVars;
   /** 常驻在这一行最前面的一小段(对话布局里发出去的气泡:「发到 群名」)。 */
   prefix?: string;
+  controlHeight?: number;
 }) {
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -40,13 +41,13 @@ export function UserMessageActions(props: {
           const { copied, copy } = createClipboard((error) => commands().onCopyError?.(error));
           const copyLabel = () => copied() ? translate('transcript.copied') : translate('transcript.copyMessage');
           return <>
-            <button type="button" class={userMessageActionButton}
+            <button type="button" class={userMessageActionButton} style={props.controlHeight ? { height: `${props.controlHeight}px` } : undefined}
               aria-label={copyLabel()} title={copyLabel()}
               onClick={(event) => { event.stopPropagation(); copy(props.text); }}>
               <Show when={copied()} fallback={<IconCopy />}><IconCheck /></Show>
             </button>
             <Show when={!props.readOnly && !props.generating && commands().onEditMessage && commands().canRevertMessage?.(itemId)}>
-              <button type="button" class={userMessageActionButton}
+              <button type="button" class={userMessageActionButton} style={props.controlHeight ? { height: `${props.controlHeight}px` } : undefined}
                 aria-label={translate('transcript.editMessage')} title={translate('transcript.editMessage')}
                 onClick={(event) => { event.stopPropagation(); commands().onEditMessage?.({ itemId }); }}>
                 <IconEdit />
