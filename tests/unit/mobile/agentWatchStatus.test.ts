@@ -17,6 +17,12 @@ const session = (fields: Partial<SessionpageSessionSummary>): SessionpageSession
 
 // #6448 手机与会话页、聊天同一张表(presentAgentStatus);手机只多一条:机器离线时不替它说「在跑」。
 describe('phone session status', () => {
+  it('reads an unobserved agent without initializing browser authentication', () => {
+    expect(typeof window).toBe('undefined')
+    expect(sessionPresentation(session({ agent: { userId: 'unobserved-phone-agent' } }), true))
+      .toMatchObject({ tone: 'pending', label: 'pending' })
+  })
+
   it('reads the new host reading first, the old word only when the reading is absent', () => {
     expect(sessionReading(session({ agentStatus: 'needs_approval', status: { status: 'needs_user', detail: 'question' } })))
       .toEqual({ status: 'needs_user', detail: 'question' })

@@ -12,7 +12,6 @@ import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisi
 // 读数只有一个写入者,走两条路:这台机器就是它的宿主时读本机流(宿主按 agent 的流,同一个写入者、路更短),
 // 否则读云端那一行上的读数(宿主写 presence 时带上的同一句)。❌ 两条路比版本:本机有就是本机的。
 
-import { dataClient } from './supabase'
 import {
   parseAgentPresencePayload,
   type AgentPresencePayload,
@@ -468,6 +467,8 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
   if (waiters.length === 0) return
   const ids = waiters.map((waiter) => waiter.entry.agentUserId)
   try {
+    // Reading presence is platform-independent; initialize browser auth only for network I/O.
+    const { dataClient } = await import('./supabase')
     recordPresenceBatch(ids.length)
     const { data, error } = await dataClient
       .schema('identity')
