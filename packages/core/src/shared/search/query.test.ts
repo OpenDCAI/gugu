@@ -38,6 +38,10 @@ describe('one shared query parser', () => {
   it.each(['in:', 'in:unknown', 'from:unknown', 'has:video', 'is:unknown', 'on:2026-02-30', 'on:2026-13-01', 'on:nope', 'frmo:peer', '"open', '-', '-has:file'])(
     'reports malformed input rather than widening the query: %s', (input) => {
       expect(() => parseQuery(input, context)).toThrow(SearchQueryError)
+      let failure: unknown
+      try { parseQuery(`发布 😀 ${input}`, context) } catch (error) { failure = error }
+      expect(failure).toBeInstanceOf(SearchQueryError)
+      expect(failure).toMatchObject({ position: 6 })
     })
 
   it('rejects ambiguous entity resolution and leaves supplied filters unmodified', () => {
