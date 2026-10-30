@@ -2515,6 +2515,9 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 function onHumanAuthSessionChanged(): void {
   projectionDeviceRuntime.invalidate()
   void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+  // The local message search index follows the signed-in account (sign-out / switch deletes the previous one); after
+  // revocation and persistence, like the other owners of per-account local state here.
+  messageSearchAccountChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null)
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
   })
@@ -2524,6 +2527,9 @@ function onHumanAuthSessionChanged(): void {
   void localDeviceId()
   void handOffWechatIfAny()
   refreshPlatformCredentials()
+}
+function messageSearchAccountChanged(accountId: string | null): void {
+  loadEmdashBridge()?.messageSearchAccountChanged(accountId)
 }
 // #921 平台保管的凭据(高德):开机、登录变了就问一次平台哪些连着,本机账号表照着改 —— 另一台设备连的,这台也算连着;
 // #649 留在本机的 key 也在这一步传上去。要等会话页后端 boot 完(账号表是它建的),之前来的那一下由 boot 之后那次补上。
@@ -2567,7 +2573,6 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
     pushedHumanAuth = undefined
     pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
     projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
-    loadEmdashBridge()?.messageSearchAccountChanged(pushedHumanAuth.userId)
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
@@ -2577,7 +2582,6 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
     projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
-    loadEmdashBridge()?.messageSearchAccountChanged(null)
     return await clearHumanAuthSession()
   } finally {
     onHumanAuthSessionChanged()
