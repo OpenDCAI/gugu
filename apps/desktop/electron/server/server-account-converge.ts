@@ -269,8 +269,9 @@ export function createAccountVersionConverger(options: {
           requestedTarget: !followSupervisor && request?.confirmed ? request.target : undefined,
           switchConfirmed: request?.confirmed === true && request.target === selectedTarget,
           installed: version => installed(version) && options.lifecycle?.ready(version) === true,
-          busy: targetUnverified || (current !== undefined && (options.busy?.(account.dataDir)
-            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId)))),
+          // No child is restart/backoff, never positive evidence of idle. Preserve its pin/trial.
+          busy: targetUnverified || current === undefined || (options.busy?.(account.dataDir)
+            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId))),
           failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
           fallback: layout.version,
           unpublished,

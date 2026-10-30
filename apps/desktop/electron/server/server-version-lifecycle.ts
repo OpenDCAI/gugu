@@ -1,5 +1,5 @@
 /** Supervisor-owned version lifecycle, shared by account matching, self-upgrade and its watchdog. */
-import { pickTargetVersion, readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+import { readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
 import { checkAccountBoot } from './server-selftest'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -74,8 +74,7 @@ export function createServerVersionLifecycle(options: {
     const marker = readUpgradeMarker(layout.home)
     if (marker) { keep.add(marker.from); keep.add(marker.to) }
     for (const account of listAccounts()) {
-      const target = pickTargetVersion(readDesktopReports(account.dataDir), Date.now())
-      if (target) keep.add(target)
+      for (const report of Object.values(readDesktopReports(account.dataDir))) keep.add(report.version)
       const pin = readAccountVersionPin(account.dataDir)
       if (pin) { keep.add(pin.version); if (pin.previous) keep.add(pin.previous) }
     }

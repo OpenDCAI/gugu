@@ -9,7 +9,7 @@
  *       放进 `versions/.incoming/` 的包,见 server-account-converge.ts)—— 装的只有它一个,桌面 ❌ 再装一份。
  *
  * 标准输出上机器可读的一行:`MATCH_MARK key=value …`。
- * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 守护进程装这一版失败了;8 有 agent 在跑、等空闲再换;
+ * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 安装/试跑失败或请求被替代;8 有 agent 在跑、等空闲再换;
  * 7 它连不上下载站(要桌面把包的字节放进 `versions/.incoming/` 再来一次,见 ssh-install/runner.ts)。
  * ⚠️ 只在 CLI 里跑:不碰 electron、不加载主进程。
  */
@@ -20,11 +20,13 @@ import {
   isServerVersion,
   pickTargetVersion,
   recordDesktopReport,
+  readVersionSwitchRequest,
   requestVersionSwitch,
 } from '@gugu/core/cloud/serverDesktopVersions'
 import { MATCH_MARK, readAccountVersionPin, versionBinary } from './server-account-versions'
 import { pickAttachAccount } from './account-call'
 import { listAccounts, type ServerAccount } from './server-layout'
+import { readBadVersions } from './server-upgrade-guard'
 
 const ID = /^[A-Za-z0-9:_-]{1,128}$/
 
@@ -99,6 +101,7 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
     return 3
   }
   const requestedAt = now()
+  const originalPin = readAccountVersionPin(account.dataDir)
   requestVersionSwitch(account.dataDir, `desktop asked to switch to ${parsed.version}`, requestedAt, parsed.now, parsed.version)
   const readState = deps.readUpdateState ?? ((a: ServerAccount) => {
     try {
@@ -139,6 +142,23 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         return 7
       }
       err(`这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${seen ?? '(没在跑)'}`)
+      return 6
+    }
+    const replacement = readVersionSwitchRequest(account.dataDir, now())
+    const pin = readAccountVersionPin(account.dataDir)
+    if ((readBadVersions(deps.home)[parsed.version] ?? -Infinity) >= requestedAt) {
+      err(`换版请求 ${parsed.version} 启动失败，已回滚到 ${pin?.version ?? '守护进程版本'}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      return 6
+    }
+    // Consumption removes the request file, so a changed pin also reports a superseded/rolled-back
+    // target. An older, different pin is normal while the requested package is still being staged.
+    if (replacement?.target && replacement.target !== parsed.version && replacement.at >= requestedAt) {
+      err(`换版请求 ${parsed.version} 已被另一个请求 ${replacement.target} 替代（${replacement.reason}），这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      return 6
+    }
+    if (pin && pin.version !== parsed.version && pin.at >= requestedAt
+      && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)) {
+      err(`换版请求 ${parsed.version} 已被守护进程改为 ${pin.version}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
       return 6
     }
     await sleep(500)
