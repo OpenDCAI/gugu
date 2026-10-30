@@ -1106,9 +1106,9 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskConfig.sessionViewCode': '终端',
   'taskConfig.sessionViewGeneral': '通用',
   'taskConfig.sessionViewGeneralOnly': '{name} 只提供通用模式',
-  'taskConfig.sessionViewGeneralRequiredHere': '从这里发起时,{name} 只能用通用模式',
+  'taskConfig.sessionViewGeneralRequiredHere': '从这里发起时，{name} 只能用通用模式',
   'taskConfig.sessionViewRemoteNeedsSsh': '这里仅支持「通用」。要用「终端」，请在 设置 → 设备 中用远程 SSH 添加这台机器。',
-  'taskConfig.sessionViewCodeOnly': '{name} 的通用模式尚未接通,先用终端模式',
+  'taskConfig.sessionViewCodeOnly': '{name} 的通用模式尚未接通，先用终端模式',
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   'providerSelection.noTaskpageSession': '{name} 还不能在这里开会话,请换一个智能体。',
 
