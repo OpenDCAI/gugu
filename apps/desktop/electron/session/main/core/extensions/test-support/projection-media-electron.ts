@@ -49,6 +49,7 @@ void app.whenReady().then(async () => {
   let fault: unknown, inputCalls = 0, stopped = false;
   const paints: Array<{ sequence: number; rtpTimestamp: number; rgb: number[] }> = [];
   const outcomes: unknown[] = [], pixels: Uint8Array[] = [];
+  const decoded: number[][] = [];
   let disconnected = 0, viewerGeneration = "";
   const encoded = new Map<number, number>();
   await source.loadURL('data:text/html,' + encodeURIComponent('<body style="margin:0;background:rgb(26,96,190)"><textarea style="width:60px;height:20px"></textarea><script>document.querySelector("textarea").focus()</script>'));
@@ -69,7 +70,8 @@ void app.whenReady().then(async () => {
     authorize: async (bound, sourceId, signal) => {
       signal.throwIfAborted();
       const feed = bridge.mediaFeed(page, sourceId, bound, async (frame, signal) => {
-        const lease = await decode(frame, signal); pixels.push(lease.data); return lease;
+        const lease = await decode(frame, signal); pixels.push(lease.data);
+        const at = (80 * frame.width + 110) * 4; decoded.push([...lease.data.subarray(at, at + 4)]); return lease;
       }, async (size, signal, onControl) => {
         const media = await openMediaProcess({ ...size, executable: process.env.GUGU_TEST_MEDIA_HELPER!,
           ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!, fps: 10, bitrate: 500000, signal,
@@ -122,11 +124,12 @@ void app.whenReady().then(async () => {
     assert.deepEqual(outcomes[0], { type: 'input-result', generation: viewerGeneration, sequence: 1, status: 'applied' });
     assert.equal(inputCalls, 1);
     assert.equal(await source.webContents.executeJavaScript('document.querySelector("textarea").value'), '整链中文🙂');
-    await source.webContents.executeJavaScript('document.body.style.background="rgb(190,40,26)"');
+    // JS completion can precede compositor capture; witness the new paint first.
+    await source.webContents.executeJavaScript('document.body.style.background="rgb(190,40,26)"; new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.equal(await capture(), 2);
     await until(() => paints.some(paint => paint.sequence === 2));
     const second = paints.find(paint => paint.sequence === 2)!;
-    for (const [channel, wanted] of [190, 40, 26].entries()) assert.ok(Math.abs(second.rgb[channel]! - wanted) < 12, JSON.stringify(second));
+    for (const [channel, wanted] of [190, 40, 26].entries()) assert.ok(Math.abs(second.rgb[channel]! - wanted) < 12, JSON.stringify({ second, decoded }));
     assert.equal(second.rtpTimestamp, encoded.get(2));
     assert.equal(pixels.length, 2); assert.equal(pixels[0], pixels[1]);
     service.setPermissionGranted(id, 'agents:tools', false);
@@ -135,7 +138,7 @@ void app.whenReady().then(async () => {
     await until(() => stopped && [...feeds.values()][0]!.lease.signal.aborted);
     await signals.dispose();
     assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
-    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, paints, inputCalls, reused: pixels[0] === pixels[1],
+    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
       home: process.env.GUGU_HOME, userData: app.getPath('userData'), electron: process.versions.electron }) + '\n');
   } finally {
     try { await signals.dispose(); }

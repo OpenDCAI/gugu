@@ -191,6 +191,25 @@ test('closing connections retain their capacity until the driver drains, and ree
   await host.dispose()
 })
 
+test('cleanup preserves the driver failure while still closing media and releasing authority', async t => {
+  let closed = 0, released = 0
+  const host = new ProjectionSignals({
+    async authorize(binding, sourceId) {
+      return { context: binding, sourceId, signal: new AbortController().signal,
+        async assertCurrent() {}, async disconnect() { throw new Error('Driver cleanup failed') }, release() { released++ } }
+    },
+    async openMedia() {
+      return { offer: { type: 'offer', sdp: 'fixture' }, closed: new Promise(() => {}),
+        async close() { closed++; throw new Error('Media cleanup failed') } }
+    },
+  })
+  t.after(() => host.dispose())
+  const media = await host.receive(context, open('cleanup-failure'))
+  await assert.rejects(host.receive(context, { type: 'close', id: media.id }), /Driver cleanup failed/)
+  assert.equal(closed, 1)
+  assert.equal(released, 1)
+})
+
 test('a local authority lease owns a real native helper and closing the binding awaits its exit', { timeout: 15000 }, async () => {
   let disconnected = false
   let released = false

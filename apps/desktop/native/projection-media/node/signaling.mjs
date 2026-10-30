@@ -133,13 +133,12 @@ export class ProjectionSignals {
       // The media helper owns no input driver. Drain/cancel the owning App's
       // input and disconnect it before releasing that App resource lease.
       const results = await Promise.allSettled([entry.queue])
-      try {
-        await entry.lease?.disconnect()
-      } finally {
-        try { await entry.media?.close() }
-        catch (error) { if (error !== entry.abort.signal.reason) throw error }
-        finally { entry.lease?.release() }
-      }
+      try { await entry.lease?.disconnect() }
+      catch (reason) { results.push({ status: 'rejected', reason }) }
+      try { await entry.media?.close() }
+      catch (reason) { if (reason !== entry.abort.signal.reason) results.push({ status: 'rejected', reason }) }
+      try { entry.lease?.release() }
+      catch (reason) { results.push({ status: 'rejected', reason }) }
       const rejected = results.find(result => result.status === 'rejected')
       if (rejected) throw errorOf(rejected.reason)
     })().finally(() => {

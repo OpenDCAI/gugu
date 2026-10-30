@@ -6,7 +6,8 @@ const test = (name, run) => nodeTest(name, { timeout: 2000 }, run)
 
 // State-machine fixtures; actual browser/decoder coverage is in host-browser.node-test.mjs.
 const fixture = (t, options = {}) => {
-  let peer, callback, stopped = 0
+  let callback, stopped = 0
+  const peers = []
   const previous = new Map(['RTCPeerConnection', 'MediaStream'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   t.after(() => { for (const [key, descriptor] of previous) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]
@@ -15,7 +16,7 @@ const fixture = (t, options = {}) => {
     readyState: 'open', bufferedAmount: 0, sent: [],
     close() { this.readyState = 'closed'; this.onclose?.() }, send(raw) { this.sent.push(raw) }, ...options.channel }
   globalThis.RTCPeerConnection = class {
-    constructor(config) { peer = this; this.config = config; this.iceGatheringState = 'complete' }
+    constructor(config) { peers.push(this); this.config = config; this.iceGatheringState = 'complete' }
     async setRemoteDescription() {}
     async createAnswer() { return { type: 'answer', sdp: 'fixture-answer' } }
     async setLocalDescription(description) { this.localDescription = description; this.ondatachannel({ channel }) }
@@ -29,8 +30,8 @@ const fixture = (t, options = {}) => {
     answer: options.answer ?? (async () => {}), onFrame: frame => frames.push(frame), onControl: raw => controls.push(raw), ...options })
   t.after(async () => { const media = await starting.catch(() => undefined); media?.close() })
   return { starting, video, channel, frames, controls,
-    peer: () => peer, stopped: () => stopped,
-    track() { peer.ontrack({ track: { kind: 'video', stop() { stopped++ } } }) },
+    peer: () => peers[0], stopped: () => stopped,
+    track() { peers[0].ontrack({ track: { kind: 'video', stop() { stopped++ } } }) },
     paint(stamp) { assert.ok(callback); callback(0, { rtpTimestamp: stamp, width: 128, height: 96 }) },
     message(value) { channel.onmessage({ data: typeof value === 'string' ? value : JSON.stringify(value) }) },
   }
