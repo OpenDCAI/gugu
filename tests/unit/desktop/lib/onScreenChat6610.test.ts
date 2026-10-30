@@ -14,7 +14,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
   },
 }))
 
-const { chatOnScreen, useReportChatOnScreen } = await import('../../../../apps/desktop/src/lib/onScreenChat')
+const { chatOnScreen, isChatOnScreen, useReportChatOnScreen } = await import('../../../../apps/desktop/src/lib/onScreenChat')
 
 let harness: ReturnType<typeof createReactHarness>
 const seen: Array<string | null> = []
@@ -74,9 +74,39 @@ describe('#6610 chat on screen', () => {
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
     expect(chatOnScreen()).toBeNull()
   })
+
+  it('waits for a new host answer and ignores a delayed answer from the previous subscription', async () => {
+    await harness.render(createNode(Shell, { shown: 'chat-1' }))
+    const previousAnswer = host.listener
+    expect(chatOnScreen()).toBe('chat-1')
+    await harness.render(null)
+    host.subscribeAppActive = (listener) => {
+      host.listener = listener // the real host's initial answer is asynchronous
+      return () => { host.listener = null }
+    }
+    await harness.render(createNode(Shell, { shown: 'chat-2' }))
+    expect(chatOnScreen()).toBeNull()
+    expect(seen.at(-1)).toBeNull()
+    await act(async () => { previousAnswer?.(true) })
+    expect(chatOnScreen()).toBeNull()
+    await act(async () => { host.listener?.(false) })
+    expect(chatOnScreen()).toBeNull()
+    await act(async () => { host.listener?.(true) })
+    expect(chatOnScreen()).toBe('chat-2')
+  })
 })
 
 describe('#7199 more than one place can show a chat', () => {
+  it('keeps every visible pane queryable through the shared host activity source', async () => {
+    await harness.render(createNode('div', null, createNode(Shell, { shown: 'chat-1' }), createNode(Shell, { shown: 'dm' })))
+    expect(isChatOnScreen('chat-1')).toBe(true)
+    expect(isChatOnScreen('dm')).toBe(true)
+    expect(isChatOnScreen('hidden')).toBe(false)
+    await act(async () => { host.listener?.(false) })
+    expect(isChatOnScreen('chat-1')).toBe(false)
+    expect(isChatOnScreen('dm')).toBe(false)
+  })
+
   it('is the chat whichever reporter shows, whatever the order they mounted in', async () => {
     const both = (chat: string | null, assistant: string | null) =>
       createNode('div', null, createNode(Shell, { shown: chat }), createNode(Shell, { shown: assistant }))
