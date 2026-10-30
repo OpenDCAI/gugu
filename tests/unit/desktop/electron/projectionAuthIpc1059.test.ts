@@ -33,6 +33,7 @@ describe('actual auth IPC revokes projection before persistence', () => {
       writeHumanAuthSession: async () => { entered.resolve(); await disk.promise; },
       clearHumanAuthSession: async () => { entered.resolve(); await disk.promise; },
       nativeFiles: { ownerChanged: async () => {} }, refreshElectronSupabaseAuth: async () => {},
+      messageSearchAccountChanged() {},
       deviceRuntimeHost: null, deviceProjectsPublisher: null, localDeviceId() {}, handOffWechatIfAny() {}, refreshPlatformCredentials() {},
     });
     const lease = await runtime.options.identity.capture(new AbortController().signal);
