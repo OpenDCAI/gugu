@@ -16,6 +16,7 @@ export function isRoomChat(kind: ChatKind): boolean {
 }
 
 /**
+ * 列表内的安静未读数沿用本函数；出窗口徽标用 notificationModels.unreadAskingYou（群/话题都只数叫到你）。
  * 未读里算到你头上的条数(owner 10-28):话题只算叫到你的 —— 点名你、@all、回复你说的;其余会话算全部未读。
  * agent 开的话题会把主人拉成成员,agent 之间的往来照旧是话题自己的未读(话题页签上的数),但不进项目行、不弹通知。
  * 没有 locator(没有未读 = 0;本机刚手动标未读、还没刷新 = 1,与服务端「手动标记算 1」一致)就照 unread_count。

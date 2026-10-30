@@ -52,6 +52,7 @@ const {
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({
   useAuth: () => ({ user: authUser, loading: false, setUser: vi.fn() }),
 }))
+vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: {}, getCurrentAuthUserId: async () => authUser.id }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: chatServiceMock }))
 vi.mock('../../../../apps/desktop/src/lib/chatSnapshotPublication', async () => {
   const actual = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/chatSnapshotPublication')>(
@@ -149,11 +150,12 @@ vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: {
-    capabilities: { notifications: false, badge: false },
+    capabilities: { notifications: false, badge: true },
     showNotification: vi.fn(),
     setBadge: vi.fn(),
   },
 }))
+import { platform } from '../../../../apps/desktop/src/platform'
 import { ChatProvider } from '../../../../apps/desktop/src/store/chat'
 import { useChatStore } from '../../../../apps/desktop/src/store/chatContext'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
@@ -342,3 +344,22 @@ describe('#4314 新建 agent 后的会话选中是导航意图，不是列表刷
     expect(latestStore?.activeChatId, '被移出会话时必须让位').toBeNull()
   })
 })
+
+
+describe('system badge follows addressed unread, while list rows stay complete', () => {
+  it('keeps a non-addressed group message quiet and badges the next addressed message', async () => {
+    serverChatList.mockResolvedValue({ chats: [], identities: [] });
+    await renderStore();
+    const group = chat({ id: 'badge-group', kind: 'group', unread_count: 5, unread_locator: {
+      stream_id: 'main:badge-group', stream_kind: 'main', thread_root_id: null, message_id: 'm1', message_seq: 1,
+      unread_count: 5, addressed_count: 0, cursor_seq: 0, version: 1, is_marked_unread: false,
+    } });
+    await act(async () => { latestStore!.upsertChat(group); });
+    await flushReact();
+    expect(latestStore!.chats.find((row) => row.id === group.id)?.unread_count).toBe(5);
+    expect(platform.setBadge).toHaveBeenLastCalledWith(0);
+    await act(async () => { latestStore!.upsertChat({ ...group, unread_count: 6, unread_locator: { ...group.unread_locator!, unread_count: 6, addressed_count: 1 } }); });
+    await flushReact();
+    expect(platform.setBadge).toHaveBeenLastCalledWith(1);
+  });
+});
