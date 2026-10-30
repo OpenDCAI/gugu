@@ -5,6 +5,7 @@
  * Delivery routing, prompt identity and scroll behaviour stay separate from paint.
  */
 import type { DeliveryReadFacts, DeliverySegment } from '@gugu/core/local/agent/deliveryEnvelope';
+import { readableLabel, rowTranslator, wrappedRowHeight } from '../readable-label';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
@@ -136,9 +137,38 @@ function deliveryDetails(item: ChatMessage): DeliveryFactEntry[] {
   return facts ? deliveryFactEntries(facts) : [];
 }
 
-function detailsHeight(item: ChatMessage, lineH: number, vars: DeliveryVars): number {
+function sourceLayout(item: ChatMessage, ctx: MeasureCtx, vars: DeliveryVars) {
+  const facts = cardFacts(item), t = rowTranslator(ctx), self = ctx.selfIdentity ?? null;
+  const named = facts ? isSelfAddress(facts.fromId, self) ? t('transcript.deliveryFromMe') : shownSender(facts.from, facts.fromId, self) : null;
+  const sender = named || t(facts ? 'transcript.deliveryUnknownSender' : 'transcript.deliveryLegacySender');
+  const route = facts ? routeLabel(facts, t, { appName: ctx.appName ?? (() => null), chatName: ctx.chatName ?? (() => null) }) : '';
+  const width = userAvailableWidth(ctx.width, ctx.theme.layout), line = ctx.theme.fonts.body.lineHeight;
+  const name = readableLabel(sender, ctx, width - vars.avatar - 8, 12, line);
+  const via = readableLabel(route, ctx, width - 20, 12, line);
+  const parts = [{ width: vars.avatar, height: vars.avatar }, { width: Math.min(width - vars.avatar - 8, name.width), height: name.height }];
+  if (route) parts.push({ width: Math.min(width - 20, via.width), height: via.height });
+  if (deliveryDetails(item).length) parts.push({ width: 12, height: line });
+  return { name, via, height: wrappedRowHeight(parts, width, 8) + vars.headerExtraH };
+}
+
+function detailValueLayout(item: ChatMessage, entry: DeliveryFactEntry, ctx: MeasureCtx) {
+  const t = rowTranslator(ctx), lineH = ctx.theme.fonts.body.lineHeight;
+  const labels = deliveryDetails(item).map(row => readableLabel(t(`transcript.deliveryFact.${row.key}`), ctx, ctx.width, 14, lineH).width);
+  const width = userAvailableWidth(ctx.width, ctx.theme.layout) - 16 - 12 - Math.max(0, ...labels);
+  return readableLabel(entry.value, ctx, width, 14, lineH);
+}
+function detailsHeight(item: ChatMessage, ctx: MeasureCtx, vars: DeliveryVars): number {
   const entries = deliveryDetails(item);
-  return entries.length > 0 ? entries.length * lineH + 2 * vars.factsPadY : 0;
+  return entries.length ? entries.reduce((sum, entry) => sum + detailValueLayout(item, entry, ctx).height, 0) + 2 * vars.factsPadY : 0;
+}
+function replyLayout(item: ChatMessage, ctx: MeasureCtx) {
+  const reply = cardFacts(item)?.replyTo;
+  if (!reply || ctx.commands?.onConversationReply) return null;
+  const text = rowTranslator(ctx)('transcript.deliveryReplyTo', {
+    from: shownSender(reply.from, reply.fromId, ctx.selfIdentity ?? null) ?? reply.fromId,
+    preview: quotedWords(reply.preview),
+  });
+  return readableLabel(text, ctx, userAvailableWidth(ctx.width, ctx.theme.layout) - 10, 12, ctx.theme.fonts.body.lineHeight);
 }
 
 /** Chat/session inputs already have a single conversation identity in the pane header. */
@@ -150,10 +180,10 @@ function bodyOnly(item: ChatMessage): boolean {
 function bands(item: ChatMessage, ctx: MeasureCtx, vars: DeliveryVars, messageVars: MessageVars, factsOpen: boolean): Bands {
   if (bodyOnly(item)) return { headerH: 0, replyH: 0, bodyH: measureUserMessage(item, ctx, messageVars), factsH: 0, total: 2 * vars.padY + measureUserMessage(item, ctx, messageVars) };
   const lineH = ctx.theme.fonts.body.lineHeight;
-  const headerH = lineH + vars.headerExtraH;
-  const replyH = cardFacts(item)?.replyTo ? lineH : 0;
+  const headerH = sourceLayout(item, ctx, vars).height;
+  const replyH = cardFacts(item)?.replyTo ? replyLayout(item, ctx)?.height ?? lineH : 0;
   const bodyH = measureUserMessage(item, ctx, messageVars);
-  const factsH = factsOpen ? detailsHeight(item, lineH, vars) : 0;
+  const factsH = factsOpen ? detailsHeight(item, ctx, vars) : 0;
   const total =
     2 * vars.padY +
     headerH +
@@ -295,6 +325,7 @@ function SingleDelivery(props: {
   const details = () => deliveryDetails(props.data);
   const hasDetails = () => details().length > 0;
 
+  const source = () => mCtx() ? sourceLayout(props.data, { ...mCtx()!, translate, selfIdentity: self(), appName: namers.appName, chatName: namers.chatName }, props.vars) : null;
   const sourceContent = () => (<>
         <span class={deliveryAvatar} data-slot="delivery-avatar" data-avatar-state={avatarUrl() ? 'image' : 'empty'} aria-hidden="true">
           <Show when={avatarUrl()}>
@@ -312,8 +343,8 @@ function SingleDelivery(props: {
             )}
           </Show>
         </span>
-        <span data-slot="delivery-sender"><SenderName class={deliverySender} name={sender()} target={messageSenderTarget(facts())} /></span>
-        <Show when={facts()}>{(f) => <span class={deliveryRoute} data-slot="delivery-route">{routeLabel(f(), translate, namers)}</span>}</Show>
+        <span data-slot="delivery-sender"><SenderName class={deliverySender} name={source()?.name.text ?? sender()} target={messageSenderTarget(facts())} /></span>
+        <Show when={facts()}>{(f) => <span class={deliveryRoute} data-slot="delivery-route">{source()?.via.text ?? routeLabel(f(), translate, namers)}</span>}</Show>
   </>);
 
   const lineH = () => mCtx()?.theme.fonts.body.lineHeight ?? 20;
@@ -361,9 +392,10 @@ function SingleDelivery(props: {
         {(reply) => (
           // A quoted card (a task, a question) reads as its words, not as the JSON it is stored as.
           <button type="button" class={deliveryReply} data-slot="delivery-reply" title={quotedWords(reply().preview)}
+            style={!commands().onConversationReply && mCtx() ? { height: `${replyLayout(props.data, mCtx()!)?.height ?? lineH()}px`, 'white-space': 'pre-wrap', overflow: 'visible' } : undefined}
             disabled={!commands().onConversationReply} aria-label={translate('transcript.showOriginalMessage')}
             onClick={() => commands().onConversationReply?.(props.data.conversationReply?.itemId ?? reply().messageId)}>
-            {translate('transcript.deliveryReplyTo', {
+            {replyLayout(props.data, { ...mCtx()!, commands: commands(), selfIdentity: self(), translate })?.text ?? translate('transcript.deliveryReplyTo', {
               from: shownSender(reply().from, reply().fromId, self()) ?? reply().fromId,
               preview: quotedWords(reply().preview),
             })}
@@ -383,7 +415,7 @@ function SingleDelivery(props: {
                   {translate(`transcript.deliveryFact.${entry.key}`)}
                 </span>
                 <span class={deliveryFactValue} data-fact={entry.key} title={entry.value}>
-                  {entry.value}
+                  {mCtx() ? detailValueLayout(props.data, entry, mCtx()!).text : entry.value}
                 </span>
               </>
             )}

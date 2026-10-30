@@ -36,6 +36,10 @@
 
 import '@session-chat/styles/source-message-flash.css';
 import { useDebug } from '@session-chat/components/contexts/debug-context';
+import { useChatTranslator } from '@session-chat/localization';
+import { useSelfIdentity } from '@session-chat/lib/self-identity';
+import { useAppName } from '@session-chat/lib/app-name';
+import { useChatName } from '@session-chat/lib/chat-name';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -154,6 +158,10 @@ export type UnitRowProps = {
 export function UnitRow(props: UnitRowProps) {
   const debug = useDebug();
   const commands = useCommands();
+  const translate = useChatTranslator();
+  const self = useSelfIdentity();
+  const chatName = useChatName();
+  const appName = useAppName();
   let rowEl: HTMLElement | undefined;
 
   const def = createMemo(() => UNIT_REGISTRY[props.unit.kind]);
@@ -166,6 +174,7 @@ export function UnitRow(props: UnitRowProps) {
 
   const logicalMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
+    translate, commands: commands(), selfIdentity: self(), chatName, appName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
     isCollapsed: (id) => props.viewState.isCollapsed(id),
     expanded: (id) => props.viewState.isCollapsed(id),
@@ -349,6 +358,7 @@ export function UnitRow(props: UnitRowProps) {
   // Display measureCtx: also holds the expanded user-card open during collapse.
   const displayMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
+    translate, commands: commands(), selfIdentity: self(), chatName, appName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
     isCollapsed: displayViewState.isCollapsed,
     expanded: displayViewState.isCollapsed,

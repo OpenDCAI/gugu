@@ -108,6 +108,7 @@
  * ③ 这一行本来就已经有一枚合法的 turn 级字形（「取回指令」那颗 `IconRestorePrompt`）⇒
  *    #3568 判的从来不是「收尾行不许有字形」，而是**同一枚字形不得同时替两种范围说话**。
  */
+import { readableLabel, rowTranslator, wrappedRowHeight } from '../readable-label';
 import { ROW_H } from '@session-chat/components/engine/row-metrics';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import {
@@ -240,6 +241,30 @@ function badgeParts(
   return { label: outcomeLabel(outcome, translate), reason };
 }
 
+function outcomeLaneLayout(data: TurnOutcomeItem, ctx: import('@session-chat/core/define').MeasureCtx) {
+  const t = rowTranslator(ctx), outcome = data.outcome, commands = ctx.commands;
+  const refused = outcome.kind === 'error' && outcome.guguReason ? commands?.describeRefusal?.(outcome.guguReason) : null;
+  const parts = badgeParts(outcome, t);
+  const reason = refused?.text ?? parts.reason;
+  const glyph = outcome.kind === 'cancelled' ? 16 : 0;
+  const label = readableLabel(parts.label, ctx, ctx.width - 20 - glyph, 12, 18);
+  const natural = label.width + (reason ? readableLabel(reason, ctx).width + 16 : 0) + 20 + glyph;
+  const badgeWidth = Math.min(ctx.width, natural);
+  const description = reason ? readableLabel(reason, ctx, badgeWidth - 20 - glyph - label.width - 16) : null;
+  const badgeHeight = Math.max(24, label.height + 6, (description?.height ?? 0) + 6);
+  const actions: number[] = [];
+  const actionWidth = (text: string, icon = false) => readableLabel(text, ctx, ctx.width, 14, 20, 500).width + 20 + (icon ? 18 : 0);
+  if (refused?.action) actions.push(actionWidth(refused.action.label));
+  if (outcome.kind === 'cancelled' && outcome.reason !== 'interrupted_for_message') {
+    if (commands?.onContinueTurn) actions.push(actionWidth(t('transcript.continueTurn'), true));
+    actions.push(actionWidth(t('transcript.discardTurn')));
+  } else if (outcome.kind !== 'cancelled' && !refused?.action && data.prompt && commands?.onRestorePrompt) actions.push(actionWidth(t('transcript.restorePrompt'), true));
+  const rule = outcome.kind !== 'cancelled' ? [{ width: 8, height: 1 }] : [];
+  const wrapped = badgeWidth + actions.reduce((sum, value) => sum + value + 8, 0) + (rule.length ? 16 : 0) > ctx.width;
+  const height = wrappedRowHeight([{ width: badgeWidth, height: badgeHeight }, ...rule, ...actions.map(width => ({ width, height: 28 }))], ctx.width, 8, 4);
+  return { label, reason: description, badgeWidth, badgeHeight, wrapped, height: Math.max(32, height + 4) };
+}
+
 export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>({
   kind: 'turn-outcome',
   // 上游把这条 lane 与上面那段字之间留了 `gap-3`（12px）—— 那正是它看起来「有呼吸」的来源，
@@ -254,14 +279,15 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
    * ⚠️ 读的开关必须与 `Render` 里那颗**同一个 id**(`turnOutcomeDetailId`)——
    * 量高度与画内容各读各的开关,行就会长成一个高度与内容对不上的框。
    */
-  measure(data, ctx, vars_) {
+  measure(data, ctx) {
     const detail = outcomeDetail(data.outcome);
-    if (!detail || !ctx.expanded(turnOutcomeDetailId(data.turnId))) return vars_.rowH;
-    return vars_.rowH + detailBandHeight(detail);
+    if (!detail || !ctx.expanded(turnOutcomeDetailId(data.turnId))) return outcomeLaneLayout(data, ctx).height;
+    return outcomeLaneLayout(data, ctx).height + detailBandHeight(detail);
   },
 
   Render(props) {
     const translate = useChatTranslator();
+    const lane = () => outcomeLaneLayout(props.data, props.ctx.measureCtx!());
     const commands = useCommands();
     const isError = () => props.data.outcome.kind === 'error';
     const isCancelled = () => props.data.outcome.kind === 'cancelled';
@@ -325,7 +351,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
         data-outcome={props.data.outcome.kind}
         data-detail-open={detailOpen() ? 'true' : undefined}
         class={outcomeShell}
-        style={{ height: `${props.vars.rowH + detailH()}px` }}
+        style={{ height: `${lane().height + detailH()}px` }}
       >
         <div
           data-slot="turn-outcome-lane"
@@ -333,7 +359,8 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
           role={isError() ? 'alert' : 'status'}
           class={outcomeRow}
           style={{
-            height: `${props.vars.rowH}px`,
+            height: `${lane().height}px`,
+            'flex-wrap': 'wrap', 'row-gap': '4px',
             color: isError() ? vars.fgError : vars.fgMuted,
           }}
         >
@@ -341,6 +368,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
               （`parts()` / `isCancelled()`），❌ 不在 Show 回调外把它们捕获成常量 —— 行组件按下标
               复用，捕获过的值换单元时不会重算（对照钉在 turn-process-fold.contract.test.tsx）。 */}
           <Dynamic
+            style={{ width: `${lane().badgeWidth}px`, height: `${lane().badgeHeight}px` }}
             component={detail() ? 'button' : 'span'}
             type={detail() ? 'button' : undefined}
             data-slot="turn-outcome-badge"
@@ -375,7 +403,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
                 <IconStop />
               </span>
             </Show>
-            <span data-slot="turn-outcome-label" class={outcomeBadgeLabel}>{parts().label}</span>
+            <span data-slot="turn-outcome-label" class={outcomeBadgeLabel}>{lane().label.text}</span>
             <Show when={parts().reason}>
               {(text) => (
                 <>
@@ -383,7 +411,7 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
                     ·
                   </span>
                   <span data-slot="turn-outcome-reason" class={outcomeReason}>
-                    {text()}
+                    {lane().reason?.text ?? text()}
                   </span>
                 </>
               )}
@@ -399,11 +427,11 @@ export const turnOutcomeUnitDef = defineUnit<TurnOutcomeItem, { rowH: number }>(
                 data-slot="turn-outcome-rule"
                 data-rule="trail"
                 aria-hidden="true"
-                class={outcomeRuleTrail}
+                class={outcomeRuleTrail} style={{ 'min-width': lane().wrapped ? '8px' : undefined }}
               />
             }
           >
-            <span data-slot="turn-outcome-spacer" aria-hidden="true" class={outcomeSpacer} />
+            <span data-slot="turn-outcome-spacer" aria-hidden="true" class={outcomeSpacer} style={{ display: lane().wrapped ? 'none' : undefined }} />
           </Show>
           <Show when={refusal()?.action}>
             {(action) => (
