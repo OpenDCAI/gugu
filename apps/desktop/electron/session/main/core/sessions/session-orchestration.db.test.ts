@@ -541,15 +541,15 @@ describe('session orchestration', () => {
       expect(takeBirthGroup(row.id)).toEqual({ chatId: 'chat-7', asTask: false });
     });
 
-    // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child unless a
-    // project is named), and still the App's own agent.
-    it('for the agent that works the page: spawned by it, its child unless a project is named; still the App\'s', async () => {
+    // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child, whatever
+    // project it lands in: owner 2026-10-30), and still the App's own agent.
+    it('for the agent that works the page: spawned by it, its child even in a named project; still the App\'s', async () => {
       project2Root();
       const relationsOf = (id: string) => fixture.sqlite.prepare('SELECT spawned_by_session_id, parent_session_id, spawned_by_extension_id FROM sessions WHERE id = ?').get(id);
       const child = await spawnSessionForApp({ extensionId: 'board', bySession: 'caller', envelope, prompt: 'x' });
       expect(relationsOf(child.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: 'caller', spawned_by_extension_id: 'board' });
       const placed = await spawnSessionForApp({ extensionId: 'board', bySession: 'caller', envelope, prompt: 'x', project: 'project-2' });
-      expect(relationsOf(placed.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: null, spawned_by_extension_id: 'board' });
+      expect(relationsOf(placed.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: 'caller', spawned_by_extension_id: 'board' });
     });
 
     // 125 (10-06 02:06): one choice for a new session, the box's (`resolveSessionProviderSelection`), wherever it
@@ -697,15 +697,16 @@ describe('session orchestration', () => {
       expect(configOf(flat.session_id)).not.toHaveProperty('parentRemote');
     });
 
-    it('spawns into a named project on this machine at its root — a root session unless nest is asked for', async () => {
+    // owner 2026-10-30: project and parent are orthogonal — naming a project does not unhook the child from its spawner.
+    it('spawns into a named project on this machine at its root — still under the caller unless nest is false', async () => {
       project2Root();
       const result = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', project_id: 'project-2' })) as {
         session_id: string;
         parent_session_id: string | null;
       };
       expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: 'project-2', projectPath: '' });
-      expect(result.parent_session_id).toBeNull();
-      expect(configOf(result.session_id)).not.toHaveProperty('parentRemote');
+      expect(result.parent_session_id).toBe('remote-caller');
+      expect(configOf(result.session_id).parentRemote).toEqual({ deviceId: 'device-a', sessionId: 'remote-caller' });
       expect(childRows()[0]!.workspace_id).toBe('workspace-p2');
     });
 
@@ -1078,7 +1079,7 @@ describe('session orchestration', () => {
     expect(mocks.sessionpageProjectGroupForSession).toHaveBeenCalledWith('caller', expect.anything());
   });
 
-  it('spawns into a named project at its root — the task page new-task pick — unnested and point-to-point', async () => {
+  it('spawns into a named project at its root — the task page new-task pick — still under the caller, point-to-point', async () => {
     project2Root();
     mocks.sessionpageProjectGroup = { kind: 'group', projectId: 'project-1', groupChatId: 'group-chat-1' };
 
@@ -1090,11 +1091,11 @@ describe('session orchestration', () => {
 
     expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: undefined, projectPath: '/other' });
     const [child] = childRows();
-    expect(child).toEqual(expect.objectContaining({ id: result.session_id, parent_session_id: null, spawned_by_session_id: 'caller' }));
+    expect(child).toEqual(expect.objectContaining({ id: result.session_id, parent_session_id: 'caller', spawned_by_session_id: 'caller' }));
     expect(child!.workspace_id).toBe('workspace-p2');
     expect(fixture.sqlite.prepare('SELECT project_id FROM sessions WHERE id = ?').get(result.session_id))
       .toEqual({ project_id: 'project-2' });
-    expect(result.parent_session_id).toBeNull();
+    expect(result.parent_session_id).toBe('caller');
     // child 入的是 project-2 的群,caller 不在里面:回执只给点对点。
     expect(result.message_route).toEqual({ tool: 'session_message', to: [`session:${result.session_id}`] });
   });
@@ -1686,17 +1687,27 @@ describe('session orchestration', () => {
     expect(childRows()).toHaveLength(2);
   });
 
-  it('nests under the caller wherever the child starts when nest is asked for: another project', async () => {
+  // owner 2026-10-30: project and parent are orthogonal — naming another project still nests by default; only nest:false
+  // leaves the child at its project's root.
+  it('nests under the caller by default even in another project; nest:false leaves it a root session there', async () => {
     project2Root();
     const otherProject = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Work in the other repo for me.',
       project_path: '/other',
-      nest: true,
     })) as { session_id: string; parent_session_id: string | null };
     expect(otherProject.parent_session_id).toBe('caller');
-    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id FROM sessions WHERE id = ?').get(otherProject.session_id))
-      .toEqual({ project_id: 'project-2', parent_session_id: 'caller' });
+    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(otherProject.session_id))
+      .toEqual({ project_id: 'project-2', parent_session_id: 'caller', spawned_by_session_id: 'caller' });
+    const flat = (await runSessionAction(context, {
+      action: 'spawn',
+      prompt: 'A session of your own in the other repo.',
+      project_path: '/other',
+      nest: false,
+    })) as { session_id: string; parent_session_id: string | null };
+    expect(flat.parent_session_id).toBeNull();
+    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(flat.session_id))
+      .toEqual({ project_id: 'project-2', parent_session_id: null, spawned_by_session_id: 'caller' });
   });
 
   function makePtyCaller() {

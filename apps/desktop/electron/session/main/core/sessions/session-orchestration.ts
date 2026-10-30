@@ -828,13 +828,14 @@ export async function resolveCreateModelChoice(
 /**
  * Who spawned a session, and whether it is listed under them — one rule for every spawn (session_spawn here and from
  * another machine, and an App's page an agent works, owner 10-14): the spawner is recorded always (who started it, and
- * 「连同子会话」 follows it); it is the parent unless the call said `nest`, or named a project (owner 2026-10-02).
+ * 「连同子会话」 follows it); it is the parent unless the call said `nest: false`. Which project the child lands in is a
+ * separate fact: a child in another project still sits under its spawner (owner 2026-10-30: project and parent are
+ * orthogonal).
  */
 function spawnedBy(
   by: { localSessionId: string } | { deviceId: string; sessionId: string; agentUserId?: string; name?: string },
-  placement: { nest?: boolean; named: boolean },
+  nest = true,
 ): Omit<InternalSessionRelations, 'spawnedByExtensionId'> {
-  const nest = placement.nest ?? !placement.named;
   if ('localSessionId' in by) return { spawnedBySessionId: by.localSessionId, ...storedParent(nest ? by : null) };
   return { spawnedByRemote: by, ...storedParent(nest ? { deviceId: by.deviceId, sessionId: by.sessionId } : null) };
 }
@@ -939,7 +940,7 @@ async function spawnSession(
     // —— 落地就是 BYOK，也就是 owner 在军训 case 里看到的「总教官跑 gpt-5.6-luna，派出去的 agent
     // 跑 harness 默认模型」。派生路径共用 attachAgentToSession 那一处继承，这里只说源是谁。
     inheritPlatformModelFrom: context.sessionId,
-    relations: spawnedBy({ localSessionId: context.sessionId }, { nest: action.nest, named: Boolean(named) }),
+    relations: spawnedBy({ localSessionId: context.sessionId }, action.nest),
     signal,
   });
   return {
@@ -1305,7 +1306,7 @@ export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<S
     ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
     relations: {
-      ...(input.bySession ? spawnedBy({ localSessionId: input.bySession }, { named: Boolean(project) }) : { parentSessionId: null }),
+      ...(input.bySession ? spawnedBy({ localSessionId: input.bySession }) : { parentSessionId: null }),
       spawnedByExtensionId: input.extensionId,
     },
   });
@@ -2179,7 +2180,7 @@ async function spawnForRemoteCaller(
   });
   const prompt = action.prompt.trim();
   if (!prompt) throw new Error('prompt is required');
-  // 与本机同一条默认(spawnedBy):没点名工作目录就挂在发起会话下面(它在别的机器上,记在 config 里)。
+  // 与本机同一条默认(spawnedBy):挂在发起会话下面(它在别的机器上,记在 config 里),点没点名项目都一样。
   const named = namedPlacement(action);
 
   // 工作目录:点名了项目用那个项目的根工作区;没点名用这台机器的隐式主目录项目 —— 与会话页新建会话同一步
@@ -2246,7 +2247,7 @@ async function spawnForRemoteCaller(
       sessionId: caller.sessionId,
       ...(caller.agentUserId ? { agentUserId: caller.agentUserId } : {}),
       ...(caller.name ? { name: caller.name } : {}),
-    }, { nest: action.nest, named: Boolean(named) }),
+    }, action.nest),
     signal,
   });
   return {

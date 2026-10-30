@@ -130,7 +130,7 @@ async function run(test: AssistantCase) {
       const device = placement?.device ?? 'unknown'
       const accepted = Boolean(placement) && device !== 'device:phone' && test.route !== 'closed'
       evidence.delegations.push({ session, device, project: placement?.project,
-        nested: input.nest === undefined ? !input.project : input.nest === true,
+        nested: input.nest !== false,
         // Every fixture turn has exactly one canonical delivered input. Production ACP observes that active turn.
         ...delegationSource(input.source_link as string | undefined, evidence.requestSourceLink),
         prompt: context, reused, accepted })

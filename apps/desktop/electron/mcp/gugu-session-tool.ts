@@ -129,7 +129,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       device: deviceSchema.describe(DEVICE_DESCRIPTION).optional(),
       // #7331 先复用:描述只说「新目录当场登记」时,agent 把每个自己切的 worktree 都传进来,对方机器上一个 worktree 一个项目。
       project: z.string().min(1).describe('Existing project:<id> or root. New projects only when requested; subfolders/worktrees go in prompt. Omit: current directory (remote: home).').optional(),
-      nest: z.boolean().describe('Child reporting to you, listed in session_children. Default true without project.').optional(),
+      nest: z.boolean().describe('Child reporting to you, listed in session_children. Default true, whatever project.').optional(),
       transport: z.enum(['acp', 'pty']).optional(),
       harness: z.string().describe('From session_list_harnesses; default: your sub-agent default.').optional(),
       model: z.string().describe('From session_list_models (verbatim) or model.spawn_model_id; platform: ids bill Gugu credits.').optional(),
