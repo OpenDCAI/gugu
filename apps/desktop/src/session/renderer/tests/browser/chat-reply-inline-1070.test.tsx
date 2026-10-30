@@ -4,6 +4,8 @@ import { createReactHarness, message, renderWithAppProviders } from '../../../..
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { MessageSenderProvider } from '@/components/chat/MessageSenderProvider'
+import { i18n } from '@/i18n'
+import '@/i18n/registerMessagingCatalog'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -99,3 +101,45 @@ it.each([{ mobile: true, width: 370 }, { mobile: false, width: 240 }, { mobile: 
   expect(mark.top).toBeGreaterThanOrEqual(row.top - 0.5)
   expect(mark.bottom).toBeLessThanOrEqual(row.bottom + 0.5)
 })
+
+for (const mobile of [false, true]) for (const quoted of [false, true]) {
+  it(`prioritizes Claude 1 over a long owner label at ${mobile ? 390 : 760}px (reply=${quoted})`, async () => {
+    await i18n.changeLanguage('en-US')
+    await page.viewport(mobile ? 390 : 760, 900)
+    harness = createReactHarness()
+    harness.container.className = 'gugu-skin emlight'
+    const width = mobile ? 390 : 447
+    harness.container.style.cssText = `position:fixed;left:0;top:100px;width:${width}px`
+    const agent = { ...sender, type: 'agent', displayName: 'Claude 1', ownerUserId: 'owner', ownerDisplayName: 'lane-readable1036-c38f-1030' } as MemberProfileCardModel
+    const msg = message({ id: 'agent-reply', chat_id: 'group', sender_user_id: 'peer', content: 'Agent reply has enough text to fill the available message column.', is_mine: false, reply_to_message_id: quoted ? 'source' : null, reply_to_sender_user_id: 'peer', reply_to_content: 'Original' })
+    await renderWithAppProviders(harness, <MessageSenderProvider message={msg} group>
+      <MessageBubble msg={msg} isGroup compactMobile={mobile} memberProfile={agent} memberProfiles={{ peer: agent }}
+        onReaction={() => {}} onQuote={() => {}} onForward={() => {}} onDelete={() => {}} onShowMessage={() => {}} />
+    </MessageSenderProvider>)
+    const name = harness.container.querySelector<HTMLElement>('.msg-sender-link .msg-sender-name')!
+    const tag = harness.container.querySelector<HTMLElement>('[data-message-agent-owner]')!
+    const row = name.closest<HTMLElement>('[data-message-sender-name]')!
+    const text = document.createRange(); text.selectNodeContents(name)
+    expect(name.textContent).toBe('Claude 1')
+    expect(text.getBoundingClientRect().left, 'name starts inside its clipping box').toBeGreaterThanOrEqual(name.getBoundingClientRect().left - 0.5)
+    expect(text.getBoundingClientRect().right, 'the whole short agent name is visible before shortening its owner label').toBeLessThanOrEqual(name.getBoundingClientRect().right + 0.5)
+    expect(tag.textContent).toBe("lane-readable1036-c38f-1030's agent")
+    expect(tag.scrollWidth, 'owner label yields space first').toBeGreaterThan(tag.clientWidth)
+    expect(getComputedStyle(tag).textOverflow).toBe('ellipsis')
+    const mark = row.querySelector<HTMLElement>('.gg-chat-reply-jump')
+    expect(!!mark).toBe(quoted)
+    if (mark) {
+      expect(mark.getBoundingClientRect().width).toBe(18)
+      expect(mark.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 0.5)
+    }
+    harness.container.style.width = '160px'
+    await expect.poll(() => getComputedStyle(tag).visibility).toBe('hidden')
+    expect(name.getBoundingClientRect().left).toBeCloseTo(text.getBoundingClientRect().left, 0)
+    expect(getComputedStyle(name).textOverflow).toBe('ellipsis')
+    if (quoted) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth)
+    if (mark) expect(mark.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 0.5)
+    harness.container.style.width = `${width}px`
+    await expect.poll(() => getComputedStyle(tag).visibility).toBe('visible')
+    expect(text.getBoundingClientRect().right).toBeLessThanOrEqual(name.getBoundingClientRect().right + 0.5)
+  })
+}

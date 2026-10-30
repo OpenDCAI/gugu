@@ -318,7 +318,7 @@ describe('MessageBubble touch menu', () => {
     await renderMessage(undefined, false, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
     expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('我的 agent')
   })
-  it('#6791 keeps a long sender line inside its column: the name truncates, the ownership tag stays', async () => {
+  it('#6791/#1062 keeps sender and ownership metadata in a capped line', async () => {
     await renderMessage(undefined, true, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
     const sender = harness.container.querySelector('[data-message-sender-name="true"]') as HTMLElement
     const [name, owner] = Array.from(sender.children) as HTMLElement[]
@@ -327,7 +327,6 @@ describe('MessageBubble touch menu', () => {
     const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
     expect(chromeCss, 'the row is capped by its column; uncapped, nowrap text pushes it past the column').toMatch(/\.msg-sender \{[^}]*max-width: 100%/)
     expect(chromeCss).toMatch(/\.msg-sender-name \{[^}]*text-overflow: ellipsis/)
-    expect(chromeCss, 'the name gives way first').toMatch(/\.msg-sender > \.gg-chip \{[^}]*flex-shrink: 0/)
   })
   it('overlays the mobile read receipt without shrinking the sender bubble', async () => {
     await renderMessage(undefined, true, vi.fn(), {
