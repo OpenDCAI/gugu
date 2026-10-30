@@ -1445,6 +1445,9 @@ export class SessionCell {
       // A turn that ended before running still records its outcome (machine: WorkEnded in ready).
       if (working || this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkEnded', outcome: machineOutcome(outcome),
         ...((opts?.dequeueQueuedPrompt === false || this.context().dispatchPending || this.closeRequested) ? { dequeueQueuedPrompt: false } : {}) });
+      // Commands can finish without ever reporting running. Their explicit completion releases
+      // the same lane; WorkEnded in ready records the outcome but does not itself drain it.
+      if (!working && opts?.dequeueQueuedPrompt !== false) this.releaseDispatch();
       resolve?.(opts?.result ?? (outcome.kind === 'error'
         ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
         : ok({ queued: false })));
@@ -2394,7 +2397,11 @@ export class SessionCell {
 
   private context(): SessionMachineContext {
     return {
-      dispatchPending: [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
+      // Acceptance only admits an input. Before the provider reports running the machine is still
+      // ready, but that foreground cycle owns the lane until its real completion (including a
+      // command that goes straight to idle). A receipt must not drain ordinary queued inputs.
+      dispatchPending: this.activeTurnCompletion !== null
+        || [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
       modeIds: this.transcript.config.modeOptions?.available.map((mode) => mode.id) ?? [],
       configOptionIds: [
         ...(['model', 'effort'] as const)

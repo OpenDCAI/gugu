@@ -28,6 +28,7 @@ import { pendingLocalAssistant, resumeLocalAssistant, setupStillStarting } from 
 import { keepFinishingLocalAssistant } from '../../lib/assistantSetupFinish'
 import { requestAssistantClose } from '../../lib/assistantClose'
 import { getMembership } from '../../lib/billing/membership'
+import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { rendererLogger } from '../../lib/log'
 import { installShellSlots, readShellSlots } from '../../lib/shellSlots'
 import { platform } from '../../platform'
@@ -104,7 +105,7 @@ export function AssistantStatusGroups({
         <SettingsRow
           title={t('settings.cloudName', { name: assistantName })}
           leading={device ? <CloudComputerDot device={device} /> : undefined}
-          description={device ? <CloudComputerRowStatus device={device} snapshot={snapshot} onUpgrade={() => openSettings('usage')} /> : null}
+          description={device ? <CloudComputerRowStatus device={device} snapshot={snapshot} onUpgrade={() => openSettings(membershipSettingsSection())} /> : null}
           data-testid="assistant-settings-status"
         />
         <SettingsRow title={t('settings.billing', { name: assistantName })} description={t('settings.billingNote')} control={<Button size="sm" onClick={() => openSettings('usage')}>{t('settings.usage')}</Button>} />
