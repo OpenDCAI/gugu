@@ -31,12 +31,12 @@ export interface ExtensionNotifierDeps {
   /** The interface language: the App's name in the title is the one its manifest gives there. */
   locale(): string;
   /** Settings → Notifications, the same two switches agent banners obey. */
-  notificationsAllowed(): Promise<boolean>;
+  notificationSettings(): Promise<{ enabled: boolean; sound: boolean }>;
   /**
    * `shown` settles when the system answers: resolved once the banner is actually on screen,
    * rejected with the reason when the system refuses it (e.g. gugu is not allowed to notify).
    */
-  show(banner: { title: string; body: string; onClick: () => void }): { close(): void; shown: Promise<void> };
+  show(banner: { title: string; body: string; silent: boolean; onClick: () => void }): { close(): void; shown: Promise<void> };
   focusApp(): void;
   /** Brings what a click opens on screen: a tab (by kind) in a session, the App in a chat's panel or on its own page, a file. */
   open(
@@ -53,13 +53,39 @@ export interface ExtensionNotifierDeps {
 }
 
 /**
- * Enough for "your export finished" and "3 new papers" in quick succession; a page that
+ * Enough for a few distinct requests for attention in quick succession; a page that
  * posts in a loop is stopped and told why, instead of burying every other banner.
  */
 /** A file a banner's click opens: a chat's, or a session's (a project's has no place a banner opens it). */
 type BannerFile = Exclude<AppFileRef, { project: string }> & { id: string };
 
 export const EXTENSION_NOTIFICATIONS_PER_MINUTE = 10;
+const recent = new Map<string, number[]>();
+
+/** One sliding window for each App or the agent device-action source. */
+export function admitBanner(source: string, now: number): void {
+  const window = (recent.get(source) ?? []).filter((at) => now - at < 60_000);
+  if (window.length >= EXTENSION_NOTIFICATIONS_PER_MINUTE) {
+    recent.set(source, window);
+    throw new Error(
+      `too many banners: at most ${EXTENSION_NOTIFICATIONS_PER_MINUTE} a minute — use a tag to update one instead of posting new ones`,
+    );
+  }
+  window.push(now);
+  recent.set(source, window);
+}
+
+/** The main-process device action and its user-pressed probe share the task preferences. */
+export async function showDeviceNotification(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }> {
+  const [{ Notification }, { appSettingsService }] = await Promise.all([
+    import('electron'), import('@main/core/settings/settings-service'),
+  ]);
+  const { enabled, sound } = await appSettingsService.get('notifications');
+  if (!enabled || !Notification.isSupported()) return { shown: false };
+  if (!options?.probe) admitBanner('device-action', Date.now());
+  new Notification({ title, body, silent: !sound }).show();
+  return { shown: true };
+}
 const MAX_TITLE = 120;
 const MAX_BODY = 500;
 const MAX_TAG = 64;
@@ -91,7 +117,6 @@ function parseOpen(manifest: ExtensionManifest, raw: unknown): BannerOpen | null
 }
 
 export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
-  const recent = new Map<string, number[]>();
   const byTag = new Map<string, { close(): void }>();
 
   function parse(manifest: ExtensionManifest, raw: Record<string, unknown>) {
@@ -124,28 +149,16 @@ export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
     };
   }
 
-  function admit(extensionId: string): void {
-    const now = deps.now();
-    const window = (recent.get(extensionId) ?? []).filter((at) => now - at < 60_000);
-    if (window.length >= EXTENSION_NOTIFICATIONS_PER_MINUTE) {
-      recent.set(extensionId, window);
-      throw new Error(
-        `too many banners: at most ${EXTENSION_NOTIFICATIONS_PER_MINUTE} a minute — use a tag to update one instead of posting new ones`,
-      );
-    }
-    window.push(now);
-    recent.set(extensionId, window);
-  }
-
   async function notify(input: { extensionId: string; request: Record<string, unknown> }): Promise<{ shown: true }> {
     const manifest = deps.manifestOf(input.extensionId);
     const parsed = parse(manifest, input.request);
     // Said, not swallowed: an extension that thinks its banner went out will never
     // tell its user "turn notifications on to get these".
-    if (!(await deps.notificationsAllowed())) {
+    const { enabled, sound } = await deps.notificationSettings();
+    if (!enabled) {
       throw new Error('system notifications are turned off in gugu settings');
     }
-    admit(input.extensionId);
+    admitBanner(`app:${input.extensionId}`, deps.now());
 
     const tagKey = parsed.tag === undefined ? null : `${input.extensionId}\u0000${parsed.tag}`;
     if (tagKey) byTag.get(tagKey)?.close();
@@ -153,6 +166,7 @@ export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
     const banner = deps.show({
       title: `${localizedManifestText(manifest, deps.locale()).name} · ${parsed.title}`,
       body: parsed.body,
+      silent: !sound,
       onClick: () => {
         if (tagKey && byTag.get(tagKey) === banner) byTag.delete(tagKey);
         deps.focusApp();
@@ -234,12 +248,12 @@ export async function showExtensionNotification(input: { extensionId: string; re
     notifier = createExtensionNotifier({
       manifestOf: (id) => extensionsService().get(id).manifest,
       locale: sessionHostLocale,
-      notificationsAllowed: async () => {
-        const { enabled, osNotifications } = await appSettingsService.get('notifications');
-        return enabled && osNotifications && electron.Notification.isSupported();
+      notificationSettings: async () => {
+        const { enabled, sound } = await appSettingsService.get('notifications');
+        return { enabled: enabled && electron.Notification.isSupported(), sound };
       },
-      show: ({ title, body, onClick }) => {
-        const banner = new electron.Notification({ title, body, silent: true });
+      show: ({ title, body, silent, onClick }) => {
+        const banner = new electron.Notification({ title, body, silent });
         live.add(banner);
         const release = () => live.delete(banner);
         banner.on('close', release);

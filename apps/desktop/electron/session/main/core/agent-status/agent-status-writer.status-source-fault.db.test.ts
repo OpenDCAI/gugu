@@ -74,7 +74,6 @@ describe('状态来源失效:随状态输出发布,不改读数', () => {
 
     agentHookService.emitAgentEvent(
       { type: 'start', providerId: 'claude', projectId: 'p1', sessionId: 'c1', timestamp: Date.now(), payload: {} },
-      false,
     );
     await statusWritesSettled(agentStatusWriter, 'c1');
     expect(agentStatusWriter.isWorkingOrWaiting('c1')).toBe(true);

@@ -109,12 +109,7 @@ export function sessionInScope(
   return session.projectId === scope.projectId;
 }
 
-export const sessionAgentStatusChangedChannel = defineEvent<
-  AgentStatusChange & {
-    appFocused: boolean;
-    soundEvent?: 'needs_attention' | 'task_complete';
-  }
->('session:agent-status-changed');
+export const sessionAgentStatusChangedChannel = defineEvent<AgentStatusChange>('session:agent-status-changed');
 
 /** Session-page work failed after the initiating request returned. */
 export const sessionDeliveryFailedChannel = defineEvent<{

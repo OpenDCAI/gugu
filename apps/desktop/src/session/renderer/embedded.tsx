@@ -56,7 +56,6 @@ import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { log } from '@renderer/utils/logger';
-import { initSoundPlayer } from '@renderer/utils/soundPlayer';
 import type { NavigationSnapshot, SidebarSnapshot } from '@shared/view-state';
 import { App } from './App';
 import { migrateRenamedLocalStorageKeys } from './lib/renamed-storage-keys';
@@ -204,7 +203,6 @@ async function bootstrap() {
   // 屏上的会话报给主进程:闲置回收不停人正看着的会话(spec idle-reclaim「不在屏上」)。
   wireSessionsOnScreenReport();
 
-  initSoundPlayer();
 
   // Monaco must NOT gate the mount: even vendored locally it is a multi-MB async chunk.
   // Editors await monacoBootstrap.init() themselves when opened — boot it in the background

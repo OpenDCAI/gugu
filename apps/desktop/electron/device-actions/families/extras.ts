@@ -18,7 +18,7 @@ export function createExtrasFamily(): ActionFamily {
         platforms: ['darwin', 'win32', 'linux'],
         settingsUrl: 'x-apple.systempreferences:com.apple.preference.notifications',
         async probe(ctx) {
-          ctx.deps.notify('咕咕', '这台电脑可以收到助理发来的通知了')
+          await ctx.deps.notify('咕咕', '这台电脑可以收到助理发来的通知了', { probe: true })
           return ok(null)
         },
       },
@@ -45,8 +45,7 @@ export function createExtrasFamily(): ActionFamily {
         input_schema: { type: 'object', required: ['title'], properties: { title: { type: 'string' }, body: { type: 'string' } }, additionalProperties: false },
         validate: (args) => (str(args, 'title') ? null : 'title is required'),
         async run(args, ctx) {
-          ctx.deps.notify(str(args, 'title').slice(0, 200), str(args, 'body').slice(0, 1000))
-          return ok({ shown: true })
+          return ok(await ctx.deps.notify(str(args, 'title').slice(0, 200), str(args, 'body').slice(0, 1000)))
         },
       },
       {

@@ -66,13 +66,13 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
       .get(cid) as { status: string | null; detail: string | null; seen: number };
   const deliver = async (e: AgentEvent) => {
     const before = outputs.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(outputs.length).toBe(before + 1);
   };
   const deliverNoop = async (e: AgentEvent) => {
     const before = outputs.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(outputs.length, `${e.type} must not write a status`).toBe(before);
   };
@@ -135,7 +135,7 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await deliver(event('start'));
     await deliver(event('stop', { backgroundTasks: 0, scheduledTasks: 0 }));
     expect(row()).toEqual({ status: 'idle', detail: 'done', seen: 0 });
-    expect(sounds()).toEqual(['task_complete']);
+    expect(sounds()).toEqual([]);
     expect(ipcDetails()).toEqual(['running', 'parked', 'running', 'done']);
   });
 
@@ -146,7 +146,7 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     await deliver(event('wait', { waitKind: 'question', waitId: 'toolu_q' }));
     expect(row()).toEqual({ status: 'needs_user', detail: 'question', seen: 0 });
     expect(outputs.at(-1)).toMatchObject({ running: true });
-    expect(sounds()).toEqual(['needs_attention']);
+    expect(sounds()).toEqual([]);
     await deliverNoop(notification('permission_prompt'));
     await deliver(event('wait_resolved', { waitId: 'toolu_q' }));
     expect(row()).toEqual({ status: 'working', detail: 'running', seen: 1 });

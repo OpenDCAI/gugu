@@ -38,10 +38,7 @@ export const SETTINGS_DEFAULTS = {
   },
   notifications: {
     enabled: true,
-    sound: true,
-    customSoundPath: '',
-    osNotifications: true,
-    soundFocusMode: 'always' as const
+    sound: true
   },
   terminal: {
     enabled: null,

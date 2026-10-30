@@ -75,14 +75,14 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
   /** 送一条事件并等宿主把它写完(以 'agent:status' 播出为完成信号)。 */
   const deliver = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length).toBe(before + 1);
   };
   /** 送一条**不该产生任何写入**的事件:等处理跑完,再证明它确实没播。 */
   const deliverNoop = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length, `${e.type}/${String(e.payload.notificationType)} must not write a status`).toBe(before);
   };
@@ -131,7 +131,7 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
 
     await deliver(event('stop'));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(lastSound()).toBe('task_complete');
+    expect(lastSound()).toBeUndefined();
 
     // Claude Code 闲置约 60 秒发的「waiting for your input」:不是新事实。
     await deliverNoop(event('notification', 'idle_prompt'));
@@ -168,7 +168,7 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
     await deliver(event('start'));
     await deliver(event('notification', 'permission_prompt'));
     expect(row()).toEqual({ status: 'needs_user', seen: 0 });
-    expect(lastSound()).toBe('needs_attention');
+    expect(lastSound()).toBeUndefined();
 
     await deliver(event('wait_resolved'));
     expect(row()).toEqual({ status: 'working', seen: 1 });

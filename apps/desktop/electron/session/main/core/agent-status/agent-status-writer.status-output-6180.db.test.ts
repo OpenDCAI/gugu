@@ -82,8 +82,7 @@ describe('#6180 状态输出按写入顺序播出,取消重置也在其中', () 
         sessionId: 'c1',
         timestamp: Date.now(),
         payload: {},
-      },
-      false
+      }
     );
     await agentStatusWriter.interrupt({ sessionId: 'c1', projectId: 'p1' });
     off();

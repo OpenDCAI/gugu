@@ -7,6 +7,7 @@ import { AppSettingsKeys, type AppSettings, type AppSettingsKey } from '@shared/
 import { APP_SETTINGS_SCHEMA_MAP } from './schema';
 import { getDefaultForKey } from './settings-registry';
 import { computeDelta, computeTrueOverrides, isPlainObject, mergeDeep } from './utils';
+import { migratedNotificationSettings } from './notification-settings';
 
 export type { AppSettings, AppSettingsKey } from '@shared/core/app-settings';
 export { AppSettingsKeys } from '@shared/core/app-settings';
@@ -138,6 +139,9 @@ export class SettingsStore implements IInitializable {
   }
 
   async initialize(): Promise<void> {
+    const notifications = migratedNotificationSettings(await this.readRaw('notifications'));
+    // update validates and replaces the raw delta, so mergeDeep cannot retain legacy keys.
+    if (notifications) await this.update('notifications', notifications);
     await this.getAll();
   }
 }

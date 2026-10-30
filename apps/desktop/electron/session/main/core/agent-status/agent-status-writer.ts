@@ -7,7 +7,6 @@ import {
   type AgentStatusReading,
 } from '@gugu/core/shared/agentStatus';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
-import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { maybeShowNotification } from '@main/core/agent-hooks/notification';
 import { isSessionAutoApproved } from '@main/core/agent-hooks/turn-autonomy';
 import { getPlugin } from '@main/core/agents/plugin-registry';
@@ -68,7 +67,7 @@ interface SessionStatusLog {
   written: { status: AgentStatus; detail: AgentStatusReading['detail']; unseen: boolean } | null;
 }
 
-type PublishMeta = { event?: AgentEvent; appFocused: boolean; timestamp: number; announceWait: boolean };
+type PublishMeta = { event?: AgentEvent; timestamp: number };
 
 /** 一条会话出生时写下的那一行(建行的列值来自出生规则 `birthStatusColumns`)。 */
 export type SessionBirth = Pick<Session, 'id' | 'projectId' | 'agentStatus' | 'agentStatusDetail'>;
@@ -197,12 +196,9 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (unchanged && !reading.finished) return;
     // 做完、等人、出错写成未读;在跑、没做完的空闲(被打断)不是一句需要你看的话。
     const unseen = !(reading.status === 'working' || (reading.status === 'idle' && !reading.finished));
-    const finished = reading.finished && reading.status === 'idle';
-    const waitAsked = meta.announceWait && reading.status === 'needs_user' && previous?.status !== 'needs_user';
     await this.publish(sessionId, entry, reading, unseen, meta, {
       persist: true,
       active: true,
-      soundEvent: finished ? 'task_complete' : waitAsked ? 'needs_attention' : undefined,
     });
     // 系统横幅跟着这一份读数走,与它从哪条路来(终端 hook、ACP、宿主的等待)无关;叫不叫人由 shouldNotify 定。
     void maybeShowNotification({ sessionId, projectId: entry.projectId }, previous, reading);
@@ -218,7 +214,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     reading: AgentStatusReading,
     unseen: boolean,
     meta: PublishMeta,
-    options: { persist: boolean; active?: true; soundEvent?: 'needs_attention' | 'task_complete' },
+    options: { persist: boolean; active?: true },
   ): Promise<void> {
     entry.written = { status: reading.status, detail: reading.detail, unseen };
     const lastInteractedAt = options.active ? new Date(meta.timestamp).toISOString() : undefined;
@@ -247,17 +243,13 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       providerBlocker: this.getProviderBlocker(sessionId),
       statusSourceFault: this.getStatusSourceFault(sessionId),
     };
-    events.emit(sessionAgentStatusChangedChannel, {
-      ...change,
-      appFocused: meta.appFocused,
-      ...(options.soundEvent ? { soundEvent: options.soundEvent } : {}),
-    });
+    events.emit(sessionAgentStatusChangedChannel, change);
     this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId,
       ...(options.active ? { activityAt: meta.timestamp } : {}) });
   }
 
   private now(): PublishMeta {
-    return { appFocused: isAppFocused(), timestamp: Date.now(), announceWait: false };
+    return { timestamp: Date.now() };
   }
 
   /**
@@ -490,7 +482,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     return hasStatusSource({ runtime: 'pty', hooksKind: getPlugin(row.provider).capabilities.hooks.kind }) ? 'present' : 'none';
   }
 
-  private async applyEvent(event: AgentEvent, appFocused: boolean): Promise<void> {
+  private async applyEvent(event: AgentEvent): Promise<void> {
     const source = await this.statusSource(event.sessionId);
     // 会话行已经不在是合法的时序(删会话先删行、后停 harness,退出边带着仍然有效的令牌到达):不写、不播,
     // 否则会把 `forget` 刚清掉的日志重新种回去,并对一条已宣告删除的会话陈述状态。
@@ -507,20 +499,18 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     }
     await this.apply(event.sessionId, (ctx) => translateAgentEvent(event, ctx), {
       event,
-      appFocused,
       timestamp: event.timestamp,
-      announceWait: true,
     });
   }
 
   initialize(): void {
     this.disposers.push(
-      agentHookService.on('agent:event', (event, appFocused) => {
+      agentHookService.on('agent:event', (event) => {
         if (event.type === 'start' && event.payload.origin !== 'subagent') {
           this.providerReviewGates.delete(event.sessionId);
           this.providerBlockers.delete(event.sessionId);
         }
-        return this.inOrder(event.sessionId, () => this.applyEvent(event, appFocused));
+        return this.inOrder(event.sessionId, () => this.applyEvent(event));
       }),
     );
   }

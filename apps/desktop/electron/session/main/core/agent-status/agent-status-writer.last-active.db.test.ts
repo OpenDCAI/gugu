@@ -78,7 +78,7 @@ describe('会话的最近活动跟着每一轮走', () => {
       )
       .run(id, provider, runtime, agentStatus, BORN);
   const deliver = async (e: AgentEvent) => {
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     return e.timestamp;
   };

@@ -76,13 +76,13 @@ describe('#6206 没有状态源的终端会话不写派生活动', () => {
       .run(id, provider, runtime, agentStatus);
   const deliver = async (e: AgentEvent) => {
     const before = published.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(published.length).toBe(before + 1);
   };
   const deliverNoop = async (e: AgentEvent) => {
     const before = published.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(published.length, `${e.providerId}/${e.type} must not publish a status`).toBe(before);
   };

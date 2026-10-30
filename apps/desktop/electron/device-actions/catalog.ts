@@ -88,7 +88,7 @@ export interface FamilyDeps {
   clipboardWrite(text: string): Promise<void> | void
   /** 剪贴板里的图片(PNG base64);没有回 null。 */
   clipboardReadImage?(): Promise<{ mimeType: string; data: string; width: number; height: number } | null>
-  notify(title: string, body: string): void
+  notify(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }>
   openExternal(url: string): Promise<void>
   /** 移到废纸篓 / 回收站(Electron shell.trashItem)。 */
   trashItem(path: string): Promise<void>

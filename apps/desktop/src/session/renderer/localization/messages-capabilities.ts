@@ -128,24 +128,10 @@ export const enUSCapabilityMessages = {
   'repository.autoGitignoreToggle': 'Enable .gitignore updates for CLI hook configs',
 
   // ── settings · notifications ───────────────────────────────────────────────
-  'notifications.title': 'Task notifications',
-  'notifications.description':
-    'For agents on the task page. Chat and agent-contact notifications are under General.',
+  'notifications.title': 'Notify me when I\'m needed',
+  'notifications.description': 'Tasks and Apps notify you when you need to respond.',
   'notifications.sound': 'Sound',
-  'notifications.previewSound': 'Preview sound',
-  'notifications.preview': 'Preview',
-  'notifications.customSound': 'Custom sound',
-  'notifications.chooseSoundDialogTitle': 'Choose custom sound',
-  'notifications.chooseSoundDialogMessage': 'Select an audio file to play for agent events',
-  'notifications.changeCustomSound': 'Change custom sound',
-  'notifications.chooseCustomSound': 'Choose custom sound',
-  'notifications.chooseFile': 'Choose file…',
-  'notifications.soundTiming': 'Sound timing',
-  'notifications.soundAlways': 'Always',
-  'notifications.soundUnfocused': 'Only when unfocused',
-  'notifications.osNotifications': 'OS notifications',
-  'notifications.osNotificationsDescription':
-    'Show system banners when agents need attention or finish (while {appName} is unfocused).',
+  'notifications.apps': 'Apps that can notify',
 
   // ── settings · keyboard shortcuts ──────────────────────────────────────────
   'keyboard.conflictTitle': 'Shortcut conflict',
@@ -988,23 +974,10 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'repository.autoGitignoreToggle': '启用 CLI hook 配置的 .gitignore 更新',
 
   // ── 设置 · 通知 ─────────────────────────────────────────────────────────────
-  'notifications.title': '会话通知',
-  'notifications.description': '只管项目页里的智能体。聊天和联系人里智能体的通知在「通用」里。',
+  'notifications.title': '需要我时通知',
+  'notifications.description': '任务和 App 在需要你回应时通知。',
   'notifications.sound': '提示音',
-  'notifications.previewSound': '试听提示音',
-  'notifications.preview': '试听',
-  'notifications.customSound': '自定义提示音',
-  'notifications.chooseSoundDialogTitle': '选择自定义提示音',
-  'notifications.chooseSoundDialogMessage': '选择一个用于智能体事件的音频文件',
-  'notifications.changeCustomSound': '更换自定义提示音',
-  'notifications.chooseCustomSound': '选择自定义提示音',
-  'notifications.chooseFile': '选择文件…',
-  'notifications.soundTiming': '提示音时机',
-  'notifications.soundAlways': '始终',
-  'notifications.soundUnfocused': '仅在未聚焦时',
-  'notifications.osNotifications': '系统通知',
-  'notifications.osNotificationsDescription':
-    '智能体需要处理或已完成时显示系统横幅（{appName} 未聚焦时）。',
+  'notifications.apps': '可发送通知的 App',
 
   // ── 设置 · 键盘快捷键 ───────────────────────────────────────────────────────
   'keyboard.conflictTitle': '快捷键冲突',

@@ -72,13 +72,13 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
       .get(cid) as { status: string; seen: number };
   const deliver = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length).toBe(before + 1);
   };
   const deliverNoop = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length, `${e.type}/${String(e.payload.notificationType)} must not write a status`).toBe(before);
   };
@@ -134,14 +134,14 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
     await deliver(event('start'));
     await deliver(event('stop', undefined, 0));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(sounds()).toEqual(['task_complete']);
+    expect(sounds()).toEqual([]);
   });
 
   it('阴控:没有后台任务的回合原样 —— stop 即 idle + 做完,之后的 idle_prompt 不改', async () => {
     await deliver(event('start'));
     await deliver(event('stop', undefined, 0));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(sounds()).toEqual(['task_complete']);
+    expect(sounds()).toEqual([]);
     await deliverNoop(event('notification', 'idle_prompt'));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
   });

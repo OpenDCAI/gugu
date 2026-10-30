@@ -6,7 +6,6 @@ import { onMachineEvent, rpc } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { PtySession } from '@renderer/lib/pty/pty-session';
 import { Resource } from '@renderer/lib/stores/resource';
-import { soundPlayer } from '@renderer/utils/soundPlayer';
 import { aggregateStatusDetail } from '@renderer/lib/components/agent-status-display';
 import type { AgentStatus, AgentStatusDetail, AgentStatusView } from '@gugu/core/shared/agentStatus';
 import {
@@ -144,9 +143,6 @@ export class PageSessionsStore implements IDisposable {
 
       sessionStore.applyStatus(payload);
 
-      if (payload.soundEvent) {
-        soundPlayer.play(payload.soundEvent, payload.appFocused, payload.sessionId);
-      }
     });
   }
 

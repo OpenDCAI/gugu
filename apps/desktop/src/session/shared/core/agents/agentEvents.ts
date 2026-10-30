@@ -53,6 +53,3 @@ export interface AgentEvent {
     origin?: 'subagent';
   };
 }
-
-export type SoundEvent = 'needs_attention' | 'task_complete';
-

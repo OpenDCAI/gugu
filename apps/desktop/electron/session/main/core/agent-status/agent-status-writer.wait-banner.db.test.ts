@@ -9,7 +9,7 @@ import type { AgentEvent, NotificationType } from '@shared/core/agents/agentEven
  * 读数从哪条路来都一样 —— 终端 hook 带 sourceId,ACP 会话的边(acp/agent-status-bridge)没有;从前横幅只认带
  * sourceId 的那条,ACP 任务等批准时手机响了、桌面一声不响。判据打在真 SQLite 和真的 maybeShowNotification 上,只把系统横幅换成计数。
  */
-const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, banners: [] as Array<{ title: string; body: string }> }));
+const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, settings: { enabled: true, sound: true }, banners: [] as Array<{ title: string; body: string; silent: boolean }> }));
 
 vi.mock('@main/db/client', () => ({
   get db() {
@@ -24,8 +24,8 @@ vi.mock('electron', () => ({
     static isSupported() {
       return true;
     }
-    constructor(options: { title: string; body: string }) {
-      mocks.banners.push({ title: options.title, body: options.body });
+    constructor(options: { title: string; body: string; silent: boolean }) {
+      mocks.banners.push(options);
     }
     on() {}
     show() {}
@@ -33,7 +33,7 @@ vi.mock('electron', () => ({
 }));
 vi.mock('@main/app/window', () => ({ getMainWindow: () => null }));
 vi.mock('@main/core/settings/settings-service', () => ({
-  appSettingsService: { get: async () => ({ enabled: true, osNotifications: true }) },
+  appSettingsService: { get: async () => mocks.settings },
 }));
 vi.mock('../agent-hooks/hook-server', () => ({
   HookServer: class {
@@ -73,7 +73,7 @@ function event(type: AgentEvent['type'], payload: AgentEvent['payload'] = {}, so
 describe('desktop agent banners follow the status reading, whatever path it came by', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
   const deliver = async (e: AgentEvent) => {
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     // 横幅在写入落定之后异步发出(读设置、读会话名)。
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -92,6 +92,7 @@ describe('desktop agent banners follow the status reading, whatever path it came
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
     mocks.banners.length = 0;
+    mocks.settings.enabled = true; mocks.settings.sound = true;
     cid = `c${clock}`;
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
@@ -106,15 +107,29 @@ describe('desktop agent banners follow the status reading, whatever path it came
   it('an ACP session stopping for approval raises one banner; the same wait pushed again does not', async () => {
     await deliver(event('start'));
     await deliver(event('wait', { waitKind: 'approval', waitId: 'w1' }));
-    expect(mocks.banners).toEqual([{ title: 'Codex — Fix it', body: 'needs approval' }]);
+    expect(mocks.banners).toEqual([{ title: 'Codex — Fix it', body: 'needs approval', silent: false }]);
     await deliver(event('wait', { waitKind: 'approval', waitId: 'w2' }));
     expect(mocks.banners).toHaveLength(1);
+  });
+
+  it('an ACP wait follows the sound switch without losing its banner', async () => {
+    mocks.settings.sound = false;
+    await deliver(event('start'));
+    await deliver(event('wait', { waitKind: 'approval', waitId: 'w1' }));
+    expect(mocks.banners).toEqual([{ title: 'Codex — Fix it', body: 'needs approval', silent: true }]);
+  });
+
+  it('a disabled notification setting suppresses the wait and its sound', async () => {
+    mocks.settings.enabled = false;
+    await deliver(event('start'));
+    await deliver(event('wait', { waitKind: 'approval', waitId: 'w1' }));
+    expect(mocks.banners).toEqual([]);
   });
 
   it('a terminal hook asking for permission raises it the same way', async () => {
     await deliver(event('start', {}, 'source-1'));
     await deliver(event('notification', { notificationType: 'permission_prompt' as NotificationType }, 'source-1'));
-    expect(mocks.banners).toEqual([{ title: 'Codex — Fix it', body: 'needs approval' }]);
+    expect(mocks.banners).toEqual([{ title: 'Codex — Fix it', body: 'needs approval', silent: false }]);
   });
 
   it('finishing or erroring is a state change and raises nothing', async () => {
