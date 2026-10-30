@@ -652,7 +652,7 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       const { automation } = await createAgentSchedule({
         agentSessionId: sessionId, projectId: 'p1', name: sessionId,
         prompt: 'Continue the original task', provider: 'codex',
-        triggerConfig: { at: Date.now() + 3_600_000, tz: 'UTC' },
+        triggerConfig: { expr: '', at: Date.now() + 3_600_000, tz: 'UTC' },
       });
       schedules.set(sessionId, automation.id);
     }
