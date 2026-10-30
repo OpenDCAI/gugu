@@ -27,7 +27,7 @@ export function BubbleSender({ member, senderId, replyMark }: { member: MemberPr
     : t('message.agentOwnerUnavailableTag')
   return (
     <div data-message-who="true" data-message-sender-name="true" className="msg-sender" style={{ '--member-hue': hue } as React.CSSProperties}>
-      {target ? <Button variant="ghost" size="sm" className="msg-sender-name msg-sender-link" onClick={event => { event.stopPropagation(); openMessageSender(target) }}>{member?.displayName ?? ''}</Button>
+      {target ? <Button variant="ghost" size="sm" className="msg-sender-name msg-sender-link" onClick={event => { event.stopPropagation(); openMessageSender(target) }}><span className="msg-sender-name">{member?.displayName ?? ''}</span></Button>
         : <span className="msg-sender-name">{member?.displayName ?? ''}</span>}
       {replyMark}
       {tag && <Chip appearance="filled" data-message-agent-owner="true">{tag}</Chip>}

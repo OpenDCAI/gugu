@@ -3,6 +3,7 @@ import { page } from 'vitest/browser'
 import { createReactHarness, message, renderWithAppProviders } from '../../../../../../../tests/support/testHarness'
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { MessageSenderProvider } from '@/components/chat/MessageSenderProvider'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -65,4 +66,36 @@ it.each([false, true])('keeps a card reply in its existing timestamp row (mobile
   expect(row.textContent).toMatch(/\d{1,2}:\d{2}/)
   expect(row.getBoundingClientRect().height, 'the card timestamp remains one line').toBeLessThanOrEqual(20)
   expect(reply.getBoundingClientRect().height).toBe(control.getBoundingClientRect().height)
+})
+
+it.each([{ mobile: true, width: 370 }, { mobile: false, width: 240 }, { mobile: false, width: 320 }])('keeps the start of a clickable long name visible with end ellipsis and an inline reply mark ($mobile/$width)', async ({ mobile, width }) => {
+  await page.viewport(mobile ? 390 : 1100, 800)
+  harness = createReactHarness()
+  harness.container.className = 'gugu-skin emlight'
+  harness.container.style.cssText = `position:fixed;left:10px;top:100px;width:${width}px`
+  const name = 'lane-chatquote1062-peer-c38f-1030'
+  const msg = message({ id: 'long-name-reply', chat_id: 'group', sender_user_id: 'peer', content: 'ok', is_mine: false, reply_to_message_id: 'source', reply_to_sender_user_id: 'peer', reply_to_content: 'Original' })
+  await renderWithAppProviders(harness, <MessageSenderProvider message={msg} group>
+    <MessageBubble msg={msg} isGroup compactMobile={mobile} memberProfile={{ ...sender, displayName: name }} memberProfiles={{ peer: sender }}
+      onReaction={() => {}} onQuote={() => {}} onForward={() => {}} onDelete={() => {}} onShowMessage={() => {}} />
+  </MessageSenderProvider>)
+  const link = harness.container.querySelector<HTMLElement>('.msg-sender-link')!
+  const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT)
+  const text = walker.nextNode()!
+  const label = text.parentElement!
+  const edge = label.getBoundingClientRect()
+  const first = document.createRange(); first.setStart(text, 0); first.setEnd(text, 2)
+  const last = document.createRange(); last.setStart(text, name.length - 1); last.setEnd(text, name.length)
+  expect(link.textContent).toBe(name)
+  expect(first.getBoundingClientRect().left, 'the initial la is not cropped by centered flex content').toBeGreaterThanOrEqual(edge.left - 0.5)
+  expect(label.scrollWidth, 'the long name needs truncation').toBeGreaterThan(label.clientWidth)
+  expect(getComputedStyle(label).textOverflow, 'the end is marked with an ellipsis').toBe('ellipsis')
+  expect(last.getBoundingClientRect().right).toBeGreaterThan(edge.right)
+  const mark = harness.container.querySelector<HTMLElement>('.gg-chat-reply-jump')!.getBoundingClientRect()
+  const row = harness.container.querySelector<HTMLElement>('[data-message-sender-name]')!.getBoundingClientRect()
+  expect(mark.width).toBe(18)
+  expect(mark.left).toBeGreaterThanOrEqual(edge.right)
+  expect(mark.right).toBeLessThanOrEqual(row.right + 0.5)
+  expect(mark.top).toBeGreaterThanOrEqual(row.top - 0.5)
+  expect(mark.bottom).toBeLessThanOrEqual(row.bottom + 0.5)
 })
