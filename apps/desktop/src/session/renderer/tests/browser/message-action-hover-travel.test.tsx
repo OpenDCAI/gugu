@@ -17,6 +17,9 @@ afterEach(() => { harness?.cleanup(); replies.length = 0; });
 
 async function mount(enabled = true, topClamp = false, short = false, isMine = true) {
   await page.viewport(1280, 800);
+  // The pointer starts off the list: a row that renders under a resting pointer opens its pill at once, and the case
+  // would start from whatever an earlier file left there.
+  await move(5, 500);
   harness = createReactHarness();
   harness.container.className = 'gugu-skin emlight';
   harness.container.style.cssText = `position:fixed;left:20px;top:20px;width:1000px;height:600px;padding-top:${topClamp ? 0 : 100}px`;
@@ -50,11 +53,13 @@ async function sweep(points: readonly { x: number; y: number }[]) {
 }
 
 const pills = () => [...document.querySelectorAll<HTMLElement>('[data-testid="message-hover-actions"]')];
+/** The one open pill is the target row's own (Base UI marks the open trigger), not another row's. */
+const targetPillOpen = (target: HTMLElement) => pills().length === 1 && !!target.closest('[data-message-bubble-row]')?.hasAttribute('data-popup-open');
 
 it.each([false, true])('keeps its pill across the previous row, button gaps and padding (top avoidance: %s)', async (topClamp) => {
   const target = await mount(true, topClamp);
   await userEvent.hover(target);
-  await until('target pill opens', () => pills().length === 1);
+  await until('target pill opens', () => targetPillOpen(target));
   const pill = pills()[0];
   await until('the pill finishes entering', () => getComputedStyle(pill).opacity === '1' && !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
   const buttons = [...pill.querySelectorAll('button')];
@@ -101,7 +106,7 @@ it('keeps mouse hover disabled on the phone', async () => {
 it.each([true, false])('keeps short-message actions within the viewport (isMine: %s)', async (isMine) => {
   const target = await mount(true, true, true, isMine);
   await userEvent.hover(target);
-  await until('short-message actions open', () => pills().length === 1);
+  await until('short-message actions open', () => targetPillOpen(target));
   const pill = pills()[0];
   await until('the short-message pill finishes entering', () => !pill.hasAttribute('data-starting-style') && pill.getAnimations().every((animation) => animation.playState === 'finished'));
   const rect = pill.getBoundingClientRect(), viewport = harness.container.getBoundingClientRect();
