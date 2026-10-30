@@ -95,7 +95,7 @@ function setup(options: { title?: string; managed?: boolean; source?: 'manual' |
     if (nextSource) source = nextSource
   })
   const host = createSessionpageIdentityHost({
-    getAuth: async () => { state.getAuth(); return state.signedOut ? null : { userId: 'owner', accessToken: 'token', refreshToken: '' } },
+    getAuth: async () => { await state.getAuth(); return state.signedOut ? null : { userId: 'owner', accessToken: 'token', refreshToken: '' } },
     resolveDeviceId: async () => 'device',
     resolveProjectName: async () => 'Project',
     sessionFacts: async () => null,
@@ -113,7 +113,7 @@ beforeEach(() => {
   state.rows = [{ id: AGENT, display_name: 'Claude 1', name_serial: 1, gugu_number: null, type: 'agent', owner_user_id: 'owner' }]
   state.error = null
   state.signedOut = false
-  state.getAuth.mockClear()
+  state.getAuth.mockReset()
   state.lock.mockClear()
   state.lockTail = Promise.resolve()
   state.reconnected = undefined
@@ -254,14 +254,14 @@ describe('task and identity shared rename operation', () => {
       return app.host.renameAgent(args[0] as { sessionId: string; name: string })
     })
     let release!: () => void
-    state.beforeWrite = () => new Promise<void>((resolve) => { release = resolve })
+    state.getAuth.mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
     try {
       const first = web.renameAgent({ sessionId: 'task', name: 'First choice' })
       await vi.waitFor(() => expect(release).toBeTypeOf('function'))
       const second = web.renameAgent({ sessionId: 'task', name: 'Newer choice' })
       await vi.waitFor(() => expect(app.title()).toBe('Newer choice'))
       expect(state.signedOut).toBe(false)
-      state.beforeWrite = undefined
       release()
       const [firstResult] = await Promise.all([first, second])
       expect(firstResult).toMatchObject({ displayName: 'Newer choice' })

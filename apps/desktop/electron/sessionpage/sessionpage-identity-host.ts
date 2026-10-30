@@ -192,7 +192,17 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
     const agent = (await listAgents(env, { includeGuests: true }))
       .find((row) => row.gugu_user_id === agentUserId && agentMayBelongTo(row, auth.userId))
-    return agent ? adoptRecordName(agent, name, source) : null
+    if (!agent) return null
+    const sessionId = agent.cache?.[SESSION_CACHE_KEY]
+    if (source && typeof sessionId === 'string') {
+      const state = deps.taskNames?.state(sessionId)
+      // Check after auth/roster awaits, immediately before the synchronous task mirror.
+      if (source === 'manual' && state?.title && state.title !== name) {
+        return { conversationId: sessionId, agentUserId, displayName: state.title }
+      }
+      if (source === 'generated' && !state?.fallback) return null
+    }
+    return adoptRecordName(agent, name, source)
   }
 
   async function renameBoundAgent(sessionId: string, value: string, source: 'manual' | 'generated'): Promise<SessionShellAgentName | false | null> {
@@ -223,10 +233,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
           if (source === 'generated') return false
           throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
         }
-        if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
-        // A newer local manual choice must survive completion of an older cloud request.
-        if (source === 'manual' && deps.taskNames?.state(sessionId).title !== name) return current()
-        return adoptAgentName(agent.gugu_user_id, name, source)
+        return (await adoptAgentName(agent.gugu_user_id, name, source)) ?? (source === 'manual' ? current() : false)
       })
     } catch (error) {
       if (source !== 'manual') throw error
