@@ -16,6 +16,7 @@ import { createAcpRuntimeController } from '../../../../packages/session-runtime
 import { createHostPromptPreparation } from '../../../../packages/session-runtime/src/acp-agents/session/host-prompt-preparation'
 import { ChildAcpProcessHost } from '../../../../packages/session-runtime/src/acp-agents/node/child-process-host'
 import { LocalAttachmentStore } from '../../../../packages/session-runtime/src/acp-agents/node/local-attachment-store'
+import { createPromptAttachmentResolver } from '../../../../packages/session-runtime/src/acp-agents/node/resolve-prompt-attachment'
 import { LocalPromptQueueStore } from '../../../../packages/session-runtime/src/acp-agents/node/local-prompt-queue-store'
 import { startServerAccountActivity } from '../../../../apps/desktop/electron/server/server-account-activity'
 import { accountIsBusy, readAccountActivity } from '../../../../apps/desktop/electron/server/server-layout'
@@ -102,6 +103,7 @@ function bootRuntime(dir: string) {
     '../runtime/runtime': { AcpRuntime },
     './child-process-host': { ChildAcpProcessHost },
     './local-attachment-store': { LocalAttachmentStore },
+    './resolve-prompt-attachment': { createPromptAttachmentResolver },
     './local-prompt-queue-store': { LocalPromptQueueStore },
   }
   const module = { exports: {} as { bootAcpRuntimeProcess: (options: unknown) => void } }
@@ -182,6 +184,7 @@ describe('live ACP ownership reaches the real version-switch consumer', () => {
       const children = new Map([[account.userId, { process: { pid: process.pid, kill }, startedAt, version }]])
       const context = {
         log: { info: vi.fn(), warn: vi.fn() }, shutdown, layout,
+        followSupervisor: false, backoff: new Map(),
         CHILD_STOP_GRACE_MS: 30_000,
         lifecycle, accountIsBusy, readAccountActivity,
         listAccounts: () => [account], children,
