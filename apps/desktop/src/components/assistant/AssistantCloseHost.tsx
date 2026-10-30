@@ -77,20 +77,13 @@ export function AssistantCloseHost() {
       if (!cloud) return
       const client = rendererCloudComputerClient()
       if (!client) throw new Error('cloud computer is not configured')
+      const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
+      if (result !== 'online') throw new Error('the cloud home changed before close')
       await client.prepareAssistantClose({ deviceId: cloud.deviceId, assistantId: cloud.assistantId })
     }
     return {
       check: checkCloud,
-      listSessions: async () => {
-        if (cloud) {
-          const client = rendererCloudComputerClient()
-          if (!client) throw new Error('cloud computer is not configured')
-          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
-          if (result !== 'online') throw new Error('the cloud home changed before close')
-          await checkCloud()
-        }
-        return (await rpcOn(target).sessionTimeline.sessionsList()).sessions
-      },
+      listSessions: async () => (await rpcOn(target).sessionTimeline.sessionsList()).sessions,
       listAutomations: () => rpcOn(target).automations.listAutomations(),
       deleteAutomation: (id) => rpcOn(target).automations.deleteAutomation(id),
       removeAgent: (agentUserId) => removeOwnedAgent(agentUserId),

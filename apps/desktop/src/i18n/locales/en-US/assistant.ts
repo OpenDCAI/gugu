@@ -928,6 +928,7 @@ export default {
       "schedules": "Something went wrong removing its scheduled tasks; nothing has been deleted. Try again.",
       "started": "Something went wrong deleting the sessions it started; it is still here. Try again.",
       "identity": "Something went wrong deleting it; it is still here. Try again.",
+      "session": "It has been deleted, but its remaining tasks couldn't be archived.",
       "home": "It has been deleted, but its home wasn't fully cleared; it will be cleared again when you set up a new one."
     },
     "elsewhereTitle": "Close it on the computer it lives on",

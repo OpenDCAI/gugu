@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { app } from 'electron';
 import { db } from '@main/db/client';
 import { and, desc, eq } from 'drizzle-orm';

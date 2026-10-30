@@ -554,6 +554,7 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
 
   it.each([false, true])('closes through real identity cleanup and SQLite archival, delete-started=%s', async (deleteStarted) => {
     insert('assistant-task');
+    insert('assistant-unbound');
     insert('started-task');
     const { closeLocalAssistant } = await import('@/lib/assistantClose');
     const { releaseDeletedOwnedAgent } = await import('../../../../sessionpage/owner-agent-deletion');
@@ -567,13 +568,15 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     }
     const summary = (id: string, agentId: string) => ({ conversationId: id, projectId: 'p1', title: id, agent: { userId: agentId } });
     const own = summary('assistant-task', 'assistant-id');
+    const unbound = summary('assistant-unbound', 'assistant-id');
     const child = summary('started-task', 'child-id');
     const deletedIdentities: string[] = [];
     const wipeHome = vi.fn(async () => {});
     const resetLocalState = vi.fn();
     try {
-      await closeLocalAssistant({ assistantId: 'assistant-id', deleteStarted }, { own: [own], started: [child] }, {
-        listSessions: async () => [own, child], listAutomations: async () => [], deleteAutomation: async () => {},
+      await closeLocalAssistant({ assistantId: 'assistant-id', deleteStarted }, { own: [own, unbound], started: [child] }, {
+        listSessions: async () => [own, unbound, child].filter(session => fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get(session.conversationId)),
+        listAutomations: async () => [], deleteAutomation: async () => {},
         removeAgent: async agentId => {
           deletedIdentities.push(agentId); // The cloud identity RPC boundary alone is injected.
           const { sessionpageSessionIdForAgent, releaseAgentLocalFootprint } = await import('../../../../sessionpage/agent-local-footprint');
@@ -591,7 +594,8 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       expect(resetLocalState).toHaveBeenCalledOnce();
       expect(deletedIdentities).toEqual(deleteStarted ? ['child-id', 'assistant-id'] : ['assistant-id']);
       const history = await listSessionHistory({ source: 'gugu', status: 'archived' });
-      expect(history.rows.map(row => row.gugu?.sessionId)).toEqual(deleteStarted ? [] : ['started-task']);
+      expect(history.rows.map(row => row.gugu?.sessionId).sort()).toEqual(deleteStarted ? ['assistant-unbound'] : ['assistant-unbound', 'started-task']);
+      expect(archivedAt('assistant-unbound')).not.toBeNull();
       await expect(restoreSession('p1', 'assistant-task')).rejects.toThrow('Session not found');
       if (deleteStarted) {
         await expect(restoreSession('p1', 'started-task')).rejects.toThrow('Session not found');

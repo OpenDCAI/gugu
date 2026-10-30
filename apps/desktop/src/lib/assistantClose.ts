@@ -8,7 +8,7 @@
 //      ❌ 先删它再撤定时任务:撤不掉的那几条会照点往一个已经不在的会话里投。
 //   2. 它开过的任务走现有归档;勾了永久删除时删身份,由同一删除入口清掉绑定任务。
 //   3. 删它自己的身份(同一个「删除 agent」:撤掉正在跑的那一轮、放掉本机的登记;服务端把和它的私聊收起来)。
-//   身份删除已经停掉并删除它自己的任务,不能再归档一次。
+//   身份删除已经停掉并删除绑定任务;剩下未绑定的自身任务仍走原归档。
 //   4. 清掉它在这台电脑上的家(主进程算路径)。
 //   5. 清掉这台电脑上记着的开通进度、「自定义」卡、没走完的开通记录、搬家记录 —— 下次进来就是「认识咕咕」
 //      (第 3 步一过就一定做,后面哪步没成也做)。
@@ -45,7 +45,7 @@ export type LocalCloseDeps = {
   resetLocalState: () => void
 }
 
-export type AssistantCloseStep = 'check' | 'schedules' | 'started' | 'identity' | 'home'
+export type AssistantCloseStep = 'check' | 'schedules' | 'started' | 'identity' | 'session' | 'home'
 
 export class AssistantCloseError extends Error {
   constructor(
@@ -59,7 +59,8 @@ export class AssistantCloseError extends Error {
 }
 
 /** 确认框要先知道的:它自己的会话、它开过的会话(数一下给那个勾)。 */
-export async function planLocalClose(assistantId: string, deps: Pick<LocalCloseDeps, 'listSessions'>): Promise<LocalClosePlan> {
+export async function planLocalClose(assistantId: string, deps: Pick<LocalCloseDeps, 'check' | 'listSessions'>): Promise<LocalClosePlan> {
+  await deps.check?.()
   const listed = await deps.listSessions()
   return {
     own: listed.filter((summary) => isAssistantSession(summary, assistantId)),
@@ -102,6 +103,12 @@ export async function closeLocalAssistant(
   await step('identity', () => deps.removeAgent(input.assistantId))
   // 它已经删掉了:后面哪一步没成都照实报,但这台电脑上记着的开通进度一律清掉 —— 咕咕那一格要回到「认识咕咕」,❌ 停在半截的步骤上。
   try {
+    await step('session', async () => {
+      const ownIds = new Set(plan.own.map(session => session.conversationId))
+      for (const session of await deps.listSessions()) {
+        if (ownIds.has(session.conversationId)) await deps.archiveSession(session.projectId, session.conversationId)
+      }
+    })
     await step('home', deps.wipeHome)
   } finally {
     deps.resetLocalState()
