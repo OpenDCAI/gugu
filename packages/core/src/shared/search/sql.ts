@@ -23,7 +23,8 @@ function midnight(value: string, next = false): number {
 export function buildSearchSql(
   query: SearchQuery,
   accountId: string,
-  options: { limit?: number; offset?: number } = {},
+  /** unordered: for counting, so SQLite can stop at the limit instead of sorting every match. */
+  options: { limit?: number; offset?: number; unordered?: boolean } = {},
 ): SearchSql {
   if (!accountId) throw new Error('A signed-in search account is required')
   const params: (string | number)[] = []
@@ -83,7 +84,7 @@ export function buildSearchSql(
     JOIN chat ON chat.id = m.chat_id
     ${fts ? 'JOIN msg_fts ON msg_fts.rowid = m.rowid' : ''}
     WHERE ${where.length ? where.join('\n      AND ') : '1'}
-    ORDER BY ${query.sort === 'relevant' && fts ? 'text_rank ASC, ' : ''}m.created_at DESC, m.seq DESC, m.id ASC`
+    ${options.unordered ? '' : `ORDER BY ${query.sort === 'relevant' && fts ? 'text_rank ASC, ' : ''}m.created_at DESC, m.seq DESC, m.id ASC`}`
   if (options.limit !== undefined || options.offset !== undefined) {
     const limit = options.limit ?? 50
     const offset = options.offset ?? 0

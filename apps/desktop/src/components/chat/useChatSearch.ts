@@ -3,13 +3,26 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { isChatSearchTarget } from '@/lib/chatSearchTarget'
 import { UI_EVENTS } from '@/lib/uiEvents'
+import { globalSearchV3Enabled, useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag'
+import { findMemberMessages, openGlobalSearch } from '@renderer/features/global-search/search-session'
+
+export { SearchResultsBar } from './SearchResultsBar'
 
 /** The existing in-window search policy, independent of the pane's presentation. */
 export function useChatSearch(chatId: string | null, enabled: boolean, messages: MessageItem[], surface: RefObject<HTMLElement | null>, viewportKey: string) {
   const [searchMode, setSearchMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const open = useCallback(() => { setSearchQuery(''); setSearchMode(true) }, [])
+  // globalSearch.v3: every in-chat entry (⌘F, the header button, the assistant's) opens the one search modal scoped
+  // to this chat. The in-window filter below stays only for the flag-off and phone paths until the flag defaults on.
+  const open = useCallback(() => {
+    if (chatId && globalSearchV3Enabled()) return openGlobalSearch({ chips: [{ kind: 'in', chatId }] })
+    setSearchQuery(''); setSearchMode(true)
+  }, [chatId])
+  const globalSearch = useGlobalSearchV3()
+  // A member's messages in this chat: the same modal with in: and from: (member profile cards).
+  const findMessagesOf = globalSearch && chatId
+    ? (userId: string) => findMemberMessages(chatId, userId) : undefined
   useEffect(() => { setSearchMode(false); setSearchQuery('') }, [chatId])
   useEffect(() => {
     if (!searchMode) return
@@ -38,6 +51,6 @@ export function useChatSearch(chatId: string | null, enabled: boolean, messages:
   const isFiltering = searchMode && !!searchQuery.trim()
   const displayedMessages = isFiltering ? messages.filter((message) => !message.retracted_at
     && message.content_type !== 'attachment' && (message.content ?? '').toLowerCase().includes(searchQuery.toLowerCase())) : messages
-  return { searchMode, setSearchMode, searchQuery, setSearchQuery, searchInputRef, isFiltering, displayedMessages }
+  return { searchMode, setSearchMode, searchQuery, setSearchQuery, searchInputRef, isFiltering, displayedMessages, findMessagesOf }
 }
 

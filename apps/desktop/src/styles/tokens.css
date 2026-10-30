@@ -1382,6 +1382,12 @@ body.barcode-scanner-active #root {
   animation: msg-src-flash 1.4s ease-out;
 }
 
+/* globalSearch.v3: the message the in-chat results bar is on keeps an accent frame on its bubble while the bar is open
+   (the flash above still plays on arrival). Same accent as the flash ring, so the two read as one highlight. */
+.msg-search-current [data-testid="message-bubble-action-target"] {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 /* ── theme batch A:助理 App(.ta-*)的颜色取值 ───────────────────────────────────────────────
    从 assistant-today.css 原样搬来(owner 10-28 批的 token 方案:颜色只在 tokens.css 里写),
    选择器、先后顺序都不变:深色 → 浅色 → 素白(素白必须排在浅色后面,两者特异度相同),最后是健康页调色。

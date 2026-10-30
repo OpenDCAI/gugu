@@ -20,6 +20,8 @@ import { DevicesContext } from '../../../apps/desktop/src/store/devicesContext'
 import { removeDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 
 const shell = vi.hoisted(() => ({ mobile: false }))
+const globalSearch = vi.hoisted(() => ({ v3: false }))
+vi.mock('@renderer/features/global-search/global-search-flag', () => ({ useGlobalSearchV3: () => globalSearch.v3 }))
 vi.mock('../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
@@ -250,6 +252,20 @@ describe('#6418 群成员面板 —— 搜索', () => {
     expect(q('[data-testid="member-list-no-match"]')?.textContent).toContain('没有这个人')
     await typeInto(input, '')
     expect(rowIds()).toHaveLength(5)
+  })
+
+  it.each([[true, ['member-1', 'codex']], [false, []]])('#914 拼音首字母 cyy 找到成员乙(globalSearch.v3=%s)', async (on, expected) => {
+    globalSearch.v3 = on
+    try {
+      await renderPanel()
+      const input = q('[data-testid="member-list-search"] input, input[data-testid="member-list-search"]') as HTMLInputElement
+      await typeInto(input, 'cyy')
+      expect(rowIds()).toEqual(expected)
+      await typeInto(input, '')
+      expect(rowIds()).toEqual(['owner-1', 'member-1', 'member-2', 'claude', 'codex'])
+    } finally {
+      globalSearch.v3 = false
+    }
   })
 })
 

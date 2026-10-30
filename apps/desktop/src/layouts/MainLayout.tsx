@@ -113,9 +113,8 @@ import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
 import { useTranslation } from 'react-i18next'
-import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import type { SessionpageMessageHost } from '@shared/sessionpage-message-host'
-import { scheduleComposerFocus, type ComposerFocusReason } from '../lib/focusComposer'
+import { chatComposerTarget, scheduleComposerFocus, type ComposerFocusReason } from '../lib/focusComposer'
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
 import { rendererLogger } from '../lib/log'
 import { takeAssistantOpenRequest } from '../lib/firstRun'
@@ -285,9 +284,7 @@ function InnerLayout({
   // chatId:落到这条对话那一格里的输入框(屏上可以并排几块对话,❌ 落进别的块)。
   const focusComposerForUserEntry = useCallback((reason: ComposerFocusReason, chatId?: string) => {
     composerFocusCleanupRef.current?.()
-    const target = chatId
-      ? () => document.querySelector<HTMLTextAreaElement>(`[data-chat-slot="${chatId}"] [data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)
-      : undefined
+    const target = chatId ? chatComposerTarget(chatId) : undefined
     composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])

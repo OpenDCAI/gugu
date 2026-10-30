@@ -1,4 +1,5 @@
 import { CommandPaletteModal } from '@renderer/features/command-palette/command-palette-modal'
+import { GlobalSearchModal } from '@renderer/features/global-search/global-search-modal'
 import { KeyboardShortcutsCheatSheet } from '@renderer/features/settings/components/keyboard-shortcuts-cheat-sheet'
 import { IntegrationSetupModal } from '@renderer/features/integrations/integration-setup-modal'
 import { PromptModal } from '@renderer/features/library/prompts/prompt-modal'
@@ -22,6 +23,7 @@ export type { ModalSize, ModalPosition, ModalRegistryEntry } from '@/components/
 
 export const modalRegistry = {
   commandPaletteModal: createModal(CommandPaletteModal, { size: 'md' }),
+  globalSearchModal: createModal(GlobalSearchModal, { size: 'lg' }),
   localFolderProjectModal: createModal(LocalFolderProjectModal, { size: 'sm' }),
   createProjectNameModal: createModal(CreateProjectNameModal, { size: 'sm' }),
   githubDeviceFlowModal: createModal(GithubDeviceFlowModal, { size: 'md' }),

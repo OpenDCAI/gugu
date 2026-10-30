@@ -366,6 +366,7 @@ export default {
     "source": "来源",
     "unconfigured": "未配置",
     "viewProfile": "查看 {{name}} 的资料",
+    "findMessages": "查找 TA 的消息",
     "whisper": "悄悄话"
   },
   "sharing": {
