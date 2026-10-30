@@ -67,8 +67,25 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 	if !validEncoderConfig(config) || output == nil {
 		return nil, errors.New("invalid projection encoder configuration")
 	}
+	packetizer, err := newVideoPacketizer()
+	if err != nil {
+		return nil, err
+	}
+	return startEncoder(ctx, config, output, packetizer)
+}
+
+func newVideoPacketizer() (rtp.Packetizer, error) {
 	var ssrc [4]byte
 	if _, err := rand.Read(ssrc[:]); err != nil {
+		return nil, err
+	}
+	return rtp.NewPacketizer(1200, 96, binary.BigEndian.Uint32(ssrc[:]), &codecs.H264Payloader{}, rtp.NewRandomSequencer(), 90000), nil
+}
+
+// A replacement encoder shares its stream's packetizer. Its old reader must be
+// joined first, so sequence numbers and timestamps remain continuous after IDR.
+func startEncoder(ctx context.Context, config EncoderConfig, output RTPWriter, packetizer rtp.Packetizer) (*Encoder, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	run, cancel := context.WithCancel(context.Background())
@@ -119,7 +136,6 @@ func StartEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (
 	stopParent := context.AfterFunc(ctx, func() { e.stop(context.Cause(ctx)) })
 	go func() {
 		defer close(e.reader)
-		packetizer := rtp.NewPacketizer(1200, 96, binary.BigEndian.Uint32(ssrc[:]), &codecs.H264Payloader{}, rtp.NewRandomSequencer(), 90000)
 		var sendErr error
 		readErr := readEncodedFrames(encoded, func(annexB []byte) error {
 			for _, packet := range packetizer.Packetize(annexB, uint32(90000/config.FPS)) {
