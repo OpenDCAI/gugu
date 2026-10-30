@@ -51,6 +51,7 @@ const fallbackMessages = {
   'transcript.copyCode': 'Copy code',
   'transcript.copyMessage': 'Copy message',
   'transcript.showFullText': 'Show all',
+  'transcript.collapseFullText': 'Collapse',
   'transcript.copied': 'Copied',
   // 附件卡(#7193):agent 打开给人看的文件 / 网页。`{name}` 是文件名或网址,原样数据。
   'transcript.outputDocument': 'Document',

@@ -116,14 +116,15 @@ describe('running process native scrolling', () => {
     await until('inside threshold follows the new tail', () => !!el.querySelector('[data-conversation-narration="say-14"]') && el.scrollHeight - el.scrollTop - el.clientHeight < 1);
   });
 
-  it('matches the collapsed long bubble height and keeps the exact row measurement', async () => {
+  it('bounds the process while keeping the latest long bubble full and the row measurement exact', async () => {
     const { host, set } = mount();
     set(14, true);
-    await until('long reply is visible', () => !!host.querySelector('[data-expand-user-card]'));
+    await until('long reply is present', () => !!host.querySelector('[data-user-card="say-15"]'));
     const viewport = host.querySelector<HTMLElement>('[data-slot="conversation-process-steps"]')!;
     const bubble = host.querySelector<HTMLElement>('[data-agent-conversation-message="say-15"] [data-user-card]')!;
     expect(CONVERSATION_PREVIEW_MAX_H).toBe(252);
-    expect(viewport.clientHeight).toBe(bubble.offsetHeight);
+    expect(bubble.offsetHeight).toBeGreaterThan(CONVERSATION_PREVIEW_MAX_H);
+    expect(host.querySelector('[data-expand-user-card="say-15"]')).toBeNull();
     expect(viewport.clientHeight).toBe(CONVERSATION_PREVIEW_MAX_H);
     const row = viewport.closest<HTMLElement>('[data-row-kind="conversation-process-steps"]')!;
     expect(row.offsetHeight).toBe(viewport.clientHeight + parseFloat(getComputedStyle(row).paddingTop));
@@ -146,7 +147,7 @@ describe('running process native scrolling', () => {
 
   it('opens a completed process at the top with the same bounded viewport and no tail following', async () => {
     const { host, complete, open } = mount();
-    complete(14, true);
+    complete(14, true, 1);
     await until('the completed reply renders', () => !!host.querySelector('[data-expand-user-card]'));
     expect(host.querySelector('[data-slot="conversation-process-steps"]')).toBeNull();
     open();
@@ -162,7 +163,7 @@ describe('running process native scrolling', () => {
     viewport!.dispatchEvent(new Event('scroll'));
     const before = viewport!.scrollTop;
     expect(getComputedStyle(fade()).opacity).toBe('1');
-    complete(20, true);
+    complete(20, true, 1);
     await until('completed replay updates all steps', () => !!viewport!.querySelector('[data-conversation-narration="say-20"]'));
     await untilStable('completed reader offset settles', () => viewport!.scrollTop);
     expect(viewport!.scrollTop).toBe(before);
