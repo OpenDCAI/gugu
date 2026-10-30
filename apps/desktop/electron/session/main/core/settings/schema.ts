@@ -228,6 +228,7 @@ export const browserSettingsSchema = z
   );
 
 export const resourceMonitorSettingsSchema = z.object({ enabled: z.boolean() });
+export const globalSearchSettingsSchema = z.object({ v3: z.boolean() });
 
 export const openInSettingsSchema = z.object({
   default: openInAppIdSchema,
@@ -249,6 +250,7 @@ export const APP_SETTINGS_SCHEMA_MAP = {
   browserPreview: browserPreviewSettingsSchema,
   browser: browserSettingsSchema,
   resourceMonitor: resourceMonitorSettingsSchema,
+  globalSearch: globalSearchSettingsSchema,
   changesViewMode: changesViewModeSchema,
 } as const;
 
@@ -267,5 +269,6 @@ export const appSettingsSchema = z.object({
   browserPreview: browserPreviewSettingsSchema,
   browser: browserSettingsSchema,
   resourceMonitor: resourceMonitorSettingsSchema,
+  globalSearch: globalSearchSettingsSchema,
   changesViewMode: changesViewModeSchema,
 });

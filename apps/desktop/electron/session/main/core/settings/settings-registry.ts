@@ -83,6 +83,9 @@ export const SETTINGS_DEFAULTS = {
   resourceMonitor: {
     enabled: false
   },
+  globalSearch: {
+    v3: false
+  },
   changesViewMode: {
     unstaged: 'flat' as const,
     staged: 'flat' as const,
