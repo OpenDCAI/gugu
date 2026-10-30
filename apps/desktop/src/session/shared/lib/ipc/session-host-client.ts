@@ -157,7 +157,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let versionRefusal: { version: string | null; error: Error } | null = null
   const peerVersion = () => options.peerVersion?.() ?? null
   const refusalUnchanged = () => {
-    if (!versionRefusal) return false
+    // Without a version source (for example the browser WebSocket adapter), a
+    // later explicit connect is the only available signal that the peer changed.
+    if (!versionRefusal || !options.peerVersion) return false
     const currentVersion = peerVersion()
     return currentVersion === null || versionRefusal.version === currentVersion
   }
@@ -400,7 +402,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     versionRefusal = null
     if (pipe && state === 'open' && !dropIfSilent()) return Promise.resolve()
     if (opening) return opening
-    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow({ automatic: true })) ?? null
+    // A real taskhost.ready is evidence of a new host even when its device
+    // directory has not published an app version yet. Ordinary heartbeats are not.
+    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow({ automatic: peerVersion() !== null })) ?? null
     // 换线中开的那一条:开好之前照旧是 switching(❌ 掉回 connecting,界面会读成重连)。
     if (state !== 'switching') setState('connecting')
     const attemptPeerVersion = peerVersion()

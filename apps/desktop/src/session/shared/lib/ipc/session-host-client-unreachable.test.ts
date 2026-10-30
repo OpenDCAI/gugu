@@ -12,6 +12,45 @@ afterEach(() => {
 });
 
 describe('session host client: the machine is unreachable', () => {
+  it('allows a later explicit connect without a peer-version source to recover a protocol refusal', async () => {
+    let upgraded = false;
+    const open = vi.fn(async () => {
+      if (!upgraded) throw Object.assign(new Error('update required'), { code: 'server_outdated' });
+      return { send: () => undefined, close: () => undefined };
+    });
+    const client = createSessionHostClient(open);
+    try {
+      await expect(client.connect()).rejects.toMatchObject({ code: 'server_outdated' });
+      upgraded = true;
+      await expect(client.connect()).resolves.toBeUndefined();
+      expect(open).toHaveBeenCalledTimes(2);
+    } finally { client.close(); }
+  });
+
+  it('keeps missing version heartbeats paused but retries on a real host restart signal', async () => {
+    let upgraded = false;
+    let changed: () => void = () => undefined;
+    let restarted: () => void = () => undefined;
+    const open = Object.assign(vi.fn(async () => {
+      if (!upgraded) throw Object.assign(new Error('update required'), { code: 'server_outdated' });
+      return { send: () => undefined, close: () => undefined };
+    }), { watchPeerRestart: (cb: () => void) => { restarted = cb; return () => undefined; } });
+    const client = createSessionHostClient(open, {
+      peerVersion: () => null,
+      subscribeReachability: cb => { changed = cb; return () => undefined; },
+    });
+    try {
+      await expect(client.connect()).rejects.toMatchObject({ code: 'server_outdated' });
+      for (let i = 0; i < 10; i += 1) { changed(); await settle(); }
+      expect(open).toHaveBeenCalledTimes(1);
+      upgraded = true;
+      restarted();
+      await settle();
+      expect(client.state()).toBe('open');
+      expect(open).toHaveBeenCalledTimes(2);
+    } finally { client.close(); }
+  });
+
   it('keeps a protocol refusal paused across online heartbeats, until manual retry or a new peer version', async () => {
     vi.useFakeTimers();
     let version: string | null = '0.2.58-beta.1050.1';
