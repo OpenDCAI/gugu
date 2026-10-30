@@ -27,13 +27,15 @@ interface HtmlPreviewFrameProps {
    */
   reloadKey?: number;
   subscribeChanges?: (changed: (paths?: readonly string[]) => void) => () => void;
+  /** Optional tab-owned position; otherwise the surface retains it for this mount. */
+  scrollPosition?: { x: number; y: number };
 }
 
 /**
  * 预览本体:本机与 #6264 别的机器上的「文件」页签共用 —— 两边只差「登记走哪条」「链接开到哪」,
  * 这两样由调用方注入;地址、沙箱、改字即见、链接拦截只写这一份。
  */
-export function HtmlPreviewFrame({ fileName, rawContent, register, onLink, reloadKey, subscribeChanges }: HtmlPreviewFrameProps) {
+export function HtmlPreviewFrame({ fileName, rawContent, register, onLink, reloadKey, subscribeChanges, scrollPosition }: HtmlPreviewFrameProps) {
   const [preview, setPreview] = useState<Extract<HtmlPreviewRegistration, { ok: true }> | null>(null);
   const [url, setUrl] = useState<string>();
   const [failed, setFailed] = useState<string | null>(null);
@@ -133,7 +135,7 @@ export function HtmlPreviewFrame({ fileName, rawContent, register, onLink, reloa
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background-secondary-1">
       {preview && url ? (
-        <HtmlPreviewSurface fileName={fileName} url={url} onLink={onLink} />
+        <HtmlPreviewSurface fileName={fileName} url={url} onLink={onLink} scrollPosition={scrollPosition} />
       ) : (
         <div className="flex h-full items-center justify-center">
           <LoadingIndicator ariaLabel={translateSessionMessage('task.loading')} />
