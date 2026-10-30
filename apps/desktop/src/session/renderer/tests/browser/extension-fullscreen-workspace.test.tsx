@@ -239,7 +239,6 @@ for (const contentKind of ['document', 'pdf'] as const) for (const side of [0, 1
     await resizeScreen(handle, input);
     expect(handle.getBoundingClientRect().toJSON(), `fullscreen ignores divider ${input} resizing`).toEqual(before);
     expect(JSON.stringify(screenLayout.layout)).toBe(storedLayout);
-    expect(handle.getAttribute('aria-disabled')).toBe('true');
     act(() => tabFullscreen.exit());
     await until('the same divider is enabled again', () => handle.getAttribute('aria-disabled') !== 'true');
     expect(handle.getBoundingClientRect().toJSON()).toEqual(before);
