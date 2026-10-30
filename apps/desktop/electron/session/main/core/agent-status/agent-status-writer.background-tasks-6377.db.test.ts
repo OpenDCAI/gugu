@@ -31,7 +31,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));

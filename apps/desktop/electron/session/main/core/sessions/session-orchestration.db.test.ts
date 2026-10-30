@@ -92,7 +92,6 @@ vi.mock('@main/core/agent-status/agent-status-writer', () => ({
     settleSessionExited: (params: { sessionId: string; projectId: string }) => mocks.settleSessionExited(params),
   },
 }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/projects/utils', () => ({
   resolveWorkspace: (_projectId: string, workspaceId: string) => mocks.workspaces.get(workspaceId),
   resolveSession: (_projectId: string, sessionId: string) => mocks.mounted.get(sessionId) ?? null,
