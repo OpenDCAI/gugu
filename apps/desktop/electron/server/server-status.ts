@@ -17,13 +17,15 @@ export type StatusAccount = {
   email: string | null
   signedIn: boolean
   running: boolean
+  /** 实际活进程的包;读不到时为 null,不拿 pin 冒充。 */
+  version?: string | null
   signedOut: ServerAccount['signedOut']
 }
 
-export type StatusReport = { version: string | null; accounts: StatusAccount[] }
+export type StatusReport = { version: string | null; installedVersion?: string | null; supervisorVersion?: string | null; accounts: StatusAccount[] }
 
 /** 列哪些账号:登着的,和被迫登出的(自己 logout 的不列 —— 那是他自己的选择,不用解释)。 */
-export function statusAccounts(accounts: readonly ServerAccount[], running: (account: ServerAccount) => boolean): StatusAccount[] {
+export function statusAccounts(accounts: readonly ServerAccount[], running: (account: ServerAccount) => boolean, versionOf?: (account: ServerAccount) => string | null): StatusAccount[] {
   return accounts
     .filter((account) => account.signedIn || account.signedOut)
     .map((account) => ({
@@ -31,6 +33,7 @@ export function statusAccounts(accounts: readonly ServerAccount[], running: (acc
       email: account.email,
       signedIn: account.signedIn,
       running: account.signedIn && running(account),
+      ...(versionOf ? { version: account.signedIn ? versionOf(account) : null } : {}),
       signedOut: account.signedIn ? null : account.signedOut,
     }))
 }
