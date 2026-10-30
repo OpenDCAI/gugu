@@ -84,7 +84,12 @@ export async function closeLocalAssistant(
     }
   }
 
-  const sessionIds = new Set([...plan.own, ...started].map((session) => session.conversationId))
+  // Archived tasks retain their schedules; only sessions being removed join
+  // the assistant's own schedule cleanup.
+  const sessionIds = new Set([
+    ...plan.own,
+    ...(input.deleteStarted ? started.filter(session => session.agent?.userId && session.agent.userId !== input.assistantId) : []),
+  ].map((session) => session.conversationId))
   await step('check', async () => { await deps.check?.() })
   await step('schedules', async () => {
     for (const automation of await deps.listAutomations()) {

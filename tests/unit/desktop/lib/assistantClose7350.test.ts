@@ -27,6 +27,7 @@ const sessions = [
 const automations = [
   { id: 'a-gugu', agentSessionId: 's-gugu' },
   { id: 'a-child', agentSessionId: 's-child' },
+  { id: 'a-grandchild', agentSessionId: 's-grandchild' },
   { id: 'a-other', agentSessionId: 's-other' },
   { id: 'a-none' },
 ]
@@ -70,17 +71,18 @@ describe('close the assistant that lives on this computer (#7350)', () => {
     expect(plan.started.map((s) => s.conversationId).sort()).toEqual(['s-child', 's-grandchild'])
   })
 
-  it('box unticked: its schedules go first, then it and its home; started tasks are archived with identities kept', async () => {
+  it('box unticked: only its own schedules go; started tasks keep their schedules and identities', async () => {
     const { calls, deps } = rig()
     await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps)
-    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'wipe', 'reset'])
+    expect(calls).toEqual(['schedule:a-gugu', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'wipe', 'reset'])
   })
 
-  it('box ticked: the started sessions (and their schedules) go too, before it does; a session without an identity is only put away', async () => {
+  it('box ticked: only permanently deleted tasks lose schedules; unbound tasks and their schedules stay recoverable', async () => {
     const { calls, deps } = rig()
     await closeLocalAssistant({ assistantId: GUGU, deleteStarted: true }, await planLocalClose(GUGU, deps), deps)
     expect(calls.slice(0, 2).sort()).toEqual(['schedule:a-child', 'schedule:a-gugu'])
     expect(calls).not.toContain('schedule:a-other')
+    expect(calls).not.toContain('schedule:a-grandchild')
     expect(calls).toContain('agent:agent-child')
     expect(calls).not.toContain('agent:agent-other')
     expect(calls.indexOf('archive:s-grandchild')).toBeLessThan(calls.indexOf(`agent:${GUGU}`))
@@ -110,14 +112,14 @@ describe('close the assistant that lives on this computer (#7350)', () => {
     const { calls, deps } = rig({ removeAgent: vi.fn(async () => { throw new Error('rpc down') }) })
     const error = await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps).catch((e: unknown) => e)
     expect(error).toMatchObject({ step: 'identity', kind: 'failed' })
-    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild'])
+    expect(calls).toEqual(['schedule:a-gugu', 'archive:s-child', 'archive:s-grandchild'])
   })
 
   it('it is deleted but its home could not be cleared: say so, and still reset this computer back to "meet Gugu"', async () => {
     const { calls, deps } = rig({ wipeHome: vi.fn(async () => { throw new Error('EBUSY') }) })
     const error = await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps).catch((e: unknown) => e)
     expect(error).toMatchObject({ step: 'home', kind: 'failed' })
-    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'reset'])
+    expect(calls).toEqual(['schedule:a-gugu', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'reset'])
   })
 
   it('deleting it from contacts / agent settings opens this close instead of the generic delete, only when it really is the assistant', () => {

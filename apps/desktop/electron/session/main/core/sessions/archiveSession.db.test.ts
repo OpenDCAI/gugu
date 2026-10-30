@@ -644,7 +644,21 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     insert('assistant-task');
     insert('assistant-unbound');
     insert('started-task');
+    insert('other-task');
     const { closeLocalAssistant } = await import('@/lib/assistantClose');
+    const { createAgentSchedule, getAutomation, listAutomations, softDeleteAutomation } = await import('../automations/repo');
+    const schedules = new Map<string, string>();
+    for (const sessionId of ['assistant-task', 'assistant-unbound', 'started-task', 'other-task']) {
+      const { automation } = await createAgentSchedule({
+        agentSessionId: sessionId, projectId: 'p1', name: sessionId,
+        prompt: 'Continue the original task', provider: 'codex',
+        triggerConfig: { at: Date.now() + 3_600_000, tz: 'UTC' },
+      });
+      schedules.set(sessionId, automation.id);
+    }
+    const startedSchedule = schedules.get('started-task')!;
+    const originalSchedule = fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(startedSchedule);
+    const originalRuns = fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(startedSchedule);
     const { releaseDeletedOwnedAgent } = await import('../../../../sessionpage/owner-agent-deletion');
     const { createAgent, updateAgent, listAgents } = await import('@gugu/core');
     const home = await mkdtemp(join(tmpdir(), 'gugu-close-chain-'));
@@ -664,7 +678,10 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     try {
       await closeLocalAssistant({ assistantId: 'assistant-id', deleteStarted }, { own: [own, unbound], started: [child] }, {
         listSessions: async () => [own, unbound, child].filter(session => fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get(session.conversationId)),
-        listAutomations: async () => [], deleteAutomation: async () => {},
+        // Use the real SQLite repository at the automation RPC boundary. Close,
+        // identity cleanup, archive and Restore below keep their real implementation.
+        listAutomations,
+        deleteAutomation: async id => { await softDeleteAutomation(id); },
         removeAgent: async agentId => {
           deletedIdentities.push(agentId); // The cloud identity RPC boundary alone is injected.
           const { sessionpageSessionIdForAgent, releaseAgentLocalFootprint } = await import('../../../../sessionpage/agent-local-footprint');
@@ -685,12 +702,26 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       expect(history.rows.map(row => row.gugu?.sessionId).sort()).toEqual(deleteStarted ? ['assistant-unbound'] : ['assistant-unbound', 'started-task']);
       expect(archivedAt('assistant-unbound')).not.toBeNull();
       await expect(restoreSession('p1', 'assistant-task')).rejects.toThrow('Session not found');
+      expect(await getAutomation(schedules.get('assistant-task')!)).toBeNull();
+      expect(await getAutomation(schedules.get('assistant-unbound')!)).toBeNull();
+      expect(await getAutomation(schedules.get('other-task')!)).toMatchObject({ agentSessionId: 'other-task', enabled: true });
       if (deleteStarted) {
+        expect(await getAutomation(startedSchedule)).toBeNull();
         await expect(restoreSession('p1', 'started-task')).rejects.toThrow('Session not found');
         expect(await listAgents(env)).toEqual([]);
       } else {
         expect((await listAgents(env)).map(agent => agent.gugu_user_id)).toEqual(['child-id']);
+        expect(await getAutomation(startedSchedule)).toMatchObject({
+          id: startedSchedule, agentSessionId: 'started-task', enabled: true,
+          agentSession: { archived: true, gone: false },
+        });
+        expect(fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(startedSchedule)).toEqual(originalSchedule);
+        expect(fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(startedSchedule)).toEqual(originalRuns);
         await expect(restoreSession('p1', 'started-task')).resolves.toMatchObject({ id: 'started-task', archivedAt: null });
+        const restoredSchedule = (await listAutomations()).find(row => row.id === startedSchedule);
+        expect(restoredSchedule).toMatchObject({ id: startedSchedule, agentSessionId: 'started-task', enabled: true });
+        expect(restoredSchedule?.agentSession?.archived).toBeUndefined();
+        expect(fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(startedSchedule)).toEqual(originalRuns);
       }
     } finally { await rm(home, { recursive: true, force: true }); }
   });
