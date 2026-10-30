@@ -405,6 +405,3 @@
 }
 .gg-md .gg-md-props dt { color: var(--md-muted); }
 .gg-md .gg-md-props dd { margin: 0; overflow-wrap: anywhere; }
-/* A folder image once shown (markdown-folder-images: data-gg-image / .gg-md-img): a hairline frame, so a white
-   screenshot does not melt into a white page. */
-.gg-md--comfortable img.gg-md-img { box-shadow: 0 0 0 1px var(--md-rule-soft); }
