@@ -71,7 +71,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 20: several files at once — `files.download([…])` (one folder on the desktop, the share sheet on the phone) and
 // `files.keep([…], how)`.
 // 21: tools modules receive the real MCP per-call AbortSignal in run(args, call).
-export const EXTENSION_API_VERSION = 22;
+// 23: App file entries expose savedName, the host-resolved filename for local copies.
+export const EXTENSION_API_VERSION = 23;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and

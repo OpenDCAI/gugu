@@ -152,7 +152,7 @@ describe("another machine's session: the door is files:read:all-machines", () =>
     expect(opened).toMatchObject({
       access: 'ro',
       docName: '',
-      entry: { id: 'renders/cut.mp4', session: 's-far', name: 'cut.mp4', contentType: 'video/mp4', type: 'binary', size: clip.length, version: null },
+      entry: { id: 'renders/cut.mp4', session: 's-far', name: 'cut.mp4', savedName: 'cut.mp4', contentType: 'video/mp4', type: 'binary', size: clip.length, version: null },
     });
     expect(sha(new Uint8Array(opened.bytes!))).toBe(sha(clip));
     expect(appReadFile).toHaveBeenCalledTimes(3);

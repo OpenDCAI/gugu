@@ -1,5 +1,7 @@
 import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FilesPlatform } from './app-files-core';
 /**
  * L11 B7: saving a document of the workspace (`gugu.files.download`) writes what the file is now — read from the file
  * service, as an agent's download is (MCP `workspaceDocumentCopy`) — not `inline_text`, which is only its last save (and,
@@ -31,7 +33,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({ from: table, rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => (name === 'workspace_deletable_as' ? { data: args.p_item_ids, error: null } : { data: [row], error: null })) }),
 }));
 const { createAppFiles } = await import('./app-files-core');
-const files = createAppFiles({
+const platform: FilesPlatform = {
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
   sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
@@ -39,13 +41,38 @@ const files = createAppFiles({
   faces: async () => ({}),
   filesUrl: () => 'http://files.test',
   warn: () => undefined,
-});
+  resolveFile: async (_ref, _actor, { localOnly }) => localOnly ? null : verifiedFileHandle(new Uint8Array([1, 2, 3]), {
+    item_id: ITEM, chat_id: CHAT, version: 1, file_name: row.filename, content_type: row.content_type,
+  }),
+};
+const files = createAppFiles(platform);
+
+beforeEach(() => Object.assign(row, { kind: 'document', filename: 'board.json', content_type: 'application/json' }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('saving a document of the workspace reads it from the file service (L11 B7)', () => {
+  it.each([
+    ['周报', 'text/markdown', '周报.md'],
+    ['投票', 'application/json', '投票.json'],
+  ])('saves a document titled %s (%s) as %s', async (filename, contentType, expected) => {
+    Object.assign(row, { filename, content_type: contentType });
+    vi.stubGlobal('fetch', async () => Response.json({ epoch: 3, contentType, text: 'current contents', live: true }));
+    await expect(files.downloadSource({ pageId: 7, extensionId: 'board', itemId: ITEM }, { ref: { chat: CHAT, id: ITEM } }))
+      .resolves.toEqual({ name: expected, kind: 'text', text: 'current contents' });
+    expect(row.filename).toBe(filename);
+  });
+
+  it('saves stored bytes under the suffix their content type names', async () => {
+    Object.assign(row, { kind: 'file', filename: '报告', content_type: 'application/pdf' });
+    const source = await files.downloadSource({ pageId: 7, extensionId: 'board', itemId: ITEM }, { ref: { chat: CHAT, id: ITEM } });
+    expect(source).toMatchObject({ name: '报告.pdf', kind: 'file' });
+    expect(row.filename).toBe('报告');
+    if (source.kind === 'file') await source.file.dispose();
+  });
+
   it('the text is the file as it is now, asked as the person — not its last save', async () => {
     const asked: { url: string; headers: Record<string, string> }[] = [];
     vi.stubGlobal('fetch', async (url: string, init: { headers: Record<string, string> }) => {

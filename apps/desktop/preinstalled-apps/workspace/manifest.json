@@ -12,7 +12,7 @@
   },
   "author": "咕咕",
   "version": "0.2.60",
-  "apiVersion": 20,
+  "apiVersion": 23,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",

@@ -579,7 +579,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
   path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
-  \`'folder'\` entries are listed, never opened);
+  \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
   \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
@@ -593,9 +593,9 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
+- Entry: \`{id,chat|session|project,name,savedName,contentType,type,parentId,path,systemRole,size,version,
   createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
-  Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
+  \`savedName\`: local filename. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
 ## A text file (markdown)

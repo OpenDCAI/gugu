@@ -12,6 +12,7 @@ import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
 import { classifyDocumentPreview, documentPreviewNeedsFetch, type DocumentPreviewKind } from './documentPreview'
+import { savedFileName } from '../../session/shared/extensions/app-runtime-protocol'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
@@ -101,14 +102,14 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       setRead(row => row === current ? { ...row, ...next } : row)
     } catch { fail() } finally { delete video.dataset.renewing }
   }
+  const savedName = savedFileName({ name: file.fileName, contentType: file.mimeType })
   const openExternal = () => {
-    const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
-    void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
+    void openAttachmentInSystemApp(file.source, savedName).catch((error) => {
       fileOpenLog.error({ error }, 'system app handoff failed')
       toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
   }
-  const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
+  const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, savedName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
   const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
   return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />

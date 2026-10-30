@@ -281,6 +281,7 @@ export function fileOpened(type: 'text' | 'json'): AppFileOpened {
       id: 'item-1',
       chat: 'chat-1',
       name: type === 'json' ? 'board.json' : 'notes.md',
+      savedName: type === 'json' ? 'board.json' : 'notes.md',
       contentType: type === 'json' ? 'application/json' : 'text/markdown',
       type,
       parentId: null,
