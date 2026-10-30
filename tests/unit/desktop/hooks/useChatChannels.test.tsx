@@ -33,12 +33,31 @@ beforeEach(() => {
 afterEach(() => harness.cleanup())
 
 describe('channel service failures', () => {
+  it('treats a build without a chat client as an absent optional service', async () => {
+    mocks.client.mockReturnValue(null)
+    await harness.render(<Probe />)
+    expect(state.status).toBe('absent')
+    expect(state.list).toBeNull()
+    expect(state.error).toBe('')
+    expect(mocks.list).not.toHaveBeenCalled()
+  })
+
+  it('treats the gateway unconfigured-manager response as absence rather than a channel failure', async () => {
+    mocks.list.mockRejectedValueOnce(new CloudComputerError(503, 'not_open', '此环境未配置云电脑管家'))
+    await harness.render(<Probe />)
+    await act(async () => {})
+    expect(state.status).toBe('absent')
+    expect(state.list).toBeNull()
+    expect(state.error).toBe('')
+  })
+
   it('reports configuration failure and recovers when the user retries', async () => {
     mocks.list.mockRejectedValueOnce(new CloudComputerError(503, 'unavailable', 'Channel service signing key is not configured.'))
     await harness.render(<Probe />)
     await act(async () => {})
     expect(state.status).toBe('failed')
-    expect(harness.container.textContent).toContain('signing key is not configured')
+    expect(state.error).toBeTruthy()
+    expect(harness.container.textContent).not.toContain('signing key is not configured')
     expect(mocks.save).not.toHaveBeenCalled()
 
     mocks.list.mockResolvedValueOnce(snapshot)
@@ -55,7 +74,8 @@ describe('channel service failures', () => {
     await act(async () => {})
     expect(state.status).toBe('ready')
     expect(state.list).toEqual(snapshot)
-    expect(state.error).toContain('encryption key is not configured')
+    expect(state.error).toBeTruthy()
+    expect(state.error).not.toContain('encryption key is not configured')
     expect(mocks.save).not.toHaveBeenCalled()
   })
 })

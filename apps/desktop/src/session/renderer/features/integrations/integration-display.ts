@@ -61,5 +61,6 @@ const INTEGRATION_ERROR_KEYS = {
   network: 'integrations.errorNetwork',
   key_rejected: 'integrations.errorKeyRejected',
   provider_unavailable: 'integrations.errorProviderUnavailable',
+  service_unavailable: 'integrations.errorServiceUnavailable',
   generic: null,
 } as const satisfies Record<IntegrationError['type'], string | null>;

@@ -17,7 +17,7 @@ import { clickElement, createNode, createReactHarness, deferred, waitForConditio
 
 const ui = vi.hoisted(() => ({ platformKind: 'capacitor' as 'capacitor' | 'web', writeClipboardText: vi.fn(async (_text: string) => {}), rpc: null as unknown, listeners: [] as Array<(data: unknown) => void> }))
 
-vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'failed', error: '', refresh: async () => {}, apply: () => {} }) }))
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'absent', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/phoneAssistantAuthorization',() => ({ phoneAssistantAuthorization: () => ui.rpc }))
 vi.mock('../../../apps/desktop/src/components/assistant/assistant-app-client',() => ({ reportAssistantAppChange: vi.fn(async () => {}) }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return ui.platformKind }, writeClipboardText: ui.writeClipboardText } }))

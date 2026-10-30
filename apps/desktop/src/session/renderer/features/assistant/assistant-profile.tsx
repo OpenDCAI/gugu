@@ -82,7 +82,7 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
   const panel = context.machine?.panel;
   const apps = usePhoneRead(panel ? `profile-apps|${context.assistant.id}` : null, () => readAssistantPanelIntegrations(panel!, i18n.language), 'read application connections',undefined,() => peekAssistantPanelIntegrations(panel,i18n.language));
   const chat = useChatChannels();
-  const counts = apps.state === 'ok' && chat.status === 'ready' ? assistantApplicationCounts(apps.data.items, apps.data.configured, apps.data.statuses, chat.list) : null;
+  const counts = apps.state === 'ok' && (chat.status === 'ready' || chat.status === 'absent') ? assistantApplicationCounts(apps.data.items, apps.data.configured, apps.data.statuses, chat.list) : null;
   const chip = persona.preset ? t(`customize.preset.${persona.preset}`) : persona.rest ? t('customize.custom') : t('customize.setCharacter');
   return (
     <div className="ta-page" data-testid="assistant-profile">

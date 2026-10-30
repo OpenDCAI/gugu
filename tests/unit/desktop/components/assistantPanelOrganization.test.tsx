@@ -6,7 +6,10 @@ import type { AssistantContext } from '../../../../apps/desktop/src/session/rend
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
 const reads = vi.hoisted(() => ({ today: vi.fn(), entries: [{ name: '项目资料', path: '/assistant/资料/项目资料', type: 'directory', size: 0 }], ask: vi.fn(), go: vi.fn() }))
-vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'failed', error: '', refresh: async () => {}, apply: () => {} }) }))
+vi.mock('@/mobile/assistant/usePhoneRead', () => ({ usePhoneRead: () => ({ state: 'ok', data: {
+  items: [{ id: 'amap', name: '高德地图', description: '' }], configured: { amap: true }, statuses: { amap: { connected: true } },
+} }) }))
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'absent', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-data', () => ({
   useDirectory: () => ({ data: reads.entries, isSuccess: true, isLoading: false }),
   useMemoryNotes: () => ({ data: { notes: [] }, isLoading: false }),
@@ -52,6 +55,7 @@ describe('assistant panel organization', () => {
     expect(harness.container.querySelector('[data-testid="assistant-profile-files"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="assistant-diaries"]')).toBeNull()
     expect(reads.today).not.toHaveBeenCalled()
+    expect(harness.container.querySelector('[data-testid="assistant-profile-connectors"]')?.textContent).toContain('已连接 1 个')
     expect([...harness.container.querySelector('[data-testid="assistant-profile-entries"] .ta-card-list')!.children].map(row => row.getAttribute('data-testid'))).toEqual([
       'assistant-library-workspace', 'assistant-library-devices', 'assistant-library-capabilities', 'assistant-profile-connectors',
     ])

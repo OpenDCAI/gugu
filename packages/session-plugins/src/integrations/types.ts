@@ -42,4 +42,6 @@ export type IntegrationError =
    * later. Temporary: never a reauth, never a reason to drop a key. A network or host failure stays `host_unreachable`.
    */
   | { type: 'provider_unavailable'; message: string }
+  /** The installed credential service failed; preserve the account and allow retry. */
+  | { type: 'service_unavailable'; message: string }
   | { type: 'generic'; message: string };

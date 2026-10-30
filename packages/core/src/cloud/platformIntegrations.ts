@@ -21,12 +21,12 @@
  *           对方这会儿用不了(额度、QPS、临时错误):502 upstream_unavailable
  *
  * 只有一种情况凭据留在设备上:这个安装压根没有这项服务(社区自托管,没部署云电脑管家)—— 网关回 404、体里没有
- * 平台的出错码(`isPlatformServiceMissing`)。平台在、但说 503 unavailable(服务配置故障)❌ 是退路:
- * 照实说「还没对你开放」,不在本机存。
+ * 平台的出错码，或入口回 503 not_open 表示未配置管家(`isPlatformServiceMissing`)。平台的 503 unavailable
+ * 是服务故障，保留平台保管方式并报告失败，不改存本机。
  *
  * 不碰 node / electron。
  */
-import { CloudComputerError, cloudComputerErrorFromResponse } from './cloudComputer'
+import { CloudComputerError, cloudComputerErrorFromResponse, isCloudComputerNotOpen } from './cloudComputer'
 
 export type PlatformIntegrationAccount = {
   accountId: string
@@ -134,10 +134,11 @@ export class PlatformCredentialRejectedError extends Error {
 
 /**
  * 这个安装没有这项服务:网关自己回的 404(Supabase「Requested function was not found」、自托管网关「no Route matched」),
- * 体里没有平台的出错码。平台自己回的 404(unknown_provider / not_connected / not_found)、503 unavailable、网络不通都 ❌ 算。
+ * 体里没有平台的出错码；或云端入口回 not_open 明确表示未配置可选管家。平台自己回的 404(unknown_provider / not_connected / not_found)、503 unavailable、网络不通都 ❌ 算。
  */
 export function isPlatformServiceMissing(error: unknown): boolean {
-  return error instanceof CloudComputerError && error.status === 404 && error.code === 'http_404'
+  return isCloudComputerNotOpen(error)
+    || error instanceof CloudComputerError && error.status === 404 && error.code === 'http_404'
 }
 
 export type PlatformIntegrationsClient = {

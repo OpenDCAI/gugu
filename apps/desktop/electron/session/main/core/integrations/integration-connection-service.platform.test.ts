@@ -97,9 +97,9 @@ describe('integrations whose credential the platform keeps (#921)', () => {
   });
 
   it('keeps nothing on the device when the platform reports a configuration failure', async () => {
-    platform.connect.mockResolvedValueOnce({ success: false, errorType: 'generic', error: 'Credential service encryption key is not configured.' });
+    platform.connect.mockResolvedValueOnce({ success: false, errorType: 'service_unavailable', error: 'Credential service encryption key is not configured.' });
 
-    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: false, errorType: 'generic' });
+    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: false, errorType: 'service_unavailable' });
     expect(store.upsertAccount).not.toHaveBeenCalled();
     expect(network).not.toHaveBeenCalled();
   });
