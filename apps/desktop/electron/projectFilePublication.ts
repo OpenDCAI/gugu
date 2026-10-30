@@ -46,7 +46,8 @@ export function createProjectFilePublisher(deps: {
     if (outcome.status !== 'published') throw new NextVersionHandoffRefused(outcome)
     const result = await deps.rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
     const row = (Array.isArray(result) ? result[0] : result) as NonNullable<Awaited<ReturnType<Publisher>>>
-    return { ...row, message: { id: outcome.message_id, chat_id: chatId, file_item_id: itemId, file_version: outcome.version } }
+    // Status confirms this sender and pinned version. The composer's existing readback obtains the full message row.
+    return { ...row, message: { id: outcome.message_id, chat_id: chatId, sender_user_id: actor, file_item_id: itemId, file_version: outcome.version } }
   }
   const binding = async (chatId: string, actor: string) => {
     const identity = await deps.identity()
@@ -126,5 +127,9 @@ export function createProjectFilePublisher(deps: {
       return await publishFile(chatId, { ...selected, path }, parentId, actor, store, options, true)
     } finally { await rm(directory, { recursive: true, force: true }).catch(() => undefined) } // the message is already committed: a stuck temp file must not turn it into an error
   }
-  return Object.assign(publish, { async local(chatId: string, actor: string) { const bound = await binding(chatId, actor); return !!bound && !bound.policy.proactive_upload } })
+  return Object.assign(publish, { async local(chatId: string, actor: string) {
+    // Planning asks where this chat keeps files, including when this machine has no local project binding.
+    const policy = await deps.rpc('file_project_policy_for', { p_chat: chatId, p_as: actor }) as { proactive_upload: boolean } | null
+    return !!policy && !policy.proactive_upload
+  } })
 }

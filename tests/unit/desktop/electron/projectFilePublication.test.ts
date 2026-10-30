@@ -259,7 +259,7 @@ describe('a next version from another machine', () => {
     const f = fixture(false, elsewhere)
     const unbound = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null, rpc: f.rpc, env,
       endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
-    expect(await unbound('group', file, null, 'agent', undefined, { message, next })).toEqual({ ...row, message: { id: 'm2', chat_id: 'group', file_item_id: 'item', file_version: 2 } })
+    expect(await unbound('group', file, null, 'agent', undefined, { message, next })).toEqual({ ...row, message: { id: 'm2', chat_id: 'group', sender_user_id: 'agent', file_item_id: 'item', file_version: 2 } })
     const [, request] = handoff.calls[0] as [unknown, Record<string, unknown>]
     expect(request).toMatchObject({ itemId: 'item', expectedVersion: 1, fileName: 'file.bin', contentType: file.contentType, as: 'agent',
       message: { message_id: 'm2', to_user_ids: ['u1'], thread_root_id: null } })

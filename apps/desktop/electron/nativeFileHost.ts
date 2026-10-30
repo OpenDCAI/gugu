@@ -6,6 +6,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { createFileSink } from './fileSnapshot'
 import type { SelectedProjectFile, ProjectFileMessage } from './projectFilePublication'
 import { sanitizeRemoteFileName } from './remoteFileOpen'
+import { NextVersionHandoffRefused } from '@gugu/core/cloud/fileVersionHandoff'
 import { fileRefKey, requireFileRange, requireFileRevision, type FileBytes, type FileContext, type FileProviders, type FileRevision, type FileStageCommand } from '@gugu/core/shared/fileResolver'
 
 /** Opaque capabilities stay within the issuing renderer and account. Bytes use the existing invoke bus and FileSink. */
@@ -39,7 +40,16 @@ export function createNativeFileHost(deps: {
   return { drop,
     async publish(scope: number, request: { chatId: string; file?: SelectedProjectFile; message?: ProjectFileMessage }) {
       const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.publish || !request.file && !deps.publication) throw new Error('File publisher is unavailable')
-      await check(scope, owner, epoch); const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message) : await deps.publication!(request.chatId, owner); await check(scope, owner, epoch); return row
+      await check(scope, owner, epoch)
+      try {
+        const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message) : await deps.publication!(request.chatId, owner)
+        await check(scope, owner, epoch); return row
+      } catch (error) {
+        await check(scope, owner, epoch)
+        // Electron serializes thrown Errors without their structured outcome. Carry this product refusal explicitly.
+        if (error instanceof NextVersionHandoffRefused) return { handoff_refusal: error.outcome }
+        throw error
+      }
     },
     async ownerChanged(owner: string | null) { if (owner !== lastOwner) { lastOwner = owner; await drop() } },
     async read(scope: number, context: FileContext, request: { op: string; id?: string; revision?: FileRevision; offset?: number; length?: number }) {

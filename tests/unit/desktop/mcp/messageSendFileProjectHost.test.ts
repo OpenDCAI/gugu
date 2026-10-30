@@ -105,6 +105,17 @@ describe('message_send_file in a project chat that keeps files on its machine', 
     expect(uploads).toEqual([])
   })
 
+  test('a same-named file returns the filename allocated by the stored workspace row', async () => {
+    const stored = { id: ITEM, version: 1, filename: 'notes (2).pdf' }
+    const publish = vi.fn(async (_chat: string, _file: unknown, _actor: string, message: Record<string, unknown>) =>
+      ({ ...stored, message: { id: message.message_id, chat_id: CHAT, file_item_id: stored.id, file_version: stored.version } }))
+    const { send, uploads } = setup({ publish })
+    const receipt = JSON.parse(await send({ file_path: pdf }))
+    expect(receipt.file_name).toBe(stored.filename)
+    expect(receipt.file).toBe(`gugu-file://${stored.id}?v=${stored.version}`)
+    expect(uploads).toEqual([])
+  })
+
   test.each([
     ['host_offline', 'is offline', '它现在离线'],
     ['timeout', 'did not take the file in time', '它没有及时收下文件'],

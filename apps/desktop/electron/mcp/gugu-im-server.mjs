@@ -2092,7 +2092,7 @@ async function publishOnHost(args, deps, chatId, message, next) {
   if (!info.isFile()) throw new Error(`message_send_file: ${target} is not a file`)
   const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,
     { ...message, file_name: fileName, content_type: contentType }, next)
-  return sent?.message ?? null
+  return sent?.message ? { ...sent.message, file_name: sent.filename ?? attachmentNameOf(sent.message) } : null
 }
 
 /** Every layer's way of saying only the machine that keeps a project chat's files may add or change them. */
@@ -2291,7 +2291,7 @@ async function handleFile(args, deps) {
       if (folderFile && /File revision conflict/.test(said)) throw new Error(newerVersionRefusal(args.file, folderFile.version))
       throw error
     }))) {
-      fileName = resolveUploadName(args)
+      fileName = message.file_name ?? resolveUploadName(args)
     } else {
       const upload = await uploadForSend(args, deps, 'message_send_file', chatId).catch(async (error) => {
         if (!(error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message))) throw error

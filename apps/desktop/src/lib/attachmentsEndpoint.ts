@@ -3,6 +3,7 @@ import { commitAttachment, configuredEndpoint, uploadAttachmentBytes, type Attac
 import { resolveFileMimeType } from '@gugu/core/shared/ui/attachmentModels'
 import { getRendererAccessToken } from './sessionPublication'
 import { i18n } from '../i18n'
+import type { HandoffOutcome } from '@gugu/core/cloud/fileVersionHandoff'
 
 // 令牌只读会话协调器已发布的那一份,和数据客户端(supabase.ts 的 accessToken)同一个来源:数据客户端没有自己的 auth 会话,
 // 在它身上 auth.getSession() 直接抛(「configured with the accessToken option」)。
@@ -15,8 +16,14 @@ export async function attachmentsEndpoint(): Promise<AttachmentsEndpoint> {
 /** Planning does not publish a file. The ordered commit invokes the same publisher as group-file Apps. */
 export type PreparedChatAttachment = { staging_key: string } | { local: File }
 async function publishNative(args: Record<string, unknown>) {
-  try { return await window.electronAPI!.invoke('files:publish', args) }
+  let result: unknown
+  try { result = await window.electronAPI!.invoke('files:publish', args) }
   catch { throw new Error(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' })) }
+  const refused = (result as { handoff_refusal?: HandoffOutcome } | null)?.handoff_refusal
+  if (refused) throw new Error(i18n.t(refused.status === 'host_offline' ? 'composer.fileHostOffline' : 'composer.fileHostDidNotAccept', {
+    ns: 'messaging', machine: refused.host_label || i18n.t('composer.fileHostOtherComputer', { ns: 'messaging' }),
+  }))
+  return result
 }
 const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string, requestId?: string, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<PreparedChatAttachment> => ({
   staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor, ...(requestId ? { request_id: requestId } : {}) }, { onPlan, retry, onProgress }),
