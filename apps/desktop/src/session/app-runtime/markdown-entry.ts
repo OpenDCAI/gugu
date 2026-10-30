@@ -20,11 +20,13 @@ import { guguError } from './host';
 
 type Density = 'compact' | 'comfortable';
 type RenderOptions = { trust: MarkdownTrust; density: Density; frontmatter: boolean; sourceLines: boolean; file: unknown };
-/** What a link needs of `gugu` (create-gugu.ts hands its own object). */
+/** What a link (and a code block's copy button) needs of `gugu` (create-gugu.ts hands its own object). */
 type LinkVerbs = {
   openLink(url: string): Promise<unknown>;
   reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
+  /** A code block's copy button goes through the host: a phone's sandboxed page has no clipboard of its own. */
+  clipboard?: { writeText(text: string): Promise<unknown> };
   files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
 };
 
@@ -172,6 +174,11 @@ function paint(entry: Rendered): void {
   // Images stay nodes, painted as link chips (nothing loads on render); the transcript's HTML, sanitized once.
   // `sourceLines`: each block says the text's lines it came from (`data-line="3-5"`): a page finds a line's block by it.
   root.innerHTML = documentToHtml(text, { trust: options.trust, frontmatter: options.frontmatter, keepImageNodes: true, sourceLines: options.sourceLines });
+  const copyLabel = /^zh\b/i.test(document.documentElement.lang) ? '复制' : 'Copy';
+  for (const button of root.querySelectorAll('[data-gg-copy]')) {
+    button.setAttribute('aria-label', copyLabel);
+    button.setAttribute('title', copyLabel);
+  }
   // Only when it is not there yet: taking the root out and back would drop the scroll position of a scrolling target.
   if (root.parentNode !== target || target.childNodes.length !== 1) target.replaceChildren(root);
   colourCode(root);
@@ -203,6 +210,18 @@ export function renderer(gugu: LinkVerbs) {
       root.setAttribute(ROOT_MARK, '');
       const made: Rendered = { target, root, text, options: given };
       root.addEventListener('click', (event) => {
+        const copy = (event.target as Element | null)?.closest?.('[data-gg-copy]');
+        if (copy && root.contains(copy)) {
+          const code = copy.closest('.gg-md-code')?.querySelector('pre')?.textContent ?? '';
+          void (gugu.clipboard ? gugu.clipboard.writeText(code) : navigator.clipboard.writeText(code)).then(
+            () => {
+              copy.setAttribute('data-copied', '');
+              setTimeout(() => copy.removeAttribute('data-copied'), 1500);
+            },
+            (error: unknown) => gugu.reportError(error instanceof Error ? error.message : String(error))
+          );
+          return;
+        }
         const link = (event.target as Element | null)?.closest?.('a[href]');
         if (!link || !root.contains(link)) return;
         event.preventDefault();
