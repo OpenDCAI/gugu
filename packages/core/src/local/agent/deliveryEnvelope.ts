@@ -926,6 +926,24 @@ export function formatDeliveryTimestamp(iso: string): string {
   return `${date} ${hhmm} ${tzLabel}`
 }
 
+/** Read the envelope's minute clock independently of the reader's timezone. */
+export function parseDeliveryTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parts = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) (北京时间|UTC[+-]\d+(?:\.\d+)?)$/.exec(value)
+  if (!parts) {
+    // Also accept an explicitly zoned ISO clock without guessing the reader's timezone.
+    const time = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? Date.parse(value) : NaN
+    return Number.isFinite(time) ? time : null
+  }
+  const [year, month, day, hour, minute] = parts.slice(1, 6).map(Number)
+  const local = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  if (local.getUTCFullYear() !== year || local.getUTCMonth() !== month - 1 || local.getUTCDate() !== day
+    || local.getUTCHours() !== hour || local.getUTCMinutes() !== minute) return null
+  const offset = parts[6] === '北京时间' ? 8 : Number(parts[6].slice(3))
+  const time = local.getTime() - Math.round(offset * 60) * 60_000
+  return Number.isFinite(new Date(time).getTime()) ? time : null
+}
+
 export function escapeXmlText(value: string): string {
   return value
     .replaceAll('&', '&amp;')

@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn, TranscriptItem } from '../acp/models/turns/turn';
 import { taskSearchDocuments } from './search-documents';
-import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { formatDeliveryTimestamp, parseDeliveryTimestamp, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const at = '2026-10-30T12:00:00.000Z';
 const turn = (items: TranscriptItem[]): TranscriptTurn => ({ id: 's:turn:s0', referenceId: 'live', seq: 0, initiator: 'user', items });
@@ -24,11 +24,38 @@ describe('visible task search projection', () => {
   });
   it.each(['session-direct', 'scheduled', 'extension', 'system'] as const)('keeps %s delivery bodies with their original envelope clock', route => {
     const original = '2026-09-01T12:00:00.000Z';
-    const envelope = renderDeliveryEnvelope({ route, from: 'Sender', fromId: 'user:person', messageId: 'msg:delivery', at: original, content: 'delivered input' });
+    const envelope = renderDeliveryEnvelope({ route, from: 'Sender', fromId: 'user:person', messageId: 'msg:delivery', at: formatDeliveryTimestamp(original), content: 'delivered input' });
     expect(taskSearchDocuments('s', turn([message(envelope)]))).toEqual([{
-      id: `task:s:delivery:${route}:msg:delivery`, taskId: 's', reference: 'live:m', seq: 0, role: 'user',
+      id: `task:s:delivery:0:${route}:msg:delivery`, taskId: 's', reference: 'live:m', seq: 0, role: 'user',
       text: 'delivered input', senderId: 'person', createdAt: original,
     }]);
+  });
+  it.each([
+    ['2026-10-31 02:37 北京时间', '2026-10-30T18:37:00.000Z'],
+    ['2026-10-31 00:07 UTC+5.5', '2026-10-30T18:37:00.000Z'],
+    ['2026-10-30 15:07 UTC-3.5', '2026-10-30T18:37:00.000Z'],
+    ['2026-10-31 00:22 UTC+5.75', '2026-10-30T18:37:00.000Z'],
+    [at, at],
+  ])('reads the original delivery clock %s', (clock, expected) => {
+    const envelope = renderDeliveryEnvelope({ route: 'session-direct', from: 'Sender', fromId: 'user:person',
+      messageId: 'msg:delivery', at: clock, content: 'dated input' });
+    expect(taskSearchDocuments('s', turn([{ ...message(envelope), at: undefined }]))[0].createdAt).toBe(expected);
+  });
+  it.each(['Asia/Shanghai', 'Asia/Kolkata', 'America/St_Johns', 'Asia/Kathmandu'])('round-trips the real formatter in %s at its minute precision', timezone => {
+    vi.stubEnv('TZ', timezone);
+    try {
+      const original = '2026-10-30T18:37:42.123Z';
+      expect(parseDeliveryTimestamp(formatDeliveryTimestamp(original))).toBe(Date.parse('2026-10-30T18:37:00.000Z'));
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it('falls through an invalid envelope clock to the item and turn clocks, otherwise preserves unknown', () => {
+    const envelope = renderDeliveryEnvelope({ route: 'system', from: 'System', fromId: 'system:gugu',
+      messageId: 'msg:delivery', at: '2026-02-30 12:00 北京时间', content: 'dated input' });
+    expect(parseDeliveryTimestamp('2026-02-30 12:00 北京时间')).toBeNull();
+    expect(taskSearchDocuments('s', turn([message(envelope)]))[0].createdAt).toBe(at);
+    const unknown = { ...message(envelope), at: undefined };
+    expect(taskSearchDocuments('s', { ...turn([unknown]), startedAt: Date.parse(at) })[0].createdAt).toBe(at);
+    expect(taskSearchDocuments('s', turn([unknown]))[0].createdAt).toBeNull();
   });
   it('preserves unknown dates and uses the actual send completion before the turn clock', () => {
     const unknown = { ...message('unknown'), at: undefined };

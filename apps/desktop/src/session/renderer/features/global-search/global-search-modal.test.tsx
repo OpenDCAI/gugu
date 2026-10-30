@@ -26,7 +26,7 @@ vi.mock('@renderer/lib/ipc', () => ({
     const results = !calls.paged ? hits : request.cursor ? hits.slice(1) : hits.slice(0, 1)
     const nextCursor = calls.paged && !request.cursor ? 'page-2' : null
     return { results, facets: { total: 2, file: 1, image: 0, link: 0, otherChats: 23 },
-      coverage: { complete: !calls.terminal, chats: [], tasks: calls.terminal ? [{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }] : [] }, nextCursor } satisfies SearchResults
+      coverage: { complete: true, chats: [], tasks: calls.terminal ? [{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }] : [] }, nextCursor } satisfies SearchResults
   } } }),
 }))
 import { COMMANDS } from '@shared/commands'
@@ -63,8 +63,8 @@ describe('global search modal', () => {
     openGlobalSearch({ text: '回滚' })
     await render()
     expect(host.textContent).toContain('globalSearch.terminalNotIndexed')
-    expect(host.textContent).toContain('globalSearch.coveragePartial')
-    expect(host.textContent).not.toContain('globalSearch.coverageComplete')
+    expect(host.textContent).toContain('globalSearch.coverageComplete')
+    expect(host.textContent).not.toContain('globalSearch.coveragePartial')
   })
   it('opens scoped to a chat from an in-chat entry, newest first, and queries through the shared filters', async () => {
     openGlobalSearch({ text: '回滚', chips: [{ kind: 'in', chatId: G }] })

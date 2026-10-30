@@ -48,7 +48,7 @@ function readSearchCoverage(db: Database.Database, current: ReadonlySet<string>,
     exhausted: stored.get(taskId)?.exhausted === true && current.has(taskCoverageKey(taskId)),
     ...(stored.get(taskId)?.reason ? { reason: stored.get(taskId)!.reason } : {}) }));
   return { chats: chatReport.chats, tasks,
-    complete: (query.filters.kind === 'task' || chatReport.complete) && (query.filters.kind === 'message' || tasks.every(row => row.exhausted)) };
+    complete: (query.filters.kind === 'task' || chatReport.complete) && (query.filters.kind === 'message' || tasks.every(row => row.reason === 'terminal' || row.exhausted)) };
 }
 
 function scopedChatIds(db: Database.Database, query: SearchQuery): string[] | undefined {
