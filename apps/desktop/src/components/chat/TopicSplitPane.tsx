@@ -48,6 +48,7 @@ import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
 import { ChatSearchControls } from './ChatSearch'
 import { useChatSearch } from './useChatSearch'
+import { SearchResultsBar } from './SearchResultsBar'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -370,6 +371,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         )}
 
         {searchMode && <PaneHeader><ChatSearchControls search={search} /></PaneHeader>}
+        <SearchResultsBar chatId={topic.chatId} />
         <div
           data-testid="topic-split-messages"
           style={TOPIC_SPLIT_MESSAGES_STYLE}

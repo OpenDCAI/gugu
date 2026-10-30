@@ -4,12 +4,12 @@ import { highlight } from '@gugu/core/shared/search/highlight';
 import { parseSearchTerms } from '@gugu/core/shared/search/query';
 import { rankMessage } from '@gugu/core/shared/search/rank';
 import { buildSearchSql } from '@gugu/core/shared/search/sql';
-import type { SearchCoverage, SearchCoverageReport, SearchMessageHit, SearchQuery, SearchResults } from '@gugu/core/shared/search/types';
+import { SEARCH_FACET_CAP, type SearchCoverage, type SearchCoverageReport, type SearchFacets, type SearchMessageHit, type SearchQuery, type SearchResults } from '@gugu/core/shared/search/types';
 import type { MessageSearchRequest } from '@shared/core/message-search';
 
 type MessageRow = {
   id: string; chat_id: string; thread_root_id: string | null; seq: number; sender_id: string | null;
-  created_at_iso: string; text: string; to_user_ids: string; text_rank: number;
+  created_at_iso: string; text: string; to_user_ids: string; text_rank: number; has_file: number; has_image: number;
 };
 type CoverageRow = { chat_id: string; stream: string; oldest_seq: number | null; newest_seq: number | null; exhausted: number };
 
@@ -42,6 +42,7 @@ function hit(row: MessageRow, accountId: string, query: SearchQuery, now: number
   return {
     kind: 'message', id: row.id, chatId: row.chat_id, threadRootId: row.thread_root_id,
     seq: row.seq, senderId: row.sender_id, createdAt: row.created_at_iso, text: row.text,
+    attachment: row.has_image ? 'image' : row.has_file ? 'file' : null,
     highlights: highlight(row.text, query.text),
     // The store has no familiarity or sender-kind projection. Unknown features stay neutral;
     // the shared SQL remains the ordering authority and the shared ranker supplies explanations.
@@ -52,6 +53,24 @@ function hit(row: MessageRow, accountId: string, query: SearchQuery, now: number
       fromActor: row.sender_id === accountId, isAgent: false, isThreadReply: row.thread_root_id !== null,
     }, { now, sort: query.sort }),
   };
+}
+
+/**
+ * Counts over the same SQL as the results, read in one pass over at most SEARCH_FACET_CAP + 1 matches: a very
+ * common word must not cost a full count per facet. Past the cap, total is "1000+" and the kind counts are lower bounds.
+ */
+function readFacets(db: Database.Database, accountId: string, query: SearchQuery): SearchFacets {
+  const count = (filters: SearchQuery['filters']) => {
+    const { sql, params } = buildSearchSql({ ...query, filters }, accountId, { limit: SEARCH_FACET_CAP + 1, unordered: true });
+    return db.prepare(`SELECT count(*) AS total, coalesce(sum(has_file), 0) AS file, coalesce(sum(has_image), 0) AS image,
+      coalesce(sum(has_link), 0) AS link FROM (${sql})`).get(...params) as Omit<SearchFacets, 'otherChats'>;
+  };
+  const { has: _has, ...filters } = query.filters;
+  const scoped = count(filters);
+  if (!filters.in?.length) return { ...scoped, otherChats: 0 };
+  const { in: _in, ...everywhere } = filters;
+  const all = count(everywhere).total;
+  return { ...scoped, otherChats: all > SEARCH_FACET_CAP ? all : all - scoped.total };
 }
 
 export function readMessages(db: Database.Database, accountId: string, request: MessageSearchRequest, now: number, current: ReadonlySet<string>): SearchResults {
@@ -70,6 +89,7 @@ export function readMessages(db: Database.Database, accountId: string, request: 
   const rows = db.prepare(sql).all(...params) as MessageRow[];
   return {
     results: rows.slice(0, limit).map((row) => hit(row, accountId, request.query, now)),
+    facets: readFacets(db, accountId, request.query),
     coverage: readCoverageReport(db, current, scopedChatIds(db, request.query)),
     nextCursor: rows.length > limit ? JSON.stringify({ identity, offset: offset + limit }) : null,
   };

@@ -19,6 +19,8 @@ import { InviteButton } from './InviteButton'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { closeInfoTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { settingsErrorStyle } from './groupSettingsStyles'
+import { useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag'
+import { findMemberMessages } from '@renderer/features/global-search/search-session'
 
 // @@@6418 群成员面板里「和人有关的操作」:邀请、点开资料卡(角色 / 倾听模式 / 移出 / 发消息 / 悄悄话)、
 // 行尾 ⋯ 快捷管理。原来这些只在设置抽屉的头像网格里有,面板只能看;现在面板是成员的唯一入口。
@@ -48,6 +50,7 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const globalSearch = useGlobalSearchV3()
   useEffect(() => { setActiveProfile(null); setMenu(null); setAllowMemberInvite(false) }, [chatId])
 
   // 「谁能拉人类」:群主/管理员随时能拉;普通成员要看群的 allow_member_invite(#854)。
@@ -220,6 +223,7 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
             onOpenUserChat(target)
           } : undefined}
           onWhisper={renderedProfile.member.id !== currentUserId && onWhisper ? (target) => { setActiveProfile(null); onWhisper(target) } : undefined}
+          findMessagesOf={globalSearch ? (userId) => findMemberMessages(chatId, userId) : undefined}
           editControls={editControlsFor(renderedProfile.member)}
         />
       ) : null}

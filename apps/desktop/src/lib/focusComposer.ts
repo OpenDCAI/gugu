@@ -102,6 +102,15 @@ function resolveComposer(target?: ComposerTargetResolver): HTMLElement | null {
   return document.querySelector<HTMLElement>(COMPOSER_SELECTOR)
 }
 
+/**
+ * The composer inside one chat's slot (several chats can sit side by side). Null until that chat has rendered, so a
+ * scheduled focus waits for the chat being entered instead of landing in the one that was showing.
+ */
+export function chatComposerTarget(chatId: string): ComposerTargetResolver {
+  return () => typeof document === 'undefined' ? null
+    : document.querySelector<HTMLElement>(`[data-chat-slot="${chatId}"] ${COMPOSER_SELECTOR}`)
+}
+
 /** Focus the normal chat composer when a user explicitly enters or continues a conversation. */
 export function focusComposer(reason: ComposerFocusReason, context: ComposerFocusContext = {}): boolean {
   if (typeof document === 'undefined') return false

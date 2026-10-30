@@ -1,4 +1,6 @@
 import type { QuoteSelection } from './messageQuoteContent'
+import { useIsSearchCurrent } from '@renderer/features/global-search/search-session'
+import { cn } from '@/lib/cn'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
@@ -208,6 +210,8 @@ const MessageListRow = memo(function MessageListRow({
     return () => observer.disconnect()
   }, [row, onVisible])
 
+  // globalSearch.v3: the result the chat's results bar is on keeps its frame while the bar is open.
+  const searchCurrent = useIsSearchCurrent(row?.message.chat_id ?? '', row?.message.id ?? '')
   // @@@virtuoso-oob-guard (#461) - 行由 rows.slice 给出、不会越界;这一行只为收窄 rows[index] 的类型。
   if (!row) return null
 
@@ -272,7 +276,7 @@ const MessageListRow = memo(function MessageListRow({
   )
 
   return (
-    <MessageRow rowRef={rowRef} index={index} count={rows.length} messageId={msg.id} className={msg.id === flashMessageId ? 'msg-src-flash' : undefined} style={{ paddingBottom: 'var(--spacing-xs)' }} onContextMenu={mentionFromAvatar}>
+    <MessageRow rowRef={rowRef} index={index} count={rows.length} messageId={msg.id} className={cn(msg.id === flashMessageId && 'msg-src-flash', searchCurrent && 'msg-search-current')} style={{ paddingBottom: 'var(--spacing-xs)' }} onContextMenu={mentionFromAvatar}>
       {showTimeDivider && (
         /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
            原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */

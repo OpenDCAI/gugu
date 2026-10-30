@@ -152,6 +152,28 @@ describe('account message index on real SQLite FTS5', () => {
     expect(ids(store, '发布', { from: [account] })).toEqual(['whisper']);
   });
 
+  it('counts facets over the same query, ignoring the has: filter, and counts matches outside in:', () => {
+    const store = open();
+    const attachment = '[附件] 发布计划.pdf (application/pdf)\n[Size] 10\n[Kind] file';
+    store.apply([groups, { kind: 'rows', rows: [
+      row('text', { content: '发布 https://example.com' }),
+      row('file', { seq: 2, content: attachment, content_type: 'attachment', file_blob_id: 'blob' }),
+      row('elsewhere', { chat_id: 'other' }),
+    ] }]);
+    const scoped = store.global(query('发布', { in: [{ kind: 'chat', id: 'g' }], has: ['file'] }));
+    expect(scoped.results.map((hit) => [hit.id, hit.attachment])).toEqual([['file', 'file']]);
+    expect(scoped.facets).toEqual({ total: 2, file: 1, image: 0, link: 1, otherChats: 1 });
+    expect(store.global(query('发布')).facets.otherChats).toBe(0);
+  });
+
+  it('stops counting a facet one past the cap instead of counting every match', () => {
+    const store = open();
+    store.apply([groups, { kind: 'rows', rows: Array.from({ length: 1005 }, (_, i) => row(`m${i}`, { seq: i + 1 })) }]);
+    const { results, facets } = store.global(query('发布'));
+    expect(results).toHaveLength(50);
+    expect(facets).toEqual({ total: 1001, file: 0, image: 0, link: 0, otherChats: 0 });
+  });
+
   it('does not index card or widget messages, so a search never shows them', () => {
     const store = open();
     store.apply([groups, { kind: 'rows', rows: [row('card', { content_type: 'card', content: '{"title":"发布计划"}' }),

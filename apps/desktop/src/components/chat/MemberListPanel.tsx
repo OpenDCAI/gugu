@@ -28,6 +28,8 @@ import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { matchText } from '../../lib/mentionMatch'
+import { useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { agentLocationText, resolveAgentLocation } from '../../lib/agentRunningStatusModels'
@@ -285,6 +287,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
 
   // @@@6418 搜索:名字、主人、引擎、模型、设备,与行上看得见的字一致(看不见的字段不参与匹配)。
   const [query, setQuery] = useState('')
+  const pinyinSearch = useGlobalSearchV3()
   const [myAgentsExpanded, setMyAgentsExpanded] = useState(true)
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
@@ -331,8 +334,9 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   ), [tContacts])
 
   const needle = query.trim().toLowerCase()
+  // globalSearch.v3 (#914): the same matcher as @ mentions (pinyin initials and full pinyin); off keeps substring matching.
   const matchesQuery = (values: ReadonlyArray<string | null | undefined>) => (
-    !needle || values.some((value) => value?.toLowerCase().includes(needle))
+    !needle || values.some((value) => pinyinSearch ? matchText(value, needle) !== null : value?.toLowerCase().includes(needle))
   )
   const shownPeople = people.filter((member) => matchesQuery([identities[member.id]?.display_name]))
   const shownAgents = agentMembers.filter((member) => {

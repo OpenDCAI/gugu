@@ -13,6 +13,7 @@ import { resolveMessagingValue } from '@/lib/localizedStoredValue'
 import { useAgentContactStatusLabel } from './contactAgentTone'
 import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
+import { Search } from '@/lib/icons'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
 import { useAgentSession } from '@/lib/projectGroupChatsBridge'
@@ -206,6 +207,7 @@ export function MemberProfileCard({
   member,
   onOpenChat,
   onWhisper,
+  onFindMessages,
   editControls,
   aliasControls,
   fill = false,
@@ -214,6 +216,8 @@ export function MemberProfileCard({
   onOpenChat?: (target: MemberProfileChatTarget) => void
   // @@@whisper (#820) — 群聊模式下悄悄话入口；仅 isGroupProfile && onWhisper 时渲染。
   onWhisper?: (target: MemberProfileChatTarget) => void
+  /** globalSearch.v3: search this member's messages in the conversation the card was opened from. */
+  onFindMessages?: () => void
   editControls?: MemberProfileEditControls
   aliasControls?: MemberProfileAliasControls
   fill?: boolean
@@ -337,6 +341,13 @@ export function MemberProfileCard({
           >
             <IconWhisper />
             {t('profile.whisper')}
+          </Button>
+        ) : null}
+
+        {onFindMessages ? (
+          <Button size="sm" className={profileButtonClass} data-testid="member-profile-find-messages" onClick={onFindMessages}>
+            <Search size={14} />
+            {t('profile.findMessages')}
           </Button>
         ) : null}
 

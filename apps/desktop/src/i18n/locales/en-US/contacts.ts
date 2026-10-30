@@ -366,6 +366,7 @@ export default {
     "source": "Source",
     "unconfigured": "Not configured",
     "viewProfile": "View {{name}} profile",
+    "findMessages": "Find messages",
     "whisper": "Whisper"
   },
   "sharing": {
