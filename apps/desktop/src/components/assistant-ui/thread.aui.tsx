@@ -367,11 +367,6 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   const mobile = useMobileShell();
   const composer = useAui().composer;
   const { text, attachments, isEmpty, canSend } = useAuiState((s) => s.composer);
-  // Uploading alone is not a pending send; retain only the batch actually submitted.
-  const [sendAttachmentIds, setSendAttachmentIds] = useState<readonly string[]>([]);
-  const sendAttachments = attachments.filter((attachment) => sendAttachmentIds.includes(attachment.id));
-  const attachmentWaiting = mobile && sendAttachments.some((attachment) => attachment.status.type === 'running')
-    && !sendAttachments.some((attachment) => attachment.status.type === 'incomplete');
   const { isRunning, isDisabled, capabilities } = useAuiState((s) => s.thread);
   const hostStop = useComposerStop();
   const placeholder = useComposerPlaceholder() ?? c.placeholder;
@@ -416,18 +411,10 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
           editorOptions={{ enterBehavior: submitOnEnter ? 'submit' : 'newline', clearOnSubmit: false }}
           disabled={isDisabled} canSubmit={!sendDisabled && canSend && (!isRunning || capabilities.queue)}
           isWorking={!!hostStop && isEmpty} stopDisabled={hostStop?.stopping}
-          onStop={hostStop?.onStop} onInputChange={(value) => composer.setText(value)} onSubmit={() => {
-            setSendAttachmentIds(mobile ? attachments.map(({ id }) => id) : []);
-            composer.send();
-          }}
+          onStop={hostStop?.onStop} onInputChange={(value) => composer.setText(value)} onSubmit={() => composer.send()}
           onAttach={capabilities.attachments ? () => picker.current?.click() : undefined}
           onFilesDropped={capabilities.attachments ? addFiles : undefined} onImageFilesDropped={capabilities.attachments ? addFiles : undefined}
-          attachmentStatus={attachmentWaiting ? translateSessionMessage('composer.attachmentWaiting') : undefined}
-          attachments={chips} onAttachmentsChange={capabilities.attachments ? (next) => {
-            // Cancelling an upload rejects this send; its siblings may still be uploading.
-            if (sendAttachments.some((attachment) => attachment.status.type === 'running' && !next.some((chip) => chip.id === attachment.id))) setSendAttachmentIds([]);
-            for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove();
-          } : undefined}
+          attachments={chips} onAttachmentsChange={capabilities.attachments ? (next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove(); } : undefined}
           onRetryAttachment={(id) => { const file = attachments.find((attachment) => attachment.id === id)?.file; if (file) void composer.attachment({ id }).remove().then(() => composer.addAttachment(file)); }}
           toolbarExtra={<ComposerExtras />} mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon}
           dataDropTypes={dataDropTypes} onDataDropped={onDataDropped} />

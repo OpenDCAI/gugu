@@ -65,6 +65,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const composerDraft = useChatDraft(`session:${deviceId}/${sessionId}`)
   const { text: draftText, setText: setDraftText } = composerDraft
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const [attachmentWaiting, setAttachmentWaiting] = useState(false)
   const paths = useRef(new Map<string, string>())
   const applied = useRef<typeof draft>(undefined)
   // Hydrate before applying an App handoff, so the old mirror cannot overwrite its new text.
@@ -116,7 +117,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     inFlight.current = true
     const sentQuote = quotes.capture()
     try {
+      setAttachmentWaiting(uploads.unsettled())
       if (!await uploads.waitForUploads()) return
+      setAttachmentWaiting(false)
       const sentAttachments = attachments
       const images: PromptAttachment[] = sentAttachments.flatMap(file => {
         const path = paths.current.get(file.id)
@@ -139,7 +142,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
         composerDraft.setText(restored); editor.current?.setText(restored)
         setAttachments(current => [...sentAttachments.filter(file => !current.some(kept => kept.id === file.id)), ...current])
       }
-    } finally { inFlight.current = false }
+    } finally { setAttachmentWaiting(false); inFlight.current = false }
   }
   const recoveryState = useRef({ text: composerDraft.text, attachments })
   recoveryState.current = { text: composerDraft.text, attachments }
@@ -194,6 +197,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
+      attachmentStatus={attachmentWaiting ? translateSessionMessage('composer.attachmentWaiting') : undefined}
       attachments={attachments} onAttachmentsChange={next => { uploads.keepOnly(new Set(next.map(file => file.id))); setAttachments(next) }}
       onRetryAttachment={uploads.retry} onFilesDropped={addFiles} onImageFilesDropped={addFiles}
       toolbarExtra={<><ComposerAttachButton disabled={sending} mobile onPickFile={() => input.current?.click()} /></>} />
