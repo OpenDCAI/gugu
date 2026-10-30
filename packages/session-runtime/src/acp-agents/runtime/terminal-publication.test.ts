@@ -108,7 +108,7 @@ describe('terminal publication lifecycle', () => {
     await rt.dispose();
   });
 
-  it('suppresses intermediate replay writes and stores the complete terminal tail at replay end', async () => {
+  it('keeps replayed terminals out of live state and stores the complete tail on the replayed turn', async () => {
     const committed: Commit[] = [];
     const h = makeAcpHarness({ nativeState: true,
       onTurnCommitted: ({ source, turn }) => committed.push({ source, turn }),
@@ -119,10 +119,15 @@ describe('terminal publication lifecycle', () => {
     const resuming = rt.resumeSession({ ...makeStartInput({ sessionId: SESSION }), providerSessionId: 'replay-provider' });
     await h.agent.called('loadSession');
     const send = (event: NormalizedEvent) => h.client().sessionEvent({ sessionId: 'replay-provider', event });
+    const live = rt.sessionLiveModels(SESSION)!.states.terminals;
+    const published: unknown[] = [];
+    const unsubscribe = live.subscribe(() => published.push(live.snapshot().data));
     try {
       await send({ kind: 'message', role: 'user', messageId: 'first', text: 'run the command' });
+      await send(rawChunk('REPLAY_'));
       await send(reference);
-      await send(rawChunk('REPLAY_TAIL'));
+      await send(rawChunk('TAIL'));
+      expect(rt.getTerminals(SESSION)).toEqual([]);
       await send({ kind: 'message', role: 'user', messageId: 'second', text: 'later input' });
       await vi.runAllTimersAsync();
       expect(committed).toEqual([]);
@@ -130,6 +135,12 @@ describe('terminal publication lifecycle', () => {
       loaded.resolve({});
     }
     expect(await resuming).toMatchObject({ success: true });
+    await vi.runAllTimersAsync();
+    // #1010 Replayed terminals are history: they never reach the live registry or its live model.
+    expect(rt.getTerminals(SESSION)).toEqual([]);
+    expect(live.snapshot().data).toEqual([]);
+    expect(published.every(data => Array.isArray(data) && data.length === 0)).toBe(true);
+    unsubscribe();
     expect(committed.length).toBeGreaterThan(0);
     expect(committed.every(entry => entry.source === 'replay')).toBe(true);
     expect(committed.some(entry => entry.turn.terminals?.some(t => t.output === 'REPLAY_TAIL'))).toBe(true);

@@ -77,7 +77,7 @@ import { buildAgentClient, type InboundRouter } from '../agent-ports/agent-clien
 import type { FsPort } from '../agent-ports/fs-port';
 import type { AgentTerminalManager } from '../agent-ports/terminal-manager';
 import type { TerminalPort } from '../agent-ports/terminal-port';
-import type { TerminalLiveRegistry } from './terminal-live-registry';
+import { TerminalLiveRegistry } from './terminal-live-registry';
 import {
   isAcpConnectionError,
   makeAcpConnectionKey,
@@ -141,8 +141,11 @@ interface SessionRecordBase {
    * 由 begin/endReplay 的调用方(也就是本类)持有,❌ 不去问状态机的 phase:`endReplay()` 是
    * **先**把状态机切出 replaying、**后**才发 transcript 变更的,那一刻问 phase 会把重放回来的
    * 最后一回合报成刚发生的。
+   *
+   * 重放回来的终端是历史,不是现在在跑的(#1010):它们只进这一次重放自己的 `terminals`,供重放回合物化快照,
+   * 窗口关上就随之丢掉;❌ 进运行时那份活的登记册 —— 那份会发给每一次 attach。
    */
-  replaying: boolean;
+  replay: { terminals: TerminalLiveRegistry } | null;
   /**
    * #6396 会话还在起的时候宿主送来的通知(见 `announce`)。cell 在 ready 之前不收事件,所以先存在这里,
    * 在启动期降级通知的**同一个落点**画出来 —— ❌ 不另找一个时机。
@@ -859,7 +862,7 @@ export class SessionManager implements InboundRouter {
         this.registerRoute(connection.key, loadProviderSessionId, input.sessionId);
         // #5381 重放窗口开:这期间提交的回合是**重放回来的**,不是刚发生的。窗口由这里开合,
         // ❌ 不去问状态机——`endReplay()` 先切 phase 后发变更,那一刻问 phase 会把最后一回合报错。
-        record.replaying = true;
+        record.replay = { terminals: new TerminalLiveRegistry() };
         record.cell.beginReplay();
         // #980 不重放 ⇒ 补投去重的那份「agent 收到过什么」由宿主从记录里读好带进来;没带 = 读不出来。
         if (input.replayHistory === false) {
@@ -954,7 +957,7 @@ export class SessionManager implements InboundRouter {
           // 重放窗口关。放在 finally:失败路径上也必须关,否则这条 record 之后所有真实回合
           // 都会被标成 replay,主进程按「库里有行就丢弃」的策略把它们全扔掉 —— 历史从此不再增长。
           // catch 里几条出口会先把 record 置空(那条 record 已经被移除),此处照顾到即可。
-          if (record) record.replaying = false;
+          if (record) record.replay = null;
         }
       }
 
@@ -1834,7 +1837,7 @@ export class SessionManager implements InboundRouter {
     const terminals = this.getTerminals(sessionId);
     publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
     record.lastSynced.terminals = terminals;
-    this.emitCommittedTurns(record, terminals);
+    this.emitCommittedTurns(record);
   }
 
   killAllTerminals(): void {
@@ -1874,7 +1877,7 @@ export class SessionManager implements InboundRouter {
     if (params.trace !== undefined) {
       record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.trace });
     }
-    const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
+    const scoped = (record.replay?.terminals ?? this.terminalLiveRegistry).route(sessionId, connection.key, params.sessionId, event);
     if (!scoped) return this.publishOnTick(record);
     event = scoped;
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
@@ -2248,7 +2251,7 @@ export class SessionManager implements InboundRouter {
       phase: 'starting',
       cell,
       childProviderSessionIds: new Set<string>(),
-      replaying: false,
+      replay: null,
       announcedNotices: [],
       startupSettings: {},
       startupSettingsSealed: new Set<StartupSettingDimension>(),
@@ -2479,10 +2482,11 @@ export class SessionManager implements InboundRouter {
   }
 
   /** Push new turns and in-place revisions to the single durable history writer. */
-  private emitCommittedTurns(record: SessionRecord, terminals = this.getTerminals(record.input.sessionId)): void {
+  private emitCommittedTurns(record: SessionRecord): void {
     // Later replayed child records can revise an earlier parent turn. Publish the complete
     // replay at endReplay; intermediate replay turns cannot safely revise existing storage.
-    if (record.replaying && record.cell.sessionState.lifecycle === 'replaying') return;
+    if (record.replay && record.cell.sessionState.lifecycle === 'replaying') return;
+    const terminals = (record.replay?.terminals ?? this.terminalLiveRegistry).snapshotSession(record.input.sessionId);
     record.cell.push({ kind: 'terminal_snapshots', terminals });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
@@ -2527,7 +2531,7 @@ export class SessionManager implements InboundRouter {
       // 分开标,「登录已失效」这类读现状的消费方才不会被一张旧轮的补丁改回去。
       push(index === committed.length - 1 ? 'revision' : 'backfill', turn);
     }
-    const source = record.replaying ? 'replay' : 'live';
+    const source = record.replay ? 'replay' : 'live';
     for (let index = emitted.length; index < committed.length; index += 1) {
       if (source === 'live') record.liveTurnIds.add(committed[index]!.id);
       push(source, committed[index]!);
