@@ -69,6 +69,7 @@ const { permanentlyDeleteAgentSession } = await import('./permanently-delete-age
 const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
+const { sessionEvents } = await import('./session-events');
 
 beforeEach(async () => { mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-')); });
 afterEach(async () => { await rm(mocks.userData, { recursive: true, force: true }); });
@@ -484,6 +485,7 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
   });
 
   it('permanently removes only a deleted Agent task and its SQLite history; automatic archives stay restorable', async () => {
+    vi.mocked(sessionEvents._emit).mockClear();
     insert('deleted-agent');
     insert('kept-agent');
     for (const id of ['deleted-agent', 'kept-agent']) {
@@ -493,12 +495,15 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     }
     expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toHaveLength(2);
     expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toHaveLength(2);
+    expect(sessionEvents._emit).not.toHaveBeenCalledWith('session:deleted', expect.any(String));
     await permanentlyDeleteAgentSession('deleted-agent');
+    expect(sessionEvents._emit).toHaveBeenCalledWith('session:deleted', 'deleted-agent');
     expect(fixture.sqlite.prepare('SELECT id FROM sessions ORDER BY id').all()).toEqual([{ id: 'kept-agent' }]);
     expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toEqual([{ id: 'kept-agent:message' }]);
     expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toEqual([{ id: 'kept-agent:turn' }]);
     await expect(restoreSession('p1', 'deleted-agent')).rejects.toThrow('Session not found');
     await expect(permanentlyDeleteAgentSession('deleted-agent')).resolves.toBeUndefined();
+    expect(vi.mocked(sessionEvents._emit).mock.calls.filter(([name]) => name === 'session:deleted')).toEqual([['session:deleted', 'deleted-agent']]);
     await expect(restoreSession('p1', 'kept-agent')).resolves.toMatchObject({ id: 'kept-agent', archivedAt: null });
   });
 

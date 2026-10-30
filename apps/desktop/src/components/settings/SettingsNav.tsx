@@ -18,6 +18,8 @@ import {
   Palette,
   PaletteFilled,
   Activity,
+  Folder,
+  FolderFilled,
 } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -136,6 +138,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'devices', labelKey: 'settings.nav.devices', il: <IlDevices />, ib: <IbDevices /> },
   { key: 'model',   labelKey: 'settings.nav.model', il: <IlModel />,   ib: <IbModel />   },
   { key: 'usage',   labelKey: 'settings.nav.usage', il: <IlUsage />,   ib: <IbUsage />   },
+  { key: 'files', labelKey: 'settings.nav.files', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'subscriptions', labelKey: 'settings.nav.subscriptions', il: <IlSubscriptions />, ib: <IbSubscriptions /> },
   { key: 'activity', labelKey: 'settings.nav.activity', il: <IlActivity />, ib: <IbActivity /> },
   { key: 'apps',    labelKey: 'settings.nav.apps', il: <IlApps />,    ib: <IbApps />    },

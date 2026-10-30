@@ -239,9 +239,9 @@ export const enUSProjectMessages = {
   'projects.delete.description':
     '"{projectLabel}" will be removed from the project list. Its tasks will be archived and can be restored from Task history. Files and worktrees will be kept.',
   'projects.delete.detachWarning_one':
-    'This automation will be detached from the project and will not run until attached to another project:',
+    'If this automation belongs to an archived task, it will be kept and hidden until that task is restored. Otherwise, it will be detached and will not run until attached to another project:',
   'projects.delete.detachWarning_other':
-    'These automations will be detached from the project and will not run until attached to another project:',
+    'Automations belonging to archived tasks will be kept and hidden until those tasks are restored. Other automations will be detached and will not run until attached to another project:',
 
   // ── projects: task list ────────────────────────────────────────────────
 
@@ -474,8 +474,8 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.delete.failed': '未能删除项目',
   'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将从项目列表移除“{projectLabel}”，并归档其中的任务；可从任务历史恢复。文件夹和 worktree 会保留。',
-  'projects.delete.detachWarning_one': '该自动化将从项目分离，并在挂到其他项目之前不会运行：',
-  'projects.delete.detachWarning_other': '这些自动化将从项目分离，并在挂到其他项目之前不会运行：',
+  'projects.delete.detachWarning_one': '若该自动化属于归档任务，它会保留，并在任务恢复前隐藏；否则将从项目分离，在挂到其他项目之前不会运行：',
+  'projects.delete.detachWarning_other': '归档任务的自动化会保留，并在任务恢复前隐藏；其他自动化将从项目分离，在挂到其他项目之前不会运行：',
 
   // ── projects: task list ────────────────────────────────────────────────
 

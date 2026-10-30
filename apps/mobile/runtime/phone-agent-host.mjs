@@ -493,7 +493,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         if (stopped || signingOut) break
         const jobs = Object.values(store.state.jobs)
         const job = jobs.find((item) => phonePreparationExpired(item, preparationNow()))
-          ?? (ready && phonePreparationMayRun(store.state, preparationNow()) ? jobs.find((item) => item.status === 'queued' && !skills.isEditing(item.agentUserId)) : null)
+          ?? (ready && phonePreparationMayRun(store.state, preparationNow()) ? jobs.find((item) => item.status === 'queued' && !item.queueEdit && !skills.isEditing(item.agentUserId)) : null)
         if (!job) break
         activeJob = job
         try { await runJob(job) } catch (error) { job.status = 'failed'; job.error = error.message; await store.save(); warn(error.message) }
@@ -512,7 +512,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const inputs = Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => job.inputDataProof).filter(Boolean)
     await authorizeReply([...new Set([...proof.groups, ...(current?.usedGroups ?? []), ...inputs.flatMap((input) => input.groups)])], { sessionId: agent.sessionId, permissionRequirements: uniqueProofs(proof.permissionRequirements, current?.permissionRequirements, ...inputs.map((input) => input.permissionRequirements)) })
   } })
-  const taskApi = createPhoneTaskApi({ ownerId, store, models, timelines, actions: () => actions, findSession, verifyAgent, admit, publish })
+  const taskApi = createPhoneTaskApi({ ownerId, store, models, timelines, actions: () => actions, findSession, verifyAgent, admit, publish: () => { publish(); void drain().catch(error => warn(error.message)) }, interrupt: async agent => { if (activeJob?.agentUserId === agent.agentUserId) await cancel(agent, { jobId: activeJob.id }) } })
   const attachments = createPhoneAttachmentApi({ ownerId, store, findSession, verifyAgent, registerArtifact })
   const skills = createPhoneSkillsRuntime({ ownerId, deviceId, store, findSession, verifyAgent,
     isRunning: (agent) => activeJob?.agentUserId === agent.agentUserId,

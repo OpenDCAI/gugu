@@ -1036,6 +1036,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     case 'title':
       return { ...s, title: event.title };
     case 'agent_state':
+    case 'transcript_path':
     case 'prompt_result':
     case 'interrupted_for_message':
     case 'terminal_update':

@@ -1,4 +1,4 @@
-import type { PromptAttachment, ProviderPermissionModeMap } from '@gugu/session-core/acp';
+import type { AttachmentRef, PromptAttachment, ProviderPermissionModeMap } from '@gugu/session-core/acp';
 import type {
   AcpAgentApi,
   LiveSettingCapability,
@@ -11,6 +11,8 @@ import type { Logger } from '@gugu/session-shared/logger';
 export interface ResolvedPromptAttachment {
   data: string;
   mimeType: string;
+  /** The immutable copy retained by the runtime, also used by transcript clients. */
+  ref?: AttachmentRef;
 }
 
 export type ResolvePromptAttachment = (

@@ -112,7 +112,8 @@ type Bands = {
 /** One card per segment of a batch; measure, estimate and render all build it here so their geometry agrees. */
 export function segmentItem(item: ChatMessage, segment: DeliverySegment, index: number): ChatMessage {
   const split = splitAttachmentMentions(segment.body);
-  const attachments = split.attachments.map((attachment) =>
+  const original = item.attachments?.filter(attachment => attachment.id === `gugu-message-file://${segment.facts?.messageId?.replace(/^msg:/, '')}`) ?? [];
+  const attachments = original.length ? original : split.attachments.map((attachment) =>
     item.attachments?.find((stored) => stored.id === attachment.id) ?? attachment
   );
   return {

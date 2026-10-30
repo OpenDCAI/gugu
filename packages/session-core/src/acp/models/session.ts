@@ -201,6 +201,8 @@ export const sessionSummarySchema = z.object({
   /** The account's limit as this session's engine last reported it (`usage.rateLimit`); null until it reports one in this process. */
   rateLimit: sessionUsageSchema.shape.rateLimit,
   title: z.string().nullable(),
+  /** The session record path the harness itself reported (`transcript_path` event); absent until it reports one. Host-local. */
+  transcriptPath: z.string().optional(),
   /** Rolling provider tool names for the shared agent-presence projection. */
   recentActions: z.array(z.string()).optional(),
   /** Wall-clock time of the newest live tool action, when known — kept past the recent-actions window (same as the record timeline). */

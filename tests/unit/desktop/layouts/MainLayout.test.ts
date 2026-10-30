@@ -1,3 +1,4 @@
+vi.mock('../../../../apps/desktop/src/hooks/useSessionInputOutbox', () => ({ SessionInputOutboxHost: () => null }))
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { act, useEffect, type ReactNode } from 'react'
@@ -26,6 +27,10 @@ vi.mock('../../../../apps/desktop/src/lib/notices', async (original) => ({
   ...await original<object>(), notify: deliveryNotice,
 }))
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+const openNativeConversation = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('../../../../apps/desktop/src/lib/guguLinks', async original => ({
+  ...await original<object>(), openTarget: openNativeConversation,
+}))
 const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/hooks/useSourceMessageReveal')>()
@@ -287,6 +292,9 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
   },
   chatStoreMock: {
     chats: [] as Array<{ id: string }>,
+    identitiesById: {},
+    draftAttachments: {},
+    setDraftAttachments: vi.fn(),
     activeChatId: null as string | null,
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
@@ -311,13 +319,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
 vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => ({ messages: false, requests: false })
 }))
-const agentEventMock = vi.hoisted(() => ({
-  readStarted: vi.fn<(event: Event) => unknown>(() => null),
-}))
-vi.mock('../../../../apps/desktop/src/lib/agentConversationEvents', () => ({
-  AGENT_SESSION_STARTED_EVENT: 'agent-conversation-started',
-  readAgentConversationStartedEvent: agentEventMock.readStarted
-}))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: platformMock
 }))
@@ -340,8 +341,6 @@ beforeEach(() => {
   agentWatchProbe.rootMounts = 0
   agentWatchProbe.rootUnmounts = 0
   activationProbe.prewarm.mockReset()
-  agentEventMock.readStarted.mockReset()
-  agentEventMock.readStarted.mockReturnValue(null)
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
   chatStoreMock.chats = []
@@ -597,34 +596,12 @@ describe('MainLayout', () => {
       'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
     ).toBeNull()
   })
-  it('never navigates on the agent-conversation-started broadcast, on any tab', async () => {
-    const activity = {
-      agentId: 'agent-1',
-      chatId: 'agent-dm',
-      threadRootId: null,
-      displayName: 'Agent',
-      avatar: null,
-      startedAt: '2026-08-18T00:00:00.000Z',
-      status: 'running',
-    }
-    agentEventMock.readStarted.mockReturnValue(activity)
+  it('opens the created agent conversation on the session page, never by switching the shell chat', async () => {
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
     // gugu-dev#181 桌面上没有单独的聊天页可切过去。
     expect(chatSurfaceOf(harness.container)).toBeNull()
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
-      await Promise.resolve()
-    })
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-    expect(sessionPageViewRequests.openChat, 'agent started — nothing is opened for it').not.toHaveBeenCalled()
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
-      await Promise.resolve()
-    })
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
       .__GUGU_SESSIONPAGE_MESSAGES__
     expect(host, 'the create flow reaches the shell through this host').toBeTruthy()
@@ -1231,4 +1208,48 @@ describe('MainLayout: initial private-chat drafts', () => {
     expect(chatStoreMock.writeDraft).toHaveBeenCalledWith('private-chat', 'initial private draft')
     expect(draftValues.get('private-chat')).toBe('initial private draft')
   })
+})
+
+
+describe('MainLayout: agent sender-name entry', () => {
+  it.each(['owned', 'existing-external', 'new-external'] as const)('uses the contact chat action and its access rules for %s', async scenario => {
+    const peer = { id: 'sender-agent', type: 'agent', display_name: 'Sender agent', owner_user_id: scenario === 'owned' ? 'user-1' : 'other-owner' }
+    taskRoute.contacts = [peer]
+    openNativeConversation.mockClear()
+    if (scenario === 'owned') Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+      invoke: vi.fn(async () => ({ projectId: 'native-project', sessionId: 'native-session', view: 'general', platformRecovery: null, projectionError: null })),
+      eventOn: () => () => {},
+    } })
+    if (scenario === 'existing-external') chatStoreMock.chats = [{ id: 'sender-dm', kind: 'ai', peer_user_id: peer.id }] as never
+    chatServiceMock.getOrCreateDM.mockResolvedValue('sender-dm')
+    const { toast } = await renderMainLayoutWithToast()
+    await act(async () => { await openLinkTarget({ kind: 'sender', userId: peer.id }) })
+    if (scenario === 'new-external') {
+      expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalled()
+    } else if (scenario === 'owned') {
+      expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
+      expect(openNativeConversation).toHaveBeenCalledWith({ kind: 'session', sessionId: 'native-session', projectId: 'native-project' })
+      expect(chatServiceMock.getOrCreateDM).toHaveBeenCalledWith('user-1', peer.id)
+    } else {
+      expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('sender-dm', false)
+      expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+    }
+  })
+})
+
+it('does not create private conversations or refresh their timestamps when owned agents appear at startup', async () => {
+  taskRoute.contacts = [
+    { id: 'unused-owned-agent', type: 'agent', owner_user_id: 'user-1' },
+    { id: 'existing-owned-agent', type: 'agent', owner_user_id: 'user-1' },
+  ]
+  const existing = { id: 'existing-private', kind: 'dm', peer_user_id: 'existing-owned-agent', created_at: '2026-10-01T00:00:00Z', last_message_at: '2026-10-28T00:00:00Z' }
+  chatStoreMock.chats = [existing] as never
+  chatServiceMock.getOrCreateDM.mockResolvedValue('unwanted-empty-private')
+  await renderMainLayoutWithToast()
+  expect(chatServiceMock.getOrCreateDM).not.toHaveBeenCalled()
+  expect(chatStoreMock.upsertChat).not.toHaveBeenCalled()
+  expect(chatStoreMock.refreshChats).not.toHaveBeenCalled()
+  expect(chatStoreMock.chats).toEqual([existing])
 })

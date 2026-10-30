@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { ChatBottomDock } from '@/components/chat/ChatBottomDock'
+import { AgentConversationView } from '@renderer/lib/chat/agent-conversation-view'
+import { loadChatUi } from '@renderer/lib/chat/chat-transcript'
 import { LocalizationProvider } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
@@ -107,4 +109,76 @@ it.each(['dark', 'light'] as const)('%s: the phone composer row has a solid back
   const bandTop = dock.lastElementChild!.getBoundingClientRect().top - host.getBoundingClientRect().top
   list.style.marginTop = `${((bandTop - 24) % 48 + 48) % 48}px`
   await page.screenshot({ path: `phone-composer-backing-${theme}.png` })
+})
+
+
+it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the phone backing without changing desktop', async (theme) => {
+  await page.viewport(390, 844)
+  if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
+  const { createChatContext, createChatState } = await loadChatUi()
+  const context = createChatContext()
+  const state = createChatState(context)
+  host = document.body.appendChild(document.createElement('div'))
+  host.setAttribute('data-phone-shell', '')
+  host.setAttribute('data-ta-scope', '')
+  host.style.cssText = 'position:relative;width:390px;height:600px;overflow:hidden;background:var(--bg)'
+  root = createRoot(host)
+  try {
+    root.render(
+      <LocalizationProvider>
+        <AgentConversationView context={context} state={state} composerPlacement="bottom"
+          style={{ position: 'absolute', inset: 0 }}
+          composerContent={<ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat />} />
+      </LocalizationProvider>,
+    )
+    await until('the shared phone composer has mounted', () => !!host?.querySelector('[data-chat-composer-placement="bottom"] [contenteditable]'))
+    const layer = host.querySelector<HTMLElement>('[data-chat-composer-placement="bottom"]')!
+    const row = layer.lastElementChild!
+    const band = getComputedStyle(row, '::before')
+    expect(band.content, 'the shared slot receives the phone backing').toBe('""')
+    expect(alphaOf(band.backgroundColor)).toBeGreaterThanOrEqual(0.85)
+    expect(Number.parseFloat(band.width), 'the backing covers the whole phone width').toBe(390)
+    expect(row.getBoundingClientRect().height).toBeGreaterThan(0)
+    host.removeAttribute('data-phone-shell')
+    expect(getComputedStyle(row, '::before').content, 'desktop keeps its transparent positioning layer').toBe('none')
+  } finally {
+    root.unmount()
+    root = null
+    state.dispose()
+    context.dispose()
+  }
+})
+
+it.each([320, 390])('keeps permission, model and attachment controls separate on a %ipx agent composer', async (width) => {
+  await page.viewport(width, 844)
+  host = document.body.appendChild(document.createElement('div'))
+  host.setAttribute('data-phone-shell', '')
+  host.style.cssText = `width:${width}px`
+  root = createRoot(host)
+  root.render(
+    <LocalizationProvider>
+      <div data-agent-conversation=""><ChatMessageComposer onSend={vi.fn(async () => {})} conversation={{
+        permissionModeOptions: { full: { name: '完全访问' } }, selectedPermissionMode: 'full',
+        modelOptions: { default: { name: 'Default' } }, selectedModel: 'default',
+      }} /></div>
+    </LocalizationProvider>,
+  )
+  await until('the agent options have mounted', () => !!host?.querySelector('[data-slot="composer-permission-mode"]'))
+  const permission = host.querySelector<HTMLElement>('[data-slot="composer-permission-mode"]')!.closest('button')!
+  const attach = [...host.querySelectorAll<HTMLButtonElement>('[data-slot="composer-actions-start"] > button')].find(button => button !== permission)!
+  const input = host.querySelector<HTMLElement>('[data-slot="composer-input"]')!
+  const model = host.querySelector<HTMLElement>('[data-testid="composer-model-trigger"]')!
+  const controls = [permission, attach, input, model]
+  for (const [index, control] of controls.entries()) {
+    const box = control.getBoundingClientRect()
+    expect(box.width).toBeGreaterThan(0)
+    expect(box.left).toBeGreaterThanOrEqual(0)
+    expect(box.right).toBeLessThanOrEqual(width)
+    for (const other of controls.slice(index + 1)) {
+      const next = other.getBoundingClientRect()
+      const overlap = Math.min(box.right, next.right) - Math.max(box.left, next.left) > 1
+        && Math.min(box.bottom, next.bottom) - Math.max(box.top, next.top) > 1
+      expect(overlap, 'each option and the attachment button keeps its own visible target').toBe(false)
+    }
+  }
 })

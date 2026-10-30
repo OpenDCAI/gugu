@@ -15,7 +15,7 @@ const shareSegmentButtonBase =
 const shareSegmentButtonInactive =
   'bg-transparent text-[var(--muted-fg)]'
 const shareSegmentButtonActive =
-  'gg-as-share-act-seg-btn--on bg-[var(--bg)] text-[var(--fg)] [box-shadow:0_1px_3px_#0000001a]'
+  'gg-as-share-act-seg-btn--on bg-[var(--bg)] text-[var(--fg)] shadow-[var(--shadow-lift)]'
 
 const profileInputBase =
   'gg-as-profile-input box-border w-full rounded-[var(--radius-xl)] border border-[var(--border-strong)] outline-none !px-3 !py-2.5 focus:border-[var(--primary)]'
@@ -32,7 +32,7 @@ export const asClass = {
   tasksHeading: 'gg-as-tasks-h2 !m-0 text-[length:var(--font-caption)] font-semibold tracking-[.02em] text-[var(--faint-fg)]',
   tasksAddButton: 'gg-as-tasks-btn inline-flex cursor-pointer items-center gap-[5px] rounded-[var(--radius-xl)] border-0 bg-[var(--primary)] text-[length:var(--font-body)] font-[500] text-[var(--primary-fg)] !px-[13px] !py-[7px] hover:opacity-[.88]',
   tasksLoading: 'gg-as-tasks-empty !mt-2 rounded-[var(--radius-xl)] border border-dashed border-[var(--border-strong)] text-center text-[length:var(--font-body)] text-[var(--faint-fg)] !px-0 !py-7',
-  scrim: 'gg-as-scrim fixed inset-0 z-[500] flex items-center justify-center bg-[#00000040]',
+  scrim: 'gg-as-scrim fixed inset-0 z-[500] flex items-center justify-center bg-[var(--bg-overlay-modal)]',
   modal:
     'gg-as-modal flex h-[580px] max-h-[88vh] w-[880px] max-w-[93vw] flex-col overflow-hidden rounded-[var(--radius-dialog)] bg-[var(--bg)] shadow-[var(--shadow-dialog)] animate-[gg-as-pop_var(--dur-med)_var(--ease)]',
   top: 'gg-as-top flex shrink-0 items-center gap-[11px] border-b border-[var(--border)] !px-5 !py-[17px]',

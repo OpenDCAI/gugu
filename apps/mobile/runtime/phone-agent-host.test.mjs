@@ -1429,3 +1429,32 @@ test('retire keeps phone history but the shared view excludes it from inbox and 
     assert.equal(fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length, pulls)
   } finally { await fx.close() }
 })
+
+test('the conversation queue reserves edits across entry points and resumes the same native input after saving', async () => {
+  let releaseFirst
+  const firstGate = new Promise(resolve => { releaseFirst = resolve })
+  const prompts = []
+  const fx = await fixture(async (command, hooks) => {
+    prompts.push(command.prompt)
+    if (prompts.length === 1) await firstGate
+    await recordTurn(command, hooks, 'completed')
+    return { status: 'done', text: 'completed' }
+  })
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'first input' }], randomUUID())
+    await until(() => prompts.length === 1, fx.events)
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'queued input', clientRequestId: randomUUID() }], randomUUID())
+    const snapshot = () => fx.host.invoke('sessionTimeline.sessionSnapshot', [{ conversationId: created.conversationId }])
+    const queued = (await snapshot()).queuedPrompts[0]
+    const mutate = action => fx.host.invoke('sessionTimeline.sessionQueue', [{ conversationId: created.conversationId, action }], randomUUID())
+    await mutate({ kind: 'edit', id: queued.id, text: queued.text, queueEdit: { draftText: 'editing from another entry', originalDraftText: 'normal draft' } })
+    assert.equal((await snapshot()).queuedPrompts[0].queueEdit.draftText, 'editing from another entry')
+    releaseFirst()
+    await until(() => fx.host.state().execution === null, fx.events)
+    assert.deepEqual(prompts, ['first input'])
+    await mutate({ kind: 'edit', id: queued.id, text: 'edited native input', queueEdit: null })
+    await until(() => prompts.length === 2 && fx.host.state().execution === null, fx.events)
+    assert.deepEqual(prompts, ['first input', 'edited native input'])
+    assert.deepEqual((await snapshot()).queuedPrompts, [])
+  } finally { releaseFirst(); await fx.close() }
+})

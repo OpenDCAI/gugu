@@ -211,6 +211,29 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
   };
 }
 
+/** Internal host entry, absent from App verbs: derive all scope from this live webContents. */
+export async function captureSessionpageProjectionViewer(webContentsId: number) {
+  const binding = bindings.get(webContentsId), contents = webContents.fromId(webContentsId);
+  if (!binding || !contents || contents.isDestroyed() || !binding.sessionId) throw new Error('Projection viewer page is unavailable');
+  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId));
+  try {
+    const version = extensionsService().get(binding.extensionId).manifest.version;
+    const assertCurrent = () => {
+      try {
+        page.assertCurrent();
+        const service = extensionsService();
+        if (contents.isDestroyed() || bindings.get(webContentsId) !== binding || service.get(binding.extensionId).manifest.version !== version
+          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')) {
+          throw new Error('Projection viewer App or page changed');
+        }
+      } catch (error) { page.release(); throw error; }
+    };
+    assertCurrent(); const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
+    if (!deviceId) throw new Error('Projection task has no remote host');
+    return Object.freeze({ ...page, deviceId, version, assertCurrent });
+  } catch (error) { page.release(); throw error; }
+}
+
 function backgroundCaller(extensionId: string, webContentsId: number): BridgeCaller {
   const filePage = () => ({ pageId: webContentsId, extensionId, handed: null });
   return {

@@ -3,7 +3,6 @@
 // 目录,发送在那台机器上开会话、建完进会话页里那条会话。侧栏远端项目行上的「+」带着机器与目录进来。
 // 须在 observer 组件里调用:机器上线/离线/改名时跟着重画(列表很短,不必 memo)。
 import { useEffect, useState, type ReactElement } from 'react';
-import { deviceMachines } from '@gugu/core/shared/deviceMachines';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { localMachineChoice, machineChoiceFromHost, type MachineChoice } from './machine-choice';
 import { MachinePicker } from './machine-picker';
@@ -40,15 +39,9 @@ export function useNewSessionMachine(localProjectPicker: ReactElement): {
     if (target) setRemote(target);
   }, [pendingTarget]);
   // 顺序(本机 → 在线 → 离线)由选择器自己排(orderMachines),各入口同一份。
-  // #7199 个人助理住的那台不接人开的任务,也不给人看(owner 10-15「云设备通常不能创建任务，它就是个人助理的宿主机」)。
   const devices: MachineChoice[] = [
     localMachineChoice(LOCAL_DEVICE, translate('task.deviceLocal')),
-    ...deviceMachines([...remoteHostsStore.hosts.values()].map(({ device }) => ({
-      ...device, device_id: device.id, machine_id: device.machineId,
-      is_online: device.isOnline, last_seen_at: device.lastSeenAt, is_current_device: device.isCurrentMachine,
-    })))
-      .filter(machine => !machine.current && !machine.device.assistantHome)
-      .map(machine => remoteChoice(machine.device.id, translate)),
+    ...remoteHostsStore.pickableMachineIds().map(id => remoteChoice(id, translate)),
   ];
   const devicePicker = (
     <MachinePicker

@@ -122,7 +122,7 @@ function mapAutomationRow(row: AutomationRow): Automation {
 
 /**
  * #7221 给 agent 排的那几条补上「谁建的」:那条会话的名字(主人起的 agent 名,没有就是侧栏那个标题),
- * 会话已归档或删除就是 `gone`。读的是这台机器自己的会话表 —— 别的机器上看这台的「已安排」也是这台答。
+ * `gone` 只指身份行已删除;可恢复归档单独标记。读的是这台机器自己的会话表。
  */
 async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
   const ids = [...new Set(list.flatMap((automation) => (automation.agentSessionId ? [automation.agentSessionId] : [])))];
@@ -141,7 +141,7 @@ async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
     if (!automation.agentSessionId) return automation;
     const row = byId.get(automation.agentSessionId);
     const name = row ? row.config?.agentDisplayName?.trim() || row.title.trim() || null : null;
-    return { ...automation, agentSession: { name, gone: !row || row.archivedAt != null } };
+    return { ...automation, agentSession: { name, gone: !row, ...(row?.archivedAt != null ? { archived: true } : {}) } };
   });
 }
 
@@ -276,6 +276,15 @@ export async function listAutomations(projectId?: string): Promise<Automation[]>
     : db.select().from(automations).where(isNull(automations.deletedAt));
   const rows = await query;
   return withAgentSessions(mapAutomationRows(rows));
+}
+
+/** Only a missing local identity is orphaned; archived tasks still have their row. */
+export async function listOrphanedAgentScheduleIds(sessionId?: string): Promise<string[]> {
+  const rows = await db.select({ id: automations.id }).from(automations)
+    .leftJoin(sessions, eq(sessions.id, automations.agentSessionId))
+    .where(and(isNull(automations.deletedAt), isNotNull(automations.agentSessionId), isNull(sessions.id),
+      sessionId === undefined ? undefined : eq(automations.agentSessionId, sessionId)));
+  return rows.map(({ id }) => id);
 }
 
 /** #7221 这条会话给自己排的(没删的),建得早的在前。 */

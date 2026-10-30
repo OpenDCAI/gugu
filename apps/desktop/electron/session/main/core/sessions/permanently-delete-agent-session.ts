@@ -12,6 +12,7 @@ import { forgetSessionPlatformModel } from './platform-model-selection';
 import { forgetSessionOutputs } from './session-outputs';
 import { deleteWorkspaceIfUnused } from './operations/session-lifecycle-utils';
 import { publishProjectVisibility } from '../projects/operations/project-visibility';
+import { sessionEvents } from './session-events';
 
 /** Only confirmed identity deletion removes task history. Automatic cleanup still archives. */
 export async function permanentlyDeleteAgentSession(sessionId: string): Promise<void> {
@@ -37,6 +38,7 @@ export async function permanentlyDeleteAgentSession(sessionId: string): Promise<
           tx.delete(kv).where(or(eq(kv.key, `session-archival:${sessionId}`), sql`substr(${kv.key}, 1, ${refusalPrefix.length}) = ${refusalPrefix}`)).run();
           tx.delete(sessions).where(eq(sessions.id, sessionId)).run();
         });
+        sessionEvents._emit('session:deleted', sessionId);
         await Promise.all([
           forgetSessionPlatformModel(sessionId), forgetSessionOutputs(sessionId),
           viewStateService.del(`session:${sessionId}`), viewStateService.del(`session:${sessionId}:tabs`),

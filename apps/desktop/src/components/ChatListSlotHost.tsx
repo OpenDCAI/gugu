@@ -1,3 +1,4 @@
+import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { installShellSlots, readShellSlots } from '../lib/shellSlots'
@@ -17,7 +18,8 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
  * (`placement="sidebar"`),❌ 在会话页里另写一份行。侧栏两枚页签上的未读数也从这里发过去 —— 不管「对话」那一格挂没挂着。
  */
 export function ChatListSlotHost() {
-  const { chats } = useChatStore('chats')
+  const { chats: imChats } = useChatStore('chats')
+  const chats = useNativeAgentChats(imChats)
   const markRead = useMarkChatsRead()
   useEffect(() => {
     const take = () => {

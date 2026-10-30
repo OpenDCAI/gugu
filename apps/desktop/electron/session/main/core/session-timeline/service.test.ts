@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as asks from '../asks';
+import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
   RecordCursor,
@@ -29,6 +30,8 @@ const state = vi.hoisted(() => ({
   /** 这台机器上会话给自己排的定时(repo.listSessionSchedules 的桩);多数用例没有。 */
   schedules: [] as unknown[],
   deliverText: vi.fn(),
+  nativeUnread: [] as string[],
+  storedHistory: vi.fn(),
   deliverPermission: vi.fn(),
   prepareQuestion: vi.fn(),
   deliverQuestion: vi.fn(),
@@ -40,7 +43,7 @@ const state = vi.hoisted(() => ({
   pendingWatchCalls: [] as string[],
   pendingWatchDisposed: 0,
   /** 用例手里的那根线：调它就等于运行时报了一批新的待答审批。 */
-  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void),
+  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void),
   /** 活运行时报的会话选项(live-options 的桩);默认三格都没有。 */
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
@@ -66,6 +69,11 @@ vi.mock('../sessions/agent-question-store', () => ({
   },
 }));
 
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
+
+vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
+
 vi.mock('@main/db/client', () => ({
   db: {
     select: () => ({
@@ -81,6 +89,10 @@ vi.mock('@main/db/client', () => ({
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
+const attachmentCopies = vi.hoisted(() => new Map<string, string>());
+vi.mock('../sessions/attachments/session-attachment-store', () => ({
+  findSessionAttachmentCopy: async (sessionId: string, path: string) => attachmentCopies.get(`${sessionId}:${path}`) ?? null,
+}));
 vi.mock('../sessions/session-outputs', () => ({
   sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
   sessionOpenedFile: async (sessionId: string, path: string) =>
@@ -196,11 +208,11 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
     conversationId: string,
-    onChange: (requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void
+    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void
   ) => {
     state.pendingWatchCalls.push(conversationId);
     if (!state.pendingWatchAvailable) return null;
-    state.emitPending = onChange;
+    state.emitPending = (requests, queue, reply, terminals = [], active) => onChange(requests, queue, reply, terminals, active);
     return {
       dispose: () => {
         state.pendingWatchDisposed += 1;
@@ -372,6 +384,8 @@ describe('session timeline service', () => {
     state.pendingWatchCalls = [];
     state.pendingWatchDisposed = 0;
     state.emitPending = null;
+    state.nativeUnread = [];
+    state.storedHistory.mockReset();
     state.rows = [row()];
     state.projects = [];
     state.deliverText = vi.fn(async () => ({ accepted: 'started' as const }));
@@ -385,6 +399,22 @@ describe('session timeline service', () => {
       throw new Error('❌ 没开起来的会话不许走唤醒');
     });
     state.readOptions.mockClear();
+  });
+
+  it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    state.nativeUnread = ['conv-1:turn:s5:message:auto:assistant:0'];
+    const turns = Array.from({ length: 10 }, (_, seq) => ({ id: `conv-1:turn:s${seq}`, seq, initiator: 'user', items: [] }));
+    state.storedHistory.mockImplementation(async ({ before, limit }: { before?: number; limit: number }) => {
+      const page = turns.filter(turn => before === undefined || turn.seq < before).slice(-limit);
+      return { turns: page, nextCursor: page[0]?.seq || null, originTurnIds: page.map(turn => `live:${turn.seq}`) };
+    });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 5 }, { seq: 6 }, { seq: 7 }], hasNewer: true } });
+    const active = { id: 'live:10', seq: 10, initiator: 'user' as const, items: [] };
+    state.emitPending?.([], [], null, [], active);
+    expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {
@@ -986,7 +1016,7 @@ describe('session timeline service', () => {
     const { timeline } = makeTimeline();
     service.setSessionTimelineFactory(async () => timeline);
     await service.snapshot({ conversationId: 'conv-1' });
-    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句' }]);
+    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句', origin: 'manual' }]);
     expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({
       ok: true,
       value: { queuedPrompts: [{ id: 'qp-1', text: '排着的那句' }] },
@@ -1486,6 +1516,15 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
+    attachmentCopies.clear();
+  });
+
+  it('reads this session’s registered attachment copy even when the original was not opened', async () => {
+    attachmentCopies.set('conv-1:/deleted/original.html', report);
+    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: '/deleted/original.html', offset: 0, length: 1024 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
+    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: '/deleted/original.html', offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过的文件:按块读出原字节', async () => {

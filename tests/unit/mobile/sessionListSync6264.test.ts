@@ -248,6 +248,13 @@ describe('sessionListFromDigest(没读到那台机器此刻的列表时退回心
 
 describe('摘要里的 agent(#7199:离线时任务区也认得出个人助理自己那条)', () => {
   const base = { conversationId: 'c', projectId: 'p1', projectName: 'repo', title: 't', harness: 'claude', agentStatus: null, lastInteractedAt: null, supported: true }
+  it('retains an advertised native input contract through normalization and an offline cold directory', () => {
+    const rows = normalizeSessionDigest([{ ...base, nativeInputVersion: 1, runtime: 'acp', agentUserId: 'mine' }, { ...base, conversationId: 'old', nativeInputVersion: 2, runtime: 'bogus' }])
+    const sessions = sessionListFromDigest(rows, false).sessions
+    expect(sessions[0]).toMatchObject({ nativeInputVersion: 1, runtime: 'acp', agent: { userId: 'mine' } })
+    expect(sessions[1]).not.toHaveProperty('nativeInputVersion')
+    expect(sessions[1]!.runtime).toBe('unknown')
+  })
   it('宿主报了才带:id、null(没有 agent)、缺席(老宿主)三种分开', () => {
     const rows = normalizeSessionDigest([
       { ...base, conversationId: 'a', agentUserId: 'u1' },

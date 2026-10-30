@@ -3,7 +3,7 @@ import { mkdir, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { app } from 'electron';
 import { db } from '@main/db/client';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, or } from 'drizzle-orm';
 import { sessions, sessionAttachments } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import {
@@ -172,7 +172,7 @@ export async function findSessionAttachmentCopy(
     .where(
       and(
         eq(sessionAttachments.sessionId, sessionId),
-        eq(sessionAttachments.originalPath, target),
+        or(eq(sessionAttachments.originalPath, target), eq(sessionAttachments.storedPath, target)),
         eq(sessionAttachments.origin, 'copy')
       )
     )

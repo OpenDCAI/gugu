@@ -563,7 +563,7 @@ async function sendMessageOnce(
 ): Promise<SendSessionMessageResult> {
   const text = params.text.trim();
   const clientMessageId = params.clientMessageId.trim();
-  if (!text) throw new Error('message text is required');
+  if (!text && !params.delivery?.attachments?.length) throw new Error('message text is required');
   if (!clientMessageId) throw new Error('clientMessageId is required');
 
   // Ordinary session-direct calls are a live handoff, except that a recovery gate may preserve the

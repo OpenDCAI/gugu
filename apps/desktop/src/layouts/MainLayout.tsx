@@ -31,7 +31,7 @@ import { navigateMobile } from '@/mobile/navigateMobile'
 import { PhoneLayer } from '@/mobile/PhoneLayer'
 import { PhoneMeButton } from '@/mobile/PhoneMeButton'
 import { PhonePartnersPage } from '@/mobile/partners/PhonePartnersPage'
-import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
+import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useLinkNavigation } from '../hooks/useLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { ChatListPanel } from '../components/ChatListPanel'
@@ -58,6 +58,8 @@ import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
+import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
+import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
@@ -83,12 +85,7 @@ import { chatService } from '../lib/chat'
 import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agentCreateDefaults'
 import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticAgentChat, createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
-import { AGENT_SESSION_STARTED_EVENT, readAgentConversationStartedEvent } from '../lib/agentConversationEvents'
 import { agentFailureNeedsModelChoice, agentFailureReason } from '@gugu/core/shared/agentQuotaReason'
-import { createAgentStartedNotificationPayload, createAgentTurnFailedNotificationPayload, shouldNotifyForAgentStarted, shouldNotifyForAgentTurnFailed } from '../lib/agentNotificationModels'
-import { agentTurnFailureUserMessage } from '../lib/agentTurnFailure'
-import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
-import { useNotificationSettings } from '../lib/notificationSettings'
 import { pushToHost as pushTrayBadgeEnabled } from '../lib/trayBadgeSetting'
 import { hydrateSidebarTint } from '../lib/sidebarTint'
 import { UI_EVENTS } from '../lib/uiEvents'
@@ -216,7 +213,6 @@ function InnerLayout({
   // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
-  const notificationSettings = useNotificationSettings()
   // @@@5295 托盘角标开关存在渲染层,主进程每次启动都是默认开 —— 挂载时推一次真值。
   useEffect(() => { pushTrayBadgeEnabled() }, [])
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
@@ -293,9 +289,10 @@ function InnerLayout({
     composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
-  /** focus:人从这个入口进来就该接着打字(与聊天页那一支同一个 reason);不给 = 不抢焦点。 */
-  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): string | null => {
+  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string): string | null => {
     if (openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
+    if (openOwnedAgent(chatId, peerId, draft)) { setActiveTab('tasks'); return 'tasks' }
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -304,7 +301,7 @@ function InnerLayout({
     sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
     return chatSlotKey(chatId)
-  }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, t])
+  }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
   const chatsRef = useRef(chats)
   chatsRef.current = chats
   const openChatTarget = useCallback((chatId: string): string => {
@@ -729,6 +726,10 @@ function InnerLayout({
     const onCompose = (event: Event) => {
       const detail = (event as CustomEvent<AppComposeDetail>).detail
       if (!detail) return
+      if (openOwnedAgent(detail.chatId, undefined, {
+        text: [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'),
+        files: detail.images?.map(image => new File([image.bytes], image.name, { type: image.type })), append: true,
+      })) return
       const placed = (chatId: string) => {
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
         if (text) writeDraft(chatId, { at: 'end', text })
@@ -773,7 +774,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
@@ -787,49 +788,6 @@ function InnerLayout({
     setAgentCreateDraftOpen(false)
     setMobilePane('chat')
   }, [activeChatId])
-
-  useEffect(() => {
-    // #4314 来源门控:这是一条**运行态广播**(创建/命令终态/流式引导/outbox 送达/失败重排五个发射点),
-    // 只发通知、**不导航** —— 挂上导航就等于让冷启动重投 outbox、别处会话回信把用户从当前会话拽走。
-    // 导航只由本窗口用户发起的动作驱动:host.openAgentChat、点会话行、点系统通知。
-    const handleAgentStarted = (event: Event) => {
-      const detail = readAgentConversationStartedEvent(event)
-      if (!detail) return
-      if (platform.capabilities.notifications && shouldNotifyForAgentStarted(detail, {
-        activeChatId: chatOnScreen(),
-        notificationsEnabled: notificationSettings.agentEvents,
-      })) {
-        void platform.showNotification({ ...createAgentStartedNotificationPayload(detail), silent: !notificationSettings.sound })
-          .catch((err) => console.error('[MainLayout] show agent notification failed', err))
-      }
-    }
-    window.addEventListener(AGENT_SESSION_STARTED_EVENT, handleAgentStarted)
-    return () => window.removeEventListener(AGENT_SESSION_STARTED_EVENT, handleAgentStarted)
-  }, [notificationSettings.agentEvents, notificationSettings.sound])
-
-  // #2115 — 普通 ACP 回合终态失败(agent-stream error + commandId)的系统通知:按通知设置派发,
-  // 正打开着那个会话时跳过(行内失败条已可见)。文案是「回复失败」。
-  useEffect(() => {
-    const handleTurnFailed = (event: Event) => {
-      const detail = (event as CustomEvent).detail as AgentStreamPayload | undefined
-      if (!detail || typeof detail.conversationId !== 'string') return
-      if (detail.event.type !== 'error' || !detail.event.commandId) return
-      if (!platform.capabilities.notifications) return
-      if (!shouldNotifyForAgentTurnFailed(detail.conversationId, {
-        activeChatId: chatOnScreen(),
-        notificationsEnabled: notificationSettings.agentEvents,
-      })) return
-      void platform.showNotification({
-        ...createAgentTurnFailedNotificationPayload({
-          chatId: detail.conversationId,
-          message: agentTurnFailureUserMessage(detail.event.message),
-        }),
-        silent: !notificationSettings.sound,
-      }).catch((err) => console.error('[MainLayout] show agent turn failure notification failed', err))
-    }
-    window.addEventListener(UI_EVENTS.agentStream, handleTurnFailed)
-    return () => window.removeEventListener(UI_EVENTS.agentStream, handleTurnFailed)
-  }, [notificationSettings.agentEvents, notificationSettings.sound])
 
   const failedDeliveries = useRef(new Map<string, Set<string>>())
   // One notice per task, with the actual cause and distinct source messages while it is visible.
@@ -900,7 +858,7 @@ function InnerLayout({
     ))
     if (existing) {
       if (draft) writeDraft(existing.id, draft)
-      if (openChatBlock(existing.id, 'profile-chat')) {
+      if (openChatBlock(existing.id, 'profile-chat', target.id, draft)) {
         void refreshChats()
         return
       }
@@ -929,7 +887,7 @@ function InnerLayout({
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
       if (draft) writeDraft(chatId, draft)
-      if (openChatBlock(chatId, 'profile-chat')) {
+      if (openChatBlock(chatId, 'profile-chat', target.id, draft)) {
         void refreshChats()
         return
       }
@@ -961,17 +919,6 @@ function InnerLayout({
       type: target.type,
       alias: contact?.alias ?? null,
     })
-  }
-
-  // 手机会话页模式按钮的「聊天」(#7197):会话行上只带 agent 的 id,按 id 在通讯录里找到它,走「发消息」同一条。
-  const handleOpenAgentChat = (agentUserId: string, draft?: string) => {
-    const contact = contacts.find((item) => item.id === agentUserId)
-    if (!contact) {
-      openChatLog.error({ targetId: agentUserId }, 'agent chat: agent not in contacts')
-      toast(t('shell.toast.openChatFailed'), 'error')
-      return
-    }
-    void handleSwitchToChat(contact, draft)
   }
 
   // 手机上从群成员里建好 agent:回到那个群(与桌面 openAgentChat 的落点同一条规则)。
@@ -1365,7 +1312,6 @@ function InnerLayout({
                   createRequest={watchCreateRequest}
                   createInGroup={watchCreateGroup}
                   openRequest={watchOpenRequest}
-                  onOpenAgentChat={handleOpenAgentChat}
                   onOpenGroupChat={handleReturnToGroup}
                 />
               </div>
@@ -1406,7 +1352,7 @@ function InnerLayout({
           </div>
         )}
 
-        {mobile && <AgentWatchRoot />}
+        {effectsActive && <SessionInputOutboxHost accountId={user.id} />}{mobile && <AgentWatchRoot />}
         {mobile && platform.kind === 'capacitor' && <PhoneDeviceRoot />}
 
         {/* The mobile navigation is shell chrome, not state owned by a retained tab subtree. */}
