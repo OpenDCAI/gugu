@@ -67,8 +67,8 @@ function fakePlatform() {
     /** false = `GET /integrations` does not list AMap at all. */
     listsAmap: true,
     onPut: null as null | (() => void),
-    /** absent = this installation has no such service (the gateway's 404); closed = not open to this person (503). */
-    mode: 'open' as 'open' | 'absent' | 'closed',
+    /** absent = this installation has no such service (the gateway's 404); unconfigured = no optional manager (503); unavailable = installed service configuration failure (503). */
+    mode: 'open' as 'open' | 'absent' | 'unconfigured' | 'unavailable',
     /** The network is down: every request fails before it reaches the platform. */
     down: false,
     /** Holds the next `GET /integrations` until released. */
@@ -92,7 +92,8 @@ function fakePlatform() {
     requests.push({ method, path, authorization: new Headers(init?.headers).get('authorization'), body: raw ? JSON.parse(raw) : undefined, raw: `${url}${raw}` });
     if (state.down) throw new TypeError('fetch failed');
     if (state.mode === 'absent') return Response.json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, { status: 404 });
-    if (state.mode === 'closed') return Response.json({ error: 'not_open', message: 'Not open to you yet.' }, { status: 503 });
+    if (state.mode === 'unconfigured') return Response.json({ error: 'not_open', message: '此环境未配置云电脑管家' }, { status: 503 });
+    if (state.mode === 'unavailable') return Response.json({ error: 'unavailable', message: '平台凭据服务缺少加密密钥配置: INTEGRATION_CREDENTIALS_KEY' }, { status: 503 });
     if (path === '/integrations' && method === 'GET') {
       if (state.holdGet) {
         // Like a real fetch, the wait ends when the device gives up (its signal aborts).
@@ -404,17 +405,20 @@ describe('credentials the platform keeps (#921)', () => {
     expect((await endpointOf(entry)).url).toBe(`https://mcp.amap.com/mcp?key=${GOOD}`);
   });
 
-  it('a platform not open to the person is not a fallback: nothing is kept on the device and nothing is used from it', async () => {
+  it('a service configuration failure preserves local credentials without falling back to them', async () => {
     const platform = fakePlatform();
-    platform.state.mode = 'closed';
+    platform.state.mode = 'unavailable';
     const d = await device(platform, 'D');
     await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
 
     const result = await d.service.connect('amap', { apiKey: BAD });
-    expect(result).toMatchObject({ success: false, errorType: 'not_open' });
+    expect(result).toMatchObject({ success: false, errorType: 'service_unavailable' });
+    expect(JSON.stringify(result)).not.toMatch(/INTEGRATION_CREDENTIALS_KEY|缺少加密密钥/);
     expect(JSON.stringify(result)).not.toContain(BAD);
     expect(d.service.custody('amap')).toBe('platform');
-    expect(await d.service.check('amap')).toMatchObject({ connected: false, errorType: 'not_open' });
+    expect(await d.service.check('amap')).toMatchObject({ connected: false, errorType: 'service_unavailable' });
+    expect(JSON.stringify(await d.service.check('amap'))).not.toContain('INTEGRATION_CREDENTIALS_KEY');
+    expect(JSON.stringify(d.logs)).toContain('INTEGRATION_CREDENTIALS_KEY');
 
     // Even a key this computer still holds from #649 is not used, and it is not deleted either.
     local.accounts.set('amap', { apiKey: GOOD });
@@ -548,15 +552,45 @@ describe('credentials the platform keeps (#921)', () => {
     expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
   });
 
-  it('a #649 key can still be removed while the platform is not open to the person', async () => {
+  it('an unconfigured optional manager lets a legacy local key be checked and disconnected', async () => {
     const platform = fakePlatform();
-    platform.state.mode = 'closed';
+    platform.state.mode = 'unconfigured';
+    const d = await device(platform, 'D');
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+    expect(await d.service.refresh({ maxAgeMs: 0 })).toBe(true);
+    expect(d.service.custody('amap')).toBe('local');
+    expect(await d.service.check('amap')).toEqual({ connected: false });
+    expect(await d.fixture.registry.listAccounts('amap')).toHaveLength(1);
+    expect(await d.service.connect('amap', { apiKey: GOOD })).toEqual({ keepHere: true });
+    expect(await d.service.disconnect('amap')).toEqual({ success: true });
+    expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
+    expect(d.fixture.secretStore.secrets.size).toBe(0);
+  });
+
+  it('disconnects a legacy local key when the optional-manager absence is first learned on DELETE', async () => {
+    const platform = fakePlatform();
+    platform.state.mode = 'unconfigured';
     const d = await device(platform, 'D');
     await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
 
     expect(await d.service.disconnect('amap')).toEqual({ success: true });
+    expect(platform.requests[0]).toMatchObject({ method: 'DELETE' });
     expect(await d.fixture.registry.listAccounts('amap')).toEqual([]);
     expect(d.fixture.secretStore.secrets.size).toBe(0);
+  });
+
+  it('a configuration failure while disconnecting preserves the local account and key', async () => {
+    const platform = fakePlatform();
+    platform.state.mode = 'unavailable';
+    const d = await device(platform, 'D');
+    await d.fixture.registry.upsertAccount({ providerId: 'amap', accountId: 'default', secret: JSON.stringify({ apiKey: GOOD }) });
+
+    expect(await d.service.disconnect('amap')).toMatchObject({ success: false, errorType: 'service_unavailable' });
+    expect(JSON.stringify(await d.service.disconnect('amap'))).not.toContain('INTEGRATION_CREDENTIALS_KEY');
+    expect(JSON.stringify(d.logs)).toContain('INTEGRATION_CREDENTIALS_KEY');
+    expect(await d.fixture.registry.listAccounts('amap')).toHaveLength(1);
+    expect(d.fixture.secretStore.secrets.get(AMAP_SECRET_REF)).toBe(JSON.stringify({ apiKey: GOOD }));
   });
 
   it('a session starts on what the device already knows: it never waits for the platform', async () => {

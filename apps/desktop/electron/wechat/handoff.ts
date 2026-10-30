@@ -1,8 +1,7 @@
 // 升级交接:桌面第一版在这台电脑上连过的微信,交给管家接着收发(owner 不用重新扫码),交完删掉本机那份。
 // 本机已经不再收发(中转搬到了管家),所以交不出去时只记日志、留着文件,下次登录 / 启动再交 ——
-// 管家这个环境还没开放(503 not_open)、网络断了都属于这种。
+// 管家服务配置故障、网络断了都属于这种。
 import type { ChatChannelsClient } from '@gugu/core/cloud/chatChannels'
-import { isChatChannelsNotOpen } from '@gugu/core/cloud/chatChannels'
 import type { LegacyWechatStore } from './store'
 
 export type HandOffOutcome = 'none' | 'handed_off' | 'kept'
@@ -37,7 +36,7 @@ export async function handOffLegacyWechat(deps: {
     return 'handed_off'
   } catch (error) {
     deps.log.warn(
-      { notOpen: isChatChannelsNotOpen(error), error: error instanceof Error ? error.message : String(error) },
+      { error: error instanceof Error ? error.message : String(error) },
       'wechat legacy hand-off failed, will retry on next sign-in'
     )
     return 'kept'

@@ -185,11 +185,13 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
       byId.set(entry.projectId, { id: entry.projectId, name: entry.projectName, path: '' })
     }
     sessions.push({
+      ...(entry.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
+      ...(entry.nativeUnreadCount !== undefined ? { nativeUnreadCount: entry.nativeUnreadCount } : {}),
       conversationId: entry.conversationId,
       projectId: entry.projectId,
       title: entry.title,
       harness: entry.harness,
-      runtime: 'unknown',
+      runtime: entry.runtime ?? 'unknown',
       agentStatus: entry.agentStatus,
       // 新宿主在摘要里另带读数(基础态 + 附属态);老宿主只有旧词,读方(watch-status 的 sessionReading)退回它。
       ...(entry.status !== undefined ? { status: entry.status } : {}),

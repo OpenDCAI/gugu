@@ -50,6 +50,8 @@ export type NormalizedEvent =
       steering?: boolean;
       /** Attachment references for user messages submitted with images. */
       attachments?: AttachmentRef[];
+      /** The runtime has the complete confirmed list; ordinary provider chunks still append. */
+      attachmentsMode?: 'replace';
       /** What started the turn this user message opens (ignored on a steering message). */
       trigger?: TranscriptTurnTrigger;
     }

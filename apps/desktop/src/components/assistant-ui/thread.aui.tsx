@@ -207,7 +207,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; submitOnEnter: bool
       }}
     >
       {/* 跟到底(官方默认锚)。❌ turnAnchor="top":它关掉跟底,改在 isRunning 期间把用户那句钉顶,
-          而手机线程的 isRunning 只算「这台手机正在发」(AgentThread),钉顶永远不生效 ⇒ 新消息沉在屏外。
+          而手机线程的 isRunning 只算「这台手机正在发」(旧手机转录),钉顶永远不生效 ⇒ 新消息沉在屏外。
           人点开 / 收起一行时暂停跟底，回到底部再恢复(thread-follow.tsx)。 */}
       <ThreadPrimitive.Viewport
         data-slot="aui_thread-viewport"

@@ -84,9 +84,8 @@ export const noticeHeader = style({
 
 /** 说话的那个 hook 的名字。等宽 + 全大写太吵，这里只用一个小圆点分隔。 */
 export const noticeHook = style({
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap'
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal'
 });
 
 export const noticeDot = style({

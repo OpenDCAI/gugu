@@ -31,6 +31,9 @@ export function conversationBubbleKey(item: ChatMessage): string {
 export const CONVERSATION_HEADER_H = 24;
 export const CONVERSATION_PROCESS_H = 22;
 
+/** 气泡下面那排时间、复制、编辑的高(不含上面的间隙);没回话那一轮末尾的复制也是这一排(#1041)。 */
+export const CONVERSATION_FOOTER_H = 16;
+
 /** 折着的气泡下面那一行「展开全文」的高(UserMessageCard 画、ConversationMessage 量)。 */
 export const CONVERSATION_EXPAND_H = 24;
 /** 过程里 agent 中途说的话:一行灰字(设计稿 0 号),❌ 一个气泡。 */

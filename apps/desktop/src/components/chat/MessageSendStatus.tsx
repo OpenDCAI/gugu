@@ -8,10 +8,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
-import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
+import { MessageSendingIndicator } from './MessageSendingIndicator'
 
 type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
 
@@ -45,15 +45,7 @@ function MessageTransportStatus({ state, messageId, reason }: Props) {
       return <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
         data-send-state="sending" className="text-[length:var(--font-caption)] text-[var(--text-secondary)] tabular-nums">{percent}%</span>
     }
-    return (
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" className="gg-ring-march" aria-label={label} data-send-state={state}
-        style={{ flexShrink: 0, display: 'block', opacity: 0.56 }}>
-        <title>{label}</title>
-        {/* @@@5649 owner 拍板方案 C:发送中 = 虚线环流动,停下变「已发出」实线空心环(MessageBubble 的 read=0 环)。
-            两态同位同半径,靠「虚线在动 / 实线静止」区分,不再是小钟——小钟与空心环形似,正是 #1855 把空心环藏起来的原因。 */}
-        <circle cx="7.5" cy="7.5" r="5.5" stroke={COLOR_MUTED} strokeWidth="1.5" strokeDasharray="2.6 3.2" strokeLinecap="round" />
-      </svg>
-    )
+    return <MessageSendingIndicator label={label} state={state} title={label} />
   }
 
   if (state === 'failed') {

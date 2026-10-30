@@ -31,7 +31,7 @@ export function ciphertextSize(size: number): number {
 /** All authenticated frames bind to the immutable revision, including its expected plaintext digest. */
 function associatedData(revision: FileRevision): Uint8Array {
   requireFileRevision(revision)
-  if (!revision.item_id || !Number.isSafeInteger(revision.version)) throw new Error('Missing immutable file revision')
+  if (revision.sha256 === null || !revision.item_id || !Number.isSafeInteger(revision.version)) throw new Error('Missing immutable file revision')
   return new TextEncoder().encode(JSON.stringify(['GGFILE01', revision.item_id, revision.version, revision.sha256, revision.size_bytes]))
 }
 async function exact(source: FileBytes, offset: number, length: number): Promise<Uint8Array> {
@@ -40,7 +40,7 @@ async function exact(source: FileBytes, offset: number, length: number): Promise
   return bytes
 }
 
-/** Managed bytes use the same digest check and private staging as local or decrypted bytes. */
+/** Historical objects keep exact length and private staging; committed digests are always checked. */
 export async function copyVerifiedFile(revision: FileRevision, source: FileBytes, sink: FileSink, signal?: AbortSignal): Promise<FileBytes> {
   const hash = sha256.create()
   try {
@@ -53,7 +53,8 @@ export async function copyVerifiedFile(revision: FileRevision, source: FileBytes
       await sink.write(bytes)
     }
     signal?.throwIfAborted()
-    if (hex(hash.digest()) !== revision.sha256) throw new Error('File SHA-256 mismatch')
+    const actual = hex(hash.digest())
+    if (revision.sha256 !== null && actual !== revision.sha256) throw new Error('File SHA-256 mismatch')
     return await sink.commit()
   } catch (error) { await sink.abort(); throw error } finally { hash.destroy() }
 }

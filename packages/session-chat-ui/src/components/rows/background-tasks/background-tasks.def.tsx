@@ -14,14 +14,18 @@ import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics'
 import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
 import { defineUnit } from '@session-chat/core/units';
-import { useChatTranslator } from '@session-chat/localization';
 import type { BackgroundTasksItem } from '@session-chat/model';
 import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { Show } from 'solid-js';
 import { backgroundTasksRow } from './background-tasks.css';
-import { BackgroundTasksList, backgroundTasksLabel, backgroundTasksListHeight } from './background-tasks-parts';
+import { BackgroundTasksList, backgroundTasksLabel, measuredBackgroundListHeight } from './background-tasks-parts';
 
 export { BACKGROUND_TASK_ROW_H, backgroundTasksListHeight } from './background-tasks-parts';
+
+function headerLayout(data: BackgroundTasksItem, ctx: import('@session-chat/core/define').MeasureCtx) {
+  return readableLabel(backgroundTasksLabel(rowTranslator(ctx), data.commands.length, data.subagents.length), ctx, ctx.width - 20);
+}
 
 export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: number }>({
   kind: 'background-tasks',
@@ -29,21 +33,21 @@ export const backgroundTasksUnitDef = defineUnit<BackgroundTasksItem, { extraH: 
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
   measure(data, ctx, vars_) {
-    const head = ctx.theme.fonts.body.lineHeight + vars_.extraH;
-    return head + (data.expanded ? backgroundTasksListHeight(data.commands.length + data.subagents.length) : 0);
+    const head = Math.max(ctx.theme.fonts.body.lineHeight + vars_.extraH, headerLayout(data, ctx).height + 8);
+    return head + (data.expanded ? measuredBackgroundListHeight(data.commands, data.subagents, ctx) : 0);
   },
 
   Render(props) {
-    const translate = useChatTranslator();
     const theme = useTheme();
-    const headH = () => theme().fonts.body.lineHeight + props.vars.extraH;
+    const layout = () => headerLayout(props.data, props.ctx.measureCtx!());
+    const headH = () => Math.max(theme().fonts.body.lineHeight + props.vars.extraH, layout().height + 8);
     return (
       <div data-slot="background-tasks" class={backgroundTasksRow}>
-        <CollapseHeader id={BACKGROUND_TASKS_TOGGLE} collapsible expanded={props.data.expanded} active height={headH()}>
-          {backgroundTasksLabel(translate, props.data.commands.length, props.data.subagents.length)}
+        <CollapseHeader id={BACKGROUND_TASKS_TOGGLE} collapsible expanded={props.data.expanded} active height={headH()} wrap>
+          {layout().text}
         </CollapseHeader>
         <Show when={props.data.expanded}>
-          <BackgroundTasksList commands={props.data.commands} subagents={props.data.subagents} />
+          <BackgroundTasksList commands={props.data.commands} subagents={props.data.subagents} measureCtx={props.ctx.measureCtx!} />
         </Show>
       </div>
     );

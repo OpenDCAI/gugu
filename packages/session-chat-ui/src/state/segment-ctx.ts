@@ -13,6 +13,7 @@ export function segmentCtxFor(context: ChatContext, state: ChatState, caches: Ch
   latestTurnId = state.transcript.state.activeTurnSnapshot?.id ?? state.transcript.state.committedTurns.at(-1)?.id): SegmentCtx {
   return {
     caches,
+    deliveredMessage: (id) => state.session.state.deliveredMessages?.get(id),
     agentConversation: context.theme.layout?.agentConversation,
     expanded: (_id: string) => false,
     active,

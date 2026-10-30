@@ -99,6 +99,7 @@ import {
   heroSlotHiddenClass,
   heroSlotVisibleClass,
   outerClip,
+  pinBackdrop,
   pinFade,
   pinLane,
   pinSticky,
@@ -811,7 +812,12 @@ export function ChatRoot(props: ChatRootProps) {
     untrack(() => {
       const estimateCtx = {
         theme: t,
-        width: 0,
+        translate: props.context.translate,
+        commands: commands(),
+        selfIdentity: props.context.selfIdentity(),
+        chatName: props.context.chatName,
+        appName: props.context.appName,
+        width: containerWidth(),
         isCollapsed: () => false,
         expanded: () => false,
         caches: caches(),
@@ -838,9 +844,11 @@ export function ChatRoot(props: ChatRootProps) {
           if (snapped !== undefined) return snapped;
         }
         const unitDef = UNIT_REGISTRY[u.kind];
+        // Wrapped row labels need the real column even before their first mount.
+        const unitCtx = { ...estimateCtx, width: Math.max(0, estimateCtx.width - 2 * (u.chrome?.insetX ?? 0)) };
         const contentH =
-          unitDef?.estimate?.(u.data, estimateCtx, unitDef.vars ?? {}) ??
-          genericEstimate(u.data as unknown as ChatItem, estimateCtx);
+          unitDef?.estimate?.(u.data, unitCtx, unitDef.vars ?? {}) ??
+          genericEstimate(u.data as unknown as ChatItem, unitCtx);
         return unitReservedHeight(u, contentH);
       });
       refreshTotal();
@@ -992,7 +1000,14 @@ export function ChatRoot(props: ChatRootProps) {
     // The active tier is rebuilt on every streaming patch; the anchors only change when a message lands.
     { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
   );
-  const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
+  const pinAnchorSet = createMemo(() => {
+    // Height changes (including width reflow and composer/viewport resize) can change pin eligibility.
+    totalHeight();
+    containerWidth();
+    measureEpoch();
+    const readableHeight = Math.max(0, viewHeight() - padTop() - padBottom());
+    return new Set(pinAnchors().filter(index => virt.size(index) <= readableHeight / 2));
+  });
 
   /**
    * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
@@ -1008,9 +1023,20 @@ export function ChatRoot(props: ChatRootProps) {
       const pending = s.session.state.pendingPrompt;
       const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
-      if (!active) return committed;
       const base = committedUnitsArr.length;
-      return [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)];
+      const ends = active
+        ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
+        : committed;
+      // Native replies have the same boundary as sent replies: the preceding
+      // input must scroll clear of the reply's header, process and body.
+      const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
+      for (let i = 0; i < all.length; i++) {
+        const unit = all.at(i)!;
+        const data = unit.data as ChatMessage;
+        if (data.role === 'assistant' && (data.conversationPart === 'head'
+          || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
+      }
+      return [...new Set(ends)].sort((a, b) => a - b);
     },
     [],
     { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
@@ -1024,7 +1050,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   /** The anchor whose lane covers the viewport top (its row is the stuck one), or -1. */
   function laneAtTop(st: number, pt: number): number {
-    const anchors = pinAnchors();
+    const anchors = [...pinAnchorSet()];
     let lo = 0;
     let hi = anchors.length - 1;
     let found = -1;
@@ -1295,6 +1321,11 @@ export function ChatRoot(props: ChatRootProps) {
     const unitInsetX = c?.insetX ?? 0;
     const ctx: MeasureCtx = {
       theme: theme(),
+      translate: props.context.translate,
+      commands: commands(),
+      selfIdentity: props.context.selfIdentity(),
+      chatName: props.context.chatName,
+      appName: props.context.appName,
       width: Math.max(0, containerWidth() - 2 * unitInsetX),
       isCollapsed: (id: string) => viewState().isCollapsed(id),
       expanded: (id: string) => viewState().isCollapsed(id),
@@ -1655,7 +1686,7 @@ export function ChatRoot(props: ChatRootProps) {
     const behavior = opts?.behavior ?? 'auto';
 
     const computeTarget = () => {
-      const pin = pinAnchors().findLast(anchor => anchor < idx);
+      const pin = [...pinAnchorSet()].findLast(anchor => anchor < idx);
       const end = pin === undefined ? undefined : pinEnds().find(boundary => boundary > pin);
       const topInset = pin !== undefined && (end === undefined || idx < end)
         ? Math.max(0, virt.size(pin) + userTopGap - (us.at(pin)?.gapBefore ?? 0)) + CHAT_PIN_FADE_HEIGHT_PX : 0;
@@ -1718,6 +1749,11 @@ export function ChatRoot(props: ChatRootProps) {
 
     const loadEstimateCtx: MeasureCtx = {
       theme: t,
+      translate: props.context.translate,
+      commands: commands(),
+      selfIdentity: props.context.selfIdentity(),
+      chatName: props.context.chatName,
+      appName: props.context.appName,
       width: containerWidth(),
       isCollapsed: () => false,
       expanded: () => false,
@@ -2070,6 +2106,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 classList={{ [pinSticky]: isPinAnchor() }}
                                 style={isPinAnchor() ? { top: `${userTopGap - (u()?.gapBefore ?? 0)}px` } : undefined}
                               >
+                              <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
                                 index={unitIndex}

@@ -12,6 +12,12 @@ import {
   renderWithAppProviders
 } from '../../../support/testHarness'
 
+// Solid's DOM renderer runs in the Chromium project; keep the React host/providers real here.
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript')>(),
+  ChatTranscript: () => null,
+}))
+
 vi.mock(
   '../../../../apps/desktop/src/platform',
   () => import('../../../support/capacitorPlatformTestDouble')
@@ -31,11 +37,13 @@ vi.mock(
 let harness: ReturnType<typeof createReactHarness>
 
 beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
   platformMock.platform.capabilities.agentRuntime = false
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   harness.cleanup()
 })
 

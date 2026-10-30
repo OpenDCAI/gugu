@@ -52,6 +52,8 @@ export type ThinkingStatus = 'thinking' | 'done';
 export type ChatAttachment = {
   id: string;
   name: string;
+  /** A canonical sent-file reference, opened by the host's existing link handler. */
+  href?: string;
   /**
    * 画成缩略图还是画成一枚文件 chip。缺席 = `'image'`(历史生产者只送图)。
    *
@@ -77,6 +79,8 @@ export type ChatMessage = {
   text: string;
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
+  /** View-only confirmed file send; normalized to the existing attachment card before painting. */
+  sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   /**
@@ -93,7 +97,7 @@ export type ChatMessage = {
    * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
    * `chatId` the group the quoted message was said in (absent for a DM).
    */
-  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean; background?: true };
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
   /**

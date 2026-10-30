@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { safeDeliveredBody, type DeliveryMessagePresentation } from '@session-chat/state/delivery-presentation';
+import { rowTranslator } from '../readable-label';
 import { ConversationMessage, conversationMessageHeight, isConversationMessage } from './ConversationMessage';
 import { StreamContext, type StreamAnimation } from '@session-chat/components/contexts/StreamContext';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
@@ -47,9 +49,10 @@ import {
 /** 主人的回答一行:高度是常量,不换行(长了截断)。 */
 const QUESTION_ANSWER_H = 24;
 
-export function normalizeMessage(item: ChatMessage): ChatMessage {
+export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: string) => DeliveryMessagePresentation | undefined): ChatMessage {
   const originalDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
-  const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(segment.body) }));
+  const originalAttachments = originalDelivery?.segments.flatMap(segment => deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.attachments ?? []);
+  const segments = originalDelivery?.segments.map(segment => ({ ...segment, body: taskProtocolText(deliveredMessage?.(segment.facts?.messageId?.replace(/^msg:/, '') ?? '')?.text ?? safeDeliveredBody(segment.body)) }));
   const guguDelivery = originalDelivery ? {
     ...originalDelivery,
     body: segments!.map(segment => segment.body).join('\n\n'),
@@ -65,9 +68,12 @@ export function normalizeMessage(item: ChatMessage): ChatMessage {
     ...item,
     ...(guguDelivery ? { text: guguDelivery.body, guguDelivery } : {}),
     ...(hookNotice ? { text: hookNotice.body, hookNotice } : {}),
-    attachments: item.attachments?.map((attachment) => ({
+    ...(item.sentAttachment ? { text: item.sentAttachment.caption ?? '' } : {}),
+    attachments: item.sentAttachment ? [{ id: item.sentAttachment.kind === 'image' ? `gugu-message-file://${item.sentAttachment.messageId}` : item.sentAttachment.messageId, name: item.sentAttachment.name, kind: item.sentAttachment.kind ?? 'file' as const, href: item.sentAttachment.href }] : (originalAttachments?.length ? originalAttachments : item.attachments)?.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
+      ...(attachment.kind ? { kind: attachment.kind } : {}),
+      ...(attachment.href ? { href: attachment.href } : {}),
       ...(attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
     })),
   };
@@ -93,7 +99,7 @@ export function normalizeMessage(item: ChatMessage): ChatMessage {
 
 export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage {
   return {
-    ...normalizeMessage(item),
+    ...normalizeMessage(item, ctx.deliveredMessage),
     streaming: ctx.active && item.role === 'assistant',
   };
 }
@@ -117,7 +123,7 @@ export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: Mes
   // (子智能体跑完的通知已经不走消息这条路了 —— 它是一行工具调用，见 item-fold 的
   //  `subagent_done` 分支。)
   if (item.hookNotice) {
-    return measureHookNotice(item, ctx, HOOK_NOTICE_VARS);
+    return measureHookNotice(item, ctx, HOOK_NOTICE_VARS, { label: rowTranslator(ctx)('transcript.hookNoticeFrom', { hook: item.hookNotice.hookName }) });
   }
 
   if (item.role === 'user') return measureUserMessage(item, ctx, baseVars);
@@ -213,7 +219,7 @@ function AssistantRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Messa
       </StreamContext.Provider>
       <Show when={showFooter()}>
         <div class={footerRow} style={{ height: `${props.vars.footerH}px` }}>
-          <CopyButton text={props.data.text} variant="inline" labelKey="transcript.copyMessage" />
+          <CopyButton text={props.data.text} variant="inline" />
         </div>
       </Show>
     </div>

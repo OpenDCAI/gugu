@@ -161,11 +161,14 @@ export function createDeviceRpcRequestHandler(options?: {
     let envelope: ReturnType<typeof createDeviceRpcReplyEnvelope> | null = null
     // Device action refusals must not be replaced by a cached reply for a reused request id.
     const deviceAction = request.type === DEVICE_ACTION_RPC_TYPE || request.type === DEVICE_ACTION_RESULT_ACK_RPC_TYPE
-    const earlier = deviceAction ? undefined : replies.get(request.request_id)
+    // Projection proofs/handles belong to the current authenticated asker and page epoch.
+    // Replaying a cached reply would bypass that live check (including after a detach).
+    const liveAuthority = deviceAction || request.type.startsWith('projection.')
+    const earlier = liveAuthority ? undefined : replies.get(request.request_id)
     if (earlier) envelope = await earlier
     if (!envelope) {
       const answering = answer(request, publishEvent, asker)
-      if (!deviceAction) {
+      if (!liveAuthority) {
         replies.delete(request.request_id)
         replies.set(request.request_id, answering.then((done) => (JSON.stringify(done).length <= REPLAY_MAX_CHARS ? done : null)))
       }

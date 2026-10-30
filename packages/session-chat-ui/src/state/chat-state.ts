@@ -46,6 +46,7 @@ import type {
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
 import type { ViewState } from './view-state';
@@ -91,6 +92,7 @@ export type ChatSessionState = {
    * 转录把它画成列表末尾的一行,见 `BackgroundTasksItem`。
    */
   setBackgroundTasks(tasks: BackgroundTasks): void;
+  setDeliveredMessages(messages: ReadonlyMap<string, DeliveryMessagePresentation>): void;
 };
 
 export type ChatSessionSnapshot = {
@@ -111,6 +113,7 @@ export type ChatSessionSnapshot = {
   readonly condition: SessionCondition | null;
   /** 见 `setBackgroundTasks`。 */
   readonly backgroundTasks: BackgroundTasks;
+  readonly deliveredMessages?: ReadonlyMap<string, DeliveryMessagePresentation>;
   terminalSnapshot(terminalId: string): TerminalState | null;
 };
 
@@ -307,6 +310,7 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
 }
 
 function createSessionState(transcript: TranscriptApi): ChatSessionState {
+  const [deliveredMessages, setDeliveredMessages] = createSignal<ReadonlyMap<string, DeliveryMessagePresentation>>(new Map());
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
@@ -347,6 +351,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     get condition() {
       return condition();
     },
+    get deliveredMessages() { return deliveredMessages(); },
     get backgroundTasks() {
       return backgroundTasks();
     },
@@ -363,6 +368,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     setGenerating,
     setCondition,
     setBackgroundTasks,
+    setDeliveredMessages,
     setTerminals: (next) => setTerminals(new Map(next.map(terminal => [terminal.terminalId, terminal]))),
   };
 }
@@ -372,7 +378,7 @@ export function connectSession(
   source: ConnectSessionSource,
   options: ConnectSessionOptions
 ): () => void {
-  let hadActiveTurn = source.activeTurn.getSnapshot() !== null;
+  let activeTurnId = source.activeTurn.getSnapshot()?.id ?? null;
 
   const syncSessionState = (): void => {
     const snapshot = source.sessionState.getSnapshot();
@@ -387,16 +393,19 @@ export function connectSession(
   const syncActiveTurn = (): void => {
     const turn = source.activeTurn.getSnapshot() ?? null;
     if (turn) state.session.setPendingPrompt(null);
-    if (!turn && hadActiveTurn) {
+    if (activeTurnId !== null && activeTurnId !== (turn?.id ?? null)) {
       // ❌ 别在这里就把刚讲完的那一轮抹掉。调用方收到这个回调后要去后端对账（实测一次往返 ~100ms），
       // 而已提交列表只由对账结果 seed 填充 —— 先抹掉就等于让画面整段空掉一百毫秒：transcript 消失、
       // 输入框退回空会话的占位文案再弹回来。用户看到的是「答完了反而闪一下」。
       // 保留最后这一帧，由对账落地时的 seed 覆盖它（失败也会清，见 acp-chat-store._refreshHistory）。
       options.onTurnCommitted();
+      // 连续排队时,显示节拍可能直接从 A 发到 B,中间没有空帧。同样要对账 A,但立即画 B;
+      // 先通知再换帧,让宿主保留 A 的身份,历史请求回来时才不会把仍在流式的 B 清掉。
+      if (turn) state.transcript.activeTurn.set(turn);
     } else {
       state.transcript.activeTurn.set(turn);
     }
-    hadActiveTurn = turn !== null;
+    activeTurnId = turn?.id ?? null;
   };
   const syncTerminals = (): void => {
     if (!source.terminals) return;

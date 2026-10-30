@@ -125,10 +125,12 @@ export function openCloudDeviceRpcPipe<TChannel>(input: {
   deviceId: string
   userId: () => Promise<string>
   subscribeTimeoutMs?: number
+  /** Dedicated host-owned requester lifetime; projection credentials must die with this exact pipe. */
+  asker?: string
 } & DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
   return openAttachedDeviceRpcPipe({
     deviceId: input.deviceId,
-    asker: MAIN_PROCESS_ASKER,
+    asker: input.asker ?? MAIN_PROCESS_ASKER,
     userId: input.userId,
     join: joinElectronTopic(input.supabase, input.subscribeTimeoutMs ?? CLOUD_PIPE_SUBSCRIBE_TIMEOUT_MS),
     onMessage: input.onMessage,

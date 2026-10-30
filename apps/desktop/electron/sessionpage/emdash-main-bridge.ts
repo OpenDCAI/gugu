@@ -10,6 +10,7 @@ export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collec
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export {
   bootEmdashModule,
+  startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,
   readCurrentActivityInput,
@@ -139,6 +140,7 @@ export {
   // 手机看管 agent 的设备 RPC 处理器。经桥拿 ⇒ 与 router / conversation provider 同一份实例;
   // 宿主直接 import 会打出第二份,写侧的运行时状态就都看不见了。
   createSessionpageSessionDeviceRpcHandlers,
+  captureSessionpageProjectionViewer,
   // 随心跳上云的会话状态摘要:机器离线后手机只剩它可读。同上,经桥拿。
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
