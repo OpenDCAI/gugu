@@ -71,3 +71,7 @@ globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conve
 globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conversationQuote}[data-adjacent="true"]`, { display: 'none' });
 globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) [data-slot="conversation-quote-separator"]`, { display: 'none' });
 export const conversationDestination = style({ display: 'block', marginTop: 4, height: 18, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
+
+// The source control remains usable even when the inline text has no room.
+globalStyle(`${conversationQuote}[data-compact="true"]`, { gap: 0 });
+globalStyle(`${conversationQuote}[data-compact="true"] > span`, { display: 'none' });

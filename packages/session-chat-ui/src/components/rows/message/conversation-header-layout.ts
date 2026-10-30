@@ -15,16 +15,16 @@ export function conversationHeaderLayout(item: ChatMessage, ctx: MeasureCtx, sen
   const showName = conversationShowsName(item, ctx);
   const quote = Boolean(item.conversationReply);
   const process = item.role === 'assistant' ? item.conversationProcess : undefined;
-  const nameBudget = Math.max(1, process ? ctx.width * .45 : ctx.width - (quote ? 30 : 0));
+  const nameBudget = Math.max(1, process ? ctx.width * .45 : ctx.width - (quote ? 31 : 0));
   const name = showName ? readableLabel(senderName, ctx, nameBudget, 12, 18, 650) : null;
   const nameWidth = name ? Math.min(nameBudget, name.width) : 0;
-  const processCtx = { ...ctx, width: Math.max(40, ctx.width - nameWidth - (name ? 8 : 0) - (quote ? 30 : 0)) };
+  const processCtx = { ...ctx, width: Math.max(40, ctx.width - nameWidth - (name ? 8 : 0) - (quote ? 31 : 0)) };
   const button = process && processButtonLayout(process, processCtx);
   const background = process && backgroundPillLayout(item.id, processCtx);
   const processWidth = button ? Math.min(processCtx.width, button.width + (background ? background.width + 19 : 0)) : 0;
   const processHeight = process ? processRowHeight(item.id, process, processCtx) : 0;
   const fixedWidth = nameWidth + processWidth + (name && process ? 8 : 0);
   return { name, nameWidth, processCtx, processWidth,
-    quoteWidth: Math.max(14, Math.min(ctx.width * .55, ctx.width - fixedWidth - (fixedWidth ? 25 : 0))),
+    quoteWidth: Math.max(14, Math.min(ctx.width * .55, ctx.width - fixedWidth - (fixedWidth ? 17 : 0))),
     height: name || process || quote ? Math.max(name?.height ?? 0, processHeight, quote ? 18 : 0) + 6 : 0 };
 }

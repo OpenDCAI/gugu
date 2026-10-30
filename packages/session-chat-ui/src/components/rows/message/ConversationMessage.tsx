@@ -159,6 +159,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
       <Show when={messageQuote(props.data)}>{quote => <>
         <span class={conversationTimeSeparator} data-slot="conversation-quote-separator" aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
+          data-compact={head().quoteWidth < 40 ? 'true' : undefined}
           data-adjacent={props.data.conversationReplyAdjacent ? 'true' : 'false'}
           style={{ 'max-width': `${head().quoteWidth}px` }}
           disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}

@@ -380,6 +380,13 @@ describe('conversation density', () => {
       const process = row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect();
       expect(process.right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
       expect(process.bottom).toBeLessThanOrEqual(row.getBoundingClientRect().bottom + 1);
+      row.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const quote = row.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      const arrow = quote.querySelector('svg')!.getBoundingClientRect();
+      expect(arrow.left).toBeGreaterThanOrEqual(quote.getBoundingClientRect().left - 1);
+      expect(arrow.right).toBeLessThanOrEqual(quote.getBoundingClientRect().right + 1);
+      expect(arrow.right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
     } finally { view.dispose(); }
   });
   it('hides a repeated speaker without leaving header space and retains it for a distant reply', async () => {
