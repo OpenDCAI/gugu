@@ -68,6 +68,7 @@ async function mount(
   appName: (appId: string) => string | null = () => null,
   chatName: (chatId: string) => string | null = () => null,
   senderName: (fromId: string | null) => string | null = () => null,
+  width = WIDTH,
 ): Promise<Reading> {
   const raw: ChatMessage = { kind: 'message', id: 'd1', seq: 0, role: 'user', text };
   const item = patch(normalizeMessage(raw));
@@ -76,7 +77,7 @@ async function mount(
   const expanded = (id: string) => factsOpen && id === deliveryFactsId(item.id);
   const measureCtx: MeasureCtx = {
     theme,
-    width: WIDTH,
+    width,
     isCollapsed: expanded,
     expanded,
     caches,
@@ -87,7 +88,7 @@ async function mount(
     measureCtx: () => measureCtx,
   };
   const host = document.createElement('div');
-  host.style.width = `${WIDTH}px`;
+  host.style.width = `${width}px`;
   host.dataset.chatLayout = layout.preset;
   document.body.appendChild(host);
   const Comp = messageUnitDef.Render;
@@ -131,7 +132,7 @@ async function mount(
     const bubbleStyle = bubble ? getComputedStyle(bubble) : null;
     card.querySelectorAll<HTMLButtonElement>('[data-attachment-chip]').forEach((button) => button.click());
     return {
-      computed: messageUnitDef.measure(item, measureCtx, messageUnitDef.vars!),
+      computed: messageUnitDef.measure(item, { ...measureCtx, senderName }, messageUnitDef.vars!),
       dom: card.offsetHeight,
       left: rect.left - hostRect.left,
       width: rect.width,
@@ -169,23 +170,30 @@ async function mount(
 const SINGLE: ChatLayout = { preset: 'single', userGutter: 0 };
 const DOUBLE: ChatLayout = { preset: 'double', userGutter: 72 };
 
-it('updates historical sender labels from the host identity without changing the delivery', async () => {
+it.each([{ newName: 'Renamed identity', width: WIDTH }, { newName: 'W'.repeat(40), width: 220 }])('updates historical sender and quote labels in place at width $width', async ({ newName, width }) => {
   const [name, setName] = createSignal('Current identity');
+  const [quoteName, setQuoteName] = createSignal('Current quoted identity');
   const notice = ENVELOPE.replace('route="chat"', 'route="system"');
   let initialSender: string | null = null;
+  let initialReply: string | null = null;
   let initialBody = '';
   let initialHeight = 0;
   const renamed = await mount(DOUBLE, false, notice, (item) => item, null, () => null,
     (host) => {
       initialSender = host.querySelector('[data-slot="delivery-sender"]')?.textContent ?? null;
+      initialReply = host.querySelector('[data-slot="delivery-reply"]')?.textContent ?? null;
       initialBody = host.querySelector('[data-gugu-body]')?.textContent ?? '';
       initialHeight = (host.querySelector('[data-delivery-card]') as HTMLElement).offsetHeight;
-      setName('Renamed identity');
-    }, false, () => null, () => null, () => name());
+      setName(newName);
+      setQuoteName('Updated quoted identity');
+    }, false, () => null, () => null, id => id === 'user:alice' ? name() : id === 'user:bob' ? quoteName() : null, width);
   expect(initialSender).toBe('Current identity');
-  expect(renamed.sender).toBe('Renamed identity');
+  expect(renamed.sender?.replace(/\n/g, '')).toBe(newName);
+  expect(initialReply?.replace(/\n/g, '')).toContain('Current quoted identity');
+  expect(renamed.reply?.replace(/\n/g, '')).toContain('Updated quoted identity');
   expect(renamed.computed).toBe(renamed.dom);
-  expect(renamed.dom).toBe(initialHeight);
+  if (width === WIDTH) expect(renamed.dom).toBe(initialHeight);
+  else expect(renamed.dom).toBeGreaterThan(initialHeight);
   expect(renamed.bodyText).toBe(initialBody);
 });
 

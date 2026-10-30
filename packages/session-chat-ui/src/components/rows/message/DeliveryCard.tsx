@@ -140,7 +140,7 @@ function deliveryDetails(item: ChatMessage): DeliveryFactEntry[] {
 
 function sourceLayout(item: ChatMessage, ctx: MeasureCtx, vars: DeliveryVars) {
   const facts = cardFacts(item), t = rowTranslator(ctx), self = ctx.selfIdentity ?? null;
-  const named = facts ? isSelfAddress(facts.fromId, self) ? t('transcript.deliveryFromMe') : shownSender(facts.from, facts.fromId, self) : null;
+  const named = facts ? isSelfAddress(facts.fromId, self) ? t('transcript.deliveryFromMe') : ctx.senderName?.(facts.fromId) ?? shownSender(facts.from, facts.fromId, self) : null;
   const sender = named || t(facts ? 'transcript.deliveryUnknownSender' : 'transcript.deliveryLegacySender');
   const route = facts ? routeLabel(facts, t, { appName: ctx.appName ?? (() => null), chatName: ctx.chatName ?? (() => null) }) : '';
   const width = userAvailableWidth(ctx.width, ctx.theme.layout), line = ctx.theme.fonts.body.lineHeight;
@@ -166,7 +166,7 @@ function replyLayout(item: ChatMessage, ctx: MeasureCtx) {
   const reply = cardFacts(item)?.replyTo;
   if (!reply || ctx.commands?.onConversationReply) return null;
   const text = rowTranslator(ctx)('transcript.deliveryReplyTo', {
-    from: shownSender(reply.from, reply.fromId, ctx.selfIdentity ?? null) ?? reply.fromId,
+    from: (isSelfAddress(reply.fromId, ctx.selfIdentity ?? null) ? shownSender(reply.from, reply.fromId, ctx.selfIdentity ?? null) : ctx.senderName?.(reply.fromId) ?? shownSender(reply.from, reply.fromId, ctx.selfIdentity ?? null)) ?? reply.fromId,
     preview: quotedWords(reply.preview),
   });
   return readableLabel(text, ctx, userAvailableWidth(ctx.width, ctx.theme.layout) - 10, 12, ctx.theme.fonts.body.lineHeight);
@@ -290,7 +290,10 @@ function SingleDelivery(props: {
   const senderAvatar = useSenderAvatar();
   const senderName = useSenderName();
   const namers: Namers = { appName: useAppName(), chatName: useChatName() };
-  const mCtx = () => props.ctx.measureCtx?.();
+  const mCtx = () => {
+    const ctx = props.ctx.measureCtx?.();
+    return ctx ? { ...ctx, senderName } : undefined;
+  };
   const factsId = () => deliveryFactsId(props.data.id);
   const factsOpen = () => props.ctx.viewState.isCollapsed(factsId());
   const facts = () => cardFacts(props.data);
@@ -398,7 +401,7 @@ function SingleDelivery(props: {
             disabled={!commands().onConversationReply} aria-label={translate('transcript.showOriginalMessage')}
             onClick={() => commands().onConversationReply?.(props.data.conversationReply?.itemId ?? reply().messageId)}>
             {replyLayout(props.data, { ...mCtx()!, commands: commands(), selfIdentity: self(), translate })?.text ?? translate('transcript.deliveryReplyTo', {
-              from: shownSender(reply().from, reply().fromId, self()) ?? reply().fromId,
+              from: (isSelfAddress(reply().fromId, self()) ? shownSender(reply().from, reply().fromId, self()) : senderName(reply().fromId) ?? shownSender(reply().from, reply().fromId, self())) ?? reply().fromId,
               preview: quotedWords(reply().preview),
             })}
           </button>
