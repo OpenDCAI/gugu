@@ -72,29 +72,36 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const publishContactIdentities = useCallback(async (rows: readonly ContactUser[], accept = () => true) => {
     const repository = await getImRepository()
-    // Admit complete identities before transport so a rename during the read has a row to patch.
-    if (rows.some((row) => !imSelectors.identitiesById(repository.snapshot())[row.id])) {
+    const before = imSelectors.identitiesById(repository.snapshot())
+    const readNames = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id))
+    // Retain events during this read even when the identity has no repository row yet.
+    const pending = new Map<string, { displayName: string; renamed?: true }>()
+    const retainRename = (event: Event) => {
+      const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
+      pending.set(agentUserId, { displayName, renamed: true })
+    }
+    if (readNames) window.addEventListener(UI_EVENTS.ownedAgentRenamed, retainRename)
+    try {
+      const names = readNames ? await findSessionShellPort()?.agentNames() : undefined
+      for (const row of names ?? []) {
+        if (row.pendingManual && !pending.has(row.agentUserId)) pending.set(row.agentUserId, { displayName: row.displayName })
+      }
       await repository.transaction((transaction) => {
         if (!accept()) return
         const current = imSelectors.identitiesById(repository.snapshot())
-        for (const identity of rows) if (!current[identity.id]) transaction.putIdentity(identity)
+        for (const identity of rows) {
+          const latest = current[identity.id]
+          const changed = latest && latest.display_name !== before[identity.id]?.display_name
+          const name = pending.get(identity.id)
+          const display_name = isMyAssistant(userId, identity.id) ? identity.display_name
+            : name?.renamed ? name.displayName
+              : changed ? latest.display_name : name?.displayName ?? identity.display_name
+          transaction.putIdentity({ ...identity, display_name })
+        }
       })
+    } finally {
+      if (readNames) window.removeEventListener(UI_EVENTS.ownedAgentRenamed, retainRename)
     }
-    // Keep transport outside the writeChain; choose the name from the current row at final commit.
-    const before = imSelectors.identitiesById(repository.snapshot())
-    const names = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id)) ? await findSessionShellPort()?.agentNames() : undefined
-    const pending = new Map(names?.filter((row) => row.pendingManual).map((row) => [row.agentUserId, row.displayName]))
-    await repository.transaction((transaction) => {
-      if (!accept()) return
-      const current = imSelectors.identitiesById(repository.snapshot())
-      for (const identity of rows) {
-        const latest = current[identity.id]
-        const changed = latest && latest.display_name !== before[identity.id]?.display_name
-        const display_name = isMyAssistant(userId, identity.id) ? identity.display_name
-          : changed ? latest.display_name : pending.get(identity.id) ?? identity.display_name
-        transaction.putIdentity({ ...identity, display_name })
-      }
-    })
   }, [getImRepository, userId])
 
   // ── Load contacts ──────────────────────────────────────────────────────────
