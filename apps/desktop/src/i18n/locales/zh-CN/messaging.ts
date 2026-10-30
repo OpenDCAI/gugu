@@ -358,6 +358,7 @@ export default {
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
     "fileExpired": "文件已过期",
+    "fileMissing": "已失效",
     "reupload": "重新上传",
     "selectOriginal": "选择原文件",
     "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",

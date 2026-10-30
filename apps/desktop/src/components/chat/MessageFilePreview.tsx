@@ -83,7 +83,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
     if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage) : readPreview(file, kind)).then(
       (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
-      (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') }),
+      (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : error instanceof Error && error.message === 'missing' ? 'attachmentView.fileMissing' : 'attachmentView.fileUnavailable') }),
     )
     return () => { live = false; void release?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes

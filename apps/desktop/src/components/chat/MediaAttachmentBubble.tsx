@@ -37,6 +37,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
     enabled: near && !!user && managedFile,
   }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
+  if (metadata.data?.status === 'missing') return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />{caption}</div>
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
     details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} onOpen={() => { if (metadata.isError) void metadata.refetch() }} />{caption}</div>
@@ -81,6 +82,7 @@ function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; mess
   }, [ready, sourceKey])
 
   if (view.status === 'gone') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />
+  if (view.status === 'missing') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />
   if (view.status === 'expired') return <ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />
   if (view.status === 'failed') {
     return (
