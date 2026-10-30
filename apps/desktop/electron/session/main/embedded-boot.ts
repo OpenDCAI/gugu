@@ -56,6 +56,7 @@ export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
+export { startNativeConversationInboxHost } from './core/sessions/native-conversation-inbox'
 import { createHash, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { app, BrowserWindow, MessageChannelMain, session as electronSession, type IpcMain } from 'electron'
@@ -2441,6 +2442,8 @@ export { createSessionpageSessionDeviceRpcHandlers } from './core/session-timeli
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
+  nativeInputVersion?: 1
+  runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
   projectName: string
@@ -2453,7 +2456,7 @@ export function sessionpageSessionDigest(): Array<{
   isPinned: boolean
   unseen: boolean
   parentConversationId: string | null
-  agentUserId?: string | null
+  agentUserId?: string | null; nativeUnreadCount?: number
 }> {
   refreshDigestAgents()
   const agents = digestAgents
@@ -2463,6 +2466,8 @@ export function sessionpageSessionDigest(): Array<{
   return [...sessions]
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
+      nativeInputVersion: session.nativeInputVersion,
+      runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
       projectName: projectName.get(session.projectId) ?? '',
@@ -2471,7 +2476,7 @@ export function sessionpageSessionDigest(): Array<{
       agentStatus: session.agentStatus,
       status: parseAgentStatusView(session.status ?? null),
       lastInteractedAt: session.lastInteractedAt,
-      supported: session.supported,
+      supported: session.supported, nativeUnreadCount: session.nativeUnreadKeys?.length,
       // 离线时手机看的就是这份。少了这三项,离线的会话列表会把置顶画成没置顶、
       // 未读画成已读、子 agent 画成平级 —— 那不是「信息少一点」,是画错。
       // 这里三项都读得到(本地库就在手边),所以给确定值;❌ 不写 `?? false` 之类的兜底,

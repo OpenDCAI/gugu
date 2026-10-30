@@ -38,10 +38,6 @@
     "how": "keyed-map",
     "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
   },
-  "apps/desktop/src/hooks/useAgentRunningStatus.ts::useAgentRunningStatus": {
-    "how": "derived",
-    "why": "无自有 state:全部由下游 hook 当场派生,再经 gateActivityToAgent / gateRunningStatusToChat 两维门控。"
-  },
   "apps/desktop/src/hooks/useAgentStream.ts::useAgentStream": {
     "how": "keyed-map",
     "why": "map[agentStreamKey(当前 conversationId, threadRootId)] —— 换主体立刻换 key。"
@@ -121,5 +117,21 @@
   "apps/desktop/src/hooks/useAgentDmSession.ts::useAgentDmSession": {
     "how": "derived",
     "why": "Its only own state is a retry counter; which session the agent DM draws is computed on the spot from useSessionpageAgentProjection (subject-scoped, answers \"not yet known\" for another agent), the session directory row and the device list, all read for the current agentUserId."
+  },
+  "apps/desktop/src/hooks/useNativeConversationRead.ts::useNativeConversationRead": {
+    "how": "subject-scoped",
+    "why": "Viewport, captured unread and pending visible IDs reset synchronously when device/session changes; asynchronous acknowledgements retain their own session and are cancelled on cleanup."
+  },
+  "apps/desktop/src/hooks/useOwnedAgentConversationEntry.ts::useOwnedAgentConversationEntry": {
+    "how": "subject-scoped",
+    "why": "Entry lookup captures the owner and request generation; asynchronous opens and draft clearing only commit while both still match the current owner and newest entry request."
+  },
+  "apps/desktop/src/hooks/useConversationSessionSummary.ts::useConversationSessionSummary": {
+    "how": "derived",
+    "why": "Current device/session parameters select the account directory snapshot during render; there is no independent state or delayed copy of a previous subject."
+  },
+  "apps/desktop/src/hooks/useNativeConversationChat.ts::useNativeConversationChat": {
+    "how": "derived",
+    "why": "The current workspace session resolves its owned agent and canonical DM from current account snapshots, with no remembered selection from an earlier workspace."
   }
 }

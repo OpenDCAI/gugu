@@ -20,7 +20,7 @@ export function WechatAppConnection() {
     <AppConnectionHero icon={<ChannelBrandIcon kind="wechat" size={56} />} description={t('connectors.wechatDescription')}
       loading={state.status === 'loading'} disabled={!available} label={t(connected ? 'connectors.manage' : 'connectors.connect')}
       onConnect={() => setConnecting(true)} />
-    {state.status === 'failed' || state.status === 'not_open' ? <SettingsNote role="alert">{state.error || t('connectors.loadFailed')}<Button variant="ghost" size="sm" onClick={() => void state.refresh()}>{t('machine.retry')}</Button></SettingsNote> : null}
+    {state.status === 'failed' || !!state.error ? <SettingsNote role="alert">{state.error || t('connectors.loadFailed')}<Button variant="ghost" size="sm" onClick={() => void state.refresh()}>{t('machine.retry')}</Button></SettingsNote> : null}
     {connected && state.client && state.list ? <ConnectedChannels client={state.client} list={state.list} apply={state.apply} /> : null}
     {connecting && state.client && state.list ? <WechatConnectDialog client={state.client} list={state.list} refresh={state.refresh} apply={state.apply} onClose={() => setConnecting(false)} /> : null}
   </>

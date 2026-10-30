@@ -66,7 +66,7 @@ describe('what a running run is doing right now (toolRunNow)', () => {
       get: (_t, kind: string) => ({ kind, segment: (item: SegmentItem) => [unit(item.kind, item, item, { key: 'self' })] }),
     })
     const ctx = (active: boolean) => ({ caches: {}, expanded: () => false, active, plan: () => null, translate: defaultChatTranslator,
-      pendingToolCallIds: () => new Set<string>(), terminalOutputText: () => null, terminalExitStatus: () => null }) as unknown as SegmentCtx
+      pendingToolCallIds: () => new Set<string>(), terminalSnapshot: () => null }) as unknown as SegmentCtx
     const user = { kind: 'message', id: 'u', seq: 0, role: 'user', text: 'go' } as ChatItem
     const turn = (items: ChatItem[], done: boolean) =>
       ({ id: 't', seq: 1, initiator: 'user', items: [user, ...items], ...(done ? { outcome: { kind: 'done' } } : {}) }) as unknown as TranscriptTurn

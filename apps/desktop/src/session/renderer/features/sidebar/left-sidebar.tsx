@@ -39,6 +39,8 @@ import { SidebarVirtualList } from './sidebar-virtual-list';
 import { SampleProjectSidebar } from './sample-project-row';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { useNativeConversationChat } from '@/hooks/useNativeConversationChat';
+import { screenLayout } from '@renderer/app/screen-layout';
 
 // 侧栏自上而下:布局 / 折叠 / 搜索 →「项目 | 对话」→ 三行入口 → 置顶 → 列表,两页同一副骨架。
 // 三行入口的第一行都是「新建任务」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
@@ -141,9 +143,11 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   const projectsUnread = chatSignals ? [...chatSignals.groupUnread.values()].reduce((sum, count) => sum + count, 0) : 0;
   // 壳画的对话列表要知道:正看着哪条对话(那一行高亮)。
   const focusedChatId =
-    appState.navigation.currentViewId === 'chat'
+    useNativeConversationChat(currentView === 'session'
+      ? (appState.navigation.viewParamsStore.session as { sessionId?: string } | undefined)?.sessionId
+      : currentView === 'screen' ? screenLayout.recentSession?.sessionId : undefined) ?? (currentView === 'chat'
       ? ((appState.navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId ?? null)
-      : null;
+      : null);
   // 拼在一屏的几组:壳画的「对话」也把同一组的几行并在一处(同「项目」这边)。
   const joinedGroups = sidebarStore.joinedGroups;
   React.useEffect(

@@ -42,7 +42,7 @@ const h = vi.hoisted(() => {
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: { extensions: {} },
+  rpc: { extensions: {}, viewState: { save: vi.fn(async () => ({ success: true })) } },
   rpcOn: () => ({}),
   events: { on: () => () => undefined },
   onMachineEvent: () => () => undefined,

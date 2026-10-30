@@ -3618,7 +3618,7 @@ function crossMachine(): CrossMachineSessions {
         const client = await cloudComputerClient()
         return client ? await client.state() : null
       } catch (error) {
-        // 这里没开放(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
+        // 此环境未配置可选云电脑服务(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
         if (isCloudComputerNotOpen(error)) return null
         createLogger('cloud-computer').warn({ err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable')
         throw error
@@ -4962,6 +4962,11 @@ app.whenReady().then(async () => {
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    const nativeInbox = emdash.startNativeConversationInboxHost({
+      open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
+      failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
+    })
+    app.once('will-quit', nativeInbox.dispose)
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
     const assistantPanel = createAssistantPanelRuntime({

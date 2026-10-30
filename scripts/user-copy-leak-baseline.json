@@ -96,11 +96,6 @@
   },
   {
     "rule": "copy-leaks-raw-error-field",
-    "file": "apps/desktop/src/components/chat/AgentSessionpagePresentation.tsx",
-    "count": 1
-  },
-  {
-    "rule": "copy-leaks-raw-error-field",
     "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
     "count": 1
   },

@@ -425,7 +425,7 @@ export type TimelineSnapshot = {
    * 已发出、还排着没被 agent 接走的输入 —— 与桌面「Queued prompts」同一份（ACP 腿：宿主运行时的队列）。
    * 每次都是此刻的全集；缺省 = 宿主太旧，不报队列。终端腿不投影（owner 2026-10-04）。
    */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
   /** Live presentation only; not serialized into the native-record archive. */
@@ -471,7 +471,7 @@ export type TimelineBatch = {
   /** Newest known tool-action timestamp, including actions outside the window. */
   lastActionAt?: number | null;
   /** 同快照的 `queuedPrompts`：每一批都带此刻的全集。 */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
   /** Live presentation only; not serialized into the native-record archive. */
@@ -552,7 +552,7 @@ export interface SessionTimeline {
   /**
    * 宿主把**活运行时**里这条会话的排队提示（`session.state` 的 `queuedPrompts`）整份同步进来（ACP 腿）。
    */
-  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text'>[]): void;
+  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[]): void;
   syncLiveReply(reply: SessionLiveReply | null): void;
   syncTerminals(terminals: readonly TerminalState[]): void;
 
@@ -735,6 +735,14 @@ export type SessionpageSessionReloadModelRequest = {
 export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
+  /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
+  nativeInputVersion?: 1;
+  /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
+  nativeLastMessage?: { text: string; at: string } | null;
+  /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
+  nativeUnreadKeys?: string[];
+  nativeUnreadCount?: number;
+  nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;
   title: string;
@@ -1205,6 +1213,9 @@ export type SessionpageSessionUnsubscribeRequest = { subscriptionId: string };
 export type SessionpageSessionSendRequest = {
   conversationId: string;
   text: string;
+  /** Stable across reconnects and client restarts; the host's existing durable message router deduplicates it. */
+  clientMessageId?: string;
+  attachments?: import('../acp/client').PromptAttachment[];
 };
 /** 端上对一条结算的回答(会话 id 与回答者由调用方补上)。 */
 export type SettlementResponse =
@@ -1270,3 +1281,20 @@ export type SessionpageSessionsEvent =
 export * from './workspace-contract';
 
 export * from './pane-contract';
+
+/** Account-authorized actions on the same runtime queue shown by the project page. */
+export type SessionpageQueueAction =
+  | { kind: 'edit'; id: string; text: string; queueEdit?: { draftText: string; originalDraftText: string } | null }
+  | { kind: 'delete'; id: string }
+  | { kind: 'reorder'; ids: string[] }
+  | { kind: 'send-now'; id: string; steers: boolean };
+
+/** ACP clients read the same durable commits and live turn as the desktop task page. */
+export type NativeSessionRecord = {
+  latestStoredSeq: number;
+  hasNewer: boolean;
+  turns: TranscriptTurn[];
+  originTurnIds: string[];
+  nextCursor: number | null;
+  activeTurn: TranscriptTurn | null;
+};

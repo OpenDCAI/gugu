@@ -55,12 +55,13 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const chatName = useChatName();
   const commands = useCommands();
   const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
+  const [menuRoot, setMenuRoot] = createSignal<HTMLDivElement>();
   const textMount = createMemo(() => commands().onMessageTextMount);
   const textMessageId = createMemo(() => props.data.id);
   createEffect(() => {
-    const root = textRoot(), mount = textMount(), itemId = textMessageId();
+    const root = textRoot(), bubble = menuRoot(), mount = textMount(), itemId = textMessageId();
     if (!props.conversation || !root || !mount) return;
-    const cleanup = mount({ root, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
+    const cleanup = mount({ root, menuRoot: bubble, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
     if (cleanup) onCleanup(cleanup);
   });
   const turn = useTurnState();
@@ -203,7 +204,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           style={{
             height: `${attachStripH()}px`,
             // `base`:整条右对齐到与气泡同一条边。
-            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': 'flex-end' } : {}),
+            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': props.conversation && props.data.role === 'assistant' ? 'flex-start' : 'flex-end' } : {}),
           }}
         >
           <For each={props.data.attachments}>
@@ -215,6 +216,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
     <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
+      ref={setMenuRoot}
       data-user-card={props.data.id}
       data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
       data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
@@ -316,6 +318,7 @@ function AttachmentChip(props: { attachment: ChatAttachment; itemId: string }) {
       )}
       onClick={(e) => {
         e.stopPropagation();
+        if (props.attachment.href) { commands().onOpenLink?.(props.attachment.href); return; }
         commands().onViewAttachment?.({
           attachment: { ...props.attachment, ...(dataUrl() ? { dataUrl: dataUrl() } : {}) },
           itemId: props.itemId,

@@ -2218,21 +2218,3 @@ body.barcode-scanner-active #root {
   width: 1px;
   background: var(--border-subtle);
 }
-
-/* @@@agent-chat-hero 与 agent 单聊的头栏(AgentChatHero):没有实线,头像独自居中在标准高度的头栏里,名字 + 引擎小图标
-   靠左(普通头栏标题的位置),动作图标留在右角;没有第二行字、没有额外高度。
-   小鸟(画布 80,手机 56;身体约占画布高的 82%)比标准头栏高,桌面上画布上沿贴窗格顶边、向下探出约 24px;
-   header 抬一层 z-index,探出的部分压在消息列表之上。手机的头栏是 56px,56 的画布正好装下,仍然垂直居中。
-   传了照片的 agent 是一张圆图(没有 data-hero-bird):保持原来的尺寸居中,不上移、不探出。
-   头像用绝对定位 + inset:0/margin:auto 居中(❌ 不用 transform:Button 的按压态占着 transform),所以它在**整条头栏**里居中,
-   而不是在「标题与动作图标之间」居中;名字最多占标题槽的一半,宽名字只会截断、不会撞上中间的头像。
-   ❌ 不在列表顶边做渐隐遮罩(owner 10-13:阴影太显,把紧贴头栏的时间戳都糊了):头栏下沿就是列表的裁切线。
-   ❌ 也不把头栏做成浮在列表上的浮层 —— 头栏是 Electron 的拖窗口区,盖在列表上会让那一条的滚轮/点击失效(Windows)。 */
-.gg-pane-header.gg-agent-header { position: relative; z-index: 1; }
-.gg-agent-hero { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
-.gg-agent-hero-name { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 50%; font-weight: 600; font-size: var(--font-body); line-height: var(--lh-body); color: var(--fg); min-width: 0; }
-.gg-agent-header .gg-agent-hero-avatar { position: absolute; inset: 0; margin: auto; width: fit-content; height: fit-content; }
-/* 桌面小鸟:画布上边那 12%(≈9.6px)透明留白是引擎给蹦跳留的余量 —— 窗格根节点 overflow:hidden 且头栏就在窗口顶,
-   画布上沿必须落在窗格顶边以内,蹦起来头才不会被裁。按钮自带 1px 透明边框,所以上移 1px 让画布上沿正好是 0;
-   身体顶边离窗格顶边 ≈ 10px,往下长出头栏约 24px(AGENT_HERO_OVERHANG_PX)。 */
-.gg-agent-header:not([data-mobile]) .gg-agent-hero-avatar[data-hero-bird] { top: -1px; bottom: auto; }

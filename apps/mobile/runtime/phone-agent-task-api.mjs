@@ -1,12 +1,13 @@
+import { changePhoneConversationQueue } from './phone-conversation-queue.mjs'
 import { randomUUID } from 'node:crypto'
 import { stableId, uuid } from './phone-agent-store.mjs'
 
 const failure = (code, message) => Object.assign(new Error(message), { code })
-const methods = new Set(['sessionSnapshot', 'sessionAfter', 'sessionOlder', 'sessionToolImage', 'sessionSend', 'sessionRespond', 'sessionOptions', 'sessionSetOption', 'sessionReloadModel'])
+const methods = new Set(['sessionQueue', 'sessionSnapshot', 'sessionAfter', 'sessionOlder', 'sessionToolImage', 'sessionSend', 'sessionRespond', 'sessionOptions', 'sessionSetOption', 'sessionReloadModel'])
 
 /** Task-page methods share the native and remote taskhost.call transport. No DM or workspace
  * pipe is needed; only a Java-originated native UI command may approve a phone operation. */
-export function createPhoneTaskApi({ ownerId, store, models, timelines, actions, findSession, verifyAgent, admit, publish }) {
+export function createPhoneTaskApi({ ownerId, store, models, timelines, actions, findSession, verifyAgent, admit, publish, interrupt }) {
   const options = async (agent) => {
     const catalog = await models.catalog()
     return { mode: null, effort: null,
@@ -24,7 +25,8 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
     const agent = findSession(input.conversationId)
     await verifyAgent(agent.agentUserId)
     let value
-    if (method === 'sessionSnapshot') value = await timelines.snapshot(agent, input)
+    if (method === 'sessionQueue') value = await changePhoneConversationQueue({ store, agent, action: input.action, interrupt, publish })
+    else if (method === 'sessionSnapshot') value = await timelines.snapshot(agent, input)
     else if (method === 'sessionAfter') value = await timelines.after(agent, input)
     else if (method === 'sessionOlder') value = await timelines.older(agent, input)
     else if (method === 'sessionToolImage') value = await timelines.image(agent, input)

@@ -79,8 +79,8 @@ async function copyButtonsFor(items: unknown[]): Promise<number> {
     const replyRow = host.querySelector<HTMLElement>(`[data-chat-canvas] [data-item-id="${CSS.escape(reply.id)}"]`);
     if (!replyRow) throw new Error('the assistant reply row did not mount');
     // User-message copying stays available even while a final reply is pending.
-    expect(host.querySelector('[data-user-message-actions] button[aria-label="Copy message"]')).not.toBeNull();
-    return replyRow.querySelectorAll('button[aria-label="Copy message"]').length;
+    expect(host.querySelector('[data-user-message-actions] button[aria-label="Copy"]')).not.toBeNull();
+    return replyRow.querySelectorAll('button[aria-label="Copy"]').length;
   } finally {
     view.dispose();
     ctx.dispose();

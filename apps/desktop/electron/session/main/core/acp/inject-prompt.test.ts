@@ -27,6 +27,14 @@ async function busySession() {
 }
 
 describe('shared ACP prompt admission', () => {
+  it('keeps image references on the same native prompt instead of making a second input', async () => {
+    const promptDetached = vi.fn(async () => ({ requestId: 'native-1', queued: true }));
+    state.client = { promptDetached, waitPromptDetached: async () => ({}) };
+    const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const }];
+    const result = await injectEmdashPromptDetached('conv-1', 'caption', { origin: 'manual', attachments });
+    await result.completion;
+    expect(promptDetached).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', prompt: { text: 'caption', origin: 'manual', attachments } });
+  });
   it('keeps several idle-only replies as separate user messages with exact provider-visible text', async () => {
     const { harness, runtime, finish } = await busySession();
     const texts = ['Check the first result.\nKeep this line.', 'Check the second result.', 'Check the third result.'];
@@ -44,6 +52,23 @@ describe('shared ACP prompt admission', () => {
     const userTexts = history.data.turns.flatMap(turn => turn.items.flatMap(item =>
       item.kind === 'message' && item.role === 'user' ? [item.text] : []));
     expect(userTexts).toEqual(['Run the long tool', ...texts]);
+  });
+
+  it('keeps human DMs in the same editable manual queue as project prompts', async () => {
+    const { harness, runtime, finish } = await busySession();
+    const envelopes = ['first request', 'second request'].map((content, index) => renderDeliveryEnvelope({
+      route: 'chat', chat: 'dm-1', chatKind: 'ai', from: 'Owner', fromId: 'user:owner', fromType: 'human',
+      messageId: `msg:human-${index}`, at: '2026-10-24 20:00 UTC', content,
+    }));
+    const deliveries = [];
+    for (const text of envelopes) deliveries.push(await injectEmdashPromptDetached('conv-1', text));
+    const state = runtime.getSessionState('conv-1');
+    expect(state.queuedPrompts.map(prompt => prompt.origin)).toEqual(['manual', 'manual']);
+    await finish();
+    await Promise.all(deliveries.map(delivery => delivery.completion));
+    await harness.agent.called('prompt', envelopes.length + 1);
+    expect(harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt))
+      .toEqual(envelopes.map(text => [{ type: 'text', text }]));
   });
 
   it('retains delivery merging for real envelopes', async () => {

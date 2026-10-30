@@ -1,3 +1,4 @@
+import { OfflineSessionInput } from '@/components/chat/OfflineSessionInput';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, type ReactNode } from 'react';
@@ -186,7 +187,8 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   }
 
   if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error' || kind === 'project-error')) {
-    return <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
+    return deviceId ? <OfflineSessionInput deviceId={deviceId} sessionId={sessionId} label={unreachable} />
+      : <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
   }
 
   if (kind === 'project-mounting' || kind === 'provisioning') {

@@ -52,9 +52,9 @@ describe('handOffLegacyWechat', () => {
     expect(s.remove).toHaveBeenCalled()
   })
 
-  it('交不出去(没开放 / 网络断了 / 没有管家地址 / 文件解不开):留着,❌ 删', async () => {
+  it('交不出去(服务配置故障 / 网络断了 / 没有管家地址 / 文件解不开):留着,❌ 删', async () => {
     for (const s of [
-      setup({ record: RECORD, importResult: new CloudComputerError(503, 'not_open', '聊天工具暂未开放') }),
+      setup({ record: RECORD, importResult: new CloudComputerError(503, 'unavailable', 'Channel service signing key is not configured.') }),
       setup({ record: RECORD, importResult: new CloudComputerError(0, 'network', 'ECONNRESET') }),
       setup({ record: RECORD, noClient: true }),
       setup({ record: new Error('decrypt failed') }),

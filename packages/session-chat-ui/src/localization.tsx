@@ -118,7 +118,6 @@ const fallbackMessages = {
   'transcript.processSilent': 'This segment chose not to reply',
   'transcript.turnElapsed': 'Worked for {elapsed}',
   'transcript.turnTook': 'Took {elapsed}',
-  'transcript.copyTurnResult': 'Copy turn record',
   // 同一行的两副面孔（#4981 #12）：跑着的时候是这一句 + 微光，落定后是上面那一句。
   // 连续工具调用折成的一句（#4981，owner 2026-09-06）：各类一个短语，单数 / 复数各一键
   // （英文 `1 pattern` / `3 patterns` 不能靠一个模板），用 `join` 串起来。首字母大写由代码做。

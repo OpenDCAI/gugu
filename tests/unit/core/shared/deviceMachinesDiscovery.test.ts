@@ -15,12 +15,13 @@ describe('physical machine discovery', () => {
   const orphan = endpoint('old-configuration')
   const online = endpoint('online-configuration', { status: 'online', is_online: true, last_seen_at: '2026-10-27T00:00:00Z' })
 
-  it('shows the same online representative in Settings, New task and phone lists regardless of row order', () => {
+  it('uses one machine representative for creation while retaining every task-directory endpoint', () => {
     for (const devices of [[orphan, online], [online, orphan]]) {
       expect(deviceMachines(devices).map(machine => machine.device.device_id)).toEqual([online.device_id])
       expect(remoteWorkspaceDevices(devices)).toEqual([online])
       expect(visibleMachines(devices, () => false)).toEqual([online])
-      expect(directoryMachines(devices, () => false)).toEqual([online])
+      // Each profile owns distinct task records; merging their machine labels must not hide those records.
+      expect(directoryMachines(devices, () => false)).toEqual(devices)
     }
   })
 

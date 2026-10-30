@@ -36,7 +36,7 @@ export const CHAT_VIEW_COMMANDS = [
  */
 export type ChatCommands = {
   /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
-  onMessageTextMount?: (target: { root: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
+  onMessageTextMount?: (target: { root: HTMLElement; menuRoot?: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
   conversationAgentSession?: () => string | null;
   /** External agents may expose only their public identity, with no readable session. */
@@ -45,6 +45,8 @@ export type ChatCommands = {
   conversationClock?: () => number;
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
+  /** Authorized IM system notices stay visible in their process header, even when folded. */
+  conversationProcessNotice?: (processId: string) => { id: string; text: string } | null;
   onConversationReply?: (itemId: string) => void;
   /** Exact source row receiving the shared chat source-message flash. */
   flashMessageId?: string | null;

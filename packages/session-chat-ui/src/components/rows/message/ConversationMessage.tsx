@@ -19,7 +19,7 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_FOOTER_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 export { isConversationMessage } from './conversation-body';
 import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
@@ -39,7 +39,7 @@ export function conversationContext(ctx: MeasureCtx, item?: ChatMessage): Measur
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
   const long = !item.conversationFull && (item.text.length > 700 || item.text.split('\n').length > 10);
-  return { ...vars, footerH: 16, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
+  return { ...vars, footerH: CONVERSATION_FOOTER_H, collapsedMaxH: long ? CONVERSATION_PREVIEW_MAX_H : Number.MAX_SAFE_INTEGER, expandedMaxH: Number.MAX_SAFE_INTEGER };
 }
 
 function segments(item: ChatMessage): ChatMessage[] {
@@ -74,14 +74,14 @@ export function conversationSenderName(item: ChatMessage, ctx: MeasureCtx): stri
 function replySenderLabel(quote: NonNullable<ChatMessage['conversationReply']>, ctx: MeasureCtx) {
   const self = ctx.selfIdentity ?? null;
   const sender = isSelfAddress(quote.fromId ?? null, self) && self?.displayName?.trim() ? self.displayName.trim() : shownSender(quote.from ?? null, quote.fromId ?? null, self);
-  return quote.background ? '' : [quote.chatId ? ctx.chatName?.(quote.chatId) : null,
-    quote.self ? ctx.commands?.conversationAgentName?.() ?? null : sender ?? (quote.unloaded ? null : self?.displayName)]
+  return [quote.chatId ? ctx.chatName?.(quote.chatId) : null,
+    quote.self ? ctx.commands?.conversationAgentName?.() ?? null : sender]
     .filter((part): part is string => Boolean(part?.trim())).join(' · ');
 }
 function headerLayout(item: ChatMessage, ctx: MeasureCtx) {
   const quote = messageQuote(item);
   const name = readableLabel(conversationSenderName(item, ctx), ctx, quote ? ctx.width * .52 : ctx.width, 12, 18, 650);
-  const disabled = quote && !quote.background && !ctx.commands?.onConversationReply;
+  const disabled = quote && !ctx.commands?.onConversationReply;
   const label = quote ? replySenderLabel(quote, ctx) : '';
   const quoteText = disabled ? readableLabel(`${label ? `${label}：` : ''}${quote.text}`, ctx, ctx.width * .48 - 36, 12, 18) : null;
   return { name, quote: quoteText, height: Math.max(HEADER_H, name.height + 6, (quoteText?.height ?? 0) + 6) };
@@ -153,9 +153,8 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
         <span class={conversationTimeSeparator} aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
           style={head().quote ? { 'white-space': 'pre-wrap', overflow: 'visible' } : undefined}
-          disabled={!quote().background && !commands().onConversationReply} onClick={quote().background ? undefined : () => commands().onConversationReply?.(quote().itemId)}
-          data-collapse-id={quote().background ? props.data.conversationProcess?.id : undefined} data-collapse-anchor={props.data.id}
-          aria-label={quote().background ? quote().text : translate('transcript.showOriginalMessage')}>
+          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
+          aria-label={translate('transcript.showOriginalMessage')}>
           <Show when={!head().quote} fallback={<span style={{ 'white-space': 'pre-wrap', overflow: 'visible' }}>{head().quote!.text}</span>}>
           <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
           <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>

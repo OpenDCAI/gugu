@@ -40,3 +40,26 @@ export function assistantTimelineClient(isLocal: boolean, options?: { trim?: boo
   if (!isLocal) return remoteClient
   return options?.trim === false ? localUntrimmed : local
 }
+
+export async function changeConversationQueue(local: boolean, deviceId: string, conversationId: string, action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction, phoneHost = false): Promise<null> {
+  return local ? value(rpcOn(null).sessionTimeline.sessionQueue({ conversationId, action })) : remote.changeSessionQueue(deviceId, conversationId, action, phoneHost)
+}
+
+export function conversationOptionClient(target: { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean }) {
+  const { deviceId, sessionId, local, phoneHost } = target
+  return {
+    read: () => local ? value(rpcOn(null).sessionTimeline.sessionOptions({ conversationId: sessionId })) : remote.fetchSessionOptions(deviceId, sessionId, phoneHost),
+    set: (dimension: import('@gugu/session-core/session-record/contract').SessionOptionDimension, next: string) => {
+      const input = { conversationId: sessionId, dimension, value: next }
+      return local ? value(rpcOn(null).sessionTimeline.sessionSetOption(input)) : remote.setSessionOption(deviceId, input, phoneHost)
+    },
+    reload: (next: { modelId: string; source: 'platform' | 'own' }) => {
+      const input = { conversationId: sessionId, model: next.modelId, modelSource: next.source }
+      return local ? value(rpcOn(null).sessionTimeline.sessionReloadModel(input)) : remote.reloadSessionModel(deviceId, input, phoneHost)
+    },
+  }
+}
+
+export function readConversationFile(local: boolean, deviceId: string, input: import('@gugu/session-core/session-record/contract').SessionpageOpenedFileReadRequest) {
+  return local ? value(rpcOn(null).sessionTimeline.sessionOpenedFileRead(input)) : remote.readOpenedFileChunk(deviceId, input)
+}
