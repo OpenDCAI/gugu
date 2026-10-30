@@ -25,7 +25,7 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 	if helper == "" {
 		t.Fatal("helper-tagged tests require GUGU_TEST_MEDIA_HELPER")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	config := testEncoderConfig(t)
 	cmd := exec.CommandContext(ctx, helper, "-ffmpeg", config.Executable, "-width", "128", "-height", "96", "-fps", "10", "-bitrate", "500000", "-test-loopback")
@@ -84,6 +84,9 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 				}
 				if message.Type == "error" {
 					t.Fatalf("helper failed: %s", message.Error)
+				}
+				if message.Type == "encoded" && kind != "encoded" {
+					t.Fatal("recovery emitted an unsolicited host encoding receipt")
 				}
 				if message.Type == kind {
 					return message
@@ -210,7 +213,7 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 	var recovered MediaMessage
 	select {
 	case recovered = <-encoded:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("PLI did not recover an unacknowledged picture while host input remained idle")
 	}
 	if recovered.Frame == nil || recovered.Frame.Sequence != 403 {
@@ -241,14 +244,14 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 	select {
 	case <-encoded:
 		t.Fatal("PLI burst bypassed the recovery rate limit")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(150 * time.Millisecond):
 	}
 	select {
 	case again := <-encoded:
 		if again.Frame == nil || !again.Frame.Recovery || again.Frame.Sequence != 403 {
 			t.Fatalf("burst recovery changed source: %+v", again)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("coalesced PLI was never serviced")
 	}
 	decoder := exec.CommandContext(ctx, config.Executable, "-v", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")

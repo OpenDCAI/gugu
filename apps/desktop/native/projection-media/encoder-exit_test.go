@@ -3,6 +3,7 @@
 package projection
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -59,11 +60,8 @@ func TestEncoderExitKeepsStderrAndStatus(t *testing.T) {
 
 func TestFrameDeadlineDuringBlockedStdin(t *testing.T) {
 	config := testEncoderConfig(t)
-	config.Width, config.Height = 1280, 720 // Larger than the pipe; the child never reads stdin.
-	config.Executable = filepath.Join(t.TempDir(), "blocked-ffmpeg")
-	if err := os.WriteFile(config.Executable, []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	config.Width, config.Height = 1280, 720
+	config.Executable = encoderFixtureExecutable(t, encoderFixturePlan{Size: config.Width * config.Height * 4, Encoded: oneEncodedFixture(t, config)})
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
 	video, err := StartVideoEncoder(ctx, config, ignoreRTP{})
@@ -71,12 +69,15 @@ func TestFrameDeadlineDuringBlockedStdin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer video.Close()
-	_, err = video.WriteFrame(ctx, 1, make([]byte, config.Width*config.Height*4))
+	if _, err = video.WriteFrame(ctx, 1, bytes.Repeat([]byte{17}, config.Width*config.Height*4)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = video.WriteFrame(ctx, 2, bytes.Repeat([]byte{99}, config.Width*config.Height*4))
 	if err == nil || err.Error() != "projection frame encoding timed out" {
-		t.Fatalf("stdin timeout lost its cause: %v", err)
+		t.Fatalf("warm stdin timeout lost its cause: %v", err)
 	}
 	if !strings.Contains(video.encoder.closedError().Error(), "projection frame encoding timed out") {
-		t.Fatalf("encoder retained a pipe error instead of its deadline: %v", video.encoder.closedError())
+		t.Fatalf("encoder retained a pipe error instead of its warm deadline: %v", video.encoder.closedError())
 	}
 }
 
