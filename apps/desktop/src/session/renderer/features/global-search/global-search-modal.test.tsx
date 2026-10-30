@@ -7,7 +7,7 @@ import type { SearchMessageHit, SearchResults } from '@gugu/core/shared/search/t
 import { conversationLink } from '@gugu/core/shared/ui/guguLink'
 import { publishChatSummaries } from '@/lib/chatSummariesBridge'
 
-const calls = vi.hoisted(() => ({ links: [] as string[], queries: [] as unknown[], dispatched: [] as string[], paged: false }))
+const calls = vi.hoisted(() => ({ links: [] as string[], queries: [] as unknown[], dispatched: [] as string[], paged: false, terminal: false }))
 vi.mock('@/lib/guguLinks', () => ({ followLink: (href: string) => { calls.links.push(href); return true } }))
 vi.mock('@renderer/lib/commands/registry', () => ({ commandRegistry: { dispatch: (id: string) => { calls.dispatched.push(id); return true } } }))
 vi.mock('@renderer/localization/use-session-messages', () => ({
@@ -25,7 +25,8 @@ vi.mock('@renderer/lib/ipc', () => ({
     // paged: one result per page, so the bar has to fetch the second page itself.
     const results = !calls.paged ? hits : request.cursor ? hits.slice(1) : hits.slice(0, 1)
     const nextCursor = calls.paged && !request.cursor ? 'page-2' : null
-    return { results, facets: { total: 2, file: 1, image: 0, link: 0, otherChats: 23 }, coverage: { complete: true, chats: [] }, nextCursor } satisfies SearchResults
+    return { results, facets: { total: 2, file: 1, image: 0, link: 0, otherChats: 23 },
+      coverage: { complete: !calls.terminal, chats: [], tasks: calls.terminal ? [{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }] : [] }, nextCursor } satisfies SearchResults
   } } }),
 }))
 import { COMMANDS } from '@shared/commands'
@@ -50,13 +51,21 @@ const key = (init: KeyboardEventInit) => act(() => { input().dispatchEvent(new K
 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-  calls.links = []; calls.queries = []; calls.dispatched = []; calls.paged = false; onClose.mockReset()
+  calls.links = []; calls.queries = []; calls.dispatched = []; calls.paged = false; calls.terminal = false; onClose.mockReset()
   publishChatSummaries([{ id: G, kind: 'group', unread_count: 0, name: '产品讨论', last_message_at: '2026-10-27T00:00:00Z' }])
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
 describe('global search modal', () => {
+  it('states that terminal tasks are not indexed instead of claiming all history is present', async () => {
+    calls.terminal = true
+    openGlobalSearch({ text: '回滚' })
+    await render()
+    expect(host.textContent).toContain('globalSearch.terminalNotIndexed')
+    expect(host.textContent).toContain('globalSearch.coveragePartial')
+    expect(host.textContent).not.toContain('globalSearch.coverageComplete')
+  })
   it('opens scoped to a chat from an in-chat entry, newest first, and queries through the shared filters', async () => {
     openGlobalSearch({ text: '回滚', chips: [{ kind: 'in', chatId: G }] })
     expect(calls.dispatched).toEqual(['app.globalSearch'])

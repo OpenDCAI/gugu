@@ -232,6 +232,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
         {coverage && (
           <span className="ml-auto shrink-0 pl-2 text-xs text-foreground/40">
             {translate(coverage.complete ? 'globalSearch.coverageComplete' : 'globalSearch.coveragePartial')}
+            {coverage.tasks?.some(task => task.reason === 'terminal') && <> · {translate('globalSearch.terminalNotIndexed')}</>}
           </span>
         )}
       </div>
@@ -266,7 +267,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       <span className="truncate text-sm font-medium text-foreground">{isFile ? <Highlighted text={hit.text} hit={hit} /> : sender}</span>
-                      <span className="ml-auto shrink-0 text-xs text-foreground/40">{formatWhen(hit.createdAt)}</span>
+                      {hit.createdAt && <span className="ml-auto shrink-0 text-xs text-foreground/40">{formatWhen(hit.createdAt)}</span>}
                     </span>
                     <span className="mt-1 line-clamp-2 text-[length:var(--font-body)] leading-5 text-foreground/70">
                       {isFile ? translate('globalSearch.sentFile', { name: personName(hit.senderId) }) : <Highlighted text={hit.text} hit={hit} />}

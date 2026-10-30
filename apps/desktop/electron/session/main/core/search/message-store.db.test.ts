@@ -52,6 +52,33 @@ afterEach(() => {
 });
 
 describe('account message index on real SQLite FTS5', () => {
+  it('immediately excludes cached terminal hits using the authoritative task metadata', () => {
+    const store = open();
+    store.apply([{ kind: 'task', task: { id: 's', title: 'Task', projectId: 'p' } },
+      { kind: 'taskTurn', taskId: 's', seq: 0, documents: [{ id: 'cached', taskId: 's', reference: 'ref',
+        seq: 0, role: 'user', text: 'needle', createdAt: null }] },
+      { kind: 'taskCoverage', coverage: { taskId: 's', lastSeq: 0, exhausted: true } }]);
+    expect(ids(store, 'needle')).toEqual(['cached']);
+    store.apply([{ kind: 'task', task: { id: 's', title: 'Task', projectId: 'p', terminal: true } }]);
+    expect(ids(store, 'needle')).toEqual([]);
+    expect(store.global(query('needle', { kind: 'task' })).coverage).toMatchObject({ complete: false,
+      tasks: [{ taskId: 's', exhausted: false, reason: 'terminal' }] });
+  });
+  it('places unknown task dates last without a recent reason or any date-filter match', () => {
+    const store = open();
+    const task = { id: 's', title: 'Task', projectId: 'p' };
+    store.apply([groups, { kind: 'task', task }, { kind: 'rows', rows: [row('known', { content: 'needle' })] },
+      { kind: 'taskTurn', taskId: 's', seq: 0, documents: [{ id: 'unknown', taskId: 's', reference: 'ref',
+        role: 'user', seq: 0, text: 'needle', createdAt: null }] }]);
+    const result = store.global(query('needle')).results;
+    expect(result.map(hit => hit.id)).toEqual(['known', 'unknown']);
+    expect(result[1].createdAt).toBeNull();
+    expect(result[1].rank.reasons.some(reason => reason.code === 'recent')).toBe(false);
+    for (const filters of [{ before: '2100-01-01' }, { after: '1900-01-01' }, { on: '2026-10-30' }]) {
+      expect(ids(store, 'needle', filters)).not.toContain('unknown');
+    }
+    expect(store.dateAnchor({ text: 'needle', filters: { kind: 'task', on: '2026-10-30' }, sort: 'recent' })).toBeNull();
+  });
   it('shares contentless FTS across origins while chat/task inventories purge independently', () => {
     const store = open();
     const document = { id: 'task:s:ref', taskId: 's', reference: 'ref', role: 'assistant' as const, seq: 0, text: 'taskneedle', createdAt: at };

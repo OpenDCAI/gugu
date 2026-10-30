@@ -15,6 +15,7 @@ import { sessionEvents } from '../sessions/session-events';
 import { mapSessionRowToSession } from '../sessions/utils';
 import { projectEvents } from '../projects/project-events';
 import { workspaceFileIndexService } from './workspace-file-index-service';
+import { localProjectsOnly } from './local-projects-only';
 
 type FtsRow = {
   item_type: string;
@@ -31,10 +32,8 @@ type RecentSessionRow = {
 };
 
 /** 已下架的 SSH 远程项目(#6264)行原样留在库里、也可能早已写进 search_index:查询时按项目的 workspace_provider 排除。 */
-const LOCAL_PROJECTS_ONLY = `NOT EXISTS (SELECT 1 FROM projects p
-  WHERE p.id = COALESCE(search_index.project_id,
-    CASE WHEN search_index.item_type = 'project' THEN search_index.item_id END)
-    AND p.workspace_provider != 'local')`;
+const LOCAL_PROJECTS_ONLY = localProjectsOnly(`COALESCE(search_index.project_id,
+  CASE WHEN search_index.item_type = 'project' THEN search_index.item_id END)`);
 
 class SearchService {
   initialize(): void {

@@ -9,7 +9,7 @@ import type { MessageSearchRequest } from '@shared/core/message-search';
 
 type MessageRow = {
   id: string; chat_id: string | null; task_id: string | null; task_title: string | null; project_id: string | null; message_ref: string | null; role: 'user' | 'assistant' | null; thread_root_id: string | null; seq: number; sender_id: string | null;
-  created_at_iso: string; text: string; to_user_ids: string; text_rank: number; has_file: number; has_image: number;
+  created_at_iso: string | null; text: string; to_user_ids: string; text_rank: number; has_file: number; has_image: number;
 };
 type CoverageRow = { chat_id: string; stream: string; oldest_seq: number | null; newest_seq: number | null; exhausted: number };
 
@@ -24,8 +24,11 @@ export function readCoverage(db: Database.Database): SearchCoverage[] {
 export const taskCoverageKey = (taskId: string) => `task:${taskId}`;
 
 export function readTaskCoverage(db: Database.Database): SearchTaskCoverage[] {
-  return (db.prepare('SELECT * FROM task_coverage').all() as { task_id: string; last_seq: number; exhausted: number }[])
-    .map(row => ({ taskId: row.task_id, lastSeq: row.last_seq, exhausted: row.exhausted === 1 }));
+  return (db.prepare(`SELECT task.id AS task_id,coalesce(task_coverage.last_seq,-1) AS last_seq,
+    coalesce(task_coverage.exhausted,0) AS exhausted,task.terminal FROM task LEFT JOIN task_coverage ON task.id=task_id`).all() as
+    { task_id: string; last_seq: number; exhausted: number; terminal: number }[])
+    .map(row => ({ taskId: row.task_id, lastSeq: row.last_seq, exhausted: row.exhausted === 1 && row.terminal === 0,
+      ...(row.terminal === 1 ? { reason: 'terminal' as const } : {}) }));
 }
 
 export const coverageKey = (chatId: string, threadRootId: string | null) => `${chatId}\u0000${threadRootId ?? ''}`;
@@ -38,11 +41,12 @@ function readCoverageReport(db: Database.Database, current: ReadonlySet<string>,
 
 function readSearchCoverage(db: Database.Database, current: ReadonlySet<string>, query: SearchQuery): SearchCoverageReport {
   const chatReport = readCoverageReport(db, current, scopedChatIds(db, query));
-  const taskIds = (db.prepare('SELECT id FROM task').all() as { id: string }[]).map(row => row.id)
+  const taskIds = (query.filters.kind === 'message' ? [] : db.prepare('SELECT id FROM task').all() as { id: string }[]).map(row => row.id)
     .filter(id => !query.filters.in?.length || query.filters.in.some(scope => scope.kind === 'session' && scope.id === id));
   const stored = new Map(readTaskCoverage(db).map(row => [row.taskId, row]));
   const tasks = taskIds.map(taskId => ({ taskId, lastSeq: stored.get(taskId)?.lastSeq ?? -1,
-    exhausted: stored.get(taskId)?.exhausted === true && current.has(taskCoverageKey(taskId)) }));
+    exhausted: stored.get(taskId)?.exhausted === true && current.has(taskCoverageKey(taskId)),
+    ...(stored.get(taskId)?.reason ? { reason: stored.get(taskId)!.reason } : {}) }));
   return { chats: chatReport.chats, tasks,
     complete: (query.filters.kind === 'task' || chatReport.complete) && (query.filters.kind === 'message' || tasks.every(row => row.exhausted)) };
 }

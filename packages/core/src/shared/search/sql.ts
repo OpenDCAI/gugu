@@ -28,7 +28,7 @@ export function buildSearchSql(
 ): SearchSql {
   if (!accountId) throw new Error('A signed-in search account is required')
   const params: (string | number)[] = []
-  const where: string[] = []
+  const where: string[] = ['(m.task_id IS NULL OR task.terminal = 0)']
   const positives: string[] = []
   const negatives: string[] = []
   for (const term of parseSearchTerms(query.text)) {
@@ -89,7 +89,7 @@ export function buildSearchSql(
     LEFT JOIN task ON task.id = m.task_id
     ${fts ? 'JOIN msg_fts ON msg_fts.rowid = m.rowid' : ''}
     WHERE ${where.length ? where.join('\n      AND ') : '1'}
-    ${options.unordered ? '' : `ORDER BY ${query.sort === 'relevant' && fts ? 'text_rank ASC, ' : ''}m.created_at DESC, m.seq DESC, m.id ASC`}`
+    ${options.unordered ? '' : `ORDER BY ${query.sort === 'relevant' && fts ? 'text_rank ASC, ' : ''}m.created_at DESC NULLS LAST, m.seq DESC, m.id ASC`}`
   if (options.limit !== undefined || options.offset !== undefined) {
     const limit = options.limit ?? 50
     const offset = options.offset ?? 0

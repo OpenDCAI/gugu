@@ -24,7 +24,8 @@ export function applyOps(db: Database.Database, accountId: string, ops: readonly
   const removeRow = db.prepare('DELETE FROM msg WHERE id=?');
   const known = db.prepare('SELECT 1 FROM chat WHERE id=?');
   const knownTask = db.prepare('SELECT 1 FROM task WHERE id=?');
-  const putTask = db.prepare(`INSERT INTO task VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,project_id=excluded.project_id,agent_user_id=excluded.agent_user_id`);
+  const putTask = db.prepare(`INSERT INTO task VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+    title=excluded.title,project_id=excluded.project_id,agent_user_id=excluded.agent_user_id,terminal=excluded.terminal`);
   for (const op of ops) {
     if (op.kind === 'rows') {
       for (const raw of op.rows) {
@@ -56,7 +57,7 @@ export function applyOps(db: Database.Database, accountId: string, ops: readonly
         .run(chatId, stream(threadRootId), oldestSeq, newestSeq, Number(exhausted));
     } else if (op.kind === 'task' || op.kind === 'tasks') {
       const tasks = op.kind === 'task' ? [op.task] : op.tasks;
-      for (const task of tasks) putTask.run(task.id, task.title, task.projectId, task.agentUserId ?? null);
+      for (const task of tasks) putTask.run(task.id, task.title, task.projectId, task.agentUserId ?? null, Number(task.terminal === true));
       if (op.kind === 'tasks') {
         const listed = new Set(tasks.map(task => task.id));
         for (const { id } of db.prepare('SELECT id FROM task').all() as { id: string }[]) {
@@ -71,7 +72,8 @@ export function applyOps(db: Database.Database, accountId: string, ops: readonly
       for (const row of op.documents) {
         if (row.taskId !== op.taskId || row.seq !== op.seq) throw new Error('Task document belongs to another turn');
         put(row.text, [row.id, null, row.taskId, row.reference, row.role, null, row.seq,
-          row.senderId === undefined ? (row.role === 'user' ? accountId : null) : row.senderId, micros(row.createdAt), row.createdAt, row.text, 0, '[]', 0, 0, 0]);
+          row.senderId === undefined ? (row.role === 'user' ? accountId : null) : row.senderId,
+          row.createdAt === null ? null : micros(row.createdAt), row.createdAt, row.text, 0, '[]', 0, 0, 0]);
       }
     } else if (op.kind === 'truncateTask') {
       db.prepare('DELETE FROM msg WHERE task_id=? AND seq>=?').run(op.taskId, op.fromSeq);
@@ -79,7 +81,8 @@ export function applyOps(db: Database.Database, accountId: string, ops: readonly
     } else if (op.kind === 'taskCoverage') {
       if (!knownTask.get(op.coverage.taskId)) continue;
       const { taskId, lastSeq, exhausted } = op.coverage;
-      db.prepare(`INSERT INTO task_coverage VALUES (?,?,?) ON CONFLICT(task_id) DO UPDATE SET last_seq=excluded.last_seq,exhausted=excluded.exhausted`)
+      db.prepare(`INSERT INTO task_coverage VALUES (?,?,?) ON CONFLICT(task_id) DO UPDATE SET
+        last_seq=excluded.last_seq,exhausted=excluded.exhausted`)
         .run(taskId, lastSeq, Number(exhausted));
     }
   }
