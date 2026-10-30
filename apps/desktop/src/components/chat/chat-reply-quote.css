@@ -1,10 +1,3 @@
-.gg-chat-reply-quote { display: flex; align-items: flex-start; gap: 5px; max-width: 100%; min-width: 0; color: var(--muted-fg); }
-.gg-chat-reply-preview { display: none; min-width: 0; max-width: 100%; }
-.gg-chat-reply-quote[data-marker="false"][data-open="false"] { display: none; }
-.gg-chat-reply-quote[data-open="true"] > .gg-chat-reply-preview { display: block; }
-@media (hover: hover) and (pointer: fine) {
-  .gg-chat-reply-quote[data-mobile="false"]:hover,
-  .gg-chat-reply-quote[data-mobile="false"]:has(:focus-visible) { display: flex; }
-  .gg-chat-reply-quote[data-mobile="false"]:hover > .gg-chat-reply-preview,
-  .gg-chat-reply-quote[data-mobile="false"]:has(:focus-visible) > .gg-chat-reply-preview { display: block; }
-}
+.gg-chat-reply-quote { display: flex; max-width: 100%; min-width: 0; color: var(--muted-fg); }
+.gg-chat-reply-preview { min-width: 0; max-width: 100%; }
+.gg-chat-reply-popup { max-width: min(320px, calc(100vw - 16px)); min-width: 0; background: var(--popover); color: var(--text-primary); border-radius: var(--radius-control); box-shadow: var(--shadow-lift); }

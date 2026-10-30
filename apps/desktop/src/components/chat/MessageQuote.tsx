@@ -38,7 +38,7 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
       text={displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`)}
     />
   )
-  return disclosure ? <ChatReplyQuote insideBubble disclosure={disclosure} onJump={onShowMessage ? () => onShowMessage(msg.reply_to_message_id!) : undefined}>{preview}</ChatReplyQuote> : preview
+  return disclosure ? <ChatReplyQuote disclosure={disclosure} onJump={onShowMessage ? () => onShowMessage(msg.reply_to_message_id!) : undefined}>{preview}</ChatReplyQuote> : preview
 }
 
 /**
@@ -76,7 +76,7 @@ export function MessageQuoteFrame({ mine, head, text, onClick }: {
 /**
  * 私聊里引的那一条:气泡上方一行「发送者 · 短摘要」(owner 10-28,与会话页 #705 同一格式),点一下跳到被引用的消息。
  * 私聊里能引的只有这条私聊自己的消息,所以没有群名那一段;发送者写被引那条自己的发送者(本人、对方、agent 照写),
- * 引的是任务卡时照 gugu-dev#181 写卡头。常驻标记只由真实相邻消息ID决定；引用正文在悬停时展示。
+ * 引的是任务卡时照 gugu-dev#181 写卡头。明确回复目标保留无字标记；只在悬停标记或手机点击标记时展示引用正文。
  * 群里照旧是上面的 MessageQuote。
  */
 export function DirectMessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage, disclosure }: {

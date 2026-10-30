@@ -1,3 +1,4 @@
+import { act } from 'react';
 /**
  * 分屏再开成员栏,群的消息列只剩两三百宽(10-28 实测:窗口 800,消息列 247px):
  * - 任务卡「交给 · Codex 3 ✓」那一行冲出卡边,行尾的 ✓ 压到发送者头像上;卡头「新任务」在 24px 高的行里折成两行。
@@ -12,6 +13,7 @@ import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels';
 import { i18n } from '@/i18n';
 import '@/i18n/registerMessagingCatalog';
 import '@/styles/tokens.css';
+import '@renderer/index.css';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
@@ -86,7 +88,7 @@ describe('cards and quotes in a narrow group message list', () => {
       expect(title.getBoundingClientRect().height, 'the head stays one line').toBeLessThanOrEqual(24);
     });
 
-    it(`list ${listWidth}px: a reply's quote bar stays inside the bubble`, async () => {
+    it(`list ${listWidth}px: a reply mark stays inside the bubble and its disclosed source stays inside the viewport`, async () => {
       const root = await renderBubble(listWidth, {
         content: 'ok one',
         reply_to_message_id: 'msg-0',
@@ -94,14 +96,21 @@ describe('cards and quotes in a narrow group message list', () => {
         reply_to_content: 'Reply with just: ok one',
       });
       const bubble = root.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
-      await userEvent.hover(bubble);
-      const preview = root.querySelector<HTMLElement>('.gg-chat-reply-preview')!;
-      await until('the hovered quote is visible', () => getComputedStyle(preview).display === 'block');
-      const quote = preview.querySelector<HTMLElement>('[title="Go to the quoted message"]')!;
-      expect(quote.getBoundingClientRect().width, 'measure the visible quote frame, not its jump mark').toBeGreaterThan(0);
+      const mark = root.querySelector<HTMLElement>('.gg-chat-reply-jump')!;
+      const bodyHeight = bubble.getBoundingClientRect().height;
       const style = getComputedStyle(bubble);
       const contentRight = bubble.getBoundingClientRect().right - Number.parseFloat(style.paddingRight);
-      expect(quote.getBoundingClientRect().right, 'quote bar right edge vs bubble content edge').toBeLessThanOrEqual(contentRight + 0.5);
+      expect(mark.getBoundingClientRect().right, 'reply mark stays within the message content').toBeLessThanOrEqual(contentRight + 0.5);
+      await act(async () => { await userEvent.hover(document.documentElement); });
+      await act(async () => { await userEvent.hover(mark); });
+      await until('the source popup is visible', () => { const r = mark.getBoundingClientRect(); return { open: document.querySelector('[data-chat-reply-preview-popup]') !== null, hover: mark.matches(':hover'), width: r.width, height: r.height, hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName }; }, value => value.open);
+      const popup = document.querySelector<HTMLElement>('[data-chat-reply-preview-popup]')!;
+      const quote = popup.querySelector<HTMLElement>('[title="Go to the quoted message"]')!;
+      expect(quote.getBoundingClientRect().width, 'measure the real quote frame').toBeGreaterThan(0);
+      expect(quote.getBoundingClientRect().right).toBeLessThanOrEqual(popup.getBoundingClientRect().right + 0.5);
+      expect(popup.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth + 0.5);
+      expect(popup.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
+      expect(bubble.getBoundingClientRect().height, 'disclosure does not reflow the message').toBe(bodyHeight);
     });
   }
 });

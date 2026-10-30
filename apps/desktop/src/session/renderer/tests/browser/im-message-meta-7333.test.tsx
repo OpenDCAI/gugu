@@ -1,3 +1,4 @@
+import { act } from 'react';
 /**
  * #7333 IM 气泡的元信息与引用条按母版字阶落到真实计算值:正文仍是 16/24;发送者名、时间、悄悄话标签、AI 代发、
  * 系统消息、发送失败 = 标注 12/18;气泡里的引用条(回复引用,与已发出的 `> [名字]: 原话`)的标题和摘录 = 紧凑界面 14/20。
@@ -12,6 +13,7 @@ import type { MemberProfileCardModel } from '@/components/MemberProfileCard';
 import { i18n } from '@/i18n';
 import '@/i18n/registerMessagingCatalog';
 import '@/styles/tokens.css';
+import '@renderer/index.css';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
@@ -74,11 +76,11 @@ describe('the IM bubble\'s meta and quote bars in the master\'s tiers (#7333)', 
     });
     expect(tier(root.querySelector('[data-message-sender-name="true"]'))).toEqual(COMPACT);
     expect(tier(root.querySelector('[data-message-time="true"]'))).toEqual(CAPTION);
-    const preview = root.querySelector<HTMLElement>('.gg-chat-reply-preview')!;
-    expect(getComputedStyle(preview).display).toBe('none');
-    await userEvent.hover(root.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!);
-    await until('the hovered quote is visible before measuring its typography', () => getComputedStyle(preview).display === 'block');
-    const excerpt = byText(root, LONG_EXCERPT)!;
+    expect(root.querySelector('.gg-chat-reply-preview')).toBeNull();
+    await act(async () => { await userEvent.hover(document.documentElement); });
+    await act(async () => { await userEvent.hover(root.querySelector<HTMLElement>('.gg-chat-reply-jump')!); });
+    await until('the mark discloses its source before measuring typography', () => document.querySelector('[data-chat-reply-preview-popup]') !== null);
+    const excerpt = byText(document.body, LONG_EXCERPT)!;
     const title = excerpt.previousElementSibling as HTMLElement;
     expect(title.textContent).toBe('林知夏');
     expect(tier(title), 'the quote title').toEqual(COMPACT);

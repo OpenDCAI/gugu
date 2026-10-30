@@ -39,8 +39,8 @@ const CARD: TaskCard = {
   v: 1, type: 'task', text: '用一句话介绍你自己', agentUserId: 'agent-1', agentName: 'Codex 1', agentType: 'codex',
   sessionId: 'session-1', projectId: 'project-1', deviceId: 'device-1', machineLabel: 'This computer',
 }
-const bubble = (msg: ReturnType<typeof message>) => createNode(MessageBubble, {
-  msg, onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
+const bubble = (msg: ReturnType<typeof message>, compactMobile = false) => createNode(MessageBubble, {
+  msg, compactMobile, onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
   showReadReceipt: true, readReceiptRead: 0, readReceiptTotal: 1,
 })
 const ring = () => harness.container.querySelector('[data-testid="message-read-receipt"]')
@@ -101,8 +101,9 @@ describe('task card in a chat (gugu-dev#181)', () => {
     await renderWithAppProviders(harness, bubble(message({
       id: 'reply-1', is_mine: false, sender_user_id: 'agent-1', content: '我是 Codex',
       reply_to_message_id: 'card-1', reply_to_sender_user_id: 'owner', reply_to_content: serializeComposerCard(CARD),
-    })))
-    const quote = harness.container.querySelector('.gg-chat-reply-preview > [title="跳到被引用的消息"]')!
+    }), true))
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('.gg-chat-reply-jump')!.click() })
+    const quote = document.querySelector('.gg-chat-reply-preview > [title="跳到被引用的消息"]')!
     expect(quote.textContent).toContain('新任务')
     expect(quote.textContent).toContain('用一句话介绍你自己')
     expect(quote.textContent).not.toContain('新任务：')
