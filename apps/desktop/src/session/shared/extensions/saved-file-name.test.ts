@@ -18,6 +18,7 @@ describe('the name a chat-folder file is saved under', () => {
     ['notes', 'text/plain', 'notes.txt'],
     ['table', 'text/csv', 'table.csv'],
     ['page', 'text/html', 'page.html'],
+    ['report.HTM', 'text/html', 'report.HTM'],
     ['x', 'application/octet-stream', 'x'],
     ['archive.v2', 'application/octet-stream', 'archive.v2'],
     ['x', 'application/unknown', 'x'],

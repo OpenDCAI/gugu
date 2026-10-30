@@ -612,8 +612,9 @@ export function typedFileName(file: { name: string; contentType?: string | null 
 /** The name handed to a save or system-open operation; opener matching stays with typedFileName. */
 export function savedFileName(file: { name: string; contentType?: string | null }): string {
   const type = normalizeMimeType(file.contentType);
-  if (SUFFIX_OF_CONTENT_TYPE[type]) return typedFileName(file);
-  if (mimeTypeFromName(file.name)) return file.name;
+  const namedType = mimeTypeFromName(file.name);
+  if (SUFFIX_OF_CONTENT_TYPE[type] && namedType !== type) return typedFileName(file);
+  if (namedType) return file.name;
   const extension = extensionFromMimeType(type);
   return extension ? `${file.name}.${extension}` : file.name;
 }

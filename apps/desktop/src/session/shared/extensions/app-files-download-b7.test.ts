@@ -57,6 +57,7 @@ describe('saving a document of the workspace reads it from the file service (L11
   it.each([
     ['周报', 'text/markdown', '周报.md'],
     ['投票', 'application/json', '投票.json'],
+    ['report.HTM', 'text/html', 'report.HTM'],
   ])('saves a document titled %s (%s) as %s', async (filename, contentType, expected) => {
     Object.assign(row, { filename, content_type: contentType });
     vi.stubGlobal('fetch', async () => Response.json({ epoch: 3, contentType, text: 'current contents', live: true }));
