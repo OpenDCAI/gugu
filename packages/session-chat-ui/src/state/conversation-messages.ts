@@ -77,7 +77,7 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const original = quoted ? messages.get(quoted) : undefined;
     if (!original) return quoted ? { ...data, conversationReply: { itemId: quoted, text: reply?.preview ?? '', unloaded: true,
       ...(reply?.from ? { from: reply.from } : {}), ...(reply?.fromId ? { fromId: reply.fromId } : {}) } } : data;
-    const conversationReply = { itemId: original.item.id, text: original.text, ...(original.from ? { from: original.from } : {}),
+    const conversationReply = { itemId: original.item.id, messageId: quoted, text: original.text, ...(original.from ? { from: original.from } : {}),
       ...(original.fromId ? { fromId: original.fromId } : {}), ...(original.self ? { self: true } : {}), ...(original.chatId ? { chatId: original.chatId } : {}) };
     return { ...data, conversationReply };
   }) }));

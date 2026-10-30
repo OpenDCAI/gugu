@@ -66,5 +66,13 @@ export function useSessionMessageQuotes(store: AcpChatStore | null | undefined, 
     target.root.addEventListener('contextmenu', open);
     return () => target.root.removeEventListener('contextmenu', open);
   }, [editor]);
-  return { onMessageTextMount, restorePrompt };
+  const onQuoteMessage = useCallback<NonNullable<ChatCommands['onQuoteMessage']>>(({ message, sender }) => {
+    const current = latest.current.store;
+    if (!current) return;
+    const source = sessionMessageQuoteSource(message, current.sessionId);
+    if (!source || !message.text.trim()) return;
+    setSessionQuote(current, { source, text: message.text, sender });
+    editor.current?.focus('end');
+  }, [editor]);
+  return { onMessageTextMount, onQuoteMessage, restorePrompt };
 }

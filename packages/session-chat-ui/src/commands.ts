@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Mount a host-owned tooltip without coupling the Solid transcript to its UI framework. */
+  onTooltipMount?: (target: { root: HTMLElement; text: string }) => void | (() => void);
   /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
   onMessageTextMount?: (target: { root: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
@@ -45,6 +47,7 @@ export type ChatCommands = {
   conversationClock?: () => number;
   /** Display name of the agent owning this transcript, supplied by its host. */
   conversationAgentName?: () => string | null;
+  onQuoteMessage?: (target: { message: ChatMessage; sender: string }) => void;
   onConversationReply?: (itemId: string) => void;
   /** Exact source row receiving the shared chat source-message flash. */
   flashMessageId?: string | null;

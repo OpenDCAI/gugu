@@ -53,8 +53,6 @@ for (const label of [collapseHeader, toolName, summaryChip]) {
 globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 1, pointerEvents: 'auto' });
 globalStyle(`${conversationRoot} [data-user-message-actions] > :not([data-slot="sent-to"])`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
 globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conversationRoot} [data-user-message-actions]:focus-within > *`, { opacity: 1, pointerEvents: 'auto' });
-// 发出去的气泡:那一行最前面常驻一小段淡灰的「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
-globalStyle(`${conversationRoot} [data-user-message-actions] > [data-slot="sent-to"]`, { order: -1, marginLeft: 0, marginRight: 8, color: vars.fgMuted, whiteSpace: 'pre-wrap', minWidth: 0 });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] ${userMessageExpandRow}`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });
@@ -67,3 +65,9 @@ globalStyle(`${conversationRoot} ${cardFadeOverlay}`, {
 globalStyle(`${conversationRoot}[data-side="left"] ${cardFadeOverlay}`, {
   background: 'linear-gradient(to top, var(--bubble-other, var(--chat-bg-2)) 0%, transparent 100%)',
 });
+
+// Quotes at rest occupy only a non-adjacent return mark. Hover never changes row height.
+globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conversationQuote} > span`, { display: 'none' });
+globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) ${conversationQuote}[data-adjacent="true"]`, { display: 'none' });
+globalStyle(`${conversationRoot}:not([data-conversation-hovered="true"]) [data-slot="conversation-quote-separator"]`, { display: 'none' });
+export const conversationDestination = style({ display: 'block', marginTop: 4, height: 18, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });

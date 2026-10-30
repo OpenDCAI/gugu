@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { createSignal } from 'solid-js';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatCommands } from '@session-chat/commands';
+import { ConversationHoverContext } from '@session-chat/components/contexts/ConversationHoverContext';
 import { CommandsContext } from '@session-chat/components/contexts/CommandsContext';
 import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
@@ -14,9 +15,10 @@ import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { cardFadeOverlay } from './user-message.css';
 
-async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}) {
+async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}, sibling?: ChatMessage) {
   const item = normalizeMessage(raw);
   const [data, setData] = createSignal(item);
+  const [hover, setHover] = createSignal<string | null>(null);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
   const caches = createChatCaches();
   const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false };
@@ -29,7 +31,10 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
   const dispose = render(() => <ThemeContext.Provider value={() => theme}><CachesContext.Provider value={caches}>
     <SelfIdentityProvider value={() => ({ userId: 'owner', displayName: '刘威', guguNumber: 111179 })}>
     <CommandsContext.Provider value={() => ({ conversationAgentName: () => 'Codex 11', ...commands })}>
-      <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
+      <ConversationHoverContext.Provider value={{ current: hover, set: setHover }}>
+        <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
+        {sibling && <Comp data={normalizeMessage(sibling)} ctx={renderCtx} vars={messageUnitDef.vars!} />}
+      </ConversationHoverContext.Provider>
     </CommandsContext.Provider></SelfIdentityProvider>
   </CachesContext.Provider></ThemeContext.Provider>, host);
   await document.fonts.ready;
@@ -248,7 +253,7 @@ describe('agent-centered conversation bubbles', () => {
       const row = quoted.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
       expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(quoted.item, quoted.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
       expect(line.parentElement?.textContent).toContain('Codex 11');
-      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect().top + 1);
+      expect(line.parentElement).toBe(row.querySelector('[data-conversation-process]')!.parentElement?.parentElement);
       // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
@@ -345,12 +350,14 @@ describe('agent-centered conversation bubbles', () => {
       expect(onOpenSender).toHaveBeenCalledExactlyOnceWith({ kind: 'chat', chatId: chat, messageId: msg });
     } finally { view.dispose(); }
   });
-  it('a sent bubble keeps a faint 「sent to」 note in its actions row while time and copy wait for hover', async () => {
+  it('a sent bubble keeps a single destination inside its bottom while time and copy wait for hover', async () => {
     const view = await mount({ kind: 'message', id: 'call:sent:x', role: 'assistant', text: '完成', at: Date.now(), conversationPart: 'body',
       sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false } });
     try {
       const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
-      const note = actions.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+      const note = view.host.querySelector<HTMLElement>('[data-user-card] [data-slot="sent-to"]')!;
+      expect(actions.contains(note)).toBe(false);
+      expect(note.getBoundingClientRect().width).toBeLessThanOrEqual(180);
       expect(note.textContent?.trim()).toBeTruthy();
       // 整行和「发到」都常亮(MBP 验收 10-28:之前整行被原气泡的 hover 规则藏了,「发到」跟着看不见)。
       expect(getComputedStyle(actions).opacity).toBe('1');
@@ -358,5 +365,76 @@ describe('agent-centered conversation bubbles', () => {
       expect(getComputedStyle(actions.querySelector('button')!).opacity).toBe('0');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
+  });
+});
+
+
+describe('conversation density', () => {
+  it.each([220, 320, 600])('keeps process and identity within the measured header at width %s', async width => {
+    const view = await mount({ kind: 'message', id: 'header', role: 'assistant', text: '', conversationPart: 'head',
+      conversationProcess: { id: 'p', startedAt: 0, endedAt: 75000, steps: 10 },
+      conversationReply: { itemId: 'source', text: '真实来源' } }, width, { conversationAgentName: () => '这是一位名字很长的智能体' });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      const process = row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect();
+      expect(process.right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+      expect(process.bottom).toBeLessThanOrEqual(row.getBoundingClientRect().bottom + 1);
+    } finally { view.dispose(); }
+  });
+  it('hides a repeated speaker without leaving header space and retains it for a distant reply', async () => {
+    const original: ChatMessage = { kind: 'message', id: 'same', role: 'assistant', text: '继续', conversationPreviousSpeaker: '$agent' };
+    const view = await mount(original);
+    try {
+      expect(view.host.querySelector('span[title="Codex 11"]')).toBeNull();
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      view.update({ ...original, conversationReply: { itemId: 'older', text: '前面的消息' } });
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      expect(view.host.querySelector('span[title="Codex 11"]')).not.toBeNull();
+      const quote = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      expect(quote.getBoundingClientRect().width).toBe(14);
+    } finally { view.dispose(); }
+  });
+  it.each([true, false])('reveals the head quote when its body is hovered without changing height (adjacent: %s)', async adjacent => {
+    const reveal = vi.fn();
+    const head: ChatMessage = { kind: 'message', id: 'head', role: 'assistant', text: '', conversationPart: 'head',
+      conversationReplyAdjacent: adjacent, conversationReply: { itemId: 'real-source', text: '原始私聊', from: 'Cleo' } };
+    const view = await mount(head, 600, { onConversationReply: reveal }, { kind: 'message', id: 'body', role: 'assistant', text: '回复正文', conversationPart: 'body', conversationHead: 'head', conversationTail: true });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message="head"]')!;
+      const body = view.host.querySelector<HTMLElement>('[data-agent-conversation-message="body"]')!;
+      const quote = row.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      const height = row.getBoundingClientRect().height;
+      expect(getComputedStyle(quote).display === 'none').toBe(adjacent);
+      expect(getComputedStyle(quote.querySelector('span')!).display).toBe('none');
+      expect(getComputedStyle(row.querySelector('[data-slot="conversation-quote-separator"]')!).display).toBe('none');
+      body.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      expect(getComputedStyle(quote).display).not.toBe('none');
+      expect(getComputedStyle(quote.querySelector('span')!).display).not.toBe('none');
+      expect(row.getBoundingClientRect().height).toBe(height);
+      quote.click();
+      expect(reveal).toHaveBeenCalledExactlyOnceWith('real-source');
+      body.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      if (!adjacent) { quote.click(); expect(reveal).toHaveBeenCalledTimes(2); }
+    } finally { view.dispose(); }
+  });
+  it('truncates long destinations inside each bubble and mounts the existing host tooltip with full text', async () => {
+    const cleanup = vi.fn();
+    const targets: { root: HTMLElement; text: string }[] = [];
+    const view = await mount({ kind: 'message', id: 'sent', role: 'assistant', text: '完成', conversationPart: 'body', sentTo:
+      { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '很长的群聊去处'.repeat(12) } }, 320, {
+        onTooltipMount: target => { targets.push(target); return cleanup; },
+      });
+    try {
+      const note = view.host.querySelector<HTMLElement>('[data-user-card] [data-slot="sent-to"]')!;
+      expect(targets).toHaveLength(1);
+      expect(targets[0]!.text).toContain('很长的群聊去处'.repeat(12));
+      expect(note.getBoundingClientRect().width).toBe(180);
+      expect(getComputedStyle(note).textOverflow).toBe('ellipsis');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 });

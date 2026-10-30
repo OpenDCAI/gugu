@@ -53,7 +53,7 @@ import { itemScrollTarget } from './core/scroll-to-item';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { CachesContext } from './components/contexts/CachesContext';
-import { CommandsContext } from './components/contexts/CommandsContext';
+import { ConversationCommandsProvider } from './components/contexts/ConversationHoverContext';
 import { DebugContext } from './components/contexts/debug-context';
 import { ThemeContext } from './components/contexts/ThemeContext';
 import { TurnStateContext } from './components/contexts/TurnStateContext';
@@ -74,7 +74,7 @@ import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
-  flattenTier,
+  flattenTier, lastConversationMessage,
   isDeliveredFromAgent,
   makeUnitsView,
   collectUserTurnUnits,
@@ -599,7 +599,7 @@ export function ChatRoot(props: ChatRootProps) {
         committedUnitsArr.length > 0
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
-      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
@@ -676,10 +676,10 @@ export function ChatRoot(props: ChatRootProps) {
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
       if (!at && !pendingPrompt) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
-        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
       const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -2026,7 +2026,7 @@ export function ChatRoot(props: ChatRootProps) {
       <DebugContext.Provider value={debugValue}>
         <ThemeContext.Provider value={theme}>
         <CachesContext.Provider value={caches()}>
-          <CommandsContext.Provider value={commands}>
+          <ConversationCommandsProvider value={commands}>
             <TurnStateContext.Provider value={{ currentMessageId, turnStatus }}>
               <div
                 ref={(el) => {
@@ -2162,7 +2162,7 @@ export function ChatRoot(props: ChatRootProps) {
                 </Show>
               </div>
             </TurnStateContext.Provider>
-          </CommandsContext.Provider>
+          </ConversationCommandsProvider>
         </CachesContext.Provider>
         </ThemeContext.Provider>
       </DebugContext.Provider>

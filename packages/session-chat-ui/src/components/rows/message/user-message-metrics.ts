@@ -1,3 +1,4 @@
+import { conversationDestinationLayout } from './conversation-destination';
 import { proseLinesHeight } from '@session-chat/components/rows/markdown/html/layout';
 import type { MeasureCtx } from '@session-chat/core/define';
 import { layoutBlockStack } from '@session-chat/core/layout/block-stack';
@@ -23,7 +24,7 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
     : layoutBlockStack(blocks, { ...ctx, width: userInnerWidth(available, vars) }, { isCollapsed: ctx.isCollapsed }).height;
   const fullHeight = stackHeight + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;
-  return attachments + Math.min(fullHeight, cap) + userMessageActionsHeight(vars);
+  return attachments + Math.min(fullHeight, cap) + (conversationDestinationLayout(item, ctx, userInnerWidth(available, vars))?.height ?? 0) + userMessageActionsHeight(vars);
 }
 
 export function estimateUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
@@ -37,5 +38,5 @@ export function estimateUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars
   const lines = Math.max(1, Math.ceil(item.text.length / 60));
   const fullHeight = proseLinesHeight(lines, ctx.theme) + 2 * vars.userCardPadY + 2 * vars.cardBorder;
   const cap = ctx.expandedId === item.id ? vars.expandedMaxH : vars.collapsedMaxH;
-  return attachments + Math.min(fullHeight, cap) + userMessageActionsHeight(vars);
+  return attachments + Math.min(fullHeight, cap) + (conversationDestinationLayout(item, ctx, userInnerWidth(available, vars))?.height ?? 0) + userMessageActionsHeight(vars);
 }
