@@ -19,7 +19,15 @@ export async function deleteProject(id: string): Promise<void> {
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);
-  if (sessionRows.length) {
+  // Cleanup awaits can admit another task. Read the durable inventory at the delete
+  // write point; the empty check and project deletion must share one transaction.
+  const current = db.transaction(tx => {
+    const rows = tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.projectId, id)).all();
+    const deleted = rows.length ? [] : tx.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id }).all();
+    return { rows, deleted };
+  });
+  if (current.rows.length) {
+    for (const row of current.rows) await archiveSession(id, row.id);
     const folders = await listProjectFolderRefs(id);
     if (!folders) throw new Error(`Project not found: ${id}`);
     for (const folder of folders) {
@@ -31,7 +39,6 @@ export async function deleteProject(id: string): Promise<void> {
     projectEvents._emit('project:deleted', id);
     return;
   }
-  const deleted = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
   void viewStateService.del(`project:${id}`);
-  if (deleted.length > 0) projectEvents._emit('project:deleted', id);
+  if (current.deleted.length > 0) projectEvents._emit('project:deleted', id);
 }

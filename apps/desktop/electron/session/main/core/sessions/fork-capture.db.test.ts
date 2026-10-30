@@ -176,6 +176,8 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     tombstoneDeletedSession([removedId]);
     await fixture.db.delete(sessions).where(eq(sessions.id, removedId));
     await captureExternalForks(projectId, PARENT);
+    await captureExternalForks(projectId, CHILD);
+    await captureExternalForks(projectId, GRANDCHILD);
     expect(await fixture.db.select().from(sessions).where(eq(sessions.id, removedId))).toHaveLength(0);
     // The scan is live: its sibling transcript is still represented, not hidden by a disabled scanner.
     expect(await fixture.db.select().from(sessions).where(eq(sessions.id, GRANDCHILD))).toHaveLength(1);

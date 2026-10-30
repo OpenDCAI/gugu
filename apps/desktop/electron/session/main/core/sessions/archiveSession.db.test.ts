@@ -125,6 +125,32 @@ describe('archiveSession', () => {
     mocks.db = undefined;
   });
 
+  it.each(['PR cleanup', 'task archival'])('retains a task and messages arriving during %s when removing a project', async (boundary) => {
+    const { prSyncEngine } = await import('../pull-requests/pr-sync-engine');
+    const { deleteProject } = await import('../projects/operations/deleteProject');
+    fixture.sqlite.exec("INSERT INTO workspaces (id,type,kind,location,path,key) VALUES ('late-root','local','project-root','local','/repo','late-root'); UPDATE projects SET repository_workspace_id='late-root' WHERE id='p1';");
+    const arrive = () => {
+      insertSession('late-task');
+      fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('late-message', 'late-task', 'Keep the original message', 'user')").run();
+      expect(fixture.sqlite.prepare("SELECT id FROM sessions WHERE id='late-task'").get()).toEqual({ id: 'late-task' });
+    };
+    if (boundary === 'PR cleanup') {
+      expect(fixture.sqlite.prepare("SELECT id FROM sessions WHERE project_id='p1'").all()).toEqual([]);
+      vi.mocked(prSyncEngine.deleteProjectData).mockImplementationOnce(async () => { arrive(); });
+    } else {
+      insertSession('original-task');
+      mocks.mounted.add('original-task');
+      mocks.teardown.mockImplementationOnce(async () => { arrive(); return { success: true }; });
+    }
+    await deleteProject('p1');
+    expect(fixture.sqlite.prepare("SELECT id FROM projects WHERE id='p1'").get()).toEqual({ id: 'p1' });
+    expect(fixture.sqlite.prepare("SELECT id FROM sessions WHERE id='late-task'").get()).toEqual({ id: 'late-task' });
+    expect(archivedAt('late-task')).not.toBeNull();
+    await expect(restoreSession('p1', 'late-task')).resolves.toMatchObject({ id: 'late-task', archivedAt: null });
+    expect(fixture.sqlite.prepare("SELECT session_id, content FROM messages WHERE id='late-message'").get()).toEqual({ session_id: 'late-task', content: 'Keep the original message' });
+    if (boundary === 'task archival') expect(archivedAt('original-task')).not.toBeNull();
+  });
+
   it('project removal retains real tasks through the actual reaper; only a genuine missing task is marked', async () => {
     const home = await mkdtemp(join(tmpdir(), 'gugu-archive-roster-'));
     const env = { GUGU_HOME: home };
