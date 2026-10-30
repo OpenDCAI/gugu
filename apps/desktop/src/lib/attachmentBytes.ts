@@ -46,7 +46,7 @@ export async function attachmentBytes(source: AttachmentSource, variant: Attachm
   if (file.status !== 'ready') return file
   onLink?.(file.revision)
   const blob = await fileBlob(file)
-  await (await attachmentCache()).put(fullKey(file.reader.accountId, file.revision.sha256), new Response(blob))
+  if (file.revision.sha256 !== null) await (await attachmentCache()).put(fullKey(file.reader.accountId, file.revision.sha256), new Response(blob))
   return { status: 'ready', blob, link: file.revision }
 }
 
