@@ -93,7 +93,9 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
   const changes = new Map<string, { sessionId: string; seq?: number; fromSeq?: number }>();
   let scheduled = false;
   const changed = (change: { sessionId: string; seq?: number; fromSeq?: number }) => {
-    changes.set(`${change.sessionId}:${change.seq ?? 'truncate'}`, change);
+    const key = `${change.sessionId}:${change.seq ?? 'truncate'}`;
+    const previous = changes.get(key);
+    changes.set(key, change.fromSeq === undefined ? change : { ...change, fromSeq: Math.min(previous?.fromSeq ?? change.fromSeq, change.fromSeq) });
     if (scheduled) return;
     scheduled = true;
     queueMicrotask(() => {
@@ -104,17 +106,30 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       const ids = [...new Set(batch.map(change => change.sessionId))];
       void Promise.all(ids.map(async id => [id, await identity(id, store.accountId)] as const)).then(entries => {
         const identities = new Map(entries);
-        return write(() => batch.flatMap(({ sessionId, seq, fromSeq }): SearchIndexOp[] => {
-        const meta = task(sessionId, identities.get(sessionId) ?? null);
-        if (!meta) return [{ kind: 'removeTask', taskId: sessionId }];
-        const ops: SearchIndexOp[] = [{ kind: 'task', task: meta }];
-        if (fromSeq !== undefined) ops.push({ kind: 'truncateTask', taskId: sessionId, fromSeq });
-        if (seq !== undefined) {
-          const row = sqlite.prepare('SELECT seq,data,created_at FROM session_turns WHERE session_id=? AND seq=?').get(sessionId, seq) as Stored | undefined;
-          ops.push(row ? turnOp(sessionId, row) : { kind: 'taskTurn', taskId: sessionId, seq, documents: [] });
-        }
-        return ops;
-      }));
+        return write(() => {
+          const ops: SearchIndexOp[] = [];
+          for (const id of ids) {
+            const meta = task(id, identities.get(id) ?? null);
+            if (!meta) { ops.push({ kind: 'removeTask', taskId: id }); continue; }
+            ops.push({ kind: 'task', task: meta });
+            const own = batch.filter(change => change.sessionId === id);
+            const cuts = own.flatMap(change => change.fromSeq === undefined ? [] : [change.fromSeq]);
+            const cut = cuts.length ? Math.min(...cuts) : undefined;
+            if (cut !== undefined) {
+              // A later source commit may already have reused the truncated sequence. Read the current suffix;
+              // applying an old cut alone after that new commit would delete its valid replacement from search.
+              ops.push({ kind: 'truncateTask', taskId: id, fromSeq: cut });
+              const suffix = sqlite.prepare('SELECT seq,data,created_at FROM session_turns WHERE session_id=? AND seq>=? ORDER BY seq').all(id, cut) as Stored[];
+              ops.push(...suffix.map(row => turnOp(id, row)));
+            }
+            for (const { seq } of own) {
+              if (seq === undefined || (cut !== undefined && seq >= cut)) continue;
+              const row = sqlite.prepare('SELECT seq,data,created_at FROM session_turns WHERE session_id=? AND seq=?').get(id, seq) as Stored | undefined;
+              ops.push(row ? turnOp(id, row) : { kind: 'taskTurn', taskId: id, seq, documents: [] });
+            }
+          }
+          return ops;
+        });
       }).then(accepted => {
         if (accepted) for (const change of batch) if (change.fromSeq !== undefined) reconcile(change.sessionId);
       }).catch(error => log.error('Task search commit feed failed', { error: String(error) }));
