@@ -9,6 +9,7 @@ import { rendererLogger } from '../../lib/log'
 import { useSshMachines } from '../../hooks/useSshMachines'
 import { useDevicesStore } from '../../store/devicesContext'
 import { Sheet } from '../ui/Sheet'
+import { Button } from '../ui/Button'
 import { DeviceMachineConfigurations, type DeviceConfigurationActions } from '../devices/DeviceMachineConfigurations'
 import { DeviceRemoveDialog } from './DeviceRemoveDialog'
 import { ServerUninstallDialog } from './ServerUninstallDialog'
@@ -145,6 +146,9 @@ export function useDeviceRemoval(machines: readonly DeviceMachine[]): {
         <div className="flex flex-col gap-3 overflow-y-auto p-[18px]">
           <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('devices.remove.versions.title', { name: versionsMachine.device.label })}</div>
           <DeviceMachineConfigurations devices={versionsMachine.configurations} actions={configurationActions} />
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setDialog(null)}>{t('devices.cancel')}</Button>
+          </div>
         </div>
       </Sheet>
     )}
