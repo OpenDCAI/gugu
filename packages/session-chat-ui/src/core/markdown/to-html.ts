@@ -9,7 +9,8 @@
  * across runs.
  *
  * `documentToHtml` is the same pipeline without the split, for a page that paints a
- * whole document itself (an App page, through `gugu.markdown()`).
+ * whole document itself (an App page, through `gugu.markdown()`): its image chips are
+ * also slots (`data-gg-image`) the page may fill with the picture once it has it.
  *
  * After the one sanitize pass this module projects three things of its own:
  *  - mention chips, carrying the attributes hover and click read;
@@ -84,18 +85,18 @@ function mentionChip(mention: MdastMention): Element {
   };
 }
 
-function imageChip(image: Element): Element {
+function imageChip(image: Element, slot: boolean): Element {
   const src = typeof image.properties.src === 'string' ? image.properties.src : '';
   const alt = typeof image.properties.alt === 'string' && image.properties.alt ? image.properties.alt : src;
   return {
     type: 'element',
     tagName: src ? 'a' : 'span',
-    properties: { className: ['gg-md-image'], ...(src ? { href: src } : {}) },
+    properties: { className: ['gg-md-image'], ...(src ? { href: src } : {}), ...(src && slot ? { dataGgImage: '' } : {}) },
     children: [{ type: 'text', value: alt }],
   };
 }
 
-function rehypeChips(mentions: readonly MdastMention[]) {
+function rehypeChips(mentions: readonly MdastMention[], imageSlots = false) {
   return () => (tree: HastRoot) => {
     const visit = (parent: HastRoot | Element) => {
       parent.children = parent.children.map((child) => {
@@ -104,7 +105,7 @@ function rehypeChips(mentions: readonly MdastMention[]) {
         const index = slot.startsWith(SANITIZED_MENTION_SLOT) ? Number(slot.slice(SANITIZED_MENTION_SLOT.length)) : -1;
         const mention = mentions[index];
         if (mention) return mentionChip(mention);
-        if (child.tagName === 'img') return imageChip(child);
+        if (child.tagName === 'img') return imageChip(child, imageSlots);
         visit(child);
         if (child.tagName !== 'table') return child;
         return { type: 'element', tagName: 'div', properties: { className: ['gg-md-table-scroll'] }, children: [child] };
@@ -240,15 +241,16 @@ const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;'
 
 /**
  * A whole document → one sanitized HTML string for `.gg-md`, with the transcript's image chips and table scroll boxes
- * (an image is a link chip in either trust: nothing is fetched on render). `document` trust keeps raw HTML for the
- * sanitizer to read; `chat` has turned it into text before.
+ * (an image is a link chip in either trust: nothing is fetched on render). Each chip with a source is marked
+ * `data-gg-image`: the App page's renderer puts the picture in it when the source names a file (markdown-entry.ts).
+ * `document` trust keeps raw HTML for the sanitizer to read; `chat` has turned it into text before.
  */
 export function documentToHtml(text: string, options: MarkdownDialectOptions & { sourceLines?: boolean }): string {
   const parser = createMarkdownParser(options);
   const source = normalizeMarkdownSourceWithLines(text);
   const tree = parser.runSync(parser.parse(source.text)) as Root;
   const hast = toHast(tree, { allowDangerousHtml: options.trust === 'document' }) as HastRoot;
-  const after = [...(options.sourceLines ? [rehypeSourceLines(source.lineOf)] : []), rehypeChips([])];
+  const after = [...(options.sourceLines ? [rehypeSourceLines(source.lineOf)] : []), rehypeChips([], true)];
   const rehype = unified().use(markdownRehypePlugins(options, after)).freeze();
   return toHtml(rehype.runSync(hast as never) as unknown as HastRoot);
 }

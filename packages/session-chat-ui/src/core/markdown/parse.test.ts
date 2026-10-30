@@ -260,6 +260,8 @@ describe('text runs', () => {
     const root = rendered('![截图](shots/a.png)');
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('a.gg-md-image')?.getAttribute('href')).toBe('shots/a.png');
+    // A row's height is known before it paints: no slot a picture would later fill (only an App page's document has them).
+    expect(root.querySelector('[data-gg-image]')).toBeNull();
     expect(root.textContent).toBe('截图');
   });
 
