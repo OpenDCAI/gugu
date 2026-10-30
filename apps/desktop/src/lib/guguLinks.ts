@@ -7,7 +7,7 @@ import { readMobileShell } from '../hooks/useMobileShell'
 
 /** One shell request for a resolved target, shared by the main and session renderer roots. */
 export const OPEN_LINK_TARGET = 'gugu:open-link-target'
-export type SenderChatTarget = { kind: 'sender'; userId: string }
+export type SenderChatTarget = { kind: 'sender'; userId: string; sourceChatId?: string }
 export type LinkNavigation = {
   target: GuguLinkTarget | SenderChatTarget
   message?: MessageItem

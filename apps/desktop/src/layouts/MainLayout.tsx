@@ -296,15 +296,18 @@ function InnerLayout({
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
-  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string): string | null => {
-    if (openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
-    if (openOwnedAgent(chatId, peerId, draft)) { setActiveTab('tasks'); return 'tasks' }
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
+    if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
+    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) { setActiveTab('tasks'); return 'tasks' }
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
     setSettingsModalOpen(false)
     setActiveTab('tasks')
-    sessionPage.openChat(chatId, false)
+    if (sourceChatId) {
+      if (!sessionPage.openGroupChat) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+      sessionPage.openGroupChat(sourceChatId, chatId)
+    } else sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
     return chatSlotKey(chatId)
   }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
@@ -327,7 +330,7 @@ function InnerLayout({
   }, [openChatBlock, setActiveChatId])
   const [appDetail, setAppDetail] = useState<import('@gugu/core/shared/ui/guguLink').AppDetailLink>()
   useLinkNavigation({ ownerId: user.id, chats, contacts,
-    openSender: target => handleSwitchToChat(target),
+    openSender: (target, sourceChatId) => handleSwitchToChat(target, undefined, sourceChatId),
     openAppDetail: target => {
       if (target.deviceId || target.variant) throw new Error(translateSessionMessage('extensions.appLinkOnPhone'))
       setAppDetail(target)
@@ -901,13 +904,15 @@ function InnerLayout({
   }, [contacts, t, toast])
 
   const switchingRef = useRef(false)
-  const handleSwitchToChat = async (target: ContactUser, draft?: string) => {
+  const handleSwitchToChat = async (target: ContactUser, draft?: string, sourceChatId?: string) => {
     const existing = chats.find((chat) => (
       (chat.kind === 'dm' || chat.kind === 'ai') && chat.peer_user_id === target.id
     ))
+    // A group participant already owns its session; no DM record or network creation is needed to open it.
+    if (!existing && sourceChatId && openOwnedAgent(undefined, target.id, draft, sourceChatId)) return
     if (existing) {
       if (draft) writeDraft(existing.id, draft)
-      if (openChatBlock(existing.id, 'profile-chat', target.id, draft)) {
+      if (openChatBlock(existing.id, 'profile-chat', target.id, draft, sourceChatId)) {
         void refreshChats()
         return
       }
@@ -936,7 +941,7 @@ function InnerLayout({
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
       if (draft) writeDraft(chatId, draft)
-      if (openChatBlock(chatId, 'profile-chat', target.id, draft)) {
+      if (openChatBlock(chatId, 'profile-chat', target.id, draft, sourceChatId)) {
         void refreshChats()
         return
       }

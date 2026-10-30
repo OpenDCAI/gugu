@@ -14,11 +14,12 @@ import { parseSessionpageAgentContext } from '@/lib/sessionpageAgentProjection'
 import { openTarget } from '@/lib/guguLinks'
 import { notify } from '@/lib/notices'
 import { messageForUser } from '@/lib/userFacingError'
+import { readSessionpageViewRequestBridge } from '@/lib/sessionpageViewRequestBridge'
 
 /** Ownership is checked before looking up a private timeline. An async open cannot cross an account switch. */
 export function useOwnedAgentConversationEntry(input: {
   ownerId: string; chats: readonly ChatItem[]; contacts: readonly ContactUser[]; mobile: boolean; onOpen: () => void
-}): (chatId: string, peerId?: string, draft?: string | NativeComposerDraft) => boolean {
+}): (chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string) => boolean {
   const { drafts, writeDraft, draftAttachments, setDraftAttachments, identitiesById, setActiveChatId } = useChatStore('drafts', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setActiveChatId')
   const draftState = useRef({ drafts, writeDraft, draftAttachments, setDraftAttachments })
   draftState.current = { drafts, writeDraft, draftAttachments, setDraftAttachments }
@@ -28,29 +29,38 @@ export function useOwnedAgentConversationEntry(input: {
   const current = useRef({ ...input, identitiesById, setActiveChatId })
   current.current = { ...input, identitiesById, setActiveChatId }
   const generation = useRef(0)
-  const open = useCallback((chatId: string, peerId?: string, draft?: string | NativeComposerDraft) => {
+  const cancelGroupRequest = useRef<(() => void) | undefined>(undefined)
+  useEffect(() => () => { ++generation.current; cancelGroupRequest.current?.() }, [input.ownerId])
+  const open = useCallback((chatId: string | undefined, peerId?: string, draft?: string | NativeComposerDraft, sourceChatId?: string) => {
     const state = current.current
     const asked = ++generation.current
+    cancelGroupRequest.current?.()
     const peer = state.chats.find(chat => chat.id === chatId && (chat.kind === 'dm' || chat.kind === 'ai'))?.peer_user_id ?? peerId
     const contact = state.contacts.find(one => one.id === peer) ?? (peer ? state.identitiesById[peer] : undefined)
     if (!contact || !isOwnedAgent(contact, state.ownerId) || contact.id === readAssistantShellBridge()?.getSnapshot()?.assistant?.id) return false
-    state.setActiveChatId(chatId)
+    if (!sourceChatId && chatId) state.setActiveChatId(chatId)
     const old = draftState.current
     const incoming: NativeComposerDraft | undefined = typeof draft === 'string' ? { text: draft } : draft
-    const text = incoming ? incoming.append ? appendToDraft(old.drafts?.[chatId] ?? '', incoming.text) : incoming.text : old.drafts?.[chatId] ?? ''
-    const carried = [...(old.draftAttachments?.[chatId] ?? []), ...(incoming?.files ?? []).map(file => ({ id: crypto.randomUUID(), file, kind: file.type.startsWith('image/') ? 'image' as const : 'file' as const }))]
-    if (incoming) { old.writeDraft(chatId, text); old.setDraftAttachments(chatId, carried) }
-    state.onOpen()
+    const text = incoming ? incoming.append ? appendToDraft(chatId ? old.drafts?.[chatId] ?? '' : '', incoming.text) : incoming.text : chatId ? old.drafts?.[chatId] ?? '' : ''
+    const carried = [...(chatId ? old.draftAttachments?.[chatId] ?? [] : []), ...(incoming?.files ?? []).map(file => ({ id: crypto.randomUUID(), file, kind: file.type.startsWith('image/') ? 'image' as const : 'file' as const }))]
+    if (incoming && chatId) { old.writeDraft(chatId, text); old.setDraftAttachments(chatId, carried) }
+    if (!sourceChatId) state.onOpen()
     const api = desktopIpc()
     void ownedAgentConversation(contact.id, {
       rows: directoryRows([...devices, ...(phones ?? [])], liveDeviceSessions()),
       localContext: async () => api ? parseSessionpageAgentContext(await api.invoke('sessionpage:agent-context', contact.id)) : null,
     }).then(async target => {
       if (asked !== generation.current || current.current.ownerId !== state.ownerId) return
+      if (sourceChatId && !state.mobile) {
+        const bridge = readSessionpageViewRequestBridge()
+        if (!bridge?.prepareGroupSession) throw new Error('The session page is not ready to open a group participant')
+        cancelGroupRequest.current = bridge.prepareGroupSession(sourceChatId, target.kind === 'local'
+          ? target : { projectId: target.session.projectId, sessionId: target.session.conversationId })
+      }
       if (text || carried.length) {
         const row = target.kind === 'remote' ? target : { session: { conversationId: target.sessionId, projectId: target.projectId } as import('@gugu/session-core/session-record/contract').SessionpageSessionSummary }
         await composeTaskDraft(row, text, state.mobile, carried.map(one => one.file))
-        if (asked === generation.current && current.current.ownerId === state.ownerId) {
+        if (chatId && asked === generation.current && current.current.ownerId === state.ownerId) {
           const latest = draftState.current
           if (latest.drafts?.[chatId] === text) latest.writeDraft(chatId, '')
           const ids = new Set(carried.map(one => one.id))
@@ -64,6 +74,7 @@ export function useOwnedAgentConversationEntry(input: {
           : { kind: 'session', sessionId: target.session.conversationId, projectId: target.session.projectId, deviceId: target.deviceId })
       }
     }).catch(error => {
+      if (asked === generation.current) cancelGroupRequest.current?.()
       if (asked === generation.current && current.current.ownerId === state.ownerId) notify({ tier: 'error', title: messageForUser(error) })
     })
     return true

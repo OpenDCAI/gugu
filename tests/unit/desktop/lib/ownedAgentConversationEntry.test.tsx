@@ -6,6 +6,7 @@ import { openOwnedAgentEntry } from '../../../../apps/desktop/src/lib/ownedAgent
 import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
+import { installSessionViewRequestBridge, SESSION_VIEW_REQUEST_BRIDGE_KEY } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
 const scope = vi.hoisted(() => ({
   compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(),
   drafts: {} as Record<string, string>, attachments: {} as Record<string, unknown[]>,
@@ -26,14 +27,15 @@ vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: vi.fn() }))
 let harness: ReturnType<typeof createReactHarness>
 const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'agent' }] as ChatItem[]
 const contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'owner' }] as ContactUser[]
-function Fixture() { useOwnedAgentConversationEntry({ ownerId: 'owner', chats, contacts: scope.contacts, mobile: scope.mobile, onOpen: scope.onOpen }); return null }
+let openEntry: ReturnType<typeof useOwnedAgentConversationEntry>
+function Fixture() { openEntry = useOwnedAgentConversationEntry({ ownerId: 'owner', chats, contacts: scope.contacts, mobile: scope.mobile, onOpen: scope.onOpen }); return null }
 beforeEach(() => {
   harness = createReactHarness(); vi.clearAllMocks(); scope.drafts = {}; scope.attachments = {}; scope.assistant = null
   scope.identities = {}; scope.contacts = contacts; scope.mobile = false; scope.native = true; scope.devices = []
   scope.lookup.mockResolvedValue({ projectId: 'project', sessionId: 'session', view: 'general', projectionError: null, platformRecovery: null })
   scope.compose.mockResolvedValue(undefined)
 })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); delete (window as unknown as Record<string, unknown>)[SESSION_VIEW_REQUEST_BRIDGE_KEY] })
 it('opens the same task from the conversation bridge and leaves the assistant App entrance alone', async () => {
   await harness.render(<Fixture />)
   expect(openOwnedAgentEntry('dm')).toBe(true)
@@ -84,3 +86,41 @@ it('retains the old draft when its destination cannot accept the attachment', as
   await vi.waitFor(() => expect(scope.compose).toHaveBeenCalled())
   expect(scope.write).not.toHaveBeenCalled()
 })
+
+it('keeps the source group selected while resolving a participant, then prepares placement before opening the authorized session', async () => {
+  let resolve!: (value: unknown) => void
+  scope.lookup.mockImplementation(() => new Promise(value => { resolve = value }))
+  const prepare = vi.fn(() => vi.fn())
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare })
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm', 'agent', undefined, 'source-group')).toBe(true)
+  expect(scope.select).not.toHaveBeenCalled()
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.open).not.toHaveBeenCalled()
+  resolve({ projectId: 'project', sessionId: 'session', view: 'general', projectionError: null, platformRecovery: null })
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledOnce())
+  expect(prepare).toHaveBeenCalledWith('source-group', expect.objectContaining({ projectId: 'project', sessionId: 'session' }))
+  expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(scope.open.mock.invocationCallOrder[0]!)
+})
+
+it('retains the group when the participant cannot be resolved instead of showing a new-task page', async () => {
+  scope.lookup.mockRejectedValue(new Error('host unavailable'))
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm', 'agent', undefined, 'source-group')).toBe(true)
+  await vi.waitFor(() => expect(scope.lookup).toHaveBeenCalledOnce())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.select).not.toHaveBeenCalled()
+  expect(scope.open).not.toHaveBeenCalled()
+})
+
+it('opens an owned group participant without an IM conversation or draft key', async () => {
+  const prepare = vi.fn(() => vi.fn());
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'source-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledOnce());
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(scope.select).not.toHaveBeenCalled();
+  expect(scope.write).not.toHaveBeenCalled();
+});

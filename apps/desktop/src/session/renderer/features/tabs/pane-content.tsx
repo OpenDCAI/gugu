@@ -62,6 +62,7 @@ export const PaneContent = observer(function PaneContent({
   reserveShellRestoreLane,
   leadingReservePx,
   contentOverlay,
+  pairSizing,
 }: {
   /** 页签条左端还要让出多宽(单独成窗时让开 mac 的红绿灯)。 */
   leadingReservePx?: number;
@@ -79,6 +80,8 @@ export const PaneContent = observer(function PaneContent({
   reserveShellRestoreLane?: boolean;
   /** Drawn over the content region, under the tab bar (the edge drop zones while a tab is dragged, #7052). */
   contentOverlay?: ReactNode;
+  /** A host can share a right-hand width; ordinary task panes retain their own ratios. */
+  pairSizing?: { rightWidth: number; onResize: (width: number) => void; onReset: () => void };
 }) {
   const paneContext = usePaneContext();
   const { paneId, pane } = paneContext;
@@ -144,7 +147,9 @@ export const PaneContent = observer(function PaneContent({
   const vertical = slots?.vertical ?? false;
   const extent = vertical ? pane.dimensions?.height : pane.dimensions?.width;
   const minShare = extent ? Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent) : 0;
-  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, pane.pairShare)) * 100).toFixed(3)}%` : null;
+  const sharedSizing = !vertical && slots?.first === pair?.anchor ? pairSizing : undefined;
+  const share = sharedSizing && extent ? 1 - sharedSizing.rightWidth / extent : pane.pairShare;
+  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, share)) * 100).toFixed(3)}%` : null;
   const slotStyle = (tabId: string): CSSProperties => {
     const first = slots?.first === tabId;
     if (!vertical) return first ? { top: 0, bottom: 0, left: 0, width: split! } : { top: 0, bottom: 0, left: split!, right: 0 };
@@ -257,7 +262,7 @@ export const PaneContent = observer(function PaneContent({
               );
             })()
           ) : null}
-          {split ? <PairDivider pane={pane} at={split} vertical={vertical} containerRef={contentRef} /> : null}
+          {split ? <PairDivider pane={pane} at={split} vertical={vertical} containerRef={contentRef} sizing={sharedSizing} /> : null}
           {unavailableActiveTab && !pair ? (
             <UnavailableTabContent tab={unavailableActiveTab} host={pane} />
           ) : null}
@@ -327,11 +332,13 @@ const PairDivider = observer(function PairDivider({
   at,
   vertical,
   containerRef,
+  sizing,
 }: {
   pane: PaneStore;
   at: string;
   vertical: boolean;
   containerRef: RefObject<HTMLDivElement | null>;
+  sizing?: { onResize: (width: number) => void; onReset: () => void };
 }) {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
@@ -345,7 +352,9 @@ const PairDivider = observer(function PairDivider({
       if (extent <= 0) return;
       const min = Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent);
       const ratio = vertical ? (moveEvent.clientY - rect.top) / extent : (moveEvent.clientX - rect.left) / extent;
-      pane.setPairRatio(Math.min(1 - min, Math.max(min, ratio)));
+      const share = Math.min(1 - min, Math.max(min, ratio));
+      pane.setPairRatio(share);
+      sizing?.onResize(extent * (1 - share));
     };
     const end = () => {
       handle.removeEventListener('pointermove', move);
@@ -368,7 +377,7 @@ const PairDivider = observer(function PairDivider({
       }
       style={vertical ? { top: at } : { left: at }}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => pane.setPairRatio(null)}
+      onDoubleClick={() => { pane.setPairRatio(null); sizing?.onReset(); }}
     />
   );
 });

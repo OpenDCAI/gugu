@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite';
 import { Fragment, useEffect, type CSSProperties, type DragEvent } from 'react';
 import { useGroupRef } from 'react-resizable-panels';
 import { X } from '@/lib/icons';
+import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
@@ -117,7 +118,15 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
       orientation={node.orientation}
       groupRef={groupRef}
       onLayoutChanged={(layout, meta) => {
-        if (meta.isUserInteraction) screenLayout.setSplitSizes(node.id, ids.map((id) => layout[id] ?? 0));
+        if (meta.isUserInteraction) {
+          screenLayout.setSplitSizes(node.id, ids.map((id) => layout[id] ?? 0));
+          const participant = groupParticipantPanes.pairIn(node);
+          const target = participant && node.children[participant.targetIndex];
+          if (target?.type === 'pane') {
+            const width = document.querySelector<HTMLElement>(`[data-screen-block="${target.paneId}"]`)?.getBoundingClientRect().width;
+            if (width) groupParticipantPanes.rememberWidth(width);
+          }
+        }
       }}
     >
       {node.children.map((child, index) => (

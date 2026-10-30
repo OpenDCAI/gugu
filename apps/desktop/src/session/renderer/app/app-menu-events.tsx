@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { openRequestedGroupParticipant } from '@renderer/features/chats/open-group-participant-session';
 import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
 import { openLink } from '@/lib/guguLinks';
 import { GROUP_FILE_NOT_OPENED } from '@shared/extensions/app-runtime-protocol';
@@ -83,6 +84,11 @@ export function AppMenuEvents() {
     const unlisten = events.on(
       notificationFocusSessionChannel,
       ({ projectId, sessionId, beside }) => {
+        const groupEntry = sessionId ? openRequestedGroupParticipant({ projectId, sessionId }) : undefined;
+        if (groupEntry) {
+          disposers.add(groupEntry);
+          return;
+        }
         // A task card on the screen view: beside what is there, the layout kept.
         if (beside && sessionId && isScreenView(appState.navigation.currentViewId)) {
           disposers.add(openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) }));
