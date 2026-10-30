@@ -52,7 +52,8 @@ for (const label of [collapseHeader, toolName, summaryChip]) {
 // 鼠标停在这条消息上才显出来(设计稿 `.acts{opacity:0}` + `.msg:hover > .acts`,owner 10-28);agent 那边靠左,复制在前、时间在后。
 // 那一行本身常亮(原气泡的 hover 规则会把整行藏起来),藏的是里面的时间、复制、编辑;「发到」常驻(管家 10-28)。
 globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 1, pointerEvents: 'auto' });
-globalStyle(`${conversationRoot} [data-user-message-actions] > :not([data-slot="sent-to"]):not([data-slot="conversation-reference"])`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
+// Exempt persistent controls without making the hidden state outrank hover/focus.
+globalStyle(`${conversationRoot} [data-user-message-actions] > :where(:not([data-slot="sent-to"]):not([data-slot="conversation-reference"]))`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
 globalStyle(`${conversationRoot} [data-conversation-reference-footer] time`, { order: 2 });
 globalStyle(`${conversationRoot} [data-conversation-reference-footer] ${conversationReference}`, { order: 3, height: CONVERSATION_FOOTER_H });
 globalStyle(`${conversationRoot} [data-conversation-reference-footer] [data-slot="conversation-quote"]`, { height: CONVERSATION_FOOTER_H });
