@@ -17,7 +17,11 @@ export function conversationHeaderLayout(item: ChatMessage, ctx: MeasureCtx, sen
   const process = item.role === 'assistant' ? item.conversationProcess : undefined;
   const separator = quote && process;
   const metadataWidth = (quote ? 18 : 0) + (separator ? 4 : 0);
-  const naturalProcess = process ? processButtonLayout(process, { ...ctx, width: Number.MAX_SAFE_INTEGER }).width : 0;
+  // Reserve the full process row, including its background controls, before the name.
+  const naturalCtx = { ...ctx, width: Number.MAX_SAFE_INTEGER };
+  const naturalButton = process && processButtonLayout(process, naturalCtx);
+  const naturalBackground = process && backgroundPillLayout(item.id, naturalCtx);
+  const naturalProcess = naturalButton ? naturalButton.width + (naturalBackground ? naturalBackground.width + 19 : 0) : 0;
   const slots = Number(showName) + Number(quote) + Number(Boolean(process)) + Number(Boolean(separator));
   const namePrefix = showName ? readableLabel(`${Array.from(senderName)[0] ?? ''}…`, ctx, Number.MAX_SAFE_INTEGER, 12, 18, 650).width : 0;
   const gap = slots > 1 ? Math.min(8, Math.max(0, (ctx.width - naturalProcess - metadataWidth - namePrefix) / (slots - 1))) : 8;

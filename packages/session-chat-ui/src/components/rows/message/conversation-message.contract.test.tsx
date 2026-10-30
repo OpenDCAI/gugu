@@ -15,12 +15,12 @@ import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { cardFadeOverlay } from './user-message.css';
 
-async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}, sibling?: ChatMessage) {
+async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}, sibling?: ChatMessage, extraCtx: Partial<MeasureCtx> = {}) {
   const item = normalizeMessage(raw);
   const [data, setData] = createSignal(item);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
   const caches = createChatCaches();
-  const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false };
+  const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false, ...extraCtx };
   const renderCtx: RenderCtx = { measureCtx: () => ctx, viewState: { isCollapsed: () => false } };
   const host = document.createElement('div');
   host.style.width = `${width}px`;
@@ -712,5 +712,20 @@ it.each([188, 220, 320])('keeps a completed duration and step count on one line 
     expect(process.textContent).toContain('6s · 1 step');
     expect(process.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
     assertVisiblePrefix(header.querySelector<HTMLElement>('[title]')!, header);
+  } finally { view.dispose(); }
+});
+
+it.each([390, 600])('reserves background controls beside duration before truncating a long name at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'review-background', role: 'assistant', text: '', conversationPart: 'head',
+    conversationProcess: { id: 'review-background:work', startedAt: 0, endedAt: 6000, steps: 1 }, sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'Original' } },
+    width, { conversationAgentName: () => 'Claude 1 with a deliberately long sender name '.repeat(3) }, undefined,
+    { background: { ownerId: 'review-background', expanded: false, commands: [{ id: 'cmd', launchToolCallId: 'call', taskId: 'bg', name: 'sleep 30' }], subagents: [] } });
+  try {
+    const process = view.host.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect();
+    const bg = view.host.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]')!.getBoundingClientRect();
+    expect(Math.abs((process.top + process.bottom) / 2 - (bg.top + bg.bottom) / 2), 'background metadata keeps its existing row before the sender takes remaining width').toBeLessThanOrEqual(1);
+    expect(view.host.getBoundingClientRect().height).toBe(28);
+    expect(bg.right).toBeLessThanOrEqual(view.host.getBoundingClientRect().right + 1);
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
   } finally { view.dispose(); }
 });
