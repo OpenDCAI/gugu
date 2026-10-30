@@ -268,7 +268,7 @@ export default defineConfig({
           name: 'session-packages',
           ...unitModuleCache,
           environment: 'node',
-          include: ['packages/session-*/src/**/*.test.ts', 'packages/session-*/tooling/**/*.test.ts'],
+          include: ['packages/core/src/**/*.test.ts', 'packages/session-*/src/**/*.test.ts', 'packages/session-*/tooling/**/*.test.ts'],
           exclude: ['packages/session-chat-ui/**'],
           setupFiles: ['packages/session-core/vitest.setup.ts'],
         },

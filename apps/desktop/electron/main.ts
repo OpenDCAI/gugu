@@ -2547,6 +2547,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
     const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
     pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    loadEmdashBridge()?.messageSearchAccountChanged(pushedHumanAuth.userId)
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
@@ -2555,6 +2556,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
+    loadEmdashBridge()?.messageSearchAccountChanged(null)
     return await clearHumanAuthSession()
   } finally {
     onHumanAuthSessionChanged()

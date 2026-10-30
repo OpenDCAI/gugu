@@ -81,6 +81,7 @@ import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
+import { feedClearChat, feedQuietly, feedRemoved, feedRows } from './searchIndexFeed'
 export type {
   MessageOverlay,
   MessageMutationPatch,
@@ -259,6 +260,7 @@ const GET_MESSAGES_SOURCES = [
   'toggleReaction',
   'sendReload',
   'rpcQuery',
+  'searchBackfill',
   'other'
 ] as const
 export type GetMessagesSource = (typeof GET_MESSAGES_SOURCES)[number]
@@ -344,6 +346,7 @@ export const chatService = {
     if (error) throw new Error(error.message)
 
     if (!msgs?.length) return []
+    feedQuietly(feedRows(msgs as RawMessageRow[]))
 
     // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
     // chronological; ascending newer pages are already chronological. The window owner publishes
@@ -359,14 +362,15 @@ export const chatService = {
     chatId: string,
     rootId: string,
     userId: string,
-    limit = 50
+    limit = 50,
+    beforeSeq?: number
   ): Promise<MessageItem[]> {
     // rootId 直接拼进 PostgREST .or()，仅接受消息 UUID，非法输入 fail loud。
     if (!UUID_RE.test(rootId)) {
       throw new Error(`getThreadMessages: invalid thread root id ${JSON.stringify(rootId)}`)
     }
     await requireThreadCapableChat(chatId, 'getThreadMessages')
-    const { data: msgs, error } = await chatDb
+    let query = chatDb
       .from('messages_view')
       .select(MESSAGES_VIEW_SELECT)
       .eq('chat_id', chatId)
@@ -374,10 +378,11 @@ export const chatService = {
       .not('deleted_for_user_ids', 'cs', JSON.stringify([userId]))
       // root 本身(id=rootId, 其 thread_root_id 为 null) + 所有回复(thread_root_id=rootId)
       .or(`id.eq.${rootId},thread_root_id.eq.${rootId}`)
-      .order('seq', { ascending: false })
-      .limit(limit)
+    if (typeof beforeSeq === 'number') query = query.lt('seq', beforeSeq)
+    const { data: msgs, error } = await query.order('seq', { ascending: false }).limit(limit)
     if (error) throw new Error(error.message)
     if (!msgs?.length) return []
+    feedQuietly(feedRows(msgs as RawMessageRow[]))
     const items = (msgs as RawMessageRow[])
       .map((row) => messageItemFromRow(row, userId))
       .filter((m): m is MessageItem => m !== null)
@@ -488,6 +493,8 @@ export const chatService = {
     if (!row || typeof row.chat_id !== 'string') {
       throw new Error(`delete_message returned no chat_id for ${messageId}`)
     }
+    // Deleted for everyone or only for me: either way this account can no longer read it.
+    feedQuietly(feedRemoved([messageId]))
 
     return {
       chatId: row.chat_id,
@@ -500,6 +507,7 @@ export const chatService = {
       p_chat_id: chatId
     })
     if (error) throw new Error(error.message)
+    feedQuietly(feedClearChat(chatId))
   },
 
   async setChatPinned(chatId: string, userId: string, pinned: boolean): Promise<void> {
