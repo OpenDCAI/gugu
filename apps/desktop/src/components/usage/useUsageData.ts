@@ -81,14 +81,10 @@ export function useUsageData({ userId, deviceId, wantPreviousYear }: { userId: s
   return { today, usage, previousYear: wantPreviousYear ? previousYear : null, devices, syncing, syncError }
 }
 
-/**
- * 「用量」页:积分按天 × 模型(账户级,与设备无关),外加所有设备的用量汇总 ——
- * 统计条的「总 Token 数」取其中走咕咕模型的那部分,与「活跃」页同一个数。
- */
-export function useCreditData(userId: string | null): { today: string; credits: Loadable<CreditUsageDay[]>; usage: Loadable<UsageDay[]> } {
+/** Account credit consumption is independent of the activity device filter. */
+export function useCreditData(userId: string | null): { today: string; credits: Loadable<CreditUsageDay[]> } {
   const [today] = useState(() => localDay(new Date()))
   const [credits, setCredits] = useState<Loadable<CreditUsageDay[]>>({ status: 'loading' })
-  const [usage, setUsage] = useState<Loadable<UsageDay[]>>({ status: 'loading' })
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const from = yearFrom(today)
   useEffect(() => {
@@ -97,10 +93,7 @@ export function useCreditData(userId: string | null): { today: string; credits: 
     fetchCreditDays(from, today, timeZone)
       .then((value) => { if (alive) setCredits({ status: 'ready', value }) })
       .catch((e: unknown) => { if (alive) setCredits({ status: 'error', error: message(e) }) })
-    fetchUsageDays(from, today, null)
-      .then((value) => { if (alive) setUsage({ status: 'ready', value }) })
-      .catch((e: unknown) => { if (alive) setUsage({ status: 'error', error: message(e) }) })
     return () => { alive = false }
   }, [userId, from, today, timeZone])
-  return { today, credits, usage }
+  return { today, credits }
 }

@@ -6,9 +6,12 @@
 //     「5 小时内还剩 200 积分」。
 // 断言里带了修复前会渲染出的那句原话的反向断言,回归时会立刻响。
 import { act } from 'react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '../../../../apps/desktop/src/session/renderer/lib/query-client'
+import { GuguSubscriptionRow } from '../../../../apps/desktop/src/session/renderer/features/settings/subscriptions/GuguSubscriptionRow'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageCredits } from '../../../../apps/desktop/src/components/usage/UsageCredits'
-import { createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { createNode, createReactHarness, renderWithAppProviders, typeInto } from '../../../support/testHarness'
 
 // billing 模块拆开后,会走网络的读取分别落在 balance / quota / usage 三个数据访问面;
 // 领域推导与共享订阅点保持真实,替换的只有网络那一层。
@@ -30,12 +33,17 @@ import { fetchLedgerPage, type LedgerRow } from '../../../../apps/desktop/src/li
 
 const ledger = (rows: LedgerRow[]) => ({ rows, total: rows.length })
 const RANGE = { from: '2026-08-25', to: '2026-09-23', days: 30 }
-const props = { credits: { status: 'ready' as const, value: [] }, guguTokens: { status: 'ready' as const, value: 0 }, range: RANGE }
+const props = { credits: { status: 'ready' as const, value: [] }, range: RANGE }
 vi.mock('../../../../apps/desktop/src/lib/billing/membership', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../apps/desktop/src/lib/billing/membership')>()),
   getMembership: vi.fn(),
 }))
 import { getMembership, type Membership } from '../../../../apps/desktop/src/lib/billing/membership'
+
+vi.mock('../../../../apps/desktop/src/platform', async importOriginal => {
+  const original = await importOriginal<typeof import('../../../../apps/desktop/src/platform')>()
+  return { ...original, platform: { ...original.platform, readDeviceFreeCreditsStatus: async () => 'device_full' } }
+})
 
 const hour = 3_600_000
 
@@ -82,7 +90,17 @@ async function render() {
   return harness
 }
 
+async function renderMembership() {
+  const harness = createReactHarness()
+  await renderWithAppProviders(harness, createNode(QueryClientProvider, { client: queryClient }, createNode(GuguSubscriptionRow, {})), { auth: { id: 'u1', email: 'u@e.com', nickname: 'U' } })
+  await flush()
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  return harness
+}
+
 beforeEach(() => {
+  vi.clearAllMocks()
+  queryClient.clear()
   // 余额不再由调用方以 prop 传进来:面板与侧栏、设置页读同一个共享订阅点。
   vi.mocked(getCreditsBalance).mockResolvedValue(570)
   vi.mocked(getQuotaWindows).mockResolvedValue(windows())
@@ -90,7 +108,37 @@ beforeEach(() => {
   vi.mocked(getMembership).mockResolvedValue(membership({ expiresAt: new Date(Date.now() + 40 * 24 * hour) }))
 })
 
-describe('#2503 用量页积分段的诚实性', () => {
+describe('#2503 用量与订阅积分的诚实性', () => {
+  it('#986 用量只保留消耗与流水，撤余额卡、邀请和五项总统计', async () => {
+    const harness = await render()
+    try {
+      expect(document.querySelector('[data-testid="usage-credits-overview"]')).toBeNull()
+      expect(document.querySelector('[data-testid="usage-credit-stats"]')).toBeNull()
+      expect(document.querySelector('[data-testid="usage-referral"]')).toBeNull()
+      expect(document.body.textContent).not.toContain('邀请好友')
+      expect(document.querySelector('[data-testid="usage-consumption"]')).not.toBeNull()
+      expect(document.querySelector('[data-testid="usage-ledger"]')).not.toBeNull()
+    } finally { harness.cleanup() }
+  })
+
+  it('#986 切换时间段重置明细页码，并保留模型筛选', async () => {
+    vi.mocked(fetchLedgerPage).mockResolvedValue({ rows: [], total: 80 })
+    const harness = await render()
+    try {
+      await typeInto(document.querySelector('[data-testid="usage-ledger-model"]') as HTMLInputElement, 'claude')
+      await act(async () => (document.querySelector('[data-testid="usage-ledger-search"]') as HTMLButtonElement).click())
+      await flush()
+      const second = [...document.querySelectorAll('[data-testid="usage-pager"] button')].find(button => button.textContent === '2') as HTMLButtonElement
+      await act(async () => second.click())
+      await flush()
+      expect(fetchLedgerPage).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, model: 'claude' }))
+      const range = { from: '2026-09-17', to: RANGE.to, days: 7 }
+      await renderWithAppProviders(harness, createNode(UsageCredits, { ...props, range }), { auth: { id: 'u1', email: 'u@e.com', nickname: 'U' } })
+      await flush()
+      expect(fetchLedgerPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 20, model: 'claude', range: { from: range.from, to: range.to } })
+      expect((document.querySelector('[data-testid="usage-ledger-model"]') as HTMLInputElement).value).toBe('claude')
+    } finally { harness.cleanup() }
+  })
   it('用量流水取失败 → 说取不到,不谎报「未找到日志」', async () => {
     vi.mocked(fetchLedgerPage).mockRejectedValue(new Error('network down'))
     const harness = await render()
@@ -115,7 +163,7 @@ describe('#2503 用量页积分段的诚实性', () => {
     }
   })
 
-  it('额度接口挂了不该把用量流水一起吞掉(两条链路各自落地)', async () => {
+  it('用量流水不依赖已经移到订阅的额度读取', async () => {
     vi.mocked(getQuotaWindows).mockRejectedValue(new Error('quota unavailable'))
     vi.mocked(fetchLedgerPage).mockResolvedValue(ledger([
       { id: 'e1', model: 'glm-5.2-codex', agent_user_id: null, credits_charged: 7,
@@ -123,7 +171,7 @@ describe('#2503 用量页积分段的诚实性', () => {
     ]))
     const harness = await render()
     try {
-      expect(document.querySelector('[data-testid="usage-credits-error"]')).not.toBeNull()
+      expect(getQuotaWindows).not.toHaveBeenCalled()
       expect(document.body.textContent).toContain('glm-5.2-codex')
     } finally {
       harness.cleanup()
@@ -150,124 +198,137 @@ describe('#2503 用量页积分段的诚实性', () => {
     }
   })
 
-  it('周期额度耗尽但还有不过期积分 → 照样报能花多少,❌ 不说「已用完」', async () => {
-    // 会员额度用尽只是换个池子出钱(先周期额度、后不过期积分),不是花不出去。
-    // 旧口径在这里报「30 天额度已用完」,而这位用户账上还有 570 积分,充值也解决不了 —— 他压根没被挡住。
+  it('订阅卡周期耗尽仍显示不过期积分与真实总额', async () => {
     vi.mocked(getQuotaWindows).mockResolvedValue(windows({ period_used: 45 }))
-    const harness = await render()
+    const harness = await renderMembership()
     try {
-      const summary = document.querySelector('[data-testid="usage-credits-window-summary"]')
-      expect(summary).not.toBeNull()
-      expect(summary!.textContent).toBe('30 天内最多能花 570 积分')
-      expect(summary!.textContent).not.toContain('已用完')
-      // 两种积分各剩多少要分得出:周期额度 0、不过期积分 570。
-      // 两个池子各一格(New API 余额面板的两个小格),各自标名、各自报数。
-      expect(document.querySelector('[data-testid="usage-credits-period-credits"]')!.textContent).toBe('0')
-      expect(document.querySelector('[data-testid="usage-credits-wallet-credits"]')!.textContent).toBe('570')
-      expect(document.querySelector('[data-testid="usage-credits-breakdown"]')!.textContent).toContain('不过期积分')
-    } finally {
-      harness.cleanup()
-    }
+      expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('570')
+      expect(document.querySelector('[data-testid="subscription-period-credits"]')?.textContent).toBe('0')
+      expect(document.querySelector('[data-testid="subscription-wallet-credits"]')?.textContent).toBe('570')
+      expect(document.body.textContent).not.toContain('已用完')
+      expect(document.body.textContent).not.toContain('最多能花')
+    } finally { harness.cleanup() }
   })
 
-  it('两个池子都空了 → 才说「都已用完」,并把两条出路一起说', async () => {
+  it('订阅卡两个池子都空时显示真实零，充值仍可达', async () => {
     vi.mocked(getCreditsBalance).mockResolvedValue(0)
     vi.mocked(getQuotaWindows).mockResolvedValue(windows({ period_used: 45 }))
-    const harness = await render()
+    const harness = await renderMembership()
     try {
-      const summary = document.querySelector('[data-testid="usage-credits-window-summary"]')
-      expect(summary!.textContent).toContain('都已用完')
-      expect(summary!.textContent).toContain('充值加量包可立即恢复')
-      expect(summary!.textContent).not.toContain('最多能花')
-    } finally {
-      harness.cleanup()
-    }
+      expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('0')
+      expect(document.querySelector('[data-testid="subscription-period-credits"]')?.textContent).toBe('0')
+      expect(document.querySelector('[data-testid="subscription-wallet-credits"]')?.textContent).toBe('0')
+      expect(document.querySelector('a[data-testid="membership-open-web"]')?.getAttribute('href')).toMatch(/^https:/)
+      expect(document.body.textContent).not.toContain('最多能花')
+    } finally { harness.cleanup() }
   })
 
-  it('❌ 不再画短窗那条 —— 概念已撤销,留着就是留一条永远说不清的进度条', async () => {
-    vi.mocked(getQuotaWindows).mockResolvedValue(windows())
-    const harness = await render()
+  it('订阅卡只显示本期进度，不复活已撤销的短窗口径', async () => {
+    const harness = await renderMembership()
     try {
-      expect(document.querySelector('[data-testid="usage-credits-period"]')).not.toBeNull()
-      expect(document.querySelector('[data-testid="usage-credits-burst"]')).toBeNull()
+      expect(document.querySelectorAll('[role="meter"]')).toHaveLength(1)
+      expect(document.querySelector('[data-testid="subscription-period-credits"]')).not.toBeNull()
       expect(document.body.textContent).not.toContain('5 小时')
-    } finally {
-      harness.cleanup()
-    }
+      expect(document.querySelector('[data-testid="subscription-billing-copy"]')).toBeNull()
+    } finally { harness.cleanup() }
   })
 
-  it('两个池子都有 → 报合计,不误报已用完', async () => {
+  it('订阅卡两个池子都有时合计正确，且不夹带周期营销说明', async () => {
+    const harness = await renderMembership()
+    try {
+      expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('595')
+      expect(document.querySelector('[data-testid="subscription-period-credits"]')?.textContent).toBe('25')
+      expect(document.querySelector('[data-testid="subscription-wallet-credits"]')?.textContent).toBe('570')
+      expect(document.body.textContent).not.toContain('最多能花')
+      expect(document.body.textContent).not.toContain('周期内怎么花')
+    } finally { harness.cleanup() }
+  })
+
+  it('#986 用量不再读取余额或会员，充值入口只在订阅卡', async () => {
     const harness = await render()
     try {
-      const summary = document.querySelector('[data-testid="usage-credits-window-summary"]')
-      // 不过期积分 570 + 周期额度余 45−20=25 → 595。两个池子相加,❌ 不取小(旧口径答 25)。
-      expect(summary!.textContent).toBe('30 天内最多能花 595 积分')
-      expect(summary!.textContent).not.toContain('已用完')
-      // 两个池子各一格(New API 余额面板的两个小格),各自标名、各自报数。
-      expect(document.querySelector('[data-testid="usage-credits-period-credits"]')!.textContent).toBe('25')
-      expect(document.querySelector('[data-testid="usage-credits-wallet-credits"]')!.textContent).toBe('570')
-      expect(document.querySelector('[data-testid="usage-credits-breakdown"]')!.textContent).toContain('不过期积分')
-    } finally {
-      harness.cleanup()
-    }
+      expect(document.querySelector('[data-testid="usage-credits-balance"]')).toBeNull()
+      expect(document.querySelector('a[data-testid="membership-open-web"]')).toBeNull()
+      expect(getMembership).not.toHaveBeenCalled()
+      expect(getCreditsBalance).not.toHaveBeenCalled()
+      expect(getQuotaWindows).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
   })
 
-  it('付费会员 → 写出会员到期日,且与会员额度刷新日分两句写', async () => {
-    // 窗口 719h 后刷新(≈30 天),会员 40 天后才到期:两个日子不重合,不能只写一个。
-    const harness = await render()
+  it.each(['balance', 'quota'] as const)('订阅卡 %s 读取失败保留原因，不把未知合计画成零', async source => {
+    if (source === 'balance') vi.mocked(getCreditsBalance).mockRejectedValue(new Error('balance unavailable'))
+    else vi.mocked(getQuotaWindows).mockRejectedValue(new Error('quota unavailable'))
+    const harness = await renderMembership()
     try {
-      const status = document.querySelector('[data-testid="usage-credits-membership-status"]')
-      expect(status, '付费会员应看到自己的档位与到期日').not.toBeNull()
-      expect(status!.textContent).toContain('Pro')
-      expect(status!.textContent).toContain('有效期至')
-      expect(status!.textContent).toContain('还剩 40 天')
-      const reset = document.querySelector('[data-testid="usage-credits-period-reset"]')
-      expect(reset!.textContent).toContain('刷新')
-      expect(reset!.textContent).not.toContain('有效期至')
-    } finally {
-      harness.cleanup()
-    }
+      expect(document.querySelector('.subscription-error')?.textContent).toContain(`${source} unavailable`)
+      expect(document.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.trim()).toBe('—')
+      expect(document.querySelector('[data-testid="subscription-wallet-credits"]')?.textContent).toBe('—')
+    } finally { harness.cleanup() }
   })
 
-  it('免费档 → 只写档位,❌ 不编一个到期日', async () => {
+  it('会员行区分会员到期日与周期刷新日', async () => {
+    const harness = await renderMembership()
+    try {
+      const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
+      expect(row.textContent).toContain('Pro')
+      expect(row.textContent).toContain('到期')
+      expect(row.textContent).toContain('刷新')
+      expect(row.querySelector('[role="meter"]')).not.toBeNull()
+    } finally { harness.cleanup() }
+  })
+
+  it('会员行免费档不编造到期日', async () => {
     vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
-    const harness = await render()
+    const harness = await renderMembership()
     try {
-      expect(document.querySelector('[data-testid="usage-credits-membership-status"]')!.textContent).toBe('免费')
-    } finally {
-      harness.cleanup()
-    }
+      const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
+      expect(row.querySelector('.subscription-plan-badge')?.textContent).toBe('Free')
+      expect(row.querySelector('.subscription-service-identity')?.textContent).toBe('无到期日')
+    } finally { harness.cleanup() }
   })
 
-  // #5899:在网页上开通会员只写会员表(bind_subscription → user_quota_periods),不碰 user_credits,
-  // 余额广播不会响。人切回 app 时,用量页得重读会员,❌ 一直挂着开通前的「免费」直到关掉设置再打开。
-  it('回到前台 → 重读会员,网页上刚开通的档位当场看得到', async () => {
-    vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
-    const harness = await render()
+  it.each(['free', 'max'] as const)('设备领满时，只有确认 Free 会员才显示免费额度提示（%s）', async tier => {
+    vi.mocked(getMembership).mockResolvedValue(membership({ tier }))
+    const harness = await renderMembership()
     try {
-      const status = () => document.querySelector('[data-testid="usage-credits-membership-status"]')!.textContent
-      expect(status()).toBe('免费')
+      const text = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!.textContent ?? ''
+      expect(text.includes('这台设备已有 5 个账号领过免费额度')).toBe(tier === 'free')
+    } finally { harness.cleanup() }
+  })
+
+  it('会员档位正在读取时，不用设备领满提示冒充已确认 Free', async () => {
+    vi.mocked(getMembership).mockReturnValue(new Promise(() => {}))
+    const harness = await renderMembership()
+    try {
+      const row = harness.container.querySelector('[data-testid="subscription-row-gugu"]')!
+      expect(row.querySelector('.subscription-plan-badge')).toBeNull()
+      expect(row.textContent).not.toContain('这台设备已有 5 个账号领过免费额度')
+    } finally { harness.cleanup() }
+  })
+
+  it('会员行回到前台后重读网页刚开通的档位', async () => {
+    vi.mocked(getMembership).mockResolvedValue(membership({ planId: 'default', tier: 'free', expiresAt: null }))
+    const harness = await renderMembership()
+    try {
+      const badge = () => document.querySelector('.subscription-plan-badge')?.textContent
+      expect(badge()).toBe('Free')
       vi.mocked(getMembership).mockResolvedValue(membership({ expiresAt: new Date(Date.now() + 30 * 24 * hour) }))
       await act(async () => { window.dispatchEvent(new Event('focus')) })
       await flush()
-      expect(status()).not.toBe('免费')
-      expect(status()).toContain('Pro')
-    } finally {
-      harness.cleanup()
-    }
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      expect(badge()).toBe('Pro')
+    } finally { harness.cleanup() }
   })
 
-  it('会员信息取失败 → 说取不到,❌ 回落成「免费」', async () => {
+  it('会员行读取失败不能冒充免费档', async () => {
     vi.mocked(getMembership).mockRejectedValue(new Error('membership down'))
-    const harness = await render()
+    const harness = await renderMembership()
     try {
-      const failed = document.querySelector('[data-testid="usage-credits-membership-error"]')
-      expect(failed).not.toBeNull()
-      expect(failed!.textContent).toContain('membership down')
-      expect(document.querySelector('[data-testid="usage-credits-membership-status"]')).toBeNull()
-    } finally {
-      harness.cleanup()
-    }
+      const row = document.querySelector('[data-testid="subscription-row-gugu"]')!
+      expect(row.textContent).toContain('membership down')
+      expect(row.querySelector('.subscription-plan-badge')).toBeNull()
+      expect(row.textContent).not.toContain('这台设备已有 5 个账号领过免费额度')
+    } finally { harness.cleanup() }
   })
 
   it('额度还没回来时占位,不是整段消失(状态覆盖:loading)', async () => {
@@ -280,16 +341,17 @@ describe('#2503 用量页积分段的诚实性', () => {
     try {
       await renderWithAppProviders(
         harness,
-        createNode(UsageCredits, props),
+        createNode(QueryClientProvider, { client: queryClient }, createNode(GuguSubscriptionRow, {})),
         { auth: { id: 'u1', email: 'u@e.com', nickname: 'U' } },
       )
       await flush()
-      expect(document.querySelector('[data-testid="usage-credits-windows-loading"]')).not.toBeNull()
+      expect(document.querySelector('[data-testid="subscription-credits-loading"]')).not.toBeNull()
 
       release(windows())
       await flush()
-      expect(document.querySelector('[data-testid="usage-credits-windows-loading"]')).toBeNull()
-      expect(document.querySelector('[data-testid="usage-credits-period"]')).not.toBeNull()
+      expect(document.querySelector('[data-testid="subscription-credits-loading"]')).toBeNull()
+      expect(document.querySelectorAll('[role="meter"]')).toHaveLength(1)
+      expect(document.querySelector('[data-testid="subscription-period-credits"]')).not.toBeNull()
     } finally {
       harness.cleanup()
     }

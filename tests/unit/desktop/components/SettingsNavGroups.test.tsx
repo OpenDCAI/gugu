@@ -32,7 +32,7 @@ describe('the one settings nav', () => {
     await render(SETTINGS_SECTIONS)
     expect(groups()).toEqual([
       ['assistant', 'connectors'],
-      ['account', 'usage', 'files', 'subscriptions', 'activity'],
+      ['account', 'usage', 'files', 'subscriptions'],
       ['general', 'interface', 'permissions', 'model', 'resource-monitor'],
       ['sessions', 'browser', 'devices', 'apps', 'phone'],
       ['about'],
@@ -44,7 +44,7 @@ describe('the one settings nav', () => {
     await render(SETTINGS_SECTIONS.filter((section) => !SESSION_HOST_SETTINGS_SECTIONS.includes(section) && section !== 'devices' && section !== 'channels' && section !== 'apps' && section !== 'phone'))
     expect(groups()).toEqual([
       ['assistant'],
-      ['account', 'usage', 'files', 'activity'],
+      ['account', 'usage', 'files'],
       ['general', 'permissions', 'model'],
       ['about'],
     ])
@@ -52,7 +52,7 @@ describe('the one settings nav', () => {
 
   it('drops the whole 咕咕 group when the host has no cloud computer', async () => {
     await render(SETTINGS_SECTIONS.filter((section) => section !== 'assistant' && section !== 'connectors'))
-    expect(groups()[0]).toEqual(['account', 'usage', 'files', 'subscriptions', 'activity'])
+    expect(groups()[0]).toEqual(['account', 'usage', 'files', 'subscriptions'])
   })
 
   // 组名:咕咕那组用它现在的名字;「关于」组只有一格、同名,不画小标题。手机上咕咕组只剩「资料」一格也画组名(否则不知道是谁的资料)。

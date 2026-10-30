@@ -443,7 +443,6 @@ export default {
       "assistant": "资料",
       "connectors": "连接应用",
       "account": "账户",
-      "activity": "活跃",
       "apps": "App",
       "browser": "浏览器",
       "devices": "设备",
