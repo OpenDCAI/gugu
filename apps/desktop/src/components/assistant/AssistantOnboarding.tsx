@@ -27,6 +27,7 @@ import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { reloadMyAssistant } from '../../lib/myAssistant'
 import { rendererLogger } from '../../lib/log'
 import { getMembership } from '../../lib/billing/membership'
+import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
 import { UI_EVENTS } from '../../lib/uiEvents'
@@ -43,7 +44,7 @@ function tintStyle(hue: number): React.CSSProperties {
 }
 
 function openMembership() {
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'usage' } }))
+  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: membershipSettingsSection() } }))
 }
 
 /**

@@ -5,6 +5,7 @@ import { Button } from '../ui/Button'
 import { SettingsGroup, SettingsRow } from '../settings/SettingsPrimitives'
 import type { AssistantHomePlace } from '../../lib/assistantHome'
 import { getMembership } from '../../lib/billing/membership'
+import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { getMoveState, startMove, startPreview, subscribeMove } from '@renderer/features/assistant/assistant-move-controller'
@@ -25,7 +26,7 @@ export type AssistantMoveGroupProps = {
 }
 
 function openMembership() {
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'usage' } }))
+  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: membershipSettingsSection() } }))
 }
 
 /**

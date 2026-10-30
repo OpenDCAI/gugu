@@ -3,6 +3,7 @@ import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
 import { useDevicesStore } from '../store/devicesContext'
 import { useMyAssistantContact } from '../lib/myAssistant'
+import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { AboutSection } from './settings/AboutSection'
 import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
@@ -118,7 +119,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'connectors': return <ConnectorsSection />
       case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} mobile={mobile} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
-      case 'devices':  return <DevicesSection key={requestedSection} fileStorage={requestedSection === 'files'} onUpgrade={() => selectSection('usage')} />
+      case 'devices':  return <DevicesSection key={requestedSection} fileStorage={requestedSection === 'files'} onUpgrade={() => selectSection(membershipSettingsSection(mobile))} />
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
       case 'about':    return <AboutSection />

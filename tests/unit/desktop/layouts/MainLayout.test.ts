@@ -1011,7 +1011,7 @@ describe('MainLayout', () => {
     })
     expect(pager.style.overflowX).toBe('auto')
   })
-  // 「我的」那一层常驻只藏:退回后再直达某个 section(充值 → 用量),落在那个 section 上,❌ 停在上次看的那页。
+  // 「我的」常驻只藏:充值回到有积分卡的账户页,不能留在上次看的统计页。
   it('reopens the retained settings layer on the section a deep link asks for', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
@@ -1019,16 +1019,21 @@ describe('MainLayout', () => {
     const settings = () => harness.container.querySelector('[data-testid="mobile-settings-layer"] [data-testid="mock-settings-panel"]') as HTMLElement
     const recharge = () => act(async () => { rechargeProbe.onRecharge?.() })
     await recharge()
-    expect(settings().getAttribute('data-section')).toBe('usage')
+    expect(settings().getAttribute('data-section')).toBe('account')
     await clickElement(harness.container.querySelector('[data-testid="mock-settings-pick-about"]') as HTMLElement)
     expect(settings().getAttribute('data-section'), 'positive control: the user moved on inside the panel').toBe('about')
     await nativeBack()
     expect(layerOpen('mobile-settings-layer'), 'the first back only leaves the detail page').toBe(true)
     await nativeBack()
     expect(layerOpen('mobile-settings-layer')).toBe(false)
-    expect(settings().getAttribute('data-section'), 'once it is closed the layer is back at its root').toBe('account')
+    expect(settings().getAttribute('data-section'), 'closing resets the controlled phone settings page').toBe('account')
     await recharge()
-    expect(settings().getAttribute('data-section')).toBe('usage')
+    expect(settings().getAttribute('data-section')).toBe('account')
+  })
+  it('opens desktop subscriptions from the low-balance recharge action (#986)', async () => {
+    await renderMainLayoutWithToast()
+    await act(async () => { rechargeProbe.onRecharge?.() })
+    expect(document.querySelector('[data-testid="mock-settings-panel"]')?.getAttribute('data-section')).toBe('subscriptions')
   })
   // 桌面壳不分页:两层包裹都是 display:contents,聊天面照旧直接参与主区 flex 布局。
   it('keeps the desktop layout flat around the pager wrappers', async () => {

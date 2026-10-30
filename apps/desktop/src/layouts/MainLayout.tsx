@@ -111,6 +111,7 @@ import { RemoteMachinesHost } from '../components/sessionpage/RemoteMachinesHost
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { followLink, openLink } from '../lib/guguLinks'
 import { useMobileShell, readMobileShell } from '../hooks/useMobileShell'
+import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { useMobileChatOpenNonce } from '../hooks/useMobileChatOpenNonce'
 import { useAgentCreateContextBridge } from '../hooks/useAgentCreateContextBridge'
 import { useTranslation } from 'react-i18next'
@@ -654,8 +655,8 @@ function InnerLayout({
   const tabBarVisible = mobile && !chatListHidden && !phoneLayerOpen && !partnersPushed
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
-  // 「我的」连 section 一起复位:SettingsPanel 按 settingsSection 换 key,离开时就回到 account,
-  // 横滑落地时 selectTab 不会再换 key 重挂那一页;直达某个 section(充值)也总会换 key、落在对的页上。
+  // 「我的」连 section 一起复位:手机设置由壳受控,离开时回到 account,
+  // 再次直达 account(充值)也能覆盖面板里上次看的页,不依赖不同 section 才换 key。
   // 推进来的一层盖在对话上时(通知、链接从对话里打开项目)底下的对话不动,返回回到它。
   useEffect(() => {
     if (!mobile) return
@@ -1181,8 +1182,8 @@ function InnerLayout({
         paddingTop: mobile ? 'env(safe-area-inset-top)' : undefined,
       }}
     >
-      {/* @@@1548 §3 低额预警:余额 < 阈值(>0)顶部横幅 + 「去充值」直达 设置→用量(#6334 起额度页并入用量)。 */}
-      <LowBalanceBanner user={effectsActive ? user : null} onRecharge={() => openSettingsSection('usage')} />
+      {/* 低余额充值直达积分卡,桌面订阅、手机账户。 */}
+      <LowBalanceBanner user={effectsActive ? user : null} onRecharge={() => openSettingsSection(membershipSettingsSection(mobile))} />
       {mobile && <UpdateBanner />}
       {!mobile && (
         <Sidebar
@@ -1373,11 +1374,11 @@ function InnerLayout({
             {/* 「我的」:页头左上角自己的头像点进来;nav 层左上返回回列表首页,detail 再推一层。 */}
             <PhoneLayer open={activeTab === 'settings'} testId="mobile-settings-layer">
               <SettingsPanel
-                key={settingsSection}
                 mobile
                 appDetail={appDetail}
                 inline
-                initialSection={settingsSection}
+                section={settingsSection}
+                onSectionChange={setSettingsSection}
                 pane={settingsPane}
                 onPaneChange={(next) => navigateMobile(() => setSettingsPane(next), next === 'nav' ? 'pop' : 'push')}
                 onClose={exitPhoneLayer}
