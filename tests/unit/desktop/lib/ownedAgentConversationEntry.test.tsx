@@ -8,7 +8,7 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { installSessionViewRequestBridge, SESSION_VIEW_REQUEST_BRIDGE_KEY } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
 const scope = vi.hoisted(() => ({
-  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(),
+  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(), notify: vi.fn(),
   drafts: {} as Record<string, string>, attachments: {} as Record<string, unknown[]>,
   write: vi.fn(), setFiles: vi.fn(), select: vi.fn(), assistant: null as string | null,
   identities: {} as Record<string, ContactUser>, mobile: false,
@@ -23,7 +23,7 @@ vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc:
 vi.mock('../../../../apps/desktop/src/lib/composeDraft', () => ({ composeTaskDraft: scope.compose }))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ openTarget: scope.open }))
 vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: scope.assistant } }) }) }))
-vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: scope.notify }))
 let harness: ReturnType<typeof createReactHarness>
 const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'agent' }] as ChatItem[]
 const contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'owner' }] as ContactUser[]
@@ -134,4 +134,37 @@ it('carries the group request receipt through the existing draft-opening path', 
   openOwnedAgentEntry('dm', 'agent', undefined, 'source-group');
   await vi.waitFor(() => expect(scope.compose).toHaveBeenCalledWith(expect.anything(), 'group draft', false, [], 'group-draft-request'));
   expect(scope.open).not.toHaveBeenCalled();
+});
+
+it('carries the group receipt and device hint when the participant session is remote', async () => {
+  scope.lookup.mockResolvedValue(null);
+  scope.devices = [{ device_id: 'remote-device', is_online: true, capabilities: {}, projects: [], session_digest: [{ conversationId: 'remote-session', projectId: 'remote-project', title: 'Remote task', harness: 'claude', supported: true, agentUserId: 'agent', runtime: 'acp' }] }];
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'remote-group-request' }));
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledWith({ kind: 'session', deviceId: 'remote-device', projectId: 'remote-project', sessionId: 'remote-session' }, 'remote-group-request'));
+  expect(prepare).toHaveBeenCalledWith('project-group', { projectId: 'remote-project', sessionId: 'remote-session' });
+  expect(scope.select).not.toHaveBeenCalled();
+  expect(scope.notify).not.toHaveBeenCalled();
+});
+
+it('reports an absent local mapping and directory entry instead of silently preparing a participant', async () => {
+  scope.lookup.mockResolvedValue(null);
+  const prepare = vi.fn();
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error' })));
+  expect(prepare).not.toHaveBeenCalled();
+  expect(scope.open).not.toHaveBeenCalled();
+});
+
+it('reports a missing mapped task without treating it as an empty new conversation', async () => {
+  scope.lookup.mockResolvedValue({ projectId: 'project', sessionId: 'session', view: null, projectionError: 'Mapped task is missing', platformRecovery: null });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error' })));
+  expect(scope.open).not.toHaveBeenCalled();
+  expect(scope.onOpen).not.toHaveBeenCalled();
 });
