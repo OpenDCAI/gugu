@@ -20,7 +20,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...actual, readFile: readFileMock }
 })
 
-const { deterministicDeviceId, resolveLocalDeviceId, SERVER_INSTALL_ID_FILE } = await import(
+const { deterministicDeviceId, resolveLocalDeviceId, syncDeviceHeartbeat, SERVER_INSTALL_ID_FILE } = await import(
   '@gugu/core/cloud/deviceRuntime'
 )
 type HeartbeatClient = Parameters<typeof resolveLocalDeviceId>[0]['heartbeatClient']
@@ -42,7 +42,7 @@ function emptyCloud(lookups: string[] = []): HeartbeatClient {
   })
   return {
     from: () => ({
-      select: () => ({ eq: () => ({ eq: (_c: string, machineId: string) => chain(machineId) }) }),
+      select: () => ({ eq: () => ({ eq: (_c: string, machineId: string) => ({ ...chain(machineId), order: () => chain(machineId).eq() }) }) }),
       upsert: async () => ({ error: null }),
     }),
     rpc: async () => ({ error: null }),
@@ -120,4 +120,89 @@ test('并发首跑(登录与账号进程同时)只发一个安装 id', async () 
 
 test('server 模式却没有安装目录:直接报错,不悄悄退回硬件标识', async () => {
   await expect(resolve({ GUGU_SERVER_MODE: '1', GUGU_HOME: guguHome })).rejects.toThrow(/GUGU_SERVER_HOME/)
+})
+
+// #1005 — 账号进程跟着桌面在 beta / 正式版之间换构建:同一个 server 账号目录 ❌ 因 tier 换一行设备,
+// 否则它托管的 agent 还绑在旧行上,云端按设备核对的写入(归档同步)永远 42501。
+type Row = { device_id: string; user_id: string; machine_id: string; tier: string; last_seen_at: string }
+function cloudTable(rows: Row[], writes: Record<string, unknown>[] = []): HeartbeatClient {
+  const lookup = (match: (row: Row) => boolean, newestFirst: boolean) => ({
+    limit: () => ({
+      maybeSingle: async () => {
+        const found = rows.filter(match).sort((a, b) => newestFirst ? b.last_seen_at.localeCompare(a.last_seen_at) : 0)[0]
+        return { data: found ? { device_id: found.device_id } : null, error: null }
+      },
+    }),
+  })
+  return {
+    from: () => ({
+      select: () => ({ eq: (_u: string, userId: string) => ({ eq: (_m: string, machineId: string) => {
+        const mine = (row: Row) => row.user_id === userId && row.machine_id === machineId
+        return { eq: (_t: string, tier: string) => lookup((row) => mine(row) && row.tier === tier, false), order: () => lookup(mine, true) }
+      } }) }),
+      upsert: async (value: Record<string, unknown>) => {
+        writes.push(value)
+        const row = rows.find((r) => r.device_id === value.device_id)
+        if (row) Object.assign(row, value)
+        else rows.push({ tier: 'production', ...(value as Omit<Row, 'tier'>) })
+        return { error: null }
+      },
+    }),
+    rpc: async () => ({ error: null }),
+  } as unknown as HeartbeatClient
+}
+
+async function heartbeat(env: NodeJS.ProcessEnv, client: HeartbeatClient): Promise<string> {
+  const deviceId = await resolveLocalDeviceId({ env, userId: USER_A, heartbeatClient: client, deviceIdCacheWriter: noCache })
+  await syncDeviceHeartbeat(client, { userId: USER_A, deviceId, capabilities: {}, hostInfo: () => ({}) as never,
+    nowIso: () => new Date().toISOString() }, env)
+  return deviceId
+}
+
+test('同一个 server 账号目录在 beta 与正式版之间来回换构建:设备 id 不变,心跳不改行的 tier', async () => {
+  const env = await serverEnv()
+  const rows: Row[] = []
+  const writes: Record<string, unknown>[] = []
+  const client = cloudTable(rows, writes)
+  const first = await heartbeat({ ...env, GUGU_TIER: 'beta' }, client)
+  for (const tier of ['production', 'beta', 'production']) {
+    expect(await heartbeat({ ...env, GUGU_TIER: tier }, client)).toBe(first)
+  }
+  expect(rows.map((row) => row.device_id)).toEqual([first])
+  expect(writes.every((write) => !('tier' in write))).toBe(true)
+})
+
+test('已经因换构建分成两行的 server 账号目录:留在正在用的那行,不管现在是哪个 tier', async () => {
+  const env = await serverEnv()
+  await resolve(env)
+  const machineId = (await readFile(join(env.GUGU_SERVER_HOME!, SERVER_INSTALL_ID_FILE), 'utf8')).trim()
+  const rows: Row[] = [
+    { device_id: 'old-beta', user_id: USER_A, machine_id: machineId, tier: 'beta', last_seen_at: '2026-10-29T13:33:54Z' },
+    { device_id: 'in-use', user_id: USER_A, machine_id: machineId, tier: 'production', last_seen_at: '2026-10-30T02:15:13Z' },
+  ]
+  for (const tier of ['beta', 'production']) {
+    expect(await heartbeat({ ...env, GUGU_TIER: tier }, cloudTable(rows))).toBe('in-use')
+  }
+  expect(rows).toHaveLength(2)
+  expect(rows.map((row) => row.tier)).toEqual(['beta', 'production'])
+})
+
+test('同一个账号在同一台机器上的两个 server 安装:各是各的设备,不并成一行', async () => {
+  const rows: Row[] = []
+  const client = cloudTable(rows)
+  const [a, b] = await Promise.all([serverEnv(), serverEnv()])
+  const idA = await heartbeat({ ...a, GUGU_TIER: 'beta' }, client)
+  const idB = await heartbeat({ ...b, GUGU_TIER: 'beta' }, client)
+  expect(idA).not.toBe(idB)
+  expect(await heartbeat({ ...a, GUGU_TIER: 'production' }, client)).toBe(idA)
+  expect(rows).toHaveLength(2)
+})
+
+test('桌面各 tier 仍是各自的设备(各有各的目录)', async () => {
+  const rows: Row[] = []
+  const client = cloudTable(rows)
+  const beta = await heartbeat({ GUGU_HOME: guguHome, GUGU_TIER: 'beta' }, client)
+  const stable = await heartbeat({ GUGU_HOME: guguHome }, client)
+  expect(beta).not.toBe(stable)
+  expect(rows.map((row) => row.tier).sort()).toEqual(['beta', 'production'])
 })

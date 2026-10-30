@@ -70,6 +70,12 @@ type DeviceHeartbeatResult = {
   data?: { runtimes: string[] | null }[] | null
 }
 
+type DeviceIdentityLookup = {
+  limit(n: number): {
+    maybeSingle(): PromiseLike<{ data: { device_id: unknown } | null; error: { message: string } | null }>
+  }
+}
+
 export interface DeviceHeartbeatTableClient {
   from(table: 'gugu_devices'): {
     upsert(value: never, options: { onConflict: string }): PromiseLike<DeviceHeartbeatResult>
@@ -81,11 +87,8 @@ export interface DeviceHeartbeatTableClient {
     select(columns: string): {
       eq(column: 'user_id', value: string): {
         eq(column: 'machine_id', value: string): {
-          eq(column: 'tier', value: string): {
-            limit(n: number): {
-              maybeSingle(): PromiseLike<{ data: { device_id: unknown } | null; error: { message: string } | null }>
-            }
-          }
+          eq(column: 'tier', value: string): DeviceIdentityLookup
+          order(column: 'last_seen_at', options: { ascending: false }): DeviceIdentityLookup
         }
       }
     }
@@ -305,13 +308,13 @@ const RUNTIME_PROBES: readonly CapabilityProbe[] = [
 ] as const
 
 // @@@owner-scoped-device-cache - the on-disk cache is a reflection of one logical runtime identity.
-// Keep it isolated by authenticated owner and app tier so an account switch cannot observe the previous
+// Keep it isolated by authenticated owner and identity tier so an account switch cannot observe the previous
 // owner's device id, even before the next cloud heartbeat completes. The hash keeps user ids out of paths.
 export function deviceFile(env: NodeJS.ProcessEnv = process.env, userId?: string): string {
   const owner = userId?.trim() ?? ''
   if (!owner) throw new Error('deviceFile requires a non-empty userId')
   const scope = createHash('sha256')
-    .update(`gugu-device-cache-v1:${owner}:${resolveTier(env)}`)
+    .update(`gugu-device-cache-v1:${owner}:${identityTier(env) ?? 'server'}`)
     .digest('hex')
   return join(stateDir(env), 'devices', scope, 'device.json')
 }
@@ -400,7 +403,7 @@ async function resolveLocalDeviceIdentity(
     timeouts.machineIdentifierMs,
     (signal) => resolveMachineIdentifier(options.machineIdentifier, signal, env),
   )
-  const tier = resolveTier(env)
+  const tier = identityTier(env)
   const inherited = await findExistingDeviceIdForUserMachine(
     options.heartbeatClient,
     options.userId,
@@ -408,7 +411,7 @@ async function resolveLocalDeviceIdentity(
     tier,
     timeouts.deviceLookupMs,
   )
-  const deviceId = inherited ?? deterministicDeviceId(machineId, options.userId, tier)
+  const deviceId = inherited ?? deterministicDeviceId(machineId, options.userId, resolveTier(env))
   const cacheWriter = options.deviceIdCacheWriter ?? writeDeviceIdCache
   await runDeviceOperation(
     'device id cache write',
@@ -422,20 +425,23 @@ async function findExistingDeviceIdForUserMachine(
   client: DeviceHeartbeatTableClient,
   userId: string,
   machineId: string,
-  tier: string,
+  tier: string | null,
   timeoutMs: number,
 ): Promise<string | null> {
   const result = await runDeviceRequest(
     'device identity lookup',
     timeoutMs,
-    () => client
-      .from('gugu_devices')
-      .select('device_id')
-      .eq('user_id', userId)
-      .eq('machine_id', machineId)
-      .eq('tier', tier)
-      .limit(1)
-      .maybeSingle(),
+    () => {
+      const rows = client
+        .from('gugu_devices')
+        .select('device_id')
+        .eq('user_id', userId)
+        .eq('machine_id', machineId)
+      // A server home split by an earlier build switch keeps the row it runs on now.
+      return (tier === null ? rows.order('last_seen_at', { ascending: false }) : rows.eq('tier', tier))
+        .limit(1)
+        .maybeSingle()
+    },
   )
   if (result.error) throw new Error(result.error.message)
   const id = result.data?.device_id
@@ -447,6 +453,14 @@ async function findExistingDeviceIdForUserMachine(
 export function resolveTier(env: NodeJS.ProcessEnv = process.env): string {
   const tier = env.GUGU_TIER?.trim().toLowerCase()
   return tier && tier !== 'production' ? tier : 'production'
+}
+
+// @@@server-tier-free-identity (#1005) - a server account home is one device whatever build it runs: its
+// account process follows the desktop between beta and stable builds, and the agents it hosts stay bound
+// to one device row. Desktop tiers have separate homes (~/.gugu-beta), so they stay separate devices.
+// null = the identity has no tier; the heartbeat then leaves the row's tier column as it is.
+function identityTier(env: NodeJS.ProcessEnv): string | null {
+  return env.GUGU_SERVER_MODE === '1' ? null : resolveTier(env)
 }
 
 // @@@fleet-version (#663) - mirrors the GUGU_TIER pattern: electron main sets GUGU_APP_VERSION from
@@ -820,7 +834,7 @@ export async function syncDeviceHeartbeat(
         operationTimeouts: options.operationTimeouts,
       })
   const deviceHostname = (options.hostname ?? hostname)()
-  const tier = resolveTier(env)
+  const tier = identityTier(env)
   const registration = {
     device_id: identity.deviceId,
     user_id: options.userId,
@@ -829,7 +843,7 @@ export async function syncDeviceHeartbeat(
     hostname: deviceHostname,
     machine_id: identity.machineId,
     platform: (options.platform ?? platform)(),
-    tier,
+    ...(tier === null ? {} : { tier }),
     capabilities,
   }
   const presence = {

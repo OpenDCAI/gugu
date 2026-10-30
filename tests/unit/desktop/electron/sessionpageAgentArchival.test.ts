@@ -106,6 +106,19 @@ describe('durable background session archival synchronization', () => {
     expect(sent).toEqual([pending])
   })
 
+  it('stops resending an operation the cloud refused for this device, and resumes it from another device id', async () => {
+    deps.synchronize = vi.fn(async () => { throw Object.assign(new Error('Agent archival device does not match its owner'), { code: '42501' }) })
+    const sync = new SessionpageAgentArchivalSync(deps)
+    await expect(sync.flush()).rejects.toThrow('pending')
+    await sync.flush(); await new SessionpageAgentArchivalSync(deps).flush()
+    expect(deps.synchronize).toHaveBeenCalledTimes(1)
+    const pending = (await stored()).agents.agent.pending
+    deps.resolveDeviceId = async () => 'bound-device'
+    deps.synchronize = vi.fn(async (_id, device, _token, operation) => { expect(device).toBe('bound-device'); sent.push(operation) })
+    await new SessionpageAgentArchivalSync(deps).flush()
+    expect(sent).toEqual([pending])
+  })
+
   it('does not change parked identities belonging to another account or mint a new identity', async () => {
     deps.bindings = async () => [{ ownerUserId: 'other', agentUserId: 'parked', sessionId: 's' }]
     await new SessionpageAgentArchivalSync(deps).flush()

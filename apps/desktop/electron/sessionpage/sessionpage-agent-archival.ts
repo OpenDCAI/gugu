@@ -14,6 +14,8 @@ interface SyncedAgent {
   /** Closed interval stamps differ from the same interval's earlier open stamp. */
   intervals: Record<string, string | null>
   pending?: AgentSessionArchivalOperation
+  /** The cloud refused this agent's archival from this device (42501): it can never succeed from it. */
+  refusedDeviceId?: string
 }
 interface SyncStore { version: 1; agents: Record<string, SyncedAgent> }
 
@@ -103,6 +105,7 @@ export class SessionpageAgentArchivalSync {
         const previous = store.agents[binding.agentUserId]
         if (previous && previous.ownerUserId !== auth.userId) throw new Error('Session archival synchronization owner changed')
         const state = previous ?? (store.agents[binding.agentUserId] = { ownerUserId: auth.userId, intervals: {} })
+        if (state.refusedDeviceId === deviceId) continue
         // One open interval plus up to 255 closed intervals per operation keeps
         // arbitrarily long offline histories within the RPC's bounded payload.
         for (;;) {
@@ -117,6 +120,11 @@ export class SessionpageAgentArchivalSync {
           try {
             await (this.deps.synchronize ?? syncAgentSessionArchival)(binding.agentUserId, deviceId, auth.accessToken, operation)
           } catch (error) {
+            if ((error as { code?: string }).code === '42501') {
+              // Ownership or device binding refused: reported once, never resent from this device.
+              state.refusedDeviceId = deviceId
+              await this.persist()
+            }
             if ((error as { code?: string }).code === '40001') {
               // Rebase from today's local journal, never from an old pending
               // archive that a later restore has already superseded.
