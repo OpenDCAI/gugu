@@ -22,7 +22,7 @@ type Deps = {
  * - 回合序号从库里接着数,❌ 从 0 数撞上上一次运行留下的同名回合。
  *
  * 记录这次读不出来(没有、读失败)⇒ 照旧重放:那是 agent 自己那份历史唯一还拿得到的路。
- * 只有 Claude、Codex 两家不重放(`recordIdentityFor`);其余几家照旧重放。新开、分叉、还没有 provider 会话的不是「接回」,三格都不带。
+ * 只有 Claude、Codex、Hermes 三家不重放(`recordIdentityFor`);其余几家照旧重放。新开、分叉、还没有 provider 会话的不是「接回」,三格都不带。
  * 三格**无条件写回**(缺席也写成 undefined):它们只由宿主给,渲染进程递来的同名字段不许穿过。
  */
 export async function resumeHistoryFacts(input: AcpRuntimeStartInput, deps: Deps): Promise<ResumeHistoryFacts> {

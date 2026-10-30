@@ -318,6 +318,13 @@ export interface AcpStorageForkContext {
 
 export interface IAcpBehavior {
   explainError?(cause: SerializedError): string | undefined;
+  /** Provider-owned record/replay contract; the runtime does not infer it from the provider id. */
+  historyRecovery?: {
+    /** Replayed user messages are canonical evidence of received communication deliveries. */
+    canonicalReplay: true;
+    /** Host-only metadata binding the submitted native blocks to the original user message. */
+    promptMeta?(blocks: PromptRequest['prompt']): Record<string, unknown>;
+  };
   /**
    * 这一家**调得到、却不经 ACP 报**的命令 —— 由咕咕按它自己的目录约定扫出来,合进「/」面板。
    *

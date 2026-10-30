@@ -425,6 +425,7 @@ export class FakePtySpawner implements PtySpawner {
 type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
   providerId?: string;
   acpBehavior?: IAcpBehavior;
+  historyRecovery?: IAcpBehavior['historyRecovery'];
   authProvider?: ResolvedAuthProvider;
   autoApprove?: 'supported' | 'none';
   /** 该家自己声明的原生档 ↔ 咕咕四档对应表。不给 = 没声明表,整条路退回按 id 猜。 */
@@ -567,6 +568,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
   const {
     providerId,
     acpBehavior,
+    historyRecovery,
     authProvider,
     autoApprove,
     autoApproveModes,
@@ -592,6 +594,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
       testPluginHost({
         providerId,
         acpBehavior: acpBehavior ?? {
+          ...(historyRecovery ? { historyRecovery } : {}),
           buildSpawn: () => ({ command: '/fake/node', args: ['agent.js'], env: {} }),
           connect: agent.behavior.connect,
         },
