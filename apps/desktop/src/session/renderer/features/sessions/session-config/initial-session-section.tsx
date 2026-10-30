@@ -64,6 +64,8 @@ import {
 } from '@shared/core/sessions/sessions';
 import { UNATTENDED_SESSION_PERMISSION_MODE } from '@shared/core/sessions/unattended-session-autonomy';
 import type { SessionViewLockState } from './session-view-lock';
+import { SessionViewControl } from './session-view-control';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
@@ -270,9 +272,12 @@ export type InitialSessionState = {
    * ⚠️ 运行时起哪种进程(pty / acp)是另一层事实,只在构造载荷那一刻翻译一次。
    */
   sessionView: SessionView;
-  /** 一条已存记录(自动化)自己的展示:只覆盖这一个框,生效值随之重算。 */
+  /** 人在框里选展示,或一条已存记录(自动化)自己的展示:只覆盖这一个框,生效值随之重算。 */
   setSessionView: (next: SessionView) => void;
-  /** 这一家有没有第二种展示可选。没有就不渲染控件 —— 只有一种展示的 harness 没什么可切。 */
+  /**
+   * 框里给不给「终端 | 通用」那个选择。两个条件都要:本机设置开着「允许以终端（TUI）模式启动 agent」
+   * (`terminal.enabled`),且这一家有第二种展示(只有一种展示的 harness 没什么可切)。
+   */
   sessionViewOffered: boolean;
   /**
    * 这一家在这个入口下被钉在某一种展示上。`view` 与 `sessionView` 一定相等 —— 控件显示的
@@ -513,8 +518,9 @@ export function useInitialSessionState(
   const lastStartedConfiguration = memory?.lastStarted ?? null;
   /** 正在编辑一条已存记录(自动化)—— 它的 agent 是那条记录的属性,❌ 不写进全局的「我上次选的」。 */
   const editingStoredRecord = initialProvider !== undefined;
-  // 新会话一律通用;「终端」开关只管终端能不能用(终端页签与入口),❌ 决定新会话的展示(owner 10-28)。
-  // 只有编辑一条已存的自动化时,由那条记录自己的展示覆盖(`setSessionView`,❌ 写回任何全局设置)。
+  // 新会话默认通用。设置里开着「允许以终端（TUI）模式启动 agent」时,框里给「终端 | 通用」由人选(owner 10-30);
+  // 编辑一条已存的自动化时,先由那条记录自己的展示播种。两者都只覆盖这一个框(`setSessionView`,❌ 写回任何全局设置)。
+  const terminalEnabled = useTerminalEnabled();
   const [sessionViewOverride, setSessionViewOverride] = useState<SessionView | null>(null);
   const sessionViewPreference = sessionViewOverride ?? DEFAULT_SESSION_VIEW;
   // #6264 远端创建框:只经云端连着的机器只有聊天界面那条腿(终端画面走不了云端消息通道),
@@ -1427,7 +1433,7 @@ export function useInitialSessionState(
     },
     sessionView,
     setSessionView: setSessionViewOverride,
-    sessionViewOffered,
+    sessionViewOffered: sessionViewOffered && terminalEnabled,
     sessionViewLock,
     providerSelectionSurface: sessionpageSurface,
     machine,
@@ -1931,9 +1937,22 @@ export function InitialSessionField({
   // 打开就看见的那一面。
   const [attachmentViewer, setAttachmentViewer] = useState<ComposerAttachment | null>(null);
 
+  // 「终端 | 通用」经 toolbarExtra 进底排(给不给见 `sessionViewOffered`)。选不了的那一头留在原地、
+  // 灰掉并说明原因(`sessionViewLock`),❌ 凭空消失(owner 2026-08-21)。
+  const sessionViewControl = state.sessionViewOffered ? (
+    <SessionViewControl
+      value={state.sessionView}
+      onChange={state.setSessionView}
+      lock={state.sessionViewLock}
+      agentName={selectedAgentName}
+      disabled={!state.provider}
+    />
+  ) : undefined;
+
   const toolbarExtra =
-    platformNotice || harnessNotice || grokPermissionNotice ? (
+    sessionViewControl || platformNotice || harnessNotice || grokPermissionNotice ? (
       <>
+        {sessionViewControl}
         {harnessNotice}
         {platformNotice}
         {platformRetry}

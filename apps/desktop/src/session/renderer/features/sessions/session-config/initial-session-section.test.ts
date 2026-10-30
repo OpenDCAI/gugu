@@ -536,7 +536,7 @@ vi.mock('@renderer/features/settings/use-app-settings-key', async () => {
     }),
   };
 });
-// 新会话的展示跟本机「终端」开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
+// 新任务框给不给「终端 | 通用」跟本机开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
 vi.mock('@renderer/features/settings/use-terminal-enabled', async () => {
   const { useSyncExternalStore } = await import('react');
   return {
@@ -1022,14 +1022,22 @@ describe('useInitialSessionState', () => {
     })).toBe('acp');
   });
 
-  // owner 10-28:「终端开关不是默认是否是终端，而是终端功能是否可用」—— 开着关着,新任务都进通用。
-  it('opens in the general view whether the terminal is on or off', async () => {
-    settingsStore.set('terminal', { enabled: true });
+  // owner 10-30:「允许以终端（TUI）模式启动 agent」关着,新任务一律通用、框里没有选择;
+  // 开着,框里给「终端 | 通用」,默认通用,选终端建出来的是 pty。
+  it('offers the Terminal / General choice only when the terminal switch is on', async () => {
     await renderProbe('project-1');
+    expect(latestState?.sessionViewOffered).toBe(false);
     expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
 
-    await act(async () => settingsStore.set('terminal', { enabled: false }));
+    await act(async () => settingsStore.set('terminal', { enabled: true }));
+    expect(latestState?.sessionViewOffered).toBe(true);
     expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+    await act(async () => { latestState?.setSessionView('code'); });
+    expect(latestState?.sessionView).toBe('code');
+    expect(buildInitialSession(latestState!)?.type).toBe('pty');
   });
 
   it('a stored record\'s own view (automations) overrides only this box, never a global setting', async () => {
