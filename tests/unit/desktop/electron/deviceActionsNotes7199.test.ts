@@ -36,7 +36,7 @@ function setup(jxaImpl: Jxa) {
     homedir: () => dir,
     clipboardRead: () => '',
     clipboardWrite: () => undefined,
-    notify: () => undefined,
+    notify: async () => ({ shown: true }),
     openExternal: async () => undefined,
     trashItem: async () => undefined,
     jxa: jxa as unknown as FamilyDeps['jxa'],

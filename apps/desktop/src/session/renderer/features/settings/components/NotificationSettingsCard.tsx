@@ -47,7 +47,7 @@ const AppNotificationPermissions = observer(function AppNotificationPermissions(
       setPending((now) => ({ ...now, [extensionId]: false }));
     }
   };
-  const apps = installedExtensionsStore.manifests.filter((app) => app.permissions.capabilities.includes('notifications'));
+  const apps = installedExtensionsStore.manifests.filter((app) => app.permissions?.capabilities?.includes('notifications'));
   if (apps.length === 0 && !error) return null;
   return <SettingsGroup title={translate('notifications.apps')}>
     {apps.map((app) => {

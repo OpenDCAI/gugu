@@ -2,11 +2,12 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createNode, createReactHarness, clickElement } from '../../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../../tests/support/awaitCondition';
 import { ExtensionsService } from '@main/core/extensions/extensions-service';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 
 const h = vi.hoisted(() => ({ service: null as unknown as ExtensionsService, setPermission: vi.fn() }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({
@@ -14,7 +15,7 @@ vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSetti
 }) }));
 vi.mock('@renderer/lib/ipc', () => ({ events: { on: () => () => {} }, rpc: { extensions: {
   list: async () => ({ success: true, data: { extensions: h.service.list().extensions.map((entry) => entry.manifest), invalid: [] } }),
-  revoked: async () => ({ success: true, data: { notes: h.service.revokedPermissions('notes') } }),
+  revoked: async () => ({ success: true, data: Object.fromEntries(h.service.list().extensions.map(({ manifest }) => [manifest.id, h.service.revokedPermissions(manifest.id)])) }),
   setPermissionGranted: (args: { extensionId: string; permission: string; granted: boolean }) => {
     h.setPermission(args);
     h.service.setPermissionGranted(args.extensionId, args.permission, args.granted);
@@ -35,14 +36,30 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 import NotificationSettingsCard from './NotificationSettingsCard';
 import { answerCall, type BridgeCaller } from '@main/core/extensions/extension-bridge';
 
-const ui = createReactHarness();
+let ui: ReturnType<typeof createReactHarness>;
 let root: string;
+beforeEach(() => { ui = createReactHarness(); });
 afterEach(() => {
   ui.cleanup();
   if (root) { expect(root.startsWith(join(tmpdir(), 'gugu-notification-card-'))).toBe(true); console.info('cleanup owned fixture', root); rmSync(root, { recursive: true }); }
 });
 
 describe('App notification permission in the task settings', () => {
+  it('renders settings with an installed App that declares no permissions and does not list that App', async () => {
+    root = mkdtempSync(join(tmpdir(), 'gugu-notification-card-'));
+    const source = join(root, 'source'); mkdirSync(source);
+    writeFileSync(join(source, 'index.html'), '<p>Plain</p>');
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ id: 'plain', name: 'Plain', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+      entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Plain' }] } }));
+    h.service = new ExtensionsService(join(root, 'installed'));
+    h.service.installFromDirectory(source, h.service.inspectDirectory(source).manifestDigest, 'folder');
+    await installedExtensionsStore.load();
+    expect(installedExtensionsStore.manifests[0]?.permissions).toBeUndefined();
+    await ui.render(createNode(NotificationSettingsCard));
+    expect(ui.container.querySelectorAll('[role="switch"]')).toHaveLength(2);
+    expect(ui.container.textContent).not.toContain('Plain');
+  });
+
   it('uses the product-page grant so the actual bridge refuses the next notify, and restoration allows it', async () => {
     root = mkdtempSync(join(tmpdir(), 'gugu-notification-card-'));
     const source = join(root, 'source'); mkdirSync(source);
