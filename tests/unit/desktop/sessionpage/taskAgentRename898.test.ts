@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   signedOut: false,
   getAuth: vi.fn(),
   lock: vi.fn(),
+  lockTail: Promise.resolve() as Promise<unknown>,
   reconnected: undefined as (() => void) | undefined,
   notify: undefined as (() => Promise<void>) | undefined,
   notified: undefined as Promise<void> | undefined,
@@ -41,7 +42,12 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
 vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning', () => ({
   SESSION_CACHE_KEY: 'emdash_session_id',
   awaitSessionpageCloudIdentity: async () => {},
-  withSessionpageProvisionLock: (label: string, run: () => Promise<unknown>) => { state.lock(label); return run() },
+  withSessionpageProvisionLock: (label: string, run: () => Promise<unknown>) => {
+    state.lock(label)
+    const queued = state.lockTail.then(run)
+    state.lockTail = queued.catch(() => undefined)
+    return queued
+  },
   isSessionpageAddressable: () => true,
 }))
 vi.mock('../../../../apps/desktop/electron/supabase', () => ({
@@ -69,6 +75,9 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
 }))
 
 import { createSessionpageIdentityHost, reconcileSessionpageOwnerNames } from '../../../../apps/desktop/electron/sessionpage/sessionpage-identity-host'
+import { createWebSessionShellAnswers } from '../../../../apps/desktop/src/lib/session-shell-web-answers'
+import { createSessionShellPort, SESSION_SHELL_CHANNELS } from '../../../../apps/desktop/src/session/shared/lib/ipc/shell-port'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { createSupabaseAccountRevisionSource } from '../../../../apps/desktop/src/lib/supabaseAccountRevisionSource'
 
 function setup(options: { title?: string; managed?: boolean; source?: 'manual' | 'generated' } = {}) {
@@ -106,6 +115,7 @@ beforeEach(() => {
   state.signedOut = false
   state.getAuth.mockClear()
   state.lock.mockClear()
+  state.lockTail = Promise.resolve()
   state.reconnected = undefined
   state.notify = undefined
   state.notified = undefined
@@ -233,22 +243,50 @@ describe('task and identity shared rename operation', () => {
     expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task' }), expect.any(String))
   })
 
-  it('does not mirror an older cloud completion over a newer local manual choice', async () => {
+  it('returns and broadcasts the current name when an older cloud write completes while logged in', async () => {
     const app = setup()
+    const events = new EventTarget()
+    vi.stubGlobal('window', events)
+    const published: string[] = []
+    events.addEventListener(UI_EVENTS.ownedAgentRenamed, (event) => published.push((event as CustomEvent).detail.displayName))
+    const web = createWebSessionShellAnswers(async (channel, ...args) => {
+      expect(channel).toBe('sessionpageIdentity.renameAgent')
+      return app.host.renameAgent(args[0] as { sessionId: string; name: string })
+    })
     let release!: () => void
     state.beforeWrite = () => new Promise<void>((resolve) => { release = resolve })
-    const first = app.renameTask('task', 'First choice', 'manual')
-    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
-    state.signedOut = true
-    expect(await app.renameTask('task', 'Newer choice', 'manual')).toBe(true)
-    release()
-    await first
-    expect(app.title()).toBe('Newer choice')
-    expect(app.mirror).not.toHaveBeenCalled()
-    state.signedOut = false
-    state.beforeWrite = undefined
-    await app.host.synchronizeNames()
-    expect(state.rows[0].display_name).toBe('Newer choice')
+    try {
+      const first = web.renameAgent({ sessionId: 'task', name: 'First choice' })
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+      const second = web.renameAgent({ sessionId: 'task', name: 'Newer choice' })
+      await vi.waitFor(() => expect(app.title()).toBe('Newer choice'))
+      expect(state.signedOut).toBe(false)
+      state.beforeWrite = undefined
+      release()
+      const [firstResult] = await Promise.all([first, second])
+      expect(firstResult).toMatchObject({ displayName: 'Newer choice' })
+      expect(app.title()).toBe('Newer choice')
+      expect(state.rows[0].display_name).toBe('Newer choice')
+      expect(published).toEqual(['Newer choice', 'Newer choice'])
+      expect(app.mirror.mock.calls.map(([, name]) => name)).toEqual(['Newer choice'])
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('projects pending local intent through the existing parsed name port, peers and card without writing on reads', async () => {
+    const app = setup()
+    state.error = 'offline'
+    await app.renameTask('task', 'Local choice', 'manual')
+    state.error = null // A later successful cloud read still contains the old name.
+    state.lock.mockClear()
+    const port = createSessionShellPort(async (channel) => {
+      expect(channel).toBe(SESSION_SHELL_CHANNELS.agentNames)
+      return app.host.agentNames()
+    })
+    expect(await port.agentNames()).toEqual([{ conversationId: 'task', agentUserId: AGENT, displayName: 'Local choice', pendingManual: true }])
+    expect((await app.host.sessionPeers())[0].identity.users.display_name).toBe('Local choice')
+    expect(await app.host.agentCard('task')).toMatchObject({ agentUserId: AGENT, displayName: 'Local choice' })
+    expect(state.rows[0].display_name).toBe('Claude 1')
+    expect(state.lock).not.toHaveBeenCalled()
   })
 
   it('runs the existing reap before a rejected name sync settles and reports that rejection independently', async () => {

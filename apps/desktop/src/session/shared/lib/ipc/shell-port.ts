@@ -59,6 +59,8 @@ export interface SessionShellAgentName {
   /** 该 agent 的显示名(= 寻址名,如 `Codex 8`)。 */
   displayName: string
   agentUserId: string
+  /** Derived host intent: this name is durable locally and still awaiting identity publication. */
+  pendingManual?: true
 }
 
 /**
@@ -148,7 +150,8 @@ function agentNameOrNull(row: unknown): SessionShellAgentName | null {
   const sessionId = typeof entry?.conversationId === 'string' ? entry.conversationId.trim() : ''
   const displayName = typeof entry?.displayName === 'string' ? entry.displayName.trim() : ''
   const agentUserId = typeof entry?.agentUserId === 'string' ? entry.agentUserId.trim() : ''
-  return sessionId && displayName && agentUserId ? { conversationId: sessionId, displayName, agentUserId } : null
+  return sessionId && displayName && agentUserId ? { conversationId: sessionId, displayName, agentUserId,
+    ...(entry?.pendingManual === true ? { pendingManual: true as const } : {}) } : null
 }
 
 function agentNames(value: unknown): SessionShellAgentName[] {

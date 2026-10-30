@@ -20,6 +20,7 @@ import { type AgentLook } from '../components/agentAvatar/look'
 import { recordContactsRender } from '../lib/perfCounters'
 import { isMyAssistant } from '../lib/myAssistant'
 import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
+import { findSessionShellPort } from '@/session/renderer/lib/shell-port'
 import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
@@ -80,7 +81,11 @@ export function ContactsProvider({ children, active = true }: { children: React.
       if (generation !== contactsLoadGenerationRef.current) return
       const repository = await getImRepository()
       if (generation !== contactsLoadGenerationRef.current) return
-      await repository.putIdentities(data)
+      const names = await findSessionShellPort()?.agentNames()
+      if (generation !== contactsLoadGenerationRef.current) return
+      const pending = new Map(names?.filter((row) => row.pendingManual).map((row) => [row.agentUserId, row.displayName]))
+      await repository.putIdentities(data.map((identity) => pending.has(identity.id)
+        ? { ...identity, display_name: pending.get(identity.id)! } : identity))
       if (generation !== contactsLoadGenerationRef.current) return
       setContacts(data.map(({ id, alias, agent_type, project_path }) => ({ id, alias, agent_type, project_path })))
       setContactsStatus('ready')
@@ -237,8 +242,6 @@ export function ContactsProvider({ children, active = true }: { children: React.
     // Publish that event into the one identity repository; agent_changed still refreshes cloud identities.
     const handleOwnedAgentRenamed = (event: Event) => {
       const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
-      ++contactsLoadGenerationRef.current
-      setLoadingContacts(false)
       void getImRepository().then(async (repository) => {
         const identity = imSelectors.identitiesById(repository.snapshot())[agentUserId]
         if (identity) await repository.putIdentities([{ ...identity, display_name: displayName }])

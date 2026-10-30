@@ -125,13 +125,23 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
   const log = createLogger('sessionpage/identity-name')
-  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => resolveSessionpageSessionPeers({
+  const pendingName = (sessionId: string) => {
+    const state = deps.taskNames?.state(sessionId)
+    return state?.pendingManual ? state.title : undefined
+  }
+  const peersForAuth = async (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => {
+    const peers = await resolveSessionpageSessionPeers({
       sessionId,
       listRoster: () => listAgents(env, { includeGuests: true }),
       ownerUserId: auth.userId,
       lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
       listSessionFacts: deps.listSessionFacts,
-  })
+    })
+    return peers.map((peer) => {
+      const name = pendingName(peer.sessionId)
+      return name ? { ...peer, identity: { users: { ...peer.identity.users, display_name: name } } } : peer
+    })
+  }
   const provisionDeps: SessionpageProvisionDeps = {
     getAuth: deps.getAuth,
     resolveDeviceId: deps.resolveDeviceId,
@@ -189,7 +199,8 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     const name = taskAgentName(value, source === 'generated')
     const agent = await localAgentForSession(sessionId, env)
     if (!agent?.gugu_user_id) return null
-    const local = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
+    const current = () => ({ conversationId: sessionId, agentUserId: agent.gugu_user_id,
+      displayName: deps.taskNames?.state(sessionId).title ?? name })
     if (source === 'manual') {
       deps.taskNames?.writeManual(sessionId, name)
       await publishRecordName(agent, name, true).catch((error: unknown) => {
@@ -198,7 +209,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     }
     try {
       const auth = await deps.getAuth()
-      if (!auth || !agentMayBelongTo(agent, auth.userId)) return source === 'manual' ? local : false
+      if (!auth || !agentMayBelongTo(agent, auth.userId)) return source === 'manual' ? current() : false
       return await withSessionpageProvisionLock('task identity rename', async () => {
         await awaitSessionpageCloudIdentity(agent.gugu_user_id)
         if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
@@ -214,13 +225,13 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         }
         if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
         // A newer local manual choice must survive completion of an older cloud request.
-        if (source === 'manual' && deps.taskNames?.state(sessionId).title !== name) return local
+        if (source === 'manual' && deps.taskNames?.state(sessionId).title !== name) return current()
         return adoptAgentName(agent.gugu_user_id, name, source)
       })
     } catch (error) {
       if (source !== 'manual') throw error
       log.warn({ sessionId, error: String(error) }, 'Local task name saved; identity publication deferred until synchronization')
-      return local
+      return current()
     }
   }
 
@@ -239,14 +250,16 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         String(sessionId ?? ''),
         env,
         auth.userId,
-        (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
+        async (agentUserIds) => (await loadSessionpageCanonicalAgentIdentities(auth, agentUserIds))
+          .map((identity) => ({ ...identity, display_name: pendingName(sessionId) ?? identity.display_name })),
       )
     },
     async agentNames() {
       // 同上:名字表也按当下登录的账号过一遍,❌ 别把别家账号的 agent 名字画到侧栏上。
       const auth = await deps.getAuth()
       if (!auth) return []
-      return agentNamesFromPeers(await peersForAuth(auth))
+      return agentNamesFromPeers(await peersForAuth(auth)).map((row) => ({ ...row,
+        ...(pendingName(row.conversationId) ? { pendingManual: true as const } : {}) }))
     },
     async sessionPeers(sessionId) {
       const auth = await deps.getAuth()
