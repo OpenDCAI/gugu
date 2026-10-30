@@ -19,7 +19,7 @@ function feed(op: SearchIndexOp): Promise<void> {
     queued = []
     flush = null
     // The index belongs to this computer's account session, never to a machine a row id happens to resemble.
-    return rpcOn(null).search.apply(ops)
+    return rpcOn(null).search.write(ops)
   })
   return flush
 }
