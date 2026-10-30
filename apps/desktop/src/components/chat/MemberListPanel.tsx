@@ -63,7 +63,7 @@ import type { UseGroupCollabLoaderResult } from '../../hooks/useGroupCollabLoade
 
 const sectionHeaderStyle = {
   display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-  padding: '12px 14px 4px', color: 'var(--text-tertiary)',
+  padding: '12px 14px 4px', color: 'var(--muted-fg)',
   fontSize: 'var(--font-caption)', fontWeight: 600, letterSpacing: '.02em',
 } as const
 
@@ -73,7 +73,7 @@ const myAgentsChevronStyle = (open: boolean): React.CSSProperties => ({
 })
 
 const metaCellStyle = {
-  fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)',
+  fontSize: 'var(--font-caption)', color: 'var(--muted-fg)',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160,
 } as const
 
@@ -83,7 +83,7 @@ const metaCellStyle = {
 // 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。主人点它照旧翻档。
 const listenModeToggleStyle = (editable: boolean): React.CSSProperties => ({
   padding: 0, minHeight: 0, height: 'auto', flexShrink: 0, fontWeight: 400,
-  fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--text-tertiary)',
+  fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--muted-fg)',
   cursor: editable ? 'pointer' : 'default',
 })
 // 「我的 agent」与「其他人的 agent」两组同级:后一组顶上一条分隔线,折叠的那组底下也一眼看得出边界。
@@ -93,7 +93,7 @@ const MEMBER_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'fl
 const MEMBER_ROW_INTERACTIVE_STYLE: React.CSSProperties = { ...MEMBER_ROW_STYLE, cursor: 'pointer' }
 const MEMBER_ROW_ACTIONS_STYLE: React.CSSProperties = { flexShrink: 0, alignSelf: 'center' }
 const MEMBER_LIST_SEARCH_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 2px', flexShrink: 0 }
-const MEMBER_LIST_EMPTY_STYLE: React.CSSProperties = { padding: '24px 14px', textAlign: 'center', fontSize: 'var(--font-body)', color: 'var(--text-tertiary)' }
+const MEMBER_LIST_EMPTY_STYLE: React.CSSProperties = { padding: '24px 14px', textAlign: 'center', fontSize: 'var(--font-body)', color: 'var(--muted-fg)' }
 const MEMBER_ROW_BODY_STYLE: React.CSSProperties = { minWidth: 0, flex: 1, alignSelf: 'center' }
 const MEMBER_ROW_NAME_LINE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }
 const MEMBER_ROW_NAME_STYLE: React.CSSProperties = {
@@ -101,7 +101,7 @@ const MEMBER_ROW_NAME_STYLE: React.CSSProperties = {
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const MEMBER_ROW_ROLE_STYLE: React.CSSProperties = {
-  fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)',
+  fontSize: 'var(--font-caption)', color: 'var(--muted-fg)',
   padding: '0 4px', flexShrink: 0,
 }
 const MEMBER_ROW_META_CELLS_STYLE: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 3 }

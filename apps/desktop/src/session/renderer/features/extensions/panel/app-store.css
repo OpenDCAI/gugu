@@ -365,7 +365,7 @@
 .mk-count {
   font-size: var(--font-body);
   font-weight: 400;
-  color: var(--foreground-passive);
+  color: var(--muted-fg);
   font-variant-numeric: tabular-nums;
 }
 /* 「上次更新于 …」:后台没取到目录时,标题这一行的最右边一句小字。 */
@@ -373,7 +373,7 @@
   margin-left: auto;
   font-size: var(--font-caption);
   font-weight: 400;
-  color: var(--foreground-passive);
+  color: var(--muted-fg);
   font-variant-numeric: tabular-nums;
 }
 .mk-shelf {
