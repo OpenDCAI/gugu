@@ -3,7 +3,8 @@
 // stall and replayed it when stderr later waited for the window, so the desktop's frame decoder read payload bytes as a
 // header ("frame too large"). patches/ssh2@1.17.0.patch fixes the resume; this pins it.
 import { describe, expect, it } from 'vitest'
-import { Client, Server, utils } from 'ssh2'
+import { Client, Server } from 'ssh2'
+import { generateHostKey } from '../../../../apps/desktop/electron/server/tunnel-endpoint'
 
 const MB = 1024 * 1024
 const pattern = (size: number, seed: number) => Buffer.from(Array.from({ length: size }, (_, i) => (i * 31 + seed) & 0xff))
@@ -14,7 +15,7 @@ describe('ssh2 exec channel window resume', () => {
     const first = pattern(3 * MB, 1)
     const second = pattern(MB, 7)
     const stderr = Buffer.alloc(3 * MB, 0x45)
-    const server = new Server({ hostKeys: [utils.generateKeyPairSync('ed25519').private] }, (conn) => {
+    const server = new Server({ hostKeys: [generateHostKey().privateKey] }, (conn) => {
       conn.on('authentication', (ctx) => ctx.accept())
       conn.on('ready', () => {
         conn.on('session', (acceptSession) => {

@@ -27,6 +27,7 @@ import {
   createAuthorizedKeys,
   ensureHostKey,
   execEnv,
+  generateHostKey,
   listenTunnelSsh,
 } from '../../../../apps/desktop/electron/server/tunnel-endpoint'
 import {
@@ -249,12 +250,12 @@ function freePort(): Promise<number> {
   })
 }
 
-describe('主机钥匙:ssh2 的生成器偶尔给出它自己读不回的钥匙(mscdex/ssh2#1390、#1513,1.17.0 约 1/300)', () => {
+describe('主机钥匙:ssh2 的生成器偶尔给出它自己读不回的钥匙(mscdex/ssh2#1390、#1513,1.17.0 约 1/256)', () => {
   // 公钥首字节是 0 时 ssh2 的 keygen 多剥掉一个 0:公钥 31 字节,私钥文件 parseKey 报 Malformed。
   // 拿它当主机钥匙 `new Server` 当场抛错 —— 那台机器这次起不来隧道(tunnel.open 答「远程隧道起不来」)。
   afterEach(() => vi.restoreAllMocks())
 
-  /** 现场从 ssh2 的生成器里撞出一把它自己读不回的钥匙(约 300 次一把;❌ 把私钥原文提交进仓)。 */
+  /** 现场从 ssh2 的生成器里撞出一把它自己读不回的钥匙(约 256 次一把;❌ 把私钥原文提交进仓)。 */
   function brokenPairFromSsh2(): { private: string; public: string } {
     for (let i = 0; i < 20_000; i += 1) {
       const pair = sshUtils.generateKeyPairSync('ed25519')
@@ -292,6 +293,17 @@ describe('主机钥匙:ssh2 的生成器偶尔给出它自己读不回的钥匙(
     expect(readBack(file)).toBe(first.publicKey)
     expect(ensureHostKey(file).publicKey).toBe(first.publicKey)
     expect(serverStarts(first.privateKey)).toBe(true)
+  })
+
+  // 要一把 ssh2 钥匙的地方(主机钥匙、测试里的 Server)都从 generateHostKey 拿:它不落盘,撞上读不回的就丢掉重来。
+  it('generateHostKey:撞上读不回的就丢掉重来,给出的那把 Server 起得来,公钥就是它的', () => {
+    vi.spyOn(sshUtils, 'generateKeyPairSync').mockReturnValueOnce(brokenPairFromSsh2() as never)
+    const key = generateHostKey()
+    const parsed = sshUtils.parseKey(key.privateKey)
+    if (parsed instanceof Error) throw parsed
+    const read = Array.isArray(parsed) ? parsed[0]! : parsed
+    expect(key.publicKey).toBe(`${read.type} ${read.getPublicSSH().toString('base64')}`)
+    expect(serverStarts(key.privateKey)).toBe(true)
   })
 
   it('已经中招的机器(盘上是读不回的钥匙):下次起来换一把读得回的,服务端起得来', () => {

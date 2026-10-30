@@ -87,14 +87,26 @@ function hostPublicKey(privateKey: string): string | null {
   return key ? `${key.type} ${key.getPublicSSH().toString('base64')}` : null
 }
 
-/** ssh2 生成器连着给出读不回的钥匙这么多次就认栽(单次约 1/300,8 次连着 ≈ 0)。 */
+/** ssh2 生成器连着给出读不回的钥匙这么多次就认栽(单次约 1/256,8 次连着 ≈ 0)。 */
 const HOST_KEY_ATTEMPTS = 8
 
 /**
- * 主机钥匙:有就读,没有就生成一把(0600)。桌面每次 tunnel.open 都拿到它的公钥,写进自己的 known_hosts 严格核对。
- * ssh2 1.17.0 的 ed25519 生成器在公钥首字节为 0 时多剥一个 0,写出它自己 parseKey 都读不回的私钥(mscdex/ssh2#1390、
- * #1513,约 1/300):拿它当主机钥匙 `new Server` 当场抛错。所以生成后先读一遍,读不回就丢掉重来。
- * 已有的文件读不回(旧版本写下的坏钥匙)同样换一把:新公钥随下一次 tunnel.open 交给桌面,known_hosts 跟着换。
+ * 一把 ssh2 自己读得回的 ed25519 钥匙(不落盘)。ssh2 1.17.0 的 ed25519 生成器在公钥首字节为 0 时多剥一个 0,写出它自己
+ * parseKey 都读不回的私钥(mscdex/ssh2#1390、#1513,约 1/256):拿它当主机钥匙 `new Server` 当场抛错。所以生成后先读一遍,
+ * 读不回就丢掉重来。要一把 ssh2 钥匙的地方(主机钥匙、测试里的 Server)都从这里拿。
+ */
+export function generateHostKey(): { privateKey: string; publicKey: string } {
+  for (let attempt = 0; attempt < HOST_KEY_ATTEMPTS; attempt += 1) {
+    const pair = utils.generateKeyPairSync('ed25519')
+    const publicKey = hostPublicKey(pair.private)
+    if (publicKey) return { privateKey: pair.private, publicKey }
+  }
+  throw new Error(`ssh2 连着 ${HOST_KEY_ATTEMPTS} 次生成的主机钥匙都读不回`)
+}
+
+/**
+ * 主机钥匙:有就读,没有就生成一把(`generateHostKey`,0600)。桌面每次 tunnel.open 都拿到它的公钥,写进自己的 known_hosts
+ * 严格核对。已有的文件读不回(旧版本写下的坏钥匙)同样换一把:新公钥随下一次 tunnel.open 交给桌面,known_hosts 跟着换。
  */
 export function ensureHostKey(file: string): { privateKey: string; publicKey: string } {
   if (fs.existsSync(file)) {
@@ -102,15 +114,10 @@ export function ensureHostKey(file: string): { privateKey: string; publicKey: st
     const publicKey = hostPublicKey(privateKey)
     if (publicKey) return { privateKey, publicKey }
   }
-  for (let attempt = 0; attempt < HOST_KEY_ATTEMPTS; attempt += 1) {
-    const pair = utils.generateKeyPairSync('ed25519')
-    const publicKey = hostPublicKey(pair.private)
-    if (!publicKey) continue
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-    fs.writeFileSync(file, pair.private, { mode: 0o600 })
-    return { privateKey: pair.private, publicKey }
-  }
-  throw new Error(`ssh2 连着 ${HOST_KEY_ATTEMPTS} 次生成的主机钥匙都读不回`)
+  const key = generateHostKey()
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  fs.writeFileSync(file, key.privateKey, { mode: 0o600 })
+  return key
 }
 
 function handleConnection(client: Connection, deps: {
