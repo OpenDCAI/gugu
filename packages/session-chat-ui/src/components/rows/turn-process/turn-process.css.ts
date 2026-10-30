@@ -34,7 +34,7 @@ export const turnProcessLine = style({
  * 等宽数字:头每秒改一次「已处理 8m07s」,比例数字(1 比 0 窄)会让整句的宽度跟着变、后面的箭头每秒左右跳(owner 2026-10-22 真机录屏量到 ±2px)。
  */
 export const turnProcessHeaderSlot = style({
-  flex: '0 0 auto',
+  flex: '1 1 auto',
   minWidth: 0,
   fontVariantNumeric: 'tabular-nums',
 });

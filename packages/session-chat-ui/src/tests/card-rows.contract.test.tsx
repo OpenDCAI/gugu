@@ -728,7 +728,7 @@ describe('rows keep the reader\'s token whole while a secondary cell can still g
   // while the other still has room. Found by sweeping every label-beside-detail line after 「执…」.
   const sel = (cls: string) => cls.split(' ').map((c) => `.${c}`).join('')
 
-  it('resource link: the name keeps every pixel while the path still has room', async () => {
+  it('resource link: name and path both remain readable at narrow widths', async () => {
     const deep = `${'deeply-nested-directory/'.repeat(8)}component-ownership-map.tsx`
     const reading = await renderAndMeasureUnit(
       resourceLinkUnitDef,
@@ -746,7 +746,7 @@ describe('rows keep the reader\'s token whole while a secondary cell can still g
     )
     const { found, titleShort, pathClipped } = reading.inspected
     expect(found, 'probe found no title / path cell').toBe(1)
-    expect(pathClipped, 'the path fit, so nothing competed').toBeGreaterThan(0)
+    expect(pathClipped, 'the static path must wrap without clipping').toBeLessThanOrEqual(1)
     expect(titleShort, `name ${titleShort}px short of its own width`).toBeLessThanOrEqual(0.01)
   })
 
