@@ -221,17 +221,28 @@ describe('conversation title precedence', () => {
     expect(rowOf('fallback')).toEqual({ title: 'Owner choice', titleSource: 'manual' });
   });
 
-  it('keeps an offline manual edit and the last mirrored identity value until synchronization succeeds', async () => {
-    fixture.sqlite.prepare("UPDATE sessions SET config = json_set(config, '$.identityNameManaged', json('true')) WHERE id = ?").run('fallback');
+  it('publishes a managed offline manual edit to both renderer fields and retains its sync intent', async () => {
     mirrorTaskIdentityName('fallback', 'Claude 12');
     setTaskIdentityRename(async (id, name) => {
       writeManualTaskName(id, name);
-      throw new Error('offline');
+      return true; // The identity host defers its failed cloud write, after the durable local edit.
     });
-    await expect(renameSession('fallback', 'Offline choice')).rejects.toThrow('offline');
-    expect(sessionTaskNameState('fallback')).toMatchObject({ title: 'Offline choice', source: 'manual', managed: true, identityName: 'Claude 12' });
+    await expect(renameSession('fallback', 'Offline choice')).resolves.toBeUndefined();
+    expect(sessionTaskNameState('fallback')).toMatchObject({ title: 'Offline choice', source: 'manual', managed: false, identityName: 'Offline choice', pendingManual: true });
+    expect(mocks.emit).toHaveBeenLastCalledWith(sessionChangedChannel, {
+      sessionId: 'fallback', projectId: 'project-1', changes: { title: 'Offline choice', agentDisplayName: 'Offline choice' },
+    });
     mirrorTaskIdentityName('fallback', 'Offline choice', 'manual');
-    expect(sessionTaskNameState('fallback')).toMatchObject({ title: 'Offline choice', identityName: 'Offline choice' });
+    expect(sessionTaskNameState('fallback')).toMatchObject({ managed: true, pendingManual: false, identityName: 'Offline choice' });
+  });
+
+  it('repairs an old same-title manual edit whose displayed identity field was still stale', () => {
+    fixture.sqlite.prepare("UPDATE sessions SET title = 'Offline choice', config = json_set(config, '$.titleSource', 'manual', '$.agentDisplayName', 'Old identity', '$.identityNameManaged', json('true')) WHERE id = ?").run('fallback');
+    writeManualTaskName('fallback', 'Offline choice');
+    expect(sessionTaskNameState('fallback')).toMatchObject({ identityName: 'Offline choice', pendingManual: true });
+    expect(mocks.emit).toHaveBeenLastCalledWith(sessionChangedChannel, {
+      sessionId: 'fallback', projectId: 'project-1', changes: { title: 'Offline choice', agentDisplayName: 'Offline choice' },
+    });
   });
 
   it('adopts remote names on the host without changing identity or archive/Restore bindings', () => {

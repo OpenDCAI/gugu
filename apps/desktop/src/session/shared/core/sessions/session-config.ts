@@ -122,7 +122,7 @@ const ptyConfigV1 = z.object({
    * Before provisioning, absence means the identity will receive its serial placeholder.
    */
   agentDisplayName: z.string().optional(),
-  /** Linked identity owns the task name; harness titles stay metadata. */
+  /** The host has mirrored the linked identity name. A local manual edit clears this until publication. */
   identityNameManaged: z.boolean().optional(),
   titleSource: sessionTitleSourceSchema.optional(),
   providerSessionState: providerSessionStateSchema.optional(),

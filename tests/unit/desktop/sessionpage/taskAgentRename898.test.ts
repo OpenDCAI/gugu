@@ -12,14 +12,20 @@ const state = vi.hoisted(() => ({
   notify: undefined as (() => Promise<void>) | undefined,
   notified: undefined as Promise<void> | undefined,
   provision: vi.fn(),
+  warn: vi.fn(),
+  beforeWrite: undefined as (() => Promise<void>) | undefined,
 }))
 vi.mock('@gugu/core', () => ({
   listAgents: async () => state.roster,
   provisionSessionpageAgentOneTrip: (...args: unknown[]) => state.provision(...args),
 }))
 vi.mock('@gugu/core/local/state/agents', () => ({
-  updateAgent: async (_selector: unknown, patch: { name: string }) => { state.roster[0] = { ...state.roster[0], ...patch } },
+  updateAgent: async (selector: { guguUserId: string }, patch: { name: string }) => {
+    const index = state.roster.findIndex((agent) => agent.gugu_user_id === selector.guguUserId)
+    state.roster[index] = { ...state.roster[index], ...patch }
+  },
 }))
+vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: state.warn }) }))
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (_account: string, _event: string, _listener: unknown, options: { onSubscribed: () => void }) => {
     state.reconnected = options.onSubscribed
@@ -55,7 +61,7 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
       update: (value: { display_name: string }) => { patch = value; return query },
       eq: (key: string, value: unknown) => { filters.push([key, value]); return query },
       in: (_key: string, value: string[]) => { ids = value; return query },
-      maybeSingle: async () => { const out = result(); return { ...out, data: out.data?.[0] ?? null } },
+      maybeSingle: async () => { if (patch) await state.beforeWrite?.(); const out = result(); return { ...out, data: out.data?.[0] ?? null } },
       then: (resolve: (value: ReturnType<typeof result>) => unknown) => resolve(result()),
     }
     return query
@@ -70,6 +76,7 @@ function setup(options: { title?: string; managed?: boolean; source?: 'manual' |
   let source = options.source
   let managed = options.managed ?? true
   let identityName: string | undefined = managed ? 'Claude 1' : undefined
+  const taskStates = new Map<string, { title: string; source: 'manual' | 'generated'; managed: boolean; identityName?: string; pendingManual: boolean; fallback: boolean }>()
   let renameTask!: (id: string, name: string, source: 'manual' | 'generated') => Promise<boolean | null>
   const notices = vi.fn()
   const mirror = vi.fn((_id: string, name: string, nextSource?: 'manual' | 'generated') => {
@@ -85,11 +92,11 @@ function setup(options: { title?: string; managed?: boolean; source?: 'manual' |
     sessionFacts: async () => null,
     listSessionFacts: async () => [{ sessionId: 'task', title, projectName: 'Project', status: null, isPinned: false, lastInteractedAt: null }],
     taskNames: { installRename: (rename) => { renameTask = rename }, mirror,
-      writeManual: (_id, name) => { title = name; source = 'manual' },
-      state: () => ({ fallback: source === undefined, title, source, managed, identityName }) },
+      writeManual: (_id, name) => { title = name; identityName = name; managed = false; source = 'manual' },
+      state: (id) => taskStates.get(id) ?? ({ fallback: source === undefined, title, source, managed, identityName, pendingManual: source === 'manual' && !managed }) },
     onRenamed: notices,
   })
-  return { host, renameTask: (...args: Parameters<typeof renameTask>) => renameTask(...args), title: () => title, mirror, notices }
+  return { host, renameTask: (...args: Parameters<typeof renameTask>) => renameTask(...args), title: () => title, mirror, notices, taskStates }
 }
 
 beforeEach(() => {
@@ -102,6 +109,8 @@ beforeEach(() => {
   state.reconnected = undefined
   state.notify = undefined
   state.notified = undefined
+  state.warn.mockClear()
+  state.beforeWrite = undefined
   state.provision.mockReset().mockImplementation(async () => { state.rows[0].name_serial = 1; return { displayName: state.rows[0].display_name } })
 })
 
@@ -138,10 +147,12 @@ describe('task and identity shared rename operation', () => {
   it('keeps the local manual name on cloud failure and retries through the existing identity-change event', async () => {
     const app = setup()
     state.error = 'offline'
-    await expect(app.host.renameAgent({ sessionId: 'task', name: 'Not saved' })).rejects.toThrow('offline')
-    expect(app.title()).toBe('Not saved')
+    await expect(app.host.renameAgent({ sessionId: 'task', name: 'Saved locally' })).resolves.toMatchObject({ displayName: 'Saved locally' })
+    expect(app.title()).toBe('Saved locally')
     expect(app.mirror).not.toHaveBeenCalled()
-    expect(app.notices).not.toHaveBeenCalled()
+    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Saved locally' })
+    expect(state.roster[0].name).toBe('Saved locally')
+    expect(state.warn).toHaveBeenCalled()
     expect(state.rows[0].display_name).toBe('Claude 1')
     state.error = null
     // Connect the actual identity source's existing onSubscribed -> existing host IPC operation.
@@ -150,7 +161,7 @@ describe('task and identity shared rename operation', () => {
     state.reconnected!()
     await state.notified
     stop()
-    expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Not saved', 'Not saved', 'Not saved'])
+    expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Saved locally', 'Saved locally', 'Saved locally'])
     expect(app.notices).toHaveBeenCalledTimes(1)
   })
 
@@ -177,8 +188,10 @@ describe('task and identity shared rename operation', () => {
   it('retains a bound signed-out manual edit without touching the cloud', async () => {
     state.signedOut = true
     const app = setup()
-    expect(await app.renameTask('task', 'Offline choice', 'manual')).toBe(false)
+    expect(await app.renameTask('task', 'Offline choice', 'manual')).toBe(true)
     expect(app.title()).toBe('Offline choice')
+    expect(state.roster[0].name).toBe('Offline choice')
+    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Offline choice' })
     expect(state.rows[0].display_name).toBe('Claude 1')
   })
 
@@ -194,6 +207,48 @@ describe('task and identity shared rename operation', () => {
     await app.host.synchronizeNames()
     expect([state.rows[0].display_name, app.title()]).toEqual(['Fix login bug', 'Fix login bug'])
     expect(app.notices).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects overlong legacy intent per row and continues migrating the next task', async () => {
+    const app = setup({ title: 'x'.repeat(41), source: 'manual', managed: false })
+    state.roster.push({ ...state.roster[0], gugu_user_id: 'second', cache: { ...state.roster[0].cache, emdash_session_id: 'task-2' } })
+    state.rows.push({ ...state.rows[0], id: 'second' })
+    app.taskStates.set('task-2', { title: '  Valid old title  ', source: 'manual', managed: false, pendingManual: true, fallback: false })
+    await app.host.synchronizeNames()
+    expect(state.rows.map((row) => row.display_name)).toEqual(['Claude 1', 'Valid old title'])
+    expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task', error: expect.stringContaining('1–40') }), expect.any(String))
+    expect(app.mirror).toHaveBeenCalledWith('task-2', 'Valid old title', 'manual')
+  })
+
+  it('continues after an authorized update fails for one legacy row', async () => {
+    const app = setup({ title: 'First manual', source: 'manual', managed: false })
+    // The canonical read is allowed, but the first row's owner mutation returns no identity.
+    state.rows[0].owner_user_id = 'owner'
+    state.roster.push({ ...state.roster[0], gugu_user_id: 'second', cache: { ...state.roster[0].cache, emdash_session_id: 'task-2' } })
+    state.rows.push({ ...state.rows[0], id: 'second' })
+    app.taskStates.set('task-2', { title: 'Second manual', source: 'manual', managed: false, pendingManual: true, fallback: false })
+    state.beforeWrite = async () => { state.rows[0].owner_user_id = 'different-owner' }
+    await app.host.synchronizeNames()
+    expect(state.rows[1].display_name).toBe('Second manual')
+    expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task' }), expect.any(String))
+  })
+
+  it('does not mirror an older cloud completion over a newer local manual choice', async () => {
+    const app = setup()
+    let release!: () => void
+    state.beforeWrite = () => new Promise<void>((resolve) => { release = resolve })
+    const first = app.renameTask('task', 'First choice', 'manual')
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    state.signedOut = true
+    expect(await app.renameTask('task', 'Newer choice', 'manual')).toBe(true)
+    release()
+    await first
+    expect(app.title()).toBe('Newer choice')
+    expect(app.mirror).not.toHaveBeenCalled()
+    state.signedOut = false
+    state.beforeWrite = undefined
+    await app.host.synchronizeNames()
+    expect(state.rows[0].display_name).toBe('Newer choice')
   })
 
   it('runs the existing reap before a rejected name sync settles and reports that rejection independently', async () => {

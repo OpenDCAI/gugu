@@ -6,16 +6,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 
-const { authUser, contactsServiceMock, identitiesById, putIdentitiesMock, getImRepositoryMock, refreshChatsMock, chatState } = vi.hoisted(() => {
+const { authUser, contactsServiceMock, identitiesById, putIdentitiesMock, getImRepositoryMock, refreshChatsMock, chatState, identityListeners } = vi.hoisted(() => {
   const identitiesById = {} as Record<string, ContactUser>
+  const identityListeners = new Set<() => void>()
   const putIdentitiesMock = vi.fn(async (identities: ContactUser[]) => {
     for (const identity of identities) identitiesById[identity.id] = identity
+    for (const notify of identityListeners) notify()
   })
   return {
     authUser: { id: 'user-1', email: 'user@example.test', nickname: 'User One' },
     identitiesById,
+    identityListeners,
     putIdentitiesMock,
-    getImRepositoryMock: vi.fn(async () => ({ putIdentities: putIdentitiesMock })),
+    getImRepositoryMock: vi.fn(async () => ({ putIdentities: putIdentitiesMock, snapshot: () => ({ identity: Object.values(identitiesById).map((value) => ({ id: value.id, value })) }) })),
     contactsServiceMock: {
       getContacts: vi.fn(),
       getContactGroups: vi.fn(),
@@ -50,6 +53,9 @@ const { renameLocal } = vi.hoisted(() => ({ renameLocal: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal } }))
 
 import { ContactsProvider } from '../../../../apps/desktop/src/store/contacts'
+import { SessionAgentNames } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-agent-names'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import type { IdentityDirectorySnapshot } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 import { useContactsStore, type ContactsContextValue } from '../../../../apps/desktop/src/store/contactsContext'
 
@@ -87,9 +93,11 @@ const sharedGroupRow = {
 beforeEach(() => {
   renameLocal.mockReset().mockResolvedValue(undefined)
   store = null
+  identityListeners.clear()
   for (const id of Object.keys(identitiesById)) delete identitiesById[id]
   putIdentitiesMock.mockReset().mockImplementation(async (identities: ContactUser[]) => {
     for (const identity of identities) identitiesById[identity.id] = identity
+    for (const notify of identityListeners) notify()
   })
   getImRepositoryMock.mockClear()
   for (const fn of Object.values(contactsServiceMock)) (fn as ReturnType<typeof vi.fn>).mockReset()
@@ -137,6 +145,46 @@ describe('agent rename canonical publication #6021', () => {
       expect(refreshChatsMock).toHaveBeenCalledOnce()
     } finally { harness.cleanup() }
   })
+  it('keeps the sidebar name after an offline rename, a failed refetch and the recovered cloud refetch', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1' }
+    identitiesById[agent.id] = agent
+    const directory = { getSnapshot: () => identitiesById as IdentityDirectorySnapshot,
+      subscribe: (notify: () => void) => { identityListeners.add(notify); return () => { identityListeners.delete(notify) } }, ensure: () => {} }
+    const names = new SessionAgentNames({ readAll: () => null, readRemote: () => [], onRemoteChange: () => () => {}, onIdentityEvent: () => () => {}, directory: () => directory })
+    names.note('task', agent.display_name, agent.id)
+    names.start()
+    const harness = await renderProvider()
+    try {
+      const before = contactsServiceMock.getContacts.mock.calls.length
+      await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, { detail: { agentUserId: agent.id, displayName: 'Local choice' } })) })
+      expect(contactsServiceMock.getContacts).toHaveBeenCalledTimes(before)
+      expect(names.displayNameFor('task', 'claude', agent.display_name)).toBe('Local choice')
+      contactsServiceMock.getContacts.mockRejectedValueOnce(new Error('offline'))
+      await act(async () => { await store!.refreshContacts() })
+      expect(names.nameFor('task')).toBe('Local choice')
+      // The existing host onSubscribed synchronization has now published the same chosen name.
+      contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...agent, display_name: 'Local choice' }])
+      await act(async () => { await store!.refreshContacts() })
+      expect(names.nameFor('task')).toBe('Local choice')
+      expect(identitiesById[agent.id].display_name).toBe('Local choice')
+    } finally { harness.cleanup() }
+  })
+
+  it('discards an older contact response already in flight when the local rename event arrives', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1' }
+    identitiesById[agent.id] = agent
+    const harness = await renderProvider()
+    try {
+      let release!: (rows: ContactUser[]) => void
+      contactsServiceMock.getContacts.mockImplementationOnce(() => new Promise<ContactUser[]>((resolve) => { release = resolve }))
+      let reading!: Promise<void>
+      await act(async () => { reading = store!.refreshContacts() })
+      await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, { detail: { agentUserId: agent.id, displayName: 'Local choice' } })) })
+      await act(async () => { release([agent]); await reading })
+      expect(identitiesById[agent.id].display_name).toBe('Local choice')
+    } finally { harness.cleanup() }
+  })
+
   it('does not publish a rejected owner mutation to either identity or local roster', async () => {
     contactsServiceMock.updateOwnedAgentProfile.mockRejectedValue(new Error('permission denied'))
     const harness = await renderProvider()

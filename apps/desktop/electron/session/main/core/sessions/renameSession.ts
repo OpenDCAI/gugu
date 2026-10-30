@@ -79,7 +79,7 @@ export function mirrorTaskIdentityName(sessionId: string, name: string, source?:
       .where(eq(sessions.id, sessionId)).run();
     return row;
   });
-  if (!written || written.title === name) return;
+  if (!written || (written.title === name && written.config?.agentDisplayName === name)) return;
   sessionEvents._emit('session:renamed', sessionId, written.projectId, name);
   events.emit(sessionChangedChannel, { sessionId, projectId: written.projectId, changes: { title: name, agentDisplayName: name } });
 }
@@ -104,7 +104,7 @@ export function sessionTaskNameState(sessionId: string) {
   const source = row ? titleSourceOf(row) : undefined;
   return { fallback: !!row && source === undefined, firstUtterance: row?.config?.firstUtterance,
     title: row?.title, source, managed: row?.config?.identityNameManaged === true,
-    identityName: row?.config?.agentDisplayName };
+    identityName: row?.config?.agentDisplayName, pendingManual: source === 'manual' && !row?.config?.identityNameManaged };
 }
 
 /**
@@ -137,23 +137,24 @@ function writeSessionTitle(
       .limit(1)
       .get();
     if (!row || !accept(row, title)) return null;
-    if (row.title === title && row.config?.titleSource === source) return null;
+    if (row.title === title && row.config?.titleSource === source
+      && (source !== 'manual' || (row.config.agentDisplayName === title && !row.config.identityNameManaged))) return null;
 
     // Legacy null configs become a valid v1 config so the explicit name source survives restart.
     tx.update(sessions)
       .set({ title, config: { ...(row.config ?? { version: '1' as const, type: row.runtime }), titleSource: source,
-        ...(source === 'manual' && !row.config?.identityNameManaged ? { agentDisplayName: title } : {}) } })
+        ...(source === 'manual' ? { agentDisplayName: title, identityNameManaged: false } : {}) } })
       .where(eq(sessions.id, sessionId))
       .run();
     return row;
   });
-  if (!written || written.title === title) return false;
+  if (!written) return false;
 
-  sessionEvents._emit('session:renamed', sessionId, written.projectId, title);
+  if (written.title !== title) sessionEvents._emit('session:renamed', sessionId, written.projectId, title);
   events.emit(sessionChangedChannel, {
     sessionId,
     projectId: written.projectId,
-    changes: { title },
+    changes: { title, ...(source === 'manual' ? { agentDisplayName: title } : {}) },
   });
   return true;
 }

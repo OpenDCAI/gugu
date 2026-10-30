@@ -6,6 +6,7 @@ import { contactGroupChatsOf, sharedGroupAgentsOf } from '../lib/contactGroupCha
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useChatStore } from './chatContext'
+import { imSelectors } from '../lib/imRepository'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { removeAgentFromChatList } from '../lib/optimisticAgentRemoval'
 import { ContactsContext, type ContactsLoadStatus } from './contactsContext'
@@ -232,9 +233,19 @@ export function ContactsProvider({ children, active = true }: { children: React.
     // @@@owned-agents-realtime (#671) - reload the owned-agent list when an agent is created/changed,
     // including from another device. 那条新 agent 私聊由投影按键补齐,不再靠整表重拉。
     const refreshAgentSurfaces = () => loadContacts(strict)
-    // #6091 会话页「重命名 Agent」改名落在主进程 / 宿主(不经过这里的 updateAgentProfile),通讯录缓存着
-    // display_name —— 收到广播就按 agent_changed 同一条路重拉,❌ 挂着旧名等 realtime 兜底。
-    const handleOwnedAgentRenamed = () => { void refreshAgentSurfaces() }
+    // A successful local task rename is already durable, even while its cloud write is offline.
+    // Publish that event into the one identity repository; agent_changed still refreshes cloud identities.
+    const handleOwnedAgentRenamed = (event: Event) => {
+      const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
+      ++contactsLoadGenerationRef.current
+      setLoadingContacts(false)
+      void getImRepository().then(async (repository) => {
+        const identity = imSelectors.identitiesById(repository.snapshot())[agentUserId]
+        if (identity) await repository.putIdentities([{ ...identity, display_name: displayName }])
+      }).catch((error: unknown) => {
+        rendererLogger('contacts/identity-name').error({ agentUserId, error: String(error) }, 'local identity name publication failed')
+      })
+    }
     window.addEventListener(UI_EVENTS.ownedAgentRenamed, handleOwnedAgentRenamed)
     const unsubscribes = [
       subscribeAccountRevision('friend_requests_changed', handleRequestChange),
@@ -251,7 +262,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
       window.removeEventListener(UI_EVENTS.ownedAgentRenamed, handleOwnedAgentRenamed)
       for (const unsubscribe of unsubscribes) unsubscribe()
     }
-  }, [userId, loadContacts, loadGroups, loadRequests, loadGroupJoinRequests, subscribeAccountRevision])
+  }, [userId, loadContacts, loadGroups, loadRequests, loadGroupJoinRequests, subscribeAccountRevision, getImRepository])
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const searchUsers = useCallback(

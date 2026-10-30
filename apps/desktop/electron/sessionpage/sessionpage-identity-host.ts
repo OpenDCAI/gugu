@@ -27,6 +27,7 @@ import { updateOwnedAgentIdentity } from '@gugu/core/cloud/ownedAgent'
 import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
 import { taskAgentName } from '@gugu/core/shared/taskAgentName'
 import { electronFetch, makeIdentityClient } from '../supabase'
+import { createLogger } from '../lib/logger'
 import {
   SESSION_CACHE_KEY,
   awaitSessionpageCloudIdentity,
@@ -69,7 +70,7 @@ export interface SessionpageIdentityHostDeps {
     installRename: (rename: (sessionId: string, name: string, source: 'manual' | 'generated') => Promise<boolean | null>) => void
     mirror: (sessionId: string, name: string, source?: 'manual' | 'generated') => void
     writeManual: (sessionId: string, name: string) => void
-    state: (sessionId: string) => { fallback: boolean; title?: string; source?: 'manual' | 'generated' | 'harness'; managed: boolean; identityName?: string }
+    state: (sessionId: string) => { fallback: boolean; title?: string; source?: 'manual' | 'generated' | 'harness'; managed: boolean; identityName?: string; pendingManual: boolean }
   }
   onRenamed?: (renamed: SessionShellAgentName) => void
   env?: NodeJS.ProcessEnv
@@ -93,11 +94,7 @@ export interface SessionpageIdentityHost {
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
   sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
-  /**
-   * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
-   * 本地元数据，云端认了才跟上。
-   * 只改自己名下的 agent;没身份 / 不归当前账号 / 空名 / 云端拒绝 → 抛,❌ 静默改一半。
-   */
+  /** A durable local manual edit succeeds immediately; the existing identity sync publishes it later if offline. */
   renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
   adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null>
   synchronizeNames(): Promise<void>
@@ -127,6 +124,7 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
+  const log = createLogger('sessionpage/identity-name')
   const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => resolveSessionpageSessionPeers({
       sessionId,
       listRoster: () => listAgents(env, { includeGuests: true }),
@@ -162,15 +160,21 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     },
     env,
   }
+  async function publishRecordName(agent: LocalAgentRecord, name: string, notify = false): Promise<SessionShellAgentName | null> {
+    const sessionId = agent.cache?.[SESSION_CACHE_KEY]
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    const renamed = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
+    if (notify || agent.name !== name) deps.onRenamed?.(renamed)
+    if (agent.name !== name) {
+      await updateAgent({ guguUserId: agent.gugu_user_id }, { name }, env)
+    }
+    return renamed
+  }
+
   async function adoptRecordName(agent: LocalAgentRecord, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
     const sessionId = agent.cache?.[SESSION_CACHE_KEY]
     if (typeof sessionId === 'string' && sessionId) deps.taskNames?.mirror(sessionId, name, source)
-    const changed = agent.name !== name
-    if (changed) await updateAgent({ guguUserId: agent.gugu_user_id }, { name }, env)
-    if (typeof sessionId !== 'string' || !sessionId) return null
-    const renamed = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
-    if (changed) deps.onRenamed?.(renamed)
-    return renamed
+    return publishRecordName(agent, name)
   }
 
   async function adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
@@ -185,30 +189,43 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     const name = taskAgentName(value, source === 'generated')
     const agent = await localAgentForSession(sessionId, env)
     if (!agent?.gugu_user_id) return null
-    if (source === 'manual') deps.taskNames?.writeManual(sessionId, name)
-    const auth = await deps.getAuth()
-    if (!auth) return false
-    if (!agentMayBelongTo(agent, auth.userId)) return null
-    return withSessionpageProvisionLock('task identity rename', async () => {
-      await awaitSessionpageCloudIdentity(agent.gugu_user_id)
-      if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
-      const client = makeIdentityClient(auth.accessToken)
-      let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
-      // A remote manual rename received while the automatic name was in flight wins too.
-      if (source === 'generated') write = write.eq('display_name', agent.name)
-      const { data, error } = await write.maybeSingle()
-      if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
-      if (!data) {
-        if (source === 'generated') return false
-        throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
-      }
-      return adoptAgentName(agent.gugu_user_id, name, source)
-    })
+    const local = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
+    if (source === 'manual') {
+      deps.taskNames?.writeManual(sessionId, name)
+      await publishRecordName(agent, name, true).catch((error: unknown) => {
+        log.warn({ sessionId, error: String(error) }, 'Local task name saved; roster publication failed')
+      })
+    }
+    try {
+      const auth = await deps.getAuth()
+      if (!auth || !agentMayBelongTo(agent, auth.userId)) return source === 'manual' ? local : false
+      return await withSessionpageProvisionLock('task identity rename', async () => {
+        await awaitSessionpageCloudIdentity(agent.gugu_user_id)
+        if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
+        const client = makeIdentityClient(auth.accessToken)
+        let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
+        // A remote manual rename received while the automatic name was in flight wins too.
+        if (source === 'generated') write = write.eq('display_name', agent.name)
+        const { data, error } = await write.maybeSingle()
+        if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
+        if (!data) {
+          if (source === 'generated') return false
+          throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
+        }
+        if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return false
+        // A newer local manual choice must survive completion of an older cloud request.
+        if (source === 'manual' && deps.taskNames?.state(sessionId).title !== name) return local
+        return adoptAgentName(agent.gugu_user_id, name, source)
+      })
+    } catch (error) {
+      if (source !== 'manual') throw error
+      log.warn({ sessionId, error: String(error) }, 'Local task name saved; identity publication deferred until synchronization')
+      return local
+    }
   }
 
   deps.taskNames?.installRename(async (sessionId, name, source) => {
     const renamed = await renameBoundAgent(sessionId, name, source)
-    // A local manual edit remains durable while the host cannot publish its identity name.
     return renamed ? true : renamed
   })
 
@@ -254,33 +271,38 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         const identities = await loadSessionpageCanonicalAgentIdentities(auth, roster.map((agent) => agent.gugu_user_id), false)
         for (const agent of roster) {
           const sessionId = agent.cache![SESSION_CACHE_KEY] as string
-          const state = deps.taskNames!.state(sessionId)
-          if (!state.title) continue
-          const identity = identities.find((row) => row.id === agent.gugu_user_id)
-          if (!identity?.display_name) continue
-          // A legacy manual title and an offline manual edit are intent, never a cloud-name fallback.
-          const localManual = state.source === 'manual' && (!state.managed || state.title !== state.identityName)
-          let name = identity.display_name
-          if (localManual) {
-            const { data, error } = await updateOwnedAgentIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id,
-              { display_name: state.title }, 'id', auth.userId).maybeSingle()
-            if (error) throw new Error(error.message)
-            if (!data) throw new Error('Task identity name update was not authorized')
-            name = state.title
-          } else if (!state.managed) {
-            const agentType = normalizeAgentType(agent.agent_type)
-            const label = getAgentTypeLabel(agentType)
-            if (identity.name_serial == null && agentNameSerial(name, label) !== null) {
-              const deviceId = await deps.resolveDeviceId()
-              if (!deviceId) throw new Error('Task name migration requires the host device identity')
-              const migrated = await provisionDeps.provisionOneTrip({ supabaseUrl: getSupabaseUrl(), anonKey: getSupabaseAnonKey(),
-                accessToken: auth.accessToken, agentId: identity.id, displayName: name,
-                nameMode: 'serial', nameSerialBase: label, agentType, deviceId })
-              name = migrated.displayName
+          try {
+            const state = deps.taskNames!.state(sessionId)
+            if (!state.title) continue
+            const identity = identities.find((row) => row.id === agent.gugu_user_id)
+            if (!identity?.display_name) continue
+            // A legacy manual title and an offline manual edit are intent, never a cloud-name fallback.
+            const localManual = state.pendingManual
+            let name = identity.display_name
+            if (localManual) {
+              name = taskAgentName(state.title)
+              const { data, error } = await updateOwnedAgentIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id,
+                { display_name: name }, 'id', auth.userId).maybeSingle()
+              if (error) throw new Error(error.message)
+              if (!data) throw new Error('Task identity name update was not authorized')
+            } else if (!state.managed) {
+              const agentType = normalizeAgentType(agent.agent_type)
+              const label = getAgentTypeLabel(agentType)
+              if (identity.name_serial == null && agentNameSerial(name, label) !== null) {
+                const deviceId = await deps.resolveDeviceId()
+                if (!deviceId) throw new Error('Task name migration requires the host device identity')
+                const migrated = await provisionDeps.provisionOneTrip({ supabaseUrl: getSupabaseUrl(), anonKey: getSupabaseAnonKey(),
+                  accessToken: auth.accessToken, agentId: identity.id, displayName: name,
+                  nameMode: 'serial', nameSerialBase: label, agentType, deviceId })
+                name = migrated.displayName
+              }
             }
+            if (deps.taskNames!.state(sessionId).title !== state.title) continue
+            const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
+            await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
+          } catch (error) {
+            log.warn({ sessionId, agentUserId: agent.gugu_user_id, error: String(error) }, 'Task identity name synchronization failed; continuing with the remaining tasks')
           }
-          const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
-          await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
         }
       })
     },
