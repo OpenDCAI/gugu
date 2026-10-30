@@ -52,6 +52,39 @@ afterEach(() => {
 });
 
 describe('account message index on real SQLite FTS5', () => {
+  it('shares contentless FTS across origins while chat/task inventories purge independently', () => {
+    const store = open();
+    const document = { id: 'task:s:ref', taskId: 's', reference: 'ref', role: 'assistant' as const, seq: 0, text: 'taskneedle', createdAt: at };
+    store.apply([groups, { kind: 'task', task: { id: 's', title: 'Original', projectId: 'p' } },
+      { kind: 'taskTurn', taskId: 's', seq: 0, documents: [document] }, { kind: 'rows', rows: [row('m', { content: 'chatneedle' })] }]);
+    expect(store.global(query('taskneedle')).results[0]).toMatchObject({ kind: 'task', reference: 'ref', title: 'Original' });
+    expect(ids(store, 'taskneedle', { has: ['file'] })).toEqual([]);
+    expect(ids(store, 'taskneedle', { in: [{ kind: 'session', id: 's' }] })).toEqual([document.id]);
+    store.apply([{ kind: 'chats', chats: [] }, { kind: 'task', task: { id: 's', title: 'Renamed', projectId: 'p' } }]);
+    expect(ids(store, 'chatneedle')).toEqual([]);
+    expect(store.global(query('taskneedle')).results[0]).toMatchObject({ title: 'Renamed' });
+    store.apply([{ kind: 'taskTurn', taskId: 's', seq: 0, documents: [{ ...document, text: 'revisedneedle' }] }]);
+    expect(matchingFtsRows(store, 'taskneedle')).toBe(0);
+    expect(ids(store, 'revisedneedle')).toEqual([document.id]);
+    store.apply([{ kind: 'tasks', tasks: [] }]);
+    expect(matchingFtsRows(store, 'revisedneedle')).toBe(0);
+  });
+
+  it('re-earns task completeness on reopen and invalidates it on truncation', () => {
+    const store = open();
+    const task = { id: 's', title: 'Task', projectId: 'p' };
+    const scoped = query('', { in: [{ kind: 'session', id: 's' }] });
+    store.apply([{ kind: 'task', task }, { kind: 'taskCoverage', coverage: { taskId: 's', lastSeq: 20, exhausted: true } }]);
+    expect(store.global(scoped).coverage.complete).toBe(true);
+    store.close();
+    const reopened = open();
+    expect(reopened.taskCoverage()[0].lastSeq).toBe(20);
+    expect(reopened.global(scoped).coverage.complete).toBe(false);
+    reopened.apply([{ kind: 'taskCoverage', coverage: { taskId: 's', lastSeq: 20, exhausted: true } },
+      { kind: 'truncateTask', taskId: 's', fromSeq: 5 }]);
+    expect(reopened.global(scoped).coverage.complete).toBe(false);
+  });
+
   it('indexes read rows idempotently and returns the original ISO time with highlights', () => {
     const store = open();
     store.apply([groups, { kind: 'rows', rows: [row('m')] }]);
@@ -162,7 +195,7 @@ describe('account message index on real SQLite FTS5', () => {
     ] }]);
     const scoped = store.global(query('发布', { in: [{ kind: 'chat', id: 'g' }], has: ['file'] }));
     expect(scoped.results.map((hit) => [hit.id, hit.attachment])).toEqual([['file', 'file']]);
-    expect(scoped.facets).toEqual({ total: 2, file: 1, image: 0, link: 1, otherChats: 1 });
+    expect(scoped.facets).toEqual({ total: 2, file: 1, image: 0, link: 1, otherChats: 1, messages: 2, tasks: 0 });
     expect(store.global(query('发布')).facets.otherChats).toBe(0);
   });
 
@@ -171,7 +204,7 @@ describe('account message index on real SQLite FTS5', () => {
     store.apply([groups, { kind: 'rows', rows: Array.from({ length: 1005 }, (_, i) => row(`m${i}`, { seq: i + 1 })) }]);
     const { results, facets } = store.global(query('发布'));
     expect(results).toHaveLength(50);
-    expect(facets).toEqual({ total: 1001, file: 0, image: 0, link: 0, otherChats: 0 });
+    expect(facets).toEqual({ total: 1001, file: 0, image: 0, link: 0, otherChats: 0, messages: 1001, tasks: 0 });
   });
 
   it('does not index card or widget messages, so a search never shows them', () => {
@@ -212,7 +245,7 @@ describe('account message index on real SQLite FTS5', () => {
     expect(ids(open(), '发布')).toEqual(['m']);
   });
 
-  it('rebuilds an actual schema-3 file, removes its actor tables, and accepts new schema-4 writes', () => {
+  it('rebuilds an actual schema-3 file, removes its actor tables, and accepts current writes', () => {
     mkdirSync(join(root, 'search'));
     const path = join(root, 'search', account + '.sqlite');
     const legacy = new Database(path);
@@ -228,7 +261,7 @@ describe('account message index on real SQLite FTS5', () => {
     const store = open();
     const rebuilt = new Database(path, { readonly: true });
     try {
-      expect(rebuilt.prepare("SELECT value FROM search_meta WHERE key='version'").get()).toEqual({ value: '4:1' });
+      expect(rebuilt.prepare("SELECT value FROM search_meta WHERE key='version'").get()).toEqual({ value: '5:2' });
       expect(rebuilt.prepare("SELECT name FROM sqlite_master WHERE name IN ('actor_scope','msg_actor')").all()).toEqual([]);
     } finally { rebuilt.close(); }
     expect(storedRows(store, 'msg')).toBe(0);
