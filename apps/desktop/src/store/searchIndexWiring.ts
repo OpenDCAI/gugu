@@ -9,6 +9,9 @@ import { startSearchBackfill } from '../lib/searchBackfill'
 import { feedChats, feedRemoved, feedRows } from '../lib/searchIndexFeed'
 import { useGlobalSearchV3 } from '../session/renderer/features/global-search/global-search-flag'
 import { rpcOn } from '../session/renderer/lib/ipc'
+import { rendererLogger } from '../lib/log'
+
+const log = rendererLogger('search-index')
 
 type SubscribeAccountRevision = (events: AccountRevisionEvent | readonly AccountRevisionEvent[], listener: AccountRevisionListener) => () => void
 type DeletableRow = RawMessageRow & { deleted_at?: unknown; deleted_for_user_ids?: unknown }
@@ -56,7 +59,7 @@ export function useSearchIndexWiring(options: {
   useEffect(() => {
     if (!enabled || !userId || !chatsRead) return
     void feedChats(chats.map((chat) => ({ id: chat.id, kind: chat.kind, sourceChatId: chat.source_chat_id ?? null })))
-      .catch((error) => console.error('[search-index] chat list apply failed', error))
+      .catch((error: unknown) => log.error({ error: String(error) }, 'chat list apply failed'))
   }, [enabled, userId, chatsRead, chats])
 
   useEffect(() => {

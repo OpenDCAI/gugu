@@ -4,6 +4,9 @@
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import type { SearchCoverage } from '@gugu/core/shared/search/types'
 import { feedCoverage } from './searchIndexFeed'
+import { rendererLogger } from './log'
+
+const log = rendererLogger('search-backfill')
 
 const PAGE = 100
 const PAGE_INTERVAL_MS = 200
@@ -104,11 +107,11 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
       try {
         await readStream(stream)
       } catch (error) {
-        console.error('[search-backfill] page failed', error)
+        log.warn({ error: String(error) }, 'page failed; retrying')
         await host.sleep(RETRY_MS)
       }
     }
-  })().catch((error) => console.error('[search-backfill] stopped', error))
+  })().catch((error: unknown) => log.error({ error: String(error) }, 'stopped'))
 
   return () => { stopped = true }
 }
