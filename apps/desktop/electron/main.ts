@@ -6063,9 +6063,10 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = sessionHostBoot = emdash.bootEmdashModule(ipcMain, {
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
+    sessionHostBoot = emdashBoot
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
     refreshPlatformCredentials()
     void emdashBoot.then(() => {

@@ -94,9 +94,12 @@ function bootRuntime(dir: string) {
       serveWorkerProcess: (factory: (s: typeof scope) => typeof controller) => { controller = factory(scope) },
       workerValidatePolicy: () => 'full',
     },
-    '../api/controller': { createAcpRuntimeController },
+    '../api/controller': { createAcpRuntimeController: (...args: Parameters<typeof createAcpRuntimeController>) => {
+      runtime = args[0]
+      return createAcpRuntimeController(...args)
+    } },
     '../session/host-prompt-preparation': { createHostPromptPreparation },
-    '../runtime/runtime': { AcpRuntime: class extends AcpRuntime { constructor(...args: ConstructorParameters<typeof AcpRuntime>) { super(...args); runtime = this } } },
+    '../runtime/runtime': { AcpRuntime },
     './child-process-host': { ChildAcpProcessHost },
     './local-attachment-store': { LocalAttachmentStore },
     './local-prompt-queue-store': { LocalPromptQueueStore },
