@@ -15,12 +15,12 @@ import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { cardFadeOverlay } from './user-message.css';
 
-async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}) {
+async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}, sibling?: ChatMessage, extraCtx: Partial<MeasureCtx> = {}) {
   const item = normalizeMessage(raw);
   const [data, setData] = createSignal(item);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
   const caches = createChatCaches();
-  const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false };
+  const ctx: MeasureCtx = { theme, caches, width, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false, ...extraCtx };
   const renderCtx: RenderCtx = { measureCtx: () => ctx, viewState: { isCollapsed: () => false } };
   const host = document.createElement('div');
   host.style.width = `${width}px`;
@@ -30,7 +30,8 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
   const dispose = render(() => <ThemeContext.Provider value={() => theme}><CachesContext.Provider value={caches}>
     <SelfIdentityProvider value={() => ({ userId: 'owner', displayName: '刘威', guguNumber: 111179 })}>
     <CommandsContext.Provider value={() => ({ conversationAgentName: () => 'Codex 11', ...commands })}>
-      <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
+        <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
+        {sibling && <Comp data={normalizeMessage(sibling)} ctx={renderCtx} vars={messageUnitDef.vars!} />}
     </CommandsContext.Provider></SelfIdentityProvider>
   </CachesContext.Provider></ThemeContext.Provider>, host);
   await document.fonts.ready;
@@ -63,7 +64,7 @@ describe('agent-centered conversation bubbles', () => {
   });
   it.each([320, 600])('keeps the subject left and incoming agents right at width %s with matching measured geometry', async width => {
     for (const role of ['assistant', 'user'] as const) {
-      const view = await mount({ kind: 'message', id: role, role, text: '你好，**一起讨论一下这个计划**。'.repeat(12), at: Date.now(), conversationReply: { itemId: 'source', text: '你好' } }, width);
+      const view = await mount({ kind: 'message', id: role, role, text: '你好，**一起讨论一下这个计划**。'.repeat(12), at: Date.now(), sentReplyTo: 'source', conversationReply: { itemId: 'source', text: '你好' } }, width);
       try {
         const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
         expect(row.dataset.side).toBe(role === 'assistant' ? 'left' : 'right');
@@ -71,7 +72,7 @@ describe('agent-centered conversation bubbles', () => {
         const bubble = row.querySelector<HTMLElement>('[data-user-card]')!;
         const name = row.querySelector<HTMLElement>('span[title]')!;
         // Explicit native and IM quotes share the existing header on either side.
-        expect(row.querySelectorAll('button[title="你好"]')).toHaveLength(1);
+        expect(row.querySelectorAll('[data-slot="conversation-quote"]')).toHaveLength(1);
         expect(row.textContent).not.toContain('你好↵');
         expect(bubble.contains(name)).toBe(false);
         // 时间、复制(、编辑)那一行在气泡下面占着位置,鼠标停上去才显出来(设计稿 `.acts{opacity:0}`,owner 10-28)。
@@ -168,6 +169,24 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
+  it('keeps each batched message reference attached to its own explicit reply', async () => {
+    const reveal = vi.fn();
+    const raw = '<gugu_delivery route="chat" from="Peer" from_id="user:peer" msg="msg:first"><![CDATA[first message]]></gugu_delivery>\n'
+      + '<gugu_delivery route="chat" from="Peer" from_id="user:peer" msg="msg:second"><reply_to msg="msg:older" from="Other" from_id="user:other"><![CDATA[original message]]></reply_to><![CDATA[second message]]></gugu_delivery>';
+    const view = await mount({ kind: 'message', id: 'batch-replies', role: 'user', text: raw }, 320, { onConversationReply: reveal });
+    try {
+      const rows = view.host.querySelectorAll('[data-agent-conversation-message]');
+      expect(rows[0]!.querySelector('[data-slot="conversation-quote"]')).toBeNull();
+      expect(rows[1]!.querySelector('span[title="Peer"]')).toBeNull();
+      const arrow = rows[1]!.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      expect(arrow.textContent).toBe('');
+      arrow.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other：original message');
+      arrow.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('older');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+  });
+
   it('keeps the thought-network disclosure without timestamps, above the bubble, without extra row height', async () => {
     const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: '你好，我在。', at: 1000,
       conversationProcess: { id: 'turn:process', startedAt: 1000, endedAt: 25000 } });
@@ -259,30 +278,34 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 
-  it('keeps the quote in the name row and never repeats it on the body', async () => {
+  it('keeps only the return mark in the header and never repeats it on the body', async () => {
     const quote = { itemId: 'src', text: '这是被引用的那条消息，'.repeat(12), from: '小王' };
     const quoted = await mount({ kind: 'message', id: 'send:head', role: 'assistant', text: '', at: Date.now(), conversationPart: 'head', sentReplyTo: 'src', conversationReply: quote,
       conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } }, 600, { onConversationReply: () => {} });
     const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
     try {
       const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
-      expect(line.textContent).toContain('小王：');
-      expect(line.textContent).toContain('…');
+      expect(line.textContent).toBe('');
+      expect(quoted.host.textContent).not.toContain('小王');
       const row = quoted.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
       expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(quoted.item, quoted.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
-      expect(line.parentElement?.textContent).toContain('Codex 11');
-      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect().top + 1);
+      expect(line.parentElement?.parentElement?.textContent).toContain('Codex 11');
+      expect(line.parentElement?.parentElement).toBe(row.querySelector('[data-conversation-process]')!.parentElement?.parentElement);
       // 没传 reply_to_message_id ⇒ 不画(❌ 猜)。
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
   });
   it.each([false, true])('shows no sender for a quote without a known source (clickable: %s)', async clickable => {
     const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
-      conversationReply: { itemId: 'source', text: 'original words' } }, 600, clickable ? { onConversationReply: () => {} } : {});
+      sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'original words' } }, 600, clickable ? { onConversationReply: () => {} } : {});
     try {
       const quote = view.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
-      expect(quote.textContent).toBe('original words');
-      expect(quote.textContent).not.toContain('刘威');
+      expect(quote.textContent).toBe('');
+      expect(view.host.textContent).not.toContain('original words');
+      quote.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      const preview = document.querySelector('[data-slot="conversation-quote-preview"]')!;
+      expect(preview.textContent).toBe('original words');
+      expect(preview.textContent).not.toContain('刘威');
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
@@ -293,20 +316,21 @@ describe('agent-centered conversation bubbles', () => {
     [{ self: true }, 'Codex 11：original words'],
   ] as const)('uses known source identity %j for an explicit quote', async (identity, expected) => {
     const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
-      conversationReply: { itemId: 'source', text: 'original words', ...identity } }, 600, { onConversationReply: () => {} });
+      sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'original words', ...identity } }, 600, { onConversationReply: () => {} });
     try {
-      expect(view.host.querySelector('[data-slot="conversation-quote"]')?.textContent).toBe(expected);
+      view.host.querySelector('[data-slot="conversation-quote"]')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe(expected);
     } finally { view.dispose(); }
   });
 
   it('clicks the exact quote anchor after a virtual row is reused', async () => {
     const onConversationReply = vi.fn();
-    const quoted: ChatMessage = { kind: 'message', id: 'reply', role: 'assistant', text: 'reply', conversationReply: { itemId: 'original-1', text: 'same words' } };
+    const quoted: ChatMessage = { kind: 'message', id: 'reply', role: 'assistant', text: 'reply', sentReplyTo: 'original-1', conversationReply: { itemId: 'original-1', text: 'same words' } };
     const view = await mount(quoted, 600, { onConversationReply });
     try {
       view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!.click();
       expect(onConversationReply).toHaveBeenLastCalledWith('original-1');
-      view.update({ ...quoted, id: 'reply-2', conversationReply: { itemId: 'original-2', text: 'same words' } });
+      view.update({ ...quoted, id: 'reply-2', sentReplyTo: 'original-2', conversationReply: { itemId: 'original-2', text: 'same words' } });
       view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!.click();
       expect(onConversationReply).toHaveBeenLastCalledWith('original-2');
     } finally { view.dispose(); }
@@ -331,16 +355,15 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
     expect(cleanups.at(-1)).toHaveBeenCalledOnce();
   });
-  it('shows a native user quote in the same header and clicks its exact source link', async () => {
+  it('does not expose a reference for direct model output even when a quote is present', async () => {
     const onConversationReply = vi.fn();
     const reference = 'gugu-session://task?message=opaque%2FID';
-    const view = await mount({ kind: 'message', id: 'reply', role: 'user', text: 'follow up', conversationReply: { itemId: reference, text: 'original words', from: 'Agent', unloaded: true } }, 600, { onConversationReply });
+    const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'follow up', conversationReply: { itemId: reference, text: 'original words', from: 'Agent', unloaded: true } }, 600, { onConversationReply });
     try {
-      const button = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
-      expect(button.textContent).toContain('original words');
+      expect(view.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
+      expect(view.host.textContent).not.toContain('original words');
       expect(view.host.textContent).not.toContain('gugu-session:');
-      button.click();
-      expect(onConversationReply).toHaveBeenCalledWith(reference);
+      expect(onConversationReply).not.toHaveBeenCalled();
       expect(Math.abs(view.host.firstElementChild!.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
@@ -368,12 +391,14 @@ describe('agent-centered conversation bubbles', () => {
       expect(onOpenSender).toHaveBeenCalledExactlyOnceWith({ kind: 'chat', chatId: chat, messageId: msg });
     } finally { view.dispose(); }
   });
-  it('a sent bubble keeps a faint 「sent to」 note in its actions row while time and copy wait for hover', async () => {
+  it('a sent bubble keeps a single destination inside its bottom while time and copy wait for hover', async () => {
     const view = await mount({ kind: 'message', id: 'call:sent:x', role: 'assistant', text: '完成', at: Date.now(), conversationPart: 'body',
       sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false } });
     try {
       const actions = view.host.querySelector<HTMLElement>('[data-user-message-actions]')!;
-      const note = actions.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+      const note = view.host.querySelector<HTMLElement>('[data-user-card] [data-slot="sent-to"]')!;
+      expect(actions.contains(note)).toBe(false);
+      expect(note.getBoundingClientRect().width).toBeLessThanOrEqual(180);
       expect(note.textContent?.trim()).toBeTruthy();
       // 整行和「发到」都常亮(MBP 验收 10-28:之前整行被原气泡的 hover 规则藏了,「发到」跟着看不见)。
       expect(getComputedStyle(actions).opacity).toBe('1');
@@ -383,6 +408,96 @@ describe('agent-centered conversation bubbles', () => {
     } finally { view.dispose(); }
   });
 });
+
+
+
+describe('conversation density', () => {
+  it.each([220, 320, 600])('keeps process and identity within the measured header at width %s', async width => {
+    const view = await mount({ kind: 'message', id: 'header', role: 'assistant', text: '', conversationPart: 'head',
+      conversationProcess: { id: 'p', startedAt: 0, endedAt: 75000, steps: 10 },
+      sentReplyTo: 'source', conversationReply: { itemId: 'source', text: '真实来源' } }, width, { conversationAgentName: () => '这是一位名字很长的智能体' });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      const process = row.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect();
+      expect(process.right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+      expect(process.bottom).toBeLessThanOrEqual(row.getBoundingClientRect().bottom + 1);
+      row.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const quote = row.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      const arrow = quote.querySelector('svg')!.getBoundingClientRect();
+      expect(arrow.left).toBeGreaterThanOrEqual(quote.getBoundingClientRect().left - 1);
+      expect(arrow.right).toBeLessThanOrEqual(quote.getBoundingClientRect().right + 1);
+      expect(arrow.right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+    } finally { view.dispose(); }
+  });
+  it('hides a repeated speaker without leaving header space, including a distant reply', async () => {
+    const original: ChatMessage = { kind: 'message', id: 'same', role: 'assistant', text: '继续', conversationPreviousSpeaker: '$agent' };
+    const view = await mount(original);
+    try {
+      expect(view.host.querySelector('span[title="Codex 11"]')).toBeNull();
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      view.update({ ...original, sentReplyTo: 'older', conversationReply: { itemId: 'older', text: '前面的消息' } });
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      expect(view.host.querySelector('span[title="Codex 11"]')).toBeNull();
+      const quote = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      expect(quote.getBoundingClientRect().width).toBe(18);
+    } finally { view.dispose(); }
+  });
+  it('opens a message preview only on arrow hover, without moving its click target', async () => {
+    const reveal = vi.fn();
+    const head: ChatMessage = { kind: 'message', id: 'head', role: 'assistant', text: '', conversationPart: 'head', sentReplyTo: 'real-source',
+      conversationReply: { itemId: 'real-source', text: '原始私聊', from: 'Cleo' } };
+    const view = await mount(head, 600, { onConversationReply: reveal }, { kind: 'message', id: 'body', role: 'assistant', text: '回复正文', conversationPart: 'body', conversationHead: 'head', conversationTail: true });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message="head"]')!;
+      const body = view.host.querySelector<HTMLElement>('[data-agent-conversation-message="body"]')!;
+      const quote = row.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      const before = quote.getBoundingClientRect(), height = row.getBoundingClientRect().height;
+      expect(quote.textContent).toBe('');
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
+      body.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
+      quote.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Cleo：原始私聊');
+      expect(row.getBoundingClientRect().height).toBe(height);
+      expect(quote.getBoundingClientRect().left).toBe(before.left);
+      expect(document.elementFromPoint(before.left + before.width / 2, before.top + before.height / 2)?.closest('[data-slot="conversation-quote"]')).toBe(quote);
+      quote.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('real-source');
+    } finally { view.dispose(); }
+  });
+  it('opens a touch preview before its source action navigates', async () => {
+    const reveal = vi.fn();
+    const view = await mount({ kind: 'message', id: 'touch', role: 'assistant', text: '回复', sentReplyTo: 'source',
+      conversationReply: { itemId: 'source', text: '触摸原文', from: 'Peer' } }, 320, { onConversationReply: reveal });
+    try {
+      const quote = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+      quote.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); quote.click();
+      expect(reveal).not.toHaveBeenCalled();
+      const preview = document.querySelector<HTMLDivElement>('[data-slot="conversation-quote-preview"]')!;
+      expect(preview.textContent).toBe('Peer：触摸原文');
+      preview.querySelector('button')!.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('source');
+    } finally { view.dispose(); }
+  });
+  it('truncates long destinations inside each bubble and mounts the existing host tooltip with full text', async () => {
+    const cleanup = vi.fn();
+    const targets: { root: HTMLElement; text: string }[] = [];
+    const view = await mount({ kind: 'message', id: 'sent', role: 'assistant', text: '完成', conversationPart: 'body', sentTo:
+      { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '很长的群聊去处'.repeat(12) } }, 320, {
+        onTooltipMount: target => { targets.push(target); return cleanup; },
+      });
+    try {
+      const note = view.host.querySelector<HTMLElement>('[data-user-card] [data-slot="sent-to"]')!;
+      expect(targets).toHaveLength(1);
+      expect(targets[0]!.text).toContain('很长的群聊去处'.repeat(12));
+      expect(note.getBoundingClientRect().width).toBe(180);
+      expect(getComputedStyle(note).textOverflow).toBe('ellipsis');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+});
+
 
 it.each([320, 600])('paints a sent file as the existing left-side attachment card, opens its canonical link and measures it at width %s', async width => {
   const onOpenLink = vi.fn();
@@ -419,5 +534,198 @@ it.each([320, 600])('renders an injected original image instead of local-path in
     expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     card.click(); expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
     expect(raw.text).toContain('/private/agent');
+  } finally { view.dispose(); }
+
+});
+
+
+it('reviewer: a collapsed adjacent quote does not leave an empty repeated-speaker header', async () => {
+  const base: ChatMessage = { kind: 'message', id: 'same-speaker', role: 'assistant', text: '继续回复', conversationPreviousSpeaker: '$agent' };
+  const plain = await mount(base, 600);
+  const reply = await mount({ ...base, id: 'same-speaker-reply',
+    conversationReply: { itemId: 'preceding-message', text: '正上方那条' } }, 600, { onConversationReply: () => {} });
+  try {
+    const plainRow = plain.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    const replyRow = reply.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    expect(replyRow.querySelector('[data-slot="conversation-quote"]')).toBeNull();
+    const geometry = { plainHeight: plainRow.getBoundingClientRect().height, replyHeight: replyRow.getBoundingClientRect().height };
+    console.info('REVIEW1071_COLLAPSED_HEADER', JSON.stringify(geometry));
+    expect(geometry.replyHeight, 'collapsed quote must not create a blank header when neither name nor process is shown').toBe(geometry.plainHeight);
+  } finally { plain.dispose(); reply.dispose(); }
+});
+
+it('reviewer: a sent file without a caption retains exactly one destination', async () => {
+  const view = await mount({ kind: 'message', id: 'file:sent:receipt', role: 'assistant', text: 'proof.txt', conversationPart: 'body',
+    sentAttachment: { messageId: 'receipt', name: 'proof.txt', href: 'gugu-file://proof?v=2' },
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '验收群' } });
+  try {
+    expect(view.host.querySelector('[data-attachment-chip]')).not.toBeNull();
+    const destinations = view.host.querySelectorAll('[data-slot="sent-to"]');
+    console.info('REVIEW1071_ATTACHMENT_DESTINATION', JSON.stringify({ destinations: destinations.length, text: view.item.text, attachments: view.item.attachments?.length }));
+    expect(destinations.length, 'the new destination placement must cover attachment-only sends too').toBe(1);
+  } finally { view.dispose(); }
+});
+
+it.each([220, 320, 600])('puts a repeated speaker message reference before its process at width %s', async width => {
+  const reveal = vi.fn();
+  const view = await mount({ kind: 'message', id: 'same:head', role: 'assistant', text: '', conversationPart: 'head',
+    conversationPreviousSpeaker: '$agent', sentReplyTo: 'older', conversationReply: { itemId: 'older', text: '旧消息', from: 'Peer' },
+    conversationProcess: { id: 'same:process', startedAt: 1000, endedAt: 2000, steps: 1 } }, width, { onConversationReply: reveal });
+  try {
+    expect(view.host.querySelector('span[title="Codex 11"]')).toBeNull();
+    const quote = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+    const process = view.host.querySelector<HTMLElement>('[data-conversation-process]')!;
+    expect(quote.textContent).toBe(''); expect(view.host.textContent).not.toContain('旧消息');
+    expect(view.host.querySelector('[data-slot="conversation-reference-separator"]')?.textContent).toBe('·');
+    expect(quote.getBoundingClientRect().right).toBeLessThan(process.getBoundingClientRect().left);
+    expect(process.getBoundingClientRect().right).toBeLessThanOrEqual(view.host.getBoundingClientRect().right + 1);
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    quote.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith('older');
+  } finally { view.dispose(); }
+});
+it.each([
+  ['file', undefined], ['image', undefined], ['file', '文件说明'], ['image', '图片说明'],
+] as const)('keeps one destination and measured geometry for a sent %s with caption %s', async (kind, caption) => {
+  const view = await mount({ kind: 'message', id: `attachment:sent:${kind}`, role: 'assistant', text: 'proof', conversationPart: 'body',
+    sentAttachment: { messageId: 'receipt', kind, name: kind === 'image' ? 'proof.png' : 'proof.txt', href: 'gugu-file://proof?v=2', caption },
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '很长的目标群名'.repeat(20) } }, 220);
+  try {
+    expect(view.host.querySelectorAll('[data-attachment-chip]')).toHaveLength(1);
+    const destinations = view.host.querySelectorAll<HTMLElement>('[data-slot="sent-to"]');
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]!.getBoundingClientRect().width).toBeLessThanOrEqual(180);
+    expect(destinations[0]!.getBoundingClientRect().height).toBe(18);
+    expect(view.host.querySelectorAll('[data-user-card]')).toHaveLength(caption ? 1 : 0);
+    if (!caption) expect(view.host.querySelector('[data-attachment-destination]')?.contains(destinations[0]!)).toBe(true);
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+  } finally { view.dispose(); }
+});
+function assertVisiblePrefix(element: HTMLElement, container: HTMLElement) {
+  const node = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+  expect(node, 'text begins in a real painted node').not.toBeNull();
+  const range = document.createRange(); range.setStart(node!, 0); range.setEnd(node!, 1);
+  const glyph = range.getBoundingClientRect(); let left = container.getBoundingClientRect().left;
+  let right = container.getBoundingClientRect().right, top = container.getBoundingClientRect().top, bottom = container.getBoundingClientRect().bottom;
+  for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+    const css = getComputedStyle(parent), box = parent.getBoundingClientRect();
+    if (/(hidden|clip|auto|scroll)/.test(css.overflowX)) { left = Math.max(left, box.left); right = Math.min(right, box.right); }
+    if (/(hidden|clip|auto|scroll)/.test(css.overflowY)) { top = Math.max(top, box.top); bottom = Math.min(bottom, box.bottom); }
+    if (parent === container) break;
+  }
+  expect(glyph.left, 'first glyph is not clipped at the left edge').toBeGreaterThanOrEqual(left - 1);
+  expect(glyph.right, 'first glyph is not clipped at the right edge').toBeLessThanOrEqual(right + 1);
+  expect(glyph.top, 'first glyph is not clipped at the top').toBeGreaterThanOrEqual(top - 1);
+  expect(glyph.bottom, 'first glyph is not clipped at the bottom').toBeLessThanOrEqual(bottom + 1);
+  return { prefix: node!.textContent!.slice(0, 6), glyph: { left: glyph.left, right: glyph.right }, visible: { left, right } };
+}
+it.each([188, 220, 320, 390, 600])('shared name and process prefixes stay visible at width %s', async width => {
+  for (const role of ['assistant', 'user'] as const) {
+    const raw: ChatMessage = { kind: 'message', id: `prefix-${role}`, role, text: role === 'user'
+      ? '<gugu_delivery route="chat" from="这是一位名字非常长的另一位智能体ClaudeXYZ" from_id="user:peer"><![CDATA[hello]]></gugu_delivery>' : '',
+      sentReplyTo: 'original', conversationReply: { itemId: 'original', text: 'Original' },
+      ...(role === 'assistant' ? { conversationPart: 'head', conversationProcess: { id: 'p', startedAt: 0, endedAt: 75000, steps: 10 } } : {}) };
+    const view = await mount(raw, width, { conversationAgentName: () => '这是一位名字非常长的智能体ClaudeXYZ' });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, header = row.firstElementChild as HTMLElement;
+      const name = header.querySelector<HTMLElement>('[title]')!;
+      assertVisiblePrefix(name, header);
+      const arrow = header.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!.getBoundingClientRect();
+      const process = header.querySelector<HTMLElement>('[data-conversation-process]');
+      if (process) {
+        const box = process.getBoundingClientRect();
+        expect(Math.abs((arrow.top + arrow.bottom) / 2 - (box.top + box.bottom) / 2), 'arrow shares the process band').toBeLessThanOrEqual(1);
+        assertVisiblePrefix(process.querySelector('span')!, header);
+      }
+    } finally { view.dispose(); }
+  }
+});
+it.each([188, 220, 320, 390, 600])('destination prefix stays visible and capped at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'destination-prefix', role: 'assistant', text: 'Done', conversationPart: 'body',
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '非常长的接收群名字'.repeat(20) } }, width);
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, target = row.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+    assertVisiblePrefix(target, row);
+    expect(target.getBoundingClientRect().width).toBeLessThanOrEqual(180);
+    expect(getComputedStyle(target).textOverflow).toBe('ellipsis');
+  } finally { view.dispose(); }
+});
+
+it.each([188, 220, 320, 600])('keeps a repeated speaker reference in the existing time footer at width %s', async width => {
+  for (const source of ['delivery', 'tool', 'native-input'] as const) {
+    const reveal = vi.fn(), target = source === 'native-input' ? 'gugu-session://11111111-1111-4111-8111-111111111111?message=original' : 'original';
+    const raw: ChatMessage = { kind: 'message', id: `repeat-${source}`, role: source === 'tool' ? 'assistant' : 'user', at: 1700000000000,
+      text: source === 'delivery' ? '<gugu_delivery route="chat" from="Peer" from_id="user:peer"><![CDATA[follow-up]]></gugu_delivery>' : 'follow-up',
+      conversationPreviousSpeaker: source === 'delivery' ? 'user:peer' : source === 'tool' ? '$agent' : '$owner',
+      ...(source === 'tool' ? { sentReplyTo: target } : {}), conversationReply: { itemId: target, text: 'Exact original', from: 'Other' } };
+    const view = await mount(raw, width, { onConversationReply: reveal });
+    const plain = await mount({ ...raw, conversationReply: undefined, sentReplyTo: undefined }, width);
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, footer = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
+      const reference = footer.querySelector<HTMLElement>('[data-slot="conversation-reference"]')!, arrow = reference.querySelector<HTMLButtonElement>('button')!;
+      expect(row.querySelectorAll('[data-slot="conversation-reference"]')).toHaveLength(1);
+      expect(reference).not.toBeNull(); expect(arrow.textContent).toBe('');
+      expect(getComputedStyle(reference).opacity).toBe('1'); expect(getComputedStyle(reference).pointerEvents).toBe('auto');
+      const box = arrow.getBoundingClientRect(), time = footer.querySelector('time')!.getBoundingClientRect();
+      expect(box.top).toBeGreaterThanOrEqual(footer.getBoundingClientRect().top - 1);
+      expect(box.bottom).toBeLessThanOrEqual(footer.getBoundingClientRect().bottom + 1);
+      expect(Math.abs((box.top + box.bottom) / 2 - (time.top + time.bottom) / 2)).toBeLessThanOrEqual(1);
+      expect(row.getBoundingClientRect().height).toBe(plain.host.firstElementChild!.getBoundingClientRect().height);
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      expect(row.textContent).not.toContain('Exact original');
+      row.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
+      arrow.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other：Exact original');
+      arrow.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith(target);
+      reference.dispatchEvent(new PointerEvent('pointerleave'));
+      arrow.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); arrow.click();
+      expect(reveal).toHaveBeenCalledTimes(1);
+      document.querySelector<HTMLButtonElement>('[data-slot="conversation-quote-preview"] button')!.click();
+      expect(reveal).toHaveBeenCalledTimes(2); expect(reveal).toHaveBeenLastCalledWith(target);
+    } finally { view.dispose(); plain.dispose(); }
+  }
+});
+it('mounts one host source control and cleans it when the reference moves from name to footer', async () => {
+  const cleanup = vi.fn(), mountSource = vi.fn(() => cleanup);
+  const raw: ChatMessage = { kind: 'message', id: 'host-reference', role: 'assistant', text: 'follow-up', at: 1700000000000,
+    sentReplyTo: 'original', conversationReply: { itemId: 'original', text: 'Original', from: 'Other' } };
+  const view = await mount(raw, 320, { onTooltipMount: mountSource, onConversationReply: () => {} });
+  try {
+    expect(mountSource).toHaveBeenCalledTimes(1);
+    view.update({ ...raw, conversationPreviousSpeaker: '$agent' });
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(cleanup).toHaveBeenCalledTimes(1); expect(mountSource).toHaveBeenCalledTimes(2);
+    expect(view.host.querySelectorAll('[data-slot="conversation-reference"]')).toHaveLength(1);
+    expect(view.host.querySelector('[data-user-message-actions] [data-slot="conversation-reference"]')).not.toBeNull();
+  } finally { view.dispose(); }
+  expect(cleanup).toHaveBeenCalledTimes(2);
+});
+it.each([188, 220, 320])('keeps a completed duration and step count on one line before truncating the sender at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'compact-process', role: 'assistant', text: '', conversationPart: 'head',
+    conversationProcess: { id: 'compact-process:work', startedAt: 0, endedAt: 6000, steps: 1 },
+    sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'Original' } }, width, { conversationAgentName: () => 'Claude 1 with a deliberately long sender name' });
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, header = row.firstElementChild as HTMLElement;
+    const process = header.querySelector<HTMLElement>('[data-conversation-process]')!;
+    expect(process.getBoundingClientRect().height, 'time and steps are an atomic line').toBe(22);
+    expect(header.getBoundingClientRect().height).toBe(28);
+    expect(process.textContent).toContain('6s · 1 step');
+    expect(process.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+    assertVisiblePrefix(header.querySelector<HTMLElement>('[title]')!, header);
+  } finally { view.dispose(); }
+});
+
+it.each([390, 600])('reserves background controls beside duration before truncating a long name at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'review-background', role: 'assistant', text: '', conversationPart: 'head',
+    conversationProcess: { id: 'review-background:work', startedAt: 0, endedAt: 6000, steps: 1 }, sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'Original' } },
+    width, { conversationAgentName: () => 'Claude 1 with a deliberately long sender name '.repeat(3) }, undefined,
+    { background: { ownerId: 'review-background', expanded: false, commands: [{ id: 'cmd', launchToolCallId: 'call', taskId: 'bg', name: 'sleep 30' }], subagents: [] } });
+  try {
+    const process = view.host.querySelector<HTMLElement>('[data-conversation-process]')!.getBoundingClientRect();
+    const bg = view.host.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]')!.getBoundingClientRect();
+    expect(Math.abs((process.top + process.bottom) / 2 - (bg.top + bg.bottom) / 2), 'background metadata keeps its existing row before the sender takes remaining width').toBeLessThanOrEqual(1);
+    expect(view.host.getBoundingClientRect().height).toBe(28);
+    expect(bg.right).toBeLessThanOrEqual(view.host.getBoundingClientRect().right + 1);
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
   } finally { view.dispose(); }
 });

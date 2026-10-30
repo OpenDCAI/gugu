@@ -97,9 +97,11 @@ export type ChatMessage = {
    * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
    * `chatId` the group the quoted message was said in (absent for a DM).
    */
-  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
+  conversationReply?: { itemId: string; messageId?: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
+  /** Density uses actual previous-message identity; absent/unknown senders never merge. */
+  conversationPreviousSpeaker?: string;
   /**
    * View-only: something the agent said along the way (not the turn's reply). Drawn as one gray line among the
    * steps under the process line (design 0), ❌ a bubble of its own.
@@ -507,6 +509,7 @@ export type DaySeparatorItem = {
  * 所以缺席也折，判据见 `planTurnFold`。
  */
 export type TurnProcessItem = {
+  conversationPreviousSpeaker?: string;
   kind: 'turn-process';
   id: string;
   turnId: string;

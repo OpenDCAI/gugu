@@ -36,8 +36,9 @@ async function mountCopy() {
   await renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="device" sessionId="copy-task" agentName="Agent" nativeRecord
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
-  await until('conversation reply exposes its message copy action', () => !!harness.container.querySelector('[data-user-message-actions="code"] button'));
-  return harness.container.querySelector<HTMLButtonElement>('[data-user-message-actions="code"] button')!;
+  const copySelector = '[data-user-message-actions="code"] button[aria-label="Copy"]';
+  await until('conversation reply exposes its message copy action', () => !!harness.container.querySelector(copySelector));
+  return harness.container.querySelector<HTMLButtonElement>(copySelector)!;
 }
 
 it('copies the complete multiline Chinese reply through the host while the WebView refuses writes', async () => {

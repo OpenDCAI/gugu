@@ -360,7 +360,7 @@ it('keeps the background pill on a zero-step notification reply process line wit
   expect(process.textContent).not.toContain('step')
   expect(process.textContent).not.toContain('›')
   expect(process.hasAttribute('data-collapse-id')).toBe(false)
-  expect(head.offsetHeight).toBe(46)
+  expect(head.offsetHeight).toBe(28)
   expect(row(host)).toBeNull()
   pill.click()
   await until('zero-step reply expands its real background list', () => items(host).length === 3)
@@ -368,7 +368,7 @@ it('keeps the background pill on a zero-step notification reply process line wit
   pill.click()
   await until('zero-step reply removes list height when folded', () => items(host).length === 0)
   await untilStable('head height settles', () => head.offsetHeight)
-  expect(head.offsetHeight).toBe(46)
+  expect(head.offsetHeight).toBe(28)
 })
 
 it('keeps a sealed bubble above a steer and the background pill on the following empty process', async () => {
@@ -389,7 +389,7 @@ it('keeps a sealed bubble above a steer and the background pill on the following
   expect(input.getBoundingClientRect().bottom).toBeLessThanOrEqual(process.getBoundingClientRect().top)
   expect(line.querySelector('[data-slot="background-tasks-pill"]')).not.toBeNull()
   expect(row(host)).toBeNull()
-  expect(line.closest<HTMLElement>('[data-slot="turn-process"]')!.offsetHeight).toBe(46)
+  expect(line.closest<HTMLElement>('[data-slot="turn-process"]')!.offsetHeight).toBe(28)
   expect(host.querySelectorAll('[data-slot="background-tasks-pill"]')).toHaveLength(1)
 })
 

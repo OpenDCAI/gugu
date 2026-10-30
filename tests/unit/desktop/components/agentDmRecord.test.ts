@@ -44,12 +44,12 @@ describe('authorized DM rows in the shared transcript', () => {
     expect(mergeDmRecord(recent, rows, names)).toBe(recent)
   })
 
-  it('keeps every explicit reply target without an adjacency filter', () => {
+  it('preserves explicit older and immediately preceding reply anchors for the shared renderer', () => {
     const first = human('m1', 1), second = human('m2', 2)
     const reply = (id: string, quoted: string) => message({ id, seq: 3, sender_user_id: 'agent', is_mine: false,
       reply_to_message_id: quoted, reply_to_sender_user_id: 'me', reply_to_content: 'OK', content: 'Reply' })
     expect(dmRecord([first, second, reply('r1', 'm1')], names).at(-1)?.items[0]).toMatchObject({ sentReplyTo: 'm1', conversationReply: { from: 'Me', text: 'OK' } })
-    expect(dmRecord([first, second, reply('r2', 'm2')], names).at(-1)?.items[0]).toHaveProperty('sentReplyTo', 'm2')
+    expect(dmRecord([first, second, reply('r2', 'm2')], names).at(-1)?.items[0]).toMatchObject({ sentReplyTo: 'm2', conversationReply: { itemId: 'm2', text: 'OK' } })
   })
 
   it('keeps system notices separate from the agent voice', () => {
