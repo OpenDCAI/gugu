@@ -7,7 +7,8 @@ import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/age
 import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import { desc, eq, isNull } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
+import { readProjects } from '@main/core/projects/operations/getProjects';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
 import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
@@ -215,17 +216,11 @@ function readSessionRows(): Array<{
 }
 
 function readLocalProjects(): SessionpageProjectSummary[] {
-  return db
-    .select({ id: projects.id, name: projects.name, path: projects.path, kind: projects.kind })
-    .from(projects)
-    .where(eq(projects.workspaceProvider, 'local'))
-    .orderBy(desc(projects.updatedAt))
-    .all()
-    .map(projectSummary);
+  return readProjects().map(({ id, name, path, kind }) => projectSummary({ id, name, path, kind }));
 }
 
 /** #609 workspace 带上 kind,手机据此把它的会话列进「任务」;项目照旧只有 id / name / path。 */
-function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind: 'project' | 'workspace' }): SessionpageProjectSummary {
+function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind?: 'project' | 'workspace' }): SessionpageProjectSummary {
   return kind === 'workspace' ? { ...project, kind } : project;
 }
 
@@ -686,18 +681,21 @@ export function listSessionStates(): SessionpageSessionsListResult {
 
 function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSessionsListResult {
   const rows = readSessionRows();
+  const visibleProjects = readLocalProjects();
+  const visibleIds = new Set(visibleProjects.map(project => project.id));
   const projectById = new Map<string, SessionpageProjectSummary>();
   const sessions: SessionpageSessionSummary[] = [];
   const schedules = schedulesBySession(listSessionSchedules());
 
   for (const { session, project } of rows) {
+    if (!visibleIds.has(project.id)) continue;
     projectById.set(project.id, project);
     sessions.push(summaryOf(session, agents, schedules));
   }
   // 还没开过会话的项目也要列:手机新建会话只能挑这里列出的项目,刚在电脑上打开的项目 ❌ 因为没会话就看不见
   // (#6985:在手机上给一台刚加的机器开第一条会话)。只列本机项目,与侧栏同一个口径:隐式的任务工作区不算
   // 一个项目(侧栏也不列它),它只在里面有会话时随会话出现。
-  for (const project of readLocalProjects()) {
+  for (const project of visibleProjects) {
     if (isImplicitSessionHomeProjectId(project.id)) continue;
     if (!projectById.has(project.id)) projectById.set(project.id, project);
   }

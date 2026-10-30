@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   teardown: vi.fn(),
   mounted: new Set<string>(),
   userData: '',
+  getProject: vi.fn(),
 }));
 
 vi.mock('electron', () => ({ app: { getPath: () => mocks.userData }, clipboard: {}, nativeImage: {} }));
@@ -40,7 +41,12 @@ vi.mock('@main/core/acp/controller', () => ({
     },
   }),
 }));
-vi.mock('@main/core/projects/project-manager', () => ({ projectManager: { getProject: () => undefined } }));
+vi.mock('@main/core/projects/project-manager', () => ({ projectManager: { getProject: mocks.getProject } }));
+// The folder guard below exercises real session preparation/commit; engines and
+// account group bindings are external to directory membership and stay isolated.
+vi.mock('@main/core/sessions/impl/harness-availability', () => ({ checkLocalHarnessAvailable: async () => null }));
+vi.mock('@main/core/mcp-library/service', () => ({ mcpLibraryService: { list: async () => [] } }));
+vi.mock('../projects/operations/project-groups', () => ({ listProjectGroupBindings: async () => ({ success: true, data: [] }) }));
 vi.mock('@main/core/pty/tmux-session-name', () => ({
   killTmuxSession: vi.fn(),
   makeTmuxSessionName: (id: string) => id,
@@ -118,6 +124,7 @@ describe('archiveSession', () => {
     mocks.teardown.mockReset()
     mocks.teardown.mockResolvedValue({ success: true })
     mocks.mounted.clear()
+    mocks.getProject.mockReset();
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
   });
 
@@ -184,6 +191,56 @@ describe('archiveSession', () => {
       expect(archivedAt('incident')).toBeNull();
       expect(fixture.sqlite.prepare("SELECT id FROM sessions WHERE id='incident'").get()).toEqual({ id: 'incident' });
     } finally { await rm(home, { recursive: true }); }
+  });
+
+  it('restores every original project folder, including an unused one, without reattaching or changing identities', async () => {
+    const root = join(mocks.userData, 'project');
+    const used = join(mocks.userData, 'used');
+    const unused = join(mocks.userData, 'unused');
+    for (const path of [root, used, unused]) await mkdir(path);
+    await writeFile(join(unused, 'keep.txt'), 'original file');
+    fixture.sqlite.prepare("UPDATE projects SET path=?, repository_workspace_id='restore-root' WHERE id='p1'").run(root);
+    const insertFolder = fixture.sqlite.prepare('INSERT INTO workspaces (id,type,kind,location,path,key,project_id,attached_at) VALUES (?,\'local\',?,\'local\',?,?,?,?)');
+    insertFolder.run('restore-root', 'project-root', root, root, null, null);
+    insertFolder.run('restore-used', 'path', used, used, 'p1', '2026-10-29T01:00:00Z');
+    insertFolder.run('restore-unused', 'path', unused, unused, 'p1', '2026-10-29T02:00:00Z');
+    insertSession('folder-task');
+    fixture.sqlite.prepare("UPDATE sessions SET workspace_id='restore-used' WHERE id='folder-task'").run();
+    const { listProjectFolderRefs, resolveProjectFolder } = await import('../projects/operations/project-folders');
+    const { listDeviceProjectRecords } = await import('../projects/operations/device-project-records');
+    const before = await listProjectFolderRefs('p1');
+    expect(before).toHaveLength(3);
+    const rows = fixture.sqlite.prepare('SELECT id, project_id, attached_at, path FROM workspaces ORDER BY id').all();
+
+    await (await import('../projects/operations/deleteProject')).deleteProject('p1');
+    expect(await getProjects()).toEqual([]);
+    expect(await listDeviceProjectRecords()).toEqual([]);
+    expect((await getProjects({ includeHidden: true })).map(project => project.id)).toContain('p1');
+    expect(fixture.sqlite.prepare('SELECT id, project_id, attached_at, path FROM workspaces ORDER BY id').all()).toEqual(rows);
+
+    await restoreSession('p1', 'folder-task');
+    const after = await listProjectFolderRefs('p1');
+    expect(after).toHaveLength(before!.length);
+    expect(after).toEqual(before);
+    expect((await getProjects()).map(project => project.id)).toContain('p1');
+    expect((await listDeviceProjectRecords())[0]?.folders).toEqual(before);
+    expect(fixture.sqlite.prepare('SELECT id, project_id, attached_at, path FROM workspaces ORDER BY id').all()).toEqual(rows);
+    const { prepareCreateSession, commitCreateSession } = await import('./operations/createSession');
+    mocks.getProject.mockReturnValue({});
+    for (const folder of after!) {
+      expect(await resolveProjectFolder('p1', folder.workspaceId)).not.toBeNull();
+      const id = `new-task-${folder.workspaceId}`;
+      const prepared = await prepareCreateSession({ projectId: 'p1',
+        sessionConfig: { version: '1', name: id, initialSession: { id, provider: 'codex',
+          title: id, origin: { kind: 'create', firstUtterance: 'Continue work' } } },
+        workspaceConfig: { version: '2', workspace: { kind: 'repository-instance', workspaceId: folder.workspaceId } },
+      });
+      expect(prepared.success).toBe(true);
+      if (!prepared.success) throw new Error(JSON.stringify(prepared.error));
+      const created = fixture.db.transaction(tx => commitCreateSession(prepared.data, tx));
+      expect(created).toMatchObject({ id, projectId: 'p1', workspaceId: folder.workspaceId });
+    }
+    expect(await (await import('node:fs/promises')).readFile(join(unused, 'keep.txt'), 'utf8')).toBe('original file');
   });
 
   it('无目录项目归档后隐藏,历史仍能恢复原会话与工作区,重读清单也保留', async () => {

@@ -81,7 +81,10 @@ vi.mock('@main/db/client', () => ({
         innerJoin: () => ({
           where: () => ({ all: () => state.rows.map((row) => ({ ...row })) }),
         }),
-        where: () => ({ orderBy: () => ({ all: () => state.projects.map((project) => ({ ...project })) }) }),
+        where: () => ({ orderBy: () => ({ all: () => [...new Map([
+          ...state.rows.map(row => [row.project.id, row.project] as const),
+          ...state.projects.map(project => [project.id, project] as const),
+        ]).values()].map(project => ({ ...project })) }) }),
       }),
     }),
   },

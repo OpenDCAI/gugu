@@ -7,8 +7,6 @@ import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
 import { automations, sessions, projects } from '@main/db/schema';
 
-import { detachProjectFolder, listProjectFolderRefs } from './project-folders';
-
 export async function deleteProject(id: string): Promise<void> {
   const provider = projectManager.getProject(id);
   const sessionRows = await db
@@ -28,12 +26,9 @@ export async function deleteProject(id: string): Promise<void> {
   });
   if (current.rows.length) {
     for (const row of current.rows) await archiveSession(id, row.id);
-    const folders = await listProjectFolderRefs(id);
-    if (!folders) throw new Error(`Project not found: ${id}`);
-    for (const folder of folders) {
-      const result = await detachProjectFolder(id, folder.workspaceId);
-      if (!result.success) throw new Error(result.error.message);
-    }
+    // Keep the original root and every attached folder, including folders with no
+    // tasks. Restore must expose those same memberships rather than reconstructing them.
+    await db.update(projects).set({ archivedAt: new Date().toISOString() }).where(eq(projects.id, id));
     await db.update(automations).set({ projectId: null }).where(eq(automations.projectId, id));
     void viewStateService.del(`project:${id}`);
     projectEvents._emit('project:deleted', id);

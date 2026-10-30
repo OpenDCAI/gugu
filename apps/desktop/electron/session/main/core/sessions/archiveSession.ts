@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { sessions } from '@main/db/schema';
+import { projects, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionEvents } from './session-events';
 import { getAcpRuntimeClient } from '@main/core/acp/controller';
@@ -122,7 +122,10 @@ async function restoreSessionLocked(projectId: string, sessionId: string): Promi
     .limit(1);
   if (!row) throw new Error(`Session not found: ${sessionId}`);
   // A closed interval and the restored row become visible in one transaction.
-  setSessionArchival(sessionId, false);
+  db.transaction((tx) => {
+    setSessionArchival(sessionId, false);
+    tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId)).run();
+  });
   const restored = db.select().from(sessions).where(eq(sessions.id, sessionId)).get()!;
 
   events.emit(sessionChangedChannel, {

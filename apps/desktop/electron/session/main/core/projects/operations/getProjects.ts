@@ -20,6 +20,7 @@ function toLocalProject(row: typeof projects.$inferSelect): LocalProject {
     baseRef: localProjectBaseRef(row),
     repositoryWorkspaceId: row.repositoryWorkspaceId ?? null,
     ...(row.rootFolderDetached ? { rootFolderDetached: true } : {}),
+    ...(row.archivedAt ? { archivedAt: row.archivedAt } : {}),
     ...(row.kind === 'workspace' ? { kind: 'workspace' as const } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -31,15 +32,20 @@ function toLocalProject(row: typeof projects.$inferSelect): LocalProject {
  * 但产品里不再出现、不能再跑。
  */
 export async function getProjects(options: { includeHidden?: boolean } = {}): Promise<LocalProject[]> {
-  const rows = await db
+  return readProjects(options);
+}
+
+/** The same synchronous projection feeds desktop RPC, account publication and phone timelines. */
+export function readProjects(options: { includeHidden?: boolean } = {}): LocalProject[] {
+  const rows = db
     .select()
     .from(projects)
-    .where(and(eq(projects.workspaceProvider, 'local'), options.includeHidden ? undefined : or(
+    .where(and(eq(projects.workspaceProvider, 'local'), options.includeHidden ? undefined : and(isNull(projects.archivedAt), or(
       eq(projects.rootFolderDetached, false),
       exists(db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.projectId, projects.id))),
       exists(db.select({ id: sessions.id }).from(sessions).where(and(eq(sessions.projectId, projects.id), isNull(sessions.archivedAt)))),
-    )))
-    .orderBy(desc(projects.updatedAt));
+    ))))
+    .orderBy(desc(projects.updatedAt)).all();
   return rows.map(toLocalProject);
 }
 

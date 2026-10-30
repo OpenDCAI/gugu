@@ -20,6 +20,7 @@ import {
   type SessionpageSessionView,
 } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
+import { readProjects } from '@main/core/projects/operations/getProjects';
 import { sessions, projects } from '@main/db/schema';
 import type { SessionRow } from '@main/db/schema';
 import {
@@ -145,10 +146,7 @@ async function harnessOptions(): Promise<SessionpageHarnessOption[]> {
 
 export async function createOptions(): Promise<CreateSessionResult<SessionpageSessionCreateOptions>> {
   try {
-    const rows = await db
-      .select({ id: projects.id, name: projects.name, path: projects.path })
-      .from(projects)
-      .all();
+    const rows = readProjects().map(({ id, name, path }) => ({ id, name, path }));
     /*
      * 最近用过的项目排最前 —— 手机端默认选第一个,而人多半是想接着刚才那个项目干。
      * 真机实测按建表顺序排时,第一个永远是内置的「任务工作区」(id 固定、最早建),
