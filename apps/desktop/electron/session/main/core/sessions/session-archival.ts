@@ -40,6 +40,7 @@ export function sessionArchivalState(sessionId: string): SessionArchivalState | 
 /** The row and its refusal interval commit together, before runtime teardown. */
 export function setSessionArchival(sessionId: string, archived: boolean, at = new Date().toISOString()): string | null {
   archiveTimestamp(at)
+  let changed = false
   const archivedAt = db.transaction((tx) => {
     const row = tx.select({ archivedAt: sessions.archivedAt }).from(sessions).where(eq(sessions.id, sessionId)).get()
     if (!row) throw new Error(`Session not found: ${sessionId}`)
@@ -60,9 +61,10 @@ export function setSessionArchival(sessionId: string, archived: boolean, at = ne
     tx.insert(kv).values({ key: keyFor(sessionId), value: JSON.stringify(state), updatedAt: Date.now() })
       .onConflictDoUpdate({ target: kv.key, set: { value: JSON.stringify(state), updatedAt: Date.now() } }).run()
     tx.update(sessions).set({ archivedAt, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(sessions.id, sessionId)).run()
+    changed = true
     return archivedAt
   })
-  sessionEvents._emit('session:visibility-changed', sessionId)
+  if (changed && archived) sessionEvents._emit('session:archived', sessionId)
   return archivedAt
 }
 
