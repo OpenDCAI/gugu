@@ -155,6 +155,8 @@ export class SessionCell {
   private blockedQueuedSteer: QueuedPrompt | null = null;
   private interruptedQueuedHead: string | null = null;
   private queuedTurnFence = false;
+  /** Cancellation/teardown retires native admissions started before that boundary, even after ready/resume. */
+  private nativeAdmissionGeneration = 0;
   /** Cancellation would also withdraw inputs already admitted by the native adapter. */
   private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
@@ -546,6 +548,7 @@ export class SessionCell {
     }
     if (event.kind === 'interrupted_for_message') {
       if (this.machine.phase.kind === 'working') {
+        this.nativeAdmissionGeneration += 1;
         this.interruptedForMessage = true;
         this.applyEvent({ type: 'CancellationRequested' });
       }
@@ -863,6 +866,7 @@ export class SessionCell {
       'invalid_state',
     ]);
     if (!dispatchResult.success) return dispatchResult;
+    this.nativeAdmissionGeneration += 1;
     try {
       await this.agent.cancel({ sessionId: this.acpSessionId });
       return ok();
@@ -954,6 +958,7 @@ export class SessionCell {
   }
 
   async closeSession(): Promise<void> {
+    this.nativeAdmissionGeneration += 1;
     this.closeRequested = true;
     this.returnPendingNativeSteers();
     if (!this.agent.closeSession) return;
@@ -1444,6 +1449,7 @@ export class SessionCell {
 
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
+    if (outcome.kind === 'cancelled' || outcome.kind === 'error') this.nativeAdmissionGeneration += 1;
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
       settleAcceptedRequests(this.requests, this.transcript);
@@ -1556,6 +1562,7 @@ export class SessionCell {
    * 只是当年的回调签名把它们截断了。⇒ 现在整条事实带进来,分类交给唯一那个分类器。
    */
   processClosed(exit: AdapterExit, opts?: { abnormal?: boolean }): void {
+    this.nativeAdmissionGeneration += 1;
     const abnormal = opts?.abnormal !== false;
     // 这一轮的 reason 是从哪条路来的 —— 三条路的分岔就在下面,而它们在产品面长得**一模一样**
     // (都是一行「回合失败」)。不记这一行,下次问「为什么它说的是 A 不是 B」就只能靠猜。
@@ -1620,6 +1627,7 @@ export class SessionCell {
   }
 
   dispose(): void {
+    this.nativeAdmissionGeneration += 1;
     if (this.activeTurnCompletion || this.transcript.activeTurn) {
       this.endWork(this.closeRequested ? { kind: 'cancelled', reason: 'cancelled' }
         : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
@@ -2298,6 +2306,7 @@ export class SessionCell {
         }
         const reserved = this.dispatchFor<InvalidStateError>({ type: 'ReserveQueuedPrompt', id: head.id }, ['invalid_state']);
         if (!reserved.success) return;
+        const admissionGeneration = this.nativeAdmissionGeneration;
         const admission = Promise.withResolvers<Result<{ queued: boolean }, AcpSendPromptError>>();
         const sending = this.sendPromptInternal(head, {
           fromQueue: true, steerIfBusy: true, onAdmission: result => admission.resolve(result),
@@ -2305,8 +2314,10 @@ export class SessionCell {
         void sending.then(result => admission.resolve(result), error => admission.resolve(acpErr.promptFailed(toSerializedError(error))));
         const result = await admission.promise;
         const phaseAfterAdmission = this.sessionState.lifecycle;
+        // injected proves admission, not consumption. A receipt from a withdrawn generation
+        // cannot remove this input's replay copy, regardless of the cell's current phase.
         const accepted = result.success && !result.data.queued && !this.closeRequested
-          && phaseAfterAdmission !== 'cancelling';
+          && admissionGeneration === this.nativeAdmissionGeneration;
         this.dispatch({ type: 'ReleaseQueuedPrompt', id: head.id, accepted });
         if (!result.success) {
           this.blockedQueuedSteer = this.machine.queuedPrompts.find(prompt => prompt.id === head.id) ?? null;

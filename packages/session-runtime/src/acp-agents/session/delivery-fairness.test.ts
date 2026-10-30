@@ -177,6 +177,30 @@ describe('queued communication liveness', () => {
     } finally { p.cell.dispose(); }
   });
 
+  it.each(['cancel completed', 'process exited'] as const)('retains a queued steer when %s precedes its late injected receipt', async terminal => {
+    const p = await fixture();
+    try {
+      const receipt = Promise.withResolvers<'injected'>();
+      p.steer.mockImplementationOnce(() => receipt.promise);
+      await retainedCommunication(p, 'terminal pending');
+      await p.boundaries();
+      if (terminal === 'cancel completed') {
+        await p.cell.cancel();
+        p.cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'cancelled' });
+      } else {
+        p.cell.processClosed({ exitCode: 1, signal: null, stderrTail: '' });
+      }
+      expect(p.cell.sessionState.lifecycle).toBe(terminal === 'cancel completed' ? 'ready' : 'lost');
+      expect(p.cell.sessionState.queuedPrompts.map(prompt => prompt.text)).toEqual(['terminal pending']);
+      receipt.resolve('injected');
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(p.cell.sessionState.queuedPrompts.map(prompt => prompt.text)).toEqual(['terminal pending']);
+      expect(p.cell.sessionState.queuedPrompts[0].queueDispatching).toBeUndefined();
+      expect(p.steer).toHaveBeenCalledTimes(1);
+      expect(p.prompt).toHaveBeenCalledTimes(1);
+    } finally { p.cell.dispose(); }
+  });
+
   it('close preserves both admitted and in-flight same-key inputs in their original order', async () => {
     const p = await fixture();
     try {
