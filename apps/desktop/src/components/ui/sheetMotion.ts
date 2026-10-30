@@ -17,6 +17,8 @@ import { cn } from '@/lib/cn'
 export const sheetBackdropMotion = cn(
   // 几何归 `.gg-window-layer`(tokens.css @@@window-layer):铺在 Windows 标题栏行下面。
   'gg-window-layer bg-[var(--bg-overlay-modal)]',
+  // Base UI marks the popup as nested; its backdrop catches outside presses without dimming twice.
+  '[&:has(+_.gg-sheet-viewport_>_.gg-sheet-content[data-nested])]:bg-transparent',
   'animate-[gg-sheet-overlay-in_var(--dur-med)_var(--ease-spring)]',
   'transition-opacity duration-[var(--dur-med)] [transition-timing-function:var(--ease-spring)] data-[ending-style]:opacity-0',
   'data-[ending-style]:animate-none motion-reduce:animate-none motion-reduce:transition-none',

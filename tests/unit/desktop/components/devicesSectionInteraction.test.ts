@@ -3,6 +3,9 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DevicesSection } from '@/components/settings/DevicesSection'
+import { Sheet } from '@/components/ui/Sheet'
+import { SessionLocalizationProvider } from '@/session/renderer/localization/localization-provider'
+import { ProjectFolderCard } from '@/session/renderer/features/projects/components/main-panel/project-folder-card'
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 const retryMatch = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
@@ -74,6 +77,106 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('DevicesSection interaction', () => {
+  it('uses the same device name in Attach and the version dialog, with the tier in the description', async () => {
+    const versions = [device({ device_id: 'old', label: 'Previous install', machine_id: 'same-mac', tier: 'production', is_online: false }),
+      device({ device_id: 'active', label: 'Current install', machine_id: 'same-mac', tier: 'beta' })]
+    const value = store({ devices: versions })
+    const onAttach = vi.fn()
+    const local = { id: null, label: 'This computer', online: true, kind: 'computer' as const }
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement('div', null,
+      createElement(DevicesSection),
+      createElement(SessionLocalizationProvider, { children: createElement(ProjectFolderCard, {
+        projectId: 'p1', projectName: 'Project',
+        folders: { folders: [], loadError: false, unanswered: [], chosen: null, fresh: undefined,
+          choose: vi.fn(), reload: vi.fn(), attach: vi.fn(), detach: vi.fn() },
+        machines: [null], machineOf: () => local,
+        attachMachines: [local, { id: versions[1]!.device_id, label: versions[1]!.label, online: true, kind: 'server' }],
+        onAttach, onDropFolder: vi.fn(),
+      }) })))) })
+    await act(async () => { container.querySelector<HTMLElement>('[data-testid="project-folder-attach"]')!.click() })
+    await flush()
+    const attachRow = document.body.querySelectorAll<HTMLElement>('[data-testid="project-folder-attach-machine"]')[1]!
+    const attachName = attachRow.textContent?.trim()
+    expect(attachName).toBe(versions[1]!.label)
+    await act(async () => { attachRow.click() })
+    expect(onAttach).toHaveBeenCalledWith(versions[1]!.device_id)
+    await openMenuItem('settings-device-remove-versions')
+    const dialog = document.body.querySelector('[data-testid="settings-device-versions-dialog"]')!
+    expect(dialog.querySelector('[data-testid="device-configuration-active"] .gg-settings-row-title')?.textContent).toBe(attachName)
+    for (const version of versions) {
+      const row = dialog.querySelector(`[data-testid="device-configuration-${version.device_id}"]`)!
+      expect(row.querySelector('.gg-settings-row-title')?.textContent).toBe(version.label)
+      expect(row.querySelector('.gg-settings-row-description')?.textContent).toContain(version.tier === 'beta' ? '咕咕 Beta' : '咕咕')
+    }
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
+  it('closes the versions list with its visible Cancel without removing a version', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', is_online: false }),
+      device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection))) })
+    await openMenuItem('settings-device-remove-versions')
+    const dialog = document.body.querySelector('[data-testid="settings-device-versions-dialog"]')!
+    const cancel = buttonByText(dialog, '取消')
+    expect(cancel.hidden).toBe(false)
+    expect(cancel.tabIndex).toBe(0)
+    await act(async () => { cancel.click() })
+    expect(document.body.querySelector('[data-testid="settings-device-versions-dialog"]')).toBeNull()
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
+  it('Escape closes only the versions list above the settings sheet without removing a version', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', is_online: false }),
+      device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
+    const closeSettings = vi.fn()
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value },
+      createElement(Sheet, { onClose: closeSettings, testId: 'settings-parent', children: createElement(DevicesSection) }))) })
+    await act(async () => {
+      const trigger = document.body.querySelector<HTMLElement>('[data-testid="settings-device-menu-button"]')!
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      trigger.click()
+    })
+    await flush()
+    await act(async () => { document.body.querySelector<HTMLElement>('[data-testid="settings-device-remove-versions"]')!.click() })
+    await flush()
+    const dialog = document.body.querySelector('[data-testid="settings-device-versions-dialog"]')!
+    await act(async () => { dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(document.body.querySelector('[data-testid="settings-device-versions-dialog"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="settings-parent"]')).not.toBeNull()
+    expect(closeSettings).not.toHaveBeenCalled()
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
+  it('clicking the versions sheet backdrop closes only that sheet above Settings', async () => {
+    const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', is_online: false }),
+      device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
+    const closeSettings = vi.fn()
+    await act(async () => { root.render(createElement(DevicesContext.Provider, { value },
+      createElement(Sheet, { onClose: closeSettings, testId: 'settings-parent', children: createElement(DevicesSection) }))) })
+    await act(async () => {
+      const trigger = document.body.querySelector<HTMLElement>('[data-testid="settings-device-menu-button"]')!
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      trigger.click()
+    })
+    await flush()
+    await act(async () => { document.body.querySelector<HTMLElement>('[data-testid="settings-device-remove-versions"]')!.click() })
+    await flush()
+    const dialog = document.body.querySelector('[data-testid="settings-device-versions-dialog"]')!
+    const backdrop = dialog.closest('.gg-sheet-viewport')!.previousElementSibling as HTMLElement | null
+    expect(backdrop?.matches('.gg-sheet-backdrop')).toBe(true)
+    expect(dialog.hasAttribute('data-nested')).toBe(true)
+    expect(backdrop?.matches(':has(+ .gg-sheet-viewport > .gg-sheet-content[data-nested])')).toBe(true)
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+      backdrop!.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
+      backdrop!.click()
+    })
+    expect(document.body.querySelector('[data-testid="settings-device-versions-dialog"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="settings-parent"]')).not.toBeNull()
+    expect(closeSettings).not.toHaveBeenCalled()
+    expect(value.remove).not.toHaveBeenCalled()
+  })
+
   it('groups physical machines but retains both tier configurations in details', async () => {
     const value = store({ devices: [device({ device_id: 'old', machine_id: 'same-mac', tier: 'acceptance-tasks431', is_online: false }),
       device({ device_id: 'active', machine_id: 'same-mac', tier: 'beta' })] })
