@@ -10,6 +10,7 @@ import { publishChatSummaries, publishContactSummaries } from '../lib/chatSummar
 import { useChatStore } from '../store/chatContext'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
+import { useMarkProjectTopicsReadOnOpen } from '../hooks/useMarkProjectTopicsReadOnOpen'
 
 installShellSlots()
 
@@ -38,6 +39,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
     () => slots?.getSlots() ?? EMPTY,
   )
+  useMarkProjectTopicsReadOnOpen(entries, projectGroupChats)
   return (
     <>
       {[...entries].flatMap(([key, element]) => {
