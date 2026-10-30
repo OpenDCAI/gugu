@@ -7,7 +7,7 @@ vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn:
 vi.mock('../../../../apps/desktop/src/session/renderer/features/global-search/global-search-flag', () => ({
   globalSearchV3Enabled: () => enabled.value,
 }))
-import { feedChats, feedRemoved, feedRows } from '../../../../apps/desktop/src/lib/searchIndexFeed'
+import { feedChats, feedClearChat, feedCoverage, feedRemoved, feedRows } from '../../../../apps/desktop/src/lib/searchIndexFeed'
 
 const desktopSrc = resolve(__dirname, '../../../../apps/desktop/src')
 function sources(dir: string): string[] {
@@ -28,18 +28,23 @@ describe('search index feed', () => {
 
   it('applies everything fed in one task as one list', async () => {
     const row = { id: 'm', chat_id: 'g' }
-    await Promise.all([feedChats([{ id: 'g', kind: 'group', sourceChatId: null }]), feedRows([row]), feedRemoved(['x'])])
+    const progress = { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 2, exhausted: true }
+    await Promise.all([feedChats([{ id: 'g', kind: 'group', sourceChatId: null }]), feedRows([row]), feedRemoved(['x']),
+      feedClearChat('old-chat'), feedCoverage(progress)])
     expect(apply).toHaveBeenCalledTimes(1)
     expect(apply).toHaveBeenCalledWith([
       { kind: 'chats', chats: [{ id: 'g', kind: 'group', sourceChatId: null }] },
       { kind: 'rows', rows: [row] },
       { kind: 'remove', ids: ['x'] },
+      { kind: 'clearChat', chatId: 'old-chat' },
+      { kind: 'coverage', coverage: progress },
     ])
   })
 
   it('writes nothing while global search is off', async () => {
     enabled.value = false
-    await Promise.all([feedRows([{ id: 'm' }]), feedRemoved(['m']), feedChats([])])
+    await Promise.all([feedRows([{ id: 'm' }]), feedRemoved(['m']), feedChats([]), feedClearChat('g'),
+      feedCoverage({ chatId: 'g', threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: false })])
     expect(apply).not.toHaveBeenCalled()
   })
 

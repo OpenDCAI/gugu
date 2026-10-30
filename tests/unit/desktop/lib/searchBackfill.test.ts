@@ -54,4 +54,42 @@ describe('search backfill', () => {
     await run({ coverage: async () => [], mainPage, threadPage: async () => [] }, [chat('a', '2026-10-30')], { canRead: () => false })
     expect(mainPage).not.toHaveBeenCalled()
   })
+
+  it('catches up newer rows before paging older history in the same stream', async () => {
+    coverage.length = 0
+    const calls: [number | undefined, number | undefined][] = []
+    await run({
+      coverage: async () => [{ chatId: 'a', threadRootId: null, oldestSeq: 10, newestSeq: 20, exhausted: false }],
+      mainPage: async (_chatId, before, after) => {
+        calls.push([before, after])
+        return after === 20 ? [message(21)] : before === 10 ? [message(1), message(9)] : []
+      },
+      threadPage: async () => [],
+    }, [chat('a', '2026-10-30')])
+    expect(calls).toEqual([[undefined, 20], [10, undefined], [1, undefined]])
+    expect(coverage.at(-1)).toEqual({ chatId: 'a', threadRootId: null, oldestSeq: 1, newestSeq: 21, exhausted: true })
+  })
+
+  it('moves a newly opened chat ahead of the other queued chats', async () => {
+    let active = 'a'
+    const calls: string[] = []
+    let stop = () => {}
+    let done!: () => void
+    const finished = new Promise<void>((resolve) => { done = resolve })
+    stop = startSearchBackfill({
+      coverage: async () => [],
+      mainPage: async (id) => { calls.push(id); return [] },
+      threadPage: async () => [],
+    }, {
+      chats: () => [chat('a', '2026-10-30'), chat('b', '2026-10-29'), chat('c', '2026-10-01')],
+      activeChatId: () => active,
+      canRead: () => true,
+      sleep: async (ms) => {
+        if (ms === 200 && calls.length === 1) active = 'c'
+        if (ms >= 5000) { stop(); done() }
+      },
+    })
+    try { await finished; expect(calls).toEqual(['a', 'c', 'b']) }
+    finally { stop() }
+  })
 })
