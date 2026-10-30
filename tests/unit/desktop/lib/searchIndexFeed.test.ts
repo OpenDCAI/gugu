@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { apply, enabled } = vi.hoisted(() => ({ apply: vi.fn(async () => {}), enabled: { value: true } }))
+const { apply, enabled } = vi.hoisted(() => ({ apply: vi.fn(async (_ops: unknown) => true), enabled: { value: true } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ search: { write: apply } }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/global-search/global-search-flag', () => ({
   globalSearchV3Enabled: () => enabled.value,
@@ -41,11 +41,15 @@ describe('search index feed', () => {
     ])
   })
 
-  it('writes nothing while global search is off', async () => {
+  it('sends nothing while the flag is off, and accepts a write the main process dropped', async () => {
     enabled.value = false
     await Promise.all([feedRows([{ id: 'm' }]), feedRemoved(['m']), feedChats([]), feedClearChat('g'),
       feedCoverage({ chatId: 'g', threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: false })])
     expect(apply).not.toHaveBeenCalled()
+    enabled.value = true
+    apply.mockResolvedValueOnce(false)
+    await expect(feedRemoved(['m'])).resolves.toBeUndefined()
+    expect(apply).toHaveBeenCalledTimes(1)
   })
 
   it('surfaces a failed write to the caller', async () => {

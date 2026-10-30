@@ -21,9 +21,12 @@ export function readCoverage(db: Database.Database): SearchCoverage[] {
   }));
 }
 
-function readCoverageReport(db: Database.Database, chatIds?: readonly string[]): SearchCoverageReport {
+export const coverageKey = (chatId: string, threadRootId: string | null) => `${chatId}\u0000${threadRootId ?? ''}`;
+
+/** A stream counts as read through only if the backfill reported on it since the store was opened (`current`). */
+function readCoverageReport(db: Database.Database, current: ReadonlySet<string>, chatIds?: readonly string[]): SearchCoverageReport {
   const ids = chatIds ?? (db.prepare('SELECT id FROM chat').all() as { id: string }[]).map((row) => row.id);
-  return coverageReport(ids, readCoverage(db));
+  return coverageReport(ids, readCoverage(db).map((row) => ({ ...row, exhausted: row.exhausted && current.has(coverageKey(row.chatId, row.threadRootId)) })));
 }
 
 function scopedChatIds(db: Database.Database, query: SearchQuery): string[] | undefined {
@@ -51,7 +54,7 @@ function hit(row: MessageRow, accountId: string, query: SearchQuery, now: number
   };
 }
 
-export function readMessages(db: Database.Database, accountId: string, request: MessageSearchRequest, now: number): SearchResults {
+export function readMessages(db: Database.Database, accountId: string, request: MessageSearchRequest, now: number, current: ReadonlySet<string>): SearchResults {
   const identity = JSON.stringify(request.query);
   let offset = 0;
   if (request.cursor) {
@@ -67,7 +70,7 @@ export function readMessages(db: Database.Database, accountId: string, request: 
   const rows = db.prepare(sql).all(...params) as MessageRow[];
   return {
     results: rows.slice(0, limit).map((row) => hit(row, accountId, request.query, now)),
-    coverage: readCoverageReport(db, scopedChatIds(db, request.query)),
+    coverage: readCoverageReport(db, current, scopedChatIds(db, request.query)),
     nextCursor: rows.length > limit ? JSON.stringify({ identity, offset: offset + limit }) : null,
   };
 }

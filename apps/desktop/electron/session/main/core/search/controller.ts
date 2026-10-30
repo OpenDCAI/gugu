@@ -13,5 +13,5 @@ export const searchController = createRPCController({
   dateAnchor: (query: SearchQuery) => accountMessageSearch.dateAnchor(query),
   coverage: () => accountMessageSearch.coverage(),
   // The only write. Its one renderer caller is apps/desktop/src/lib/searchIndexFeed.ts.
-  write: (ops: SearchIndexOp[]) => accountMessageSearch.apply(ops),
+  write: (ops: SearchIndexOp[]) => accountMessageSearch.write(ops),
 });
