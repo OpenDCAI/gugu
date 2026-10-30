@@ -113,7 +113,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
@@ -506,6 +506,8 @@ import type {
   SessionPromptDelivery,
 } from './session/main/core/acp/emdash-mcp-injector'
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
+import { createProjectionDeviceRuntime } from './projection-device-runtime'
+import { openProjectionDevicePipe } from './projection-device-transport'
 import { createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import {
@@ -747,11 +749,26 @@ let deviceProjectsPublisher: DeviceProjectsPublisher | null = null
 let authProvider: RuntimeAuthProvider | null = null
 // server 模式下没有渲染进程可问:登录态由主进程持有,四处 `authProvider ??= …` 因此直接拿到它。
 let serverAuth: ServerAuthProvider | null = null
+const projectionDeviceRuntime = createProjectionDeviceRuntime({
+  auth: () => desktopAuthProvider().getAuth(), runtime: () => deviceRuntimeHost?.getRuntimeLease() ?? null,
+  resources: () => process.resourcesPath,
+  capturePage: id => {
+    const bridge = loadEmdashBridge()
+    if (!bridge) throw new Error('任务页桥未加载，不能建立投影页面授权')
+    return bridge.captureSessionpageProjectionViewer(id)
+  },
+  openPipe: (deviceId, asker, handlers, signal) => openProjectionDevicePipe({
+    auth: () => desktopAuthProvider().getAuth(), createClient: createElectronRealtimeClient,
+    report: error => createLogger('projection/device').warn({ error: String(error) }, 'Late projection pipe cleanup failed'),
+  }, deviceId, asker, handlers, signal),
+  report: error => createLogger('projection/device').warn({ error: String(error) }, 'Projection device cleanup failed'),
+})
 if (SERVER_MODE) {
   serverAuth = createServerAuthProvider({
     supabaseUrl: getSupabaseUrl(),
     anonKey: getSupabaseAnonKey(),
     onAuthExpired: (message) => {
+      projectionDeviceRuntime.invalidate()
       // 登录态已清掉;这个账号的进程退出,守护进程看到它没有登录态就不再拉起(重新登录即恢复)。
       createLogger('server/auth').error({ message }, `登录已失效,需要重新登录:${SERVER_LOGIN_ACTION}`)
       setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1_000)
@@ -1615,7 +1632,8 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   const bridge = loadEmdashBridge()
   if (!bridge) throw new Error('任务页桥未加载,设备 RPC 的会话处理器装不上')
   // MessagePreview(#6357)只挂咕咕云频道:它往 realtime topic 推,SSH 设备连接没有这条路。
-  const base = bridge.createSessionpageSessionDeviceRpcHandlers(io ? { preview: messagePreviewHostDeps(io) } : undefined)
+  const base = projectionDeviceRuntime.track(bridge.createSessionpageSessionDeviceRpcHandlers(io
+    ? { preview: messagePreviewHostDeps(io), projection: projectionDeviceRuntime.options } : undefined))
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
   return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
 }
@@ -2495,6 +2513,7 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  projectionDeviceRuntime.invalidate()
   void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
@@ -2547,6 +2566,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
     const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
     pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
@@ -2555,6 +2575,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
+    projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
     return await clearHumanAuthSession()
   } finally {
     onHumanAuthSessionChanged()
@@ -3216,6 +3237,7 @@ app.on('before-quit', createRuntimeBeforeQuitHandler({
   getHost: () => deviceRuntimeHost,
   setQuitting: (value) => {
     isQuitting = value
+    if (value) projectionDeviceRuntime.invalidate()
     // @@@5793 停机已经开始,看门狗的使命结束 —— 别在停机中途再捅一次 app.quit()。
     if (value) updateQuit.noteShutdownStarted()
   },
@@ -4266,6 +4288,7 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
 
 async function stopDesktopOwnedResources(): Promise<void> {
   const hostResults = await Promise.allSettled([
+    runShutdownPhase('projection-device', () => projectionDeviceRuntime.dispose(), reportShutdownPhase),
     runShutdownPhase(
       'gugu-mcp-host',
       async () => {

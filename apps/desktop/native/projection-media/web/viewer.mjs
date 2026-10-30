@@ -3,13 +3,15 @@ const MAX_SDP = 128 * 1024
 const positive = value => Number.isSafeInteger(value) && value > 0
 
 /** Browser media receiver only. The caller owns authenticated signaling and App/task authority. */
-export async function openProjectionVideo({ video, offer, answer, onFrame, onControl, signal }) {
+export async function openProjectionVideo({ video, offer, answer, onFrame, onControl, prepareControl, signal }) {
   signal?.throwIfAborted()
   if (offer?.type !== 'offer' || typeof offer.sdp !== 'string' || offer.sdp.length > MAX_SDP) throw new Error('Invalid projection offer')
   if (typeof video?.requestVideoFrameCallback !== 'function' || typeof video.cancelVideoFrameCallback !== 'function') throw new Error('Projection video frame callbacks are unavailable')
   const peer = new RTCPeerConnection({ iceServers: [] }) // viewer also configures no TURN
   const receipts = new Map()
   const tracks = new Set()
+  const signing = new AbortController()
+  let controls = Promise.resolve(), queued = 0
   let channel, visible, callback, lastSequence = 0, lastPainted = 0, lastPaintedStamp, lastReceipt, closing = false
   let resolveReady, rejectReady, resolveClosed, rejectClosed, failure
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
@@ -20,6 +22,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
     if (closing) return
     closing = true
     failure = error
+    signing.abort(error ?? new Error('Projection viewer closed'))
     clearTimeout(deadline)
     signal?.removeEventListener('abort', abort)
     if (callback !== undefined) video.cancelVideoFrameCallback(callback)
@@ -41,7 +44,19 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
     check()
     if (typeof data !== 'string' || new TextEncoder().encode(data).length > MAX_CONTROL) throw new Error('Invalid projection control message')
     if (channel?.readyState !== 'open' || channel.bufferedAmount > 256 * 1024) throw new Error('Projection input channel is not writable')
-    channel.send(data) // SCTP admission, never an execution acknowledgement
+    if (!prepareControl) { channel.send(data); return } // SCTP admission, never an execution acknowledgement
+    if (queued >= 64) throw new Error('Projection signing queue is full')
+    queued++
+    const work = controls.then(async () => {
+      check()
+      const signed = await Promise.race([Promise.resolve().then(() => prepareControl(data, signing.signal)), stopped])
+      check()
+      if (typeof signed !== 'string' || new TextEncoder().encode(signed).length > MAX_CONTROL) throw new Error('Invalid signed projection control')
+      if (channel?.readyState !== 'open' || channel.bufferedAmount > 256 * 1024) throw new Error('Projection input channel is not writable')
+      channel.send(signed)
+    }).finally(() => { queued-- })
+    controls = work.catch(error => { close(error) })
+    return work
   }
   const matched = () => {
     if (!visible || closing) return

@@ -2428,6 +2428,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
  * DB / pty / services」那条规矩 —— 伸手进去的代价就是上面这种「读得到、发不出」。
  */
 export { createSessionpageSessionDeviceRpcHandlers } from './core/session-timeline/device-rpc'
+export { captureSessionpageProjectionViewer } from './core/extensions/extension-bridge'
 /** #6264 经云端中转的附件:这台机器取中转桶的实现(宿主按自己的登录态拼好交回给上面那组处理器)。 */
 
 /**

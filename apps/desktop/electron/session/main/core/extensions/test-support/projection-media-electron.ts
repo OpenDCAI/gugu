@@ -11,6 +11,7 @@ import { extensionsService } from '../extensions-root';
 import { revokeExtensionProgramAccess } from '../extension-program-access';
 import { createProjectionImageDecoder } from '../projection-image';
 import { probeFeedOwnership } from './projection-feed-ownership';
+import { probeDeviceProjection } from './projection-device-electron';
 import { projectionSources, type ProjectionHost } from '../../../../../../src/session/app-runtime/projection-source';
 import { openMediaProcess } from '../../../../../../native/projection-media/node/host.mjs';
 import { ProjectionSignals } from '../../../../../../native/projection-media/node/signaling.mjs';
@@ -140,13 +141,14 @@ void app.whenReady().then(async () => {
       { width: 128, height: 96, mime: 'image/png', data: ownershipPicture.toPNG().toString('base64') },
       () => openMediaProcess({ executable: process.env.GUGU_TEST_MEDIA_HELPER!, ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!,
         width: 128, height: 96, fps: 10, bitrate: 500000, signal: new AbortController().signal }));
+    const device = await probeDeviceProjection(id);
     service.setPermissionGranted(id, 'agents:tools', false);
     await assert.rejects(publisher.publish({ width: 128, height: 96, mime: 'image/png', data: 'YQ==' }), /revoked/);
     revokeExtensionProgramAccess(id);
     await until(() => stopped && [...feeds.values()][0]!.lease.signal.aborted);
     await signals.dispose();
     assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
-    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, ownership, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
+    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, ownership, device, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
       home: process.env.GUGU_HOME, userData: app.getPath('userData'), electron: process.versions.electron }) + '\n');
   } finally {
     try { await signals.dispose(); }
