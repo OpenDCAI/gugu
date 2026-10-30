@@ -11,7 +11,8 @@ let h:ReturnType<typeof createReactHarness>
 const noop=()=>{}
 const profile=(id:string,type:'human'|'agent'):MemberProfileCardModel=>({id,displayName:type==='human'?'测试用户':'咕咕',avatar:null,email:null,bio:null,type,role:'member',profileScope:'group'})
 const msg=(id:string,sender:string,seq:number,reply?:string)=>message({id,chat_id:'dm',sender_user_id:sender,seq,is_mine:sender==='user-1',content:`正文 ${id}`,reply_to_message_id:reply??null,reply_to_sender_user_id:reply?'user-1':null,reply_to_content:reply?'原消息':null})
-const quoted=(id:string)=>h.container.querySelector<HTMLElement>(`[data-msg-id="${id}"] [title="跳到被引用的消息"]`)
+const quoted=(id:string)=>h.container.querySelector<HTMLElement>(`[data-msg-id="${id}"] .gg-chat-reply-preview > [title="跳到被引用的消息"]`)
+const marker=(id:string)=>h.container.querySelector<HTMLElement>(`[data-msg-id="${id}"] [data-chat-reply-quote]`)?.dataset.marker
 const inBubble=(id:string)=>!!quoted(id)?.closest('[data-testid="message-bubble-action-target"]')
 beforeEach(()=>{h=createReactHarness();vi.stubGlobal('IntersectionObserver',class{observe(){}unobserve(){}disconnect(){}})})
 afterEach(()=>{h.cleanup();vi.unstubAllGlobals()})
@@ -21,26 +22,27 @@ async function render(messages:MessageItem[],mobile=false,group=false,onShowMess
  await renderWithAppProviders(h,<MessageList rows={rows} rowProps={rowProps}/>)
  return {onShowMessage}
 }
-it.each([false,true])('hides routine direct replies without changing their reply metadata (mobile=%s)',async mobile=>{
+it.each([false,true])('retains explicit direct quotes for disclosure without changing reply metadata (mobile=%s)',async mobile=>{
  const messages=[msg('question','user-1',1),msg('answer-1','agent',2,'question'),msg('answer-2','agent',3,'question')]
  const original=JSON.stringify(messages)
  await render(messages,mobile)
- expect(quoted('answer-1')).toBeNull();expect(quoted('answer-2')).toBeNull()
+ expect(marker('answer-1')).toBe('false');expect(marker('answer-2')).toBe('true')
+ expect(quoted('answer-1')).not.toBeNull();expect(quoted('answer-2')).not.toBeNull()
  expect(h.container.textContent).toContain('正文 answer-2')
  expect(JSON.stringify(messages)).toBe(original)
 })
-it.each([false,true])('shows the first older-target quote and preserves its jump (mobile=%s)',async mobile=>{
+it.each([false,true])('keeps a jump mark on each older-target reply (mobile=%s)',async mobile=>{
  const messages=[msg('old','user-1',1),msg('new','user-1',2),msg('answer-1','agent',3,'old'),msg('answer-2','agent',4,'old')]
  const {onShowMessage}=await render(messages,mobile)
- expect(quoted('answer-1')).not.toBeNull();expect(quoted('answer-2')).toBeNull()
+ expect(marker('answer-1')).toBe('true');expect(marker('answer-2')).toBe('true')
  await clickElement(quoted('answer-1')!)
  expect(onShowMessage).toHaveBeenCalledWith('old')
 })
-it('keeps repeated quote headers in a group or topic',async()=>{
+it('uses actual adjacency for group jump marks too',async()=>{
  await render([msg('question','user-1',1),msg('answer-1','agent',2,'question'),msg('answer-2','agent',3,'question')],false,true)
- expect(quoted('answer-1')).not.toBeNull();expect(quoted('answer-2')).not.toBeNull()
+ expect(marker('answer-1')).toBe('false');expect(marker('answer-2')).toBe('true')
 })
-it.each([false,true])('a shown direct quote is one line above the bubble: sender · summary (mobile=%s)',async mobile=>{
+it.each([false,true])('retains the direct preview above the bubble: sender · summary (mobile=%s)',async mobile=>{
  await render([msg('old','user-1',1),msg('new','user-1',2),msg('answer','agent',3,'old')],mobile)
  expect(quoted('answer')?.dataset.testid).toBe('direct-message-quote')
  expect([...quoted('answer')!.querySelectorAll(':scope > span')].map(span=>span.textContent)).toEqual(['测试用户 ·','原消息'])
@@ -69,11 +71,12 @@ for(const group of [false,true]) it.each([false,true])(`shows an incoming select
  await clickElement(quoted('answer')!)
  expect(onShowMessage).toHaveBeenCalledWith('old')
 })
-it.each([false,true])('keeps a partial quote visible even when it replies to the latest direct message (mobile=%s)',async mobile=>{
+it.each([false,true])('retains a selected excerpt for disclosure without a redundant adjacent mark (mobile=%s)',async mobile=>{
  const source={...msg('latest','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
  const reply={...msg('answer','agent',2,'latest'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
  await render([source,reply],mobile)
  expect(quoted('answer')?.textContent).toContain('Beta chosen.')
+ expect(marker('answer')).toBe('false')
 })
 it('retains old inline quotes without a structural reply ID',async()=>{
  await render([{...msg('legacy','user-1',1),content:'> [Ada]: Legacy quoted text\nLegacy answer.'}])

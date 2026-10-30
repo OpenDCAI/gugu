@@ -378,7 +378,7 @@ export function MessageList({
   // 气泡里的名字(@、引用、任务卡)只认名字 / 头像 / 是否在群;agent 的运行态每翻一次,整张表就是新的,
   // 递下去会打穿每一只可见气泡的 memo(连同正文的 markdown 重新解析)。发送者自己的状态照旧走 memberProfile。
   const bubbleMemberProfiles = useStructurallyShared(useMemo(() => withoutLiveStatus(rowProps.memberProfiles), [rowProps.memberProfiles]))
-  const quoteIds = useMemo(() => visibleReplyQuoteIds(rowProps.messages,rowProps.isGroupChat || !!rowProps.threeParty || rowProps.isFiltering), [rowProps.messages,rowProps.isGroupChat,rowProps.threeParty,rowProps.isFiltering])
+  const quoteIds = useMemo(() => visibleReplyQuoteIds(rowProps.messages), [rowProps.messages])
   const { start, end } = useFlowList({ scrollerRef: ownScrollerRef, contentRef, resetKey, rowIds, landing: initialTopMostItemIndex, followTail, atBottomThreshold: 80, onAtBottomChange, onTotalHeightChanged: onTotalListHeightChanged, onStartReached, handleRef: listRef })
   // 未读行不在窗口里:比窗口最早一条还早 = 在上方(-1);否则是尾部对账还没回来,先不判(null)。
   const unreadIndex = unreadAbove ? rows.findIndex((row) => row.message.id === unreadAbove.messageId) : -1
