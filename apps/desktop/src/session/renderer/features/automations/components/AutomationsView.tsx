@@ -1,5 +1,12 @@
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from '@renderer/lib/components/pagination';
 import { DeviceScopeNoticeLine, DeviceScopeProvider, useSelectedRemoteDevice } from '@renderer/features/remote-hosts/device-scope-picker';
 import { deviceScopeNotice } from '@renderer/features/remote-hosts/device-scope-notice';
 import { automationsDeviceStore } from '@renderer/features/remote-hosts/device-scope-store';
@@ -64,6 +71,7 @@ function AutomationsViewBody() {
   const { automations, toggleEnabled, destroy } = useAutomations();
   const host = useAutomationsHost();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
   const [initialTemplate, setInitialTemplate] = useState<BuiltinAutomationTemplate | undefined>();
   const [pendingDelete, setPendingDelete] = useState<Automation | null>(null);
@@ -78,6 +86,11 @@ function AutomationsViewBody() {
     () => (automationData ?? []).filter((a) => a.name.toLowerCase().includes(search.toLowerCase())),
     [automationData, search]
   );
+  const pageSize = 25;
+  const lastPage = Math.max(0, Math.ceil(effectiveAutomations.length / pageSize) - 1);
+  const currentPage = Math.min(page, lastPage);
+  if (page !== currentPage) setPage(currentPage);
+  const pageAutomations = effectiveAutomations.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   const hasLoadedAutomations = automationData !== undefined;
   // 看的是别的机器、它此刻给不出东西:说一句人话;离线时照旧画上次读到的、只读。
   const notice = deviceScopeNotice(
@@ -142,7 +155,7 @@ function AutomationsViewBody() {
             <DeviceScopeProvider store={automationsDeviceStore}>
               <AutomationsHeader
                 search={search}
-                onSearchChange={setSearch}
+                onSearchChange={(value) => { setSearch(value); setPage(0); }}
                 createPending={readOnly}
                 onNewAutomation={() => openCreateSheet()}
               />
@@ -154,11 +167,38 @@ function AutomationsViewBody() {
                 onSelectTemplate={openCreateSheet}
               />
             ) : hasSearchResults ? (
-              <AutomationsList
-                automations={effectiveAutomations}
-                onEdit={(automation) => navigate('automations', { automationId: automation.id })}
-                onToggleEnabled={handleToggleEnabled}
-              />
+              <>
+                <AutomationsList
+                  automations={pageAutomations}
+                  onEdit={(automation) => navigate('automations', { automationId: automation.id })}
+                  onToggleEnabled={handleToggleEnabled}
+                />
+                {lastPage > 0 && (
+                  <Pagination className="border-t py-1">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={currentPage > 0 ? () => setPage(currentPage - 1) : undefined}
+                          aria-disabled={currentPage === 0}
+                          className={currentPage === 0 ? 'pointer-events-none opacity-50' : ''}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <span className="px-2 text-xs text-foreground-muted">
+                          {translate('automations.page', { page: currentPage + 1 })}
+                        </span>
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={currentPage < lastPage ? () => setPage(currentPage + 1) : undefined}
+                          aria-disabled={currentPage === lastPage}
+                          className={currentPage === lastPage ? 'pointer-events-none opacity-50' : ''}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
+              </>
             ) : hasLoadedAutomations ? (
               <div className="py-8 text-sm text-foreground-muted">
                 {translate('automations.searchEmpty')}
