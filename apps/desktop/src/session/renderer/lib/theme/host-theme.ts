@@ -13,7 +13,7 @@
  * 会话页的 provider 用 useSyncExternalStore 订阅它 —— 没有第二处可以漂。
  *
  * **偏好**(用户在设置里选的)与**真值**(当下到底是浅还是深)是两层。
- * 偏好存 localStorage `app-theme`,取值 `light` / `dark` / `system` / `plain-white`;真值永远是解析后的
+ * 偏好存 localStorage `app-theme`,取值 `light` / `dark` / `system`;旧 `plain-white` 按浅色读取。真值永远是解析后的
  * `light` / `dark`,落在 `<html data-theme>` 上。选了 `system` 时真值随系统外观走,
  * 由 `startHostThemeSystemSync()` 一处负责改写属性 —— 两个 React 根都只是观察者。
  */
@@ -27,7 +27,7 @@ export type EffectiveTheme = 'emlight' | 'emdark';
 export type HostTheme = 'light' | 'dark';
 
 /** 偏好:用户在设置里选的那一项。`system` = 跟随系统外观。 */
-export type ThemePreference = HostTheme | 'system' | 'plain-white';
+export type ThemePreference = HostTheme | 'system';
 
 const HOST_THEME_STORAGE_KEY = 'app-theme';
 
@@ -50,17 +50,18 @@ export function systemPrefersDark(): boolean {
   return prefersDarkQuery()?.matches === true;
 }
 
-/** 把偏好解析成明暗真值:`system` 查系统外观,素白固定用浅色。 */
+/** 把偏好解析成明暗真值:`system` 查系统外观。 */
 export function resolveThemePreference(preference: ThemePreference): HostTheme {
   if (preference === 'system') return systemPrefersDark() ? 'dark' : 'light';
-  return preference === 'plain-white' ? 'light' : preference;
+  return preference;
 }
 
 /** 读用户选的那一项。存的值不认识(旧版本/被改过)时退回默认,❌ 不猜。 */
 export function readThemePreference(): ThemePreference {
   if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE;
   const saved = localStorage.getItem(HOST_THEME_STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' || saved === 'system' || saved === 'plain-white' ? saved : DEFAULT_PREFERENCE;
+  if (saved === 'plain-white') return 'light';
+  return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : DEFAULT_PREFERENCE;
 }
 
 /**
@@ -80,8 +81,7 @@ function syncNativeAppearance(preference: ThemePreference): NativeAppearanceSync
   if (typeof window === 'undefined') return { kind: 'no-bridge' };
   const bridge = window.electronAPI?.syncThemePreference;
   if (!bridge) return { kind: 'no-bridge' };
-  // 素白是浅色的表面样式;原生窗口仍消费浅/深/系统这三种外观。
-  const answer = bridge(preference === 'plain-white' ? 'light' : preference);
+  const answer = bridge(preference);
   return answer === 'light' || answer === 'dark' ? { kind: 'ok', system: answer } : { kind: 'failed' };
 }
 

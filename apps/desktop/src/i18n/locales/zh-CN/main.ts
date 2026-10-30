@@ -388,7 +388,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "浅色",
-      "plain-white": "素白",
       "notifications": "通知",
       "notificationsAgent": "智能体通知",
       "notificationsAgentAria": "开启智能体通知",

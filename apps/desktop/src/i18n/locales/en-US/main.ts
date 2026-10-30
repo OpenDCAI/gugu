@@ -394,7 +394,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "Light",
-      "plain-white": "Plain white",
       "notifications": "Notifications",
       "notificationsAgent": "Agent notifications",
       "notificationsAgentAria": "Enable agent notifications",

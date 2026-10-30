@@ -26,42 +26,47 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('plain white theme preference', () => {
-  it('resolves to light even when the system is dark', () => {
-    expect(resolveThemePreference('plain-white')).toBe('light')
+describe('retired plain white theme preference', () => {
+  it.each([false, true])('reads a legacy saved value as light when system dark is %s', (dark) => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: dark })))
+    localStorage.setItem('app-theme', 'plain-white')
+    expect(readThemePreference()).toBe('light')
   })
 
-  it('persists the distinct preference while selecting the native light scheme', () => {
+  it('hydrates the legacy value as the ordinary light preference and native scheme', () => {
     const sync = vi.fn(() => 'light' as const)
     vi.stubGlobal('electronAPI', { syncThemePreference: sync })
-    expect(writeThemePreference('plain-white')).toBe('light')
-    expect(sync).toHaveBeenCalledExactlyOnceWith('light')
-    expect(readThemePreference()).toBe('plain-white')
-    expect(document.documentElement.dataset.theme).toBe('light')
-    expect(document.documentElement.dataset.themePreference).toBe('plain-white')
-  })
-
-  it('restores the saved appearance after a reload', () => {
     localStorage.setItem('app-theme', 'plain-white')
     expect(hydrateHostTheme()).toBe('light')
-    expect(readThemePreference()).toBe('plain-white')
-    expect(document.documentElement.dataset.themePreference).toBe('plain-white')
+    expect(sync).toHaveBeenCalledExactlyOnceWith('light')
+    expect(readThemePreference()).toBe('light')
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(document.documentElement.dataset.themePreference).toBe('light')
   })
 
-  it('restores white before first paint through the real HTML bootstrap', () => {
+  it.each([false, true])('normalizes the legacy value before first paint when system dark is %s', (dark) => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: dark })))
     localStorage.setItem('app-theme', 'plain-white')
     new Function('window', 'document', 'localStorage', bootScript)(window, document, localStorage)
     expect(document.documentElement.dataset.theme).toBe('light')
-    expect(document.documentElement.dataset.themePreference).toBe('plain-white')
+    expect(document.documentElement.dataset.themePreference).toBe('light')
   })
 
   it('keeps the default light preference and explicit dark/system behavior', () => {
     expect(readThemePreference()).toBe('light')
     expect(hydrateHostTheme()).toBe('light')
-    writeThemePreference('plain-white')
+    expect(resolveThemePreference('light')).toBe('light')
+    expect(resolveThemePreference('dark')).toBe('dark')
     expect(writeThemePreference('dark')).toBe('dark')
     expect(readThemePreference()).toBe('dark')
     expect(document.documentElement.dataset.themePreference).not.toBe('plain-white')
     expect(writeThemePreference('system')).toBe('dark')
+  })
+
+  it('keeps follow-system light when the system uses light', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    expect(writeThemePreference('system')).toBe('light')
+    expect(readThemePreference()).toBe('system')
+    expect(document.documentElement.dataset.themePreference).toBe('system')
   })
 })
