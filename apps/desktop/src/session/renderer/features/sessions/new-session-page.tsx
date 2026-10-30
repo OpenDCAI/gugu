@@ -130,6 +130,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
       // #4325 —— 只递创建面;附件编码由 firstTurnTransportOf 那一个表达式算出来,
       // 与正文走的是同一条。❌ 不在这里自己判一遍。
       creationSurface,
+      dispatchesToChat: Boolean(taskChatId),
       initialPrompt: draftKey ? composerDrafts.get(draftKey) : '',
       initialAttachmentDraft: draftKey ? composerDrafts.attachments(draftKey) : undefined,
     }
