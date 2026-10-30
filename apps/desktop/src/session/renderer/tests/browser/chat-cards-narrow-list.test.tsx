@@ -6,6 +6,7 @@
  */
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { userEvent } from 'vitest/browser';
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard';
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels';
 import { i18n } from '@/i18n';
@@ -93,8 +94,11 @@ describe('cards and quotes in a narrow group message list', () => {
         reply_to_content: 'Reply with just: ok one',
       });
       const bubble = root.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!;
-      await until('the quote drawn', () => root.querySelector('[title="Go to the quoted message"]') !== null);
-      const quote = root.querySelector<HTMLElement>('[title="Go to the quoted message"]')!;
+      await userEvent.hover(bubble);
+      const preview = root.querySelector<HTMLElement>('.gg-chat-reply-preview')!;
+      await until('the hovered quote is visible', () => getComputedStyle(preview).display === 'block');
+      const quote = preview.querySelector<HTMLElement>('[title="Go to the quoted message"]')!;
+      expect(quote.getBoundingClientRect().width, 'measure the visible quote frame, not its jump mark').toBeGreaterThan(0);
       const style = getComputedStyle(bubble);
       const contentRight = bubble.getBoundingClientRect().right - Number.parseFloat(style.paddingRight);
       expect(quote.getBoundingClientRect().right, 'quote bar right edge vs bubble content edge').toBeLessThanOrEqual(contentRight + 0.5);

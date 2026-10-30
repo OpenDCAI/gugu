@@ -102,7 +102,7 @@ describe('task card in a chat (gugu-dev#181)', () => {
       id: 'reply-1', is_mine: false, sender_user_id: 'agent-1', content: '我是 Codex',
       reply_to_message_id: 'card-1', reply_to_sender_user_id: 'owner', reply_to_content: serializeComposerCard(CARD),
     })))
-    const quote = harness.container.querySelector('[title="跳到被引用的消息"]')!
+    const quote = harness.container.querySelector('.gg-chat-reply-preview > [title="跳到被引用的消息"]')!
     expect(quote.textContent).toContain('新任务')
     expect(quote.textContent).toContain('用一句话介绍你自己')
     expect(quote.textContent).not.toContain('新任务：')

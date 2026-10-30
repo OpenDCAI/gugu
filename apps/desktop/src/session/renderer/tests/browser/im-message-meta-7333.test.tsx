@@ -7,6 +7,7 @@
  */
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { userEvent } from 'vitest/browser';
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard';
 import { i18n } from '@/i18n';
 import '@/i18n/registerMessagingCatalog';
@@ -73,6 +74,10 @@ describe('the IM bubble\'s meta and quote bars in the master\'s tiers (#7333)', 
     });
     expect(tier(root.querySelector('[data-message-sender-name="true"]'))).toEqual(COMPACT);
     expect(tier(root.querySelector('[data-message-time="true"]'))).toEqual(CAPTION);
+    const preview = root.querySelector<HTMLElement>('.gg-chat-reply-preview')!;
+    expect(getComputedStyle(preview).display).toBe('none');
+    await userEvent.hover(root.querySelector<HTMLElement>('[data-testid="message-bubble-action-target"]')!);
+    await until('the hovered quote is visible before measuring its typography', () => getComputedStyle(preview).display === 'block');
     const excerpt = byText(root, LONG_EXCERPT)!;
     const title = excerpt.previousElementSibling as HTMLElement;
     expect(title.textContent).toBe('林知夏');
