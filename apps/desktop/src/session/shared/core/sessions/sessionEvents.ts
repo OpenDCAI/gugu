@@ -52,6 +52,7 @@ export const sessionChangedChannel = defineEvent<{
       Session,
       | 'lastInteractedAt'
       | 'title'
+      | 'agentDisplayName'
       // 活会话上改过、provider 已确认的设置(record-live-session-setting)。渲染层自己的启动路
       // 读的是它手里这份 Conversation,不跟上的话重开时照旧下发建会话时那一档。
       | 'permissionMode'

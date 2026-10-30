@@ -63,7 +63,7 @@ async function mount(
   patch: (item: ChatMessage) => ChatMessage = (item) => item,
   self: SelfIdentity | null = null,
   senderAvatar: (fromId: string | null) => string | null = () => null,
-  beforeRead: () => void = () => {},
+  beforeRead: (host: HTMLDivElement) => void = () => {},
   bodyExpanded = false,
   appName: (appId: string) => string | null = () => null,
   chatName: (chatId: string) => string | null = () => null,
@@ -119,7 +119,7 @@ async function mount(
   );
   try {
     await nextPaint();
-    beforeRead();
+    beforeRead(host);
     await nextPaint();
     const card = host.querySelector<HTMLElement>('[data-delivery-batch]') ?? host.querySelector<HTMLElement>('[data-delivery-card]') ?? host.firstElementChild as HTMLElement;
     if (!card) throw new Error('message did not mount');
@@ -171,14 +171,22 @@ const DOUBLE: ChatLayout = { preset: 'double', userGutter: 72 };
 
 it('updates historical sender labels from the host identity without changing the delivery', async () => {
   const [name, setName] = createSignal('Current identity');
-  const initial = await mount(DOUBLE, false, ENVELOPE, (item) => item, null, () => null,
-    () => {}, false, () => null, () => null, () => name());
-  expect(initial.sender).toBe('Current identity');
-  const renamed = await mount(DOUBLE, false, ENVELOPE, (item) => item, null, () => null,
-    () => setName('Renamed identity'), false, () => null, () => null, () => name());
+  const notice = ENVELOPE.replace('route="chat"', 'route="system"');
+  let initialSender: string | null = null;
+  let initialBody = '';
+  let initialHeight = 0;
+  const renamed = await mount(DOUBLE, false, notice, (item) => item, null, () => null,
+    (host) => {
+      initialSender = host.querySelector('[data-slot="delivery-sender"]')?.textContent ?? null;
+      initialBody = host.querySelector('[data-gugu-body]')?.textContent ?? '';
+      initialHeight = (host.querySelector('[data-delivery-card]') as HTMLElement).offsetHeight;
+      setName('Renamed identity');
+    }, false, () => null, () => null, () => name());
+  expect(initialSender).toBe('Current identity');
   expect(renamed.sender).toBe('Renamed identity');
   expect(renamed.computed).toBe(renamed.dom);
-  expect(renamed.bodyText).toBe(initial.bodyText);
+  expect(renamed.dom).toBe(initialHeight);
+  expect(renamed.bodyText).toBe(initialBody);
 });
 
 describe('plain session delivery contract', () => {

@@ -84,7 +84,7 @@ export function withSourceLineCandidates(
     const name = identity?.display_name
     return name && name.trim() !== '' ? [{ id, name, type: identity.type, ...rosterExtras(identity.type, identity, identities) }] : []
   })
-  const combined = [...topicCandidates, ...extra]
+  const combined: GroupRosterCandidate[] = [...topicCandidates, ...extra]
   const named = combined.flatMap((member) => identities[member.id] ? [{ id: member.id, ...identities[member.id] }] : [])
   return combined.map((member) => identities[member.id]
     ? { ...member, name: identityDisplayName({ id: member.id, ...identities[member.id] }, named, member.alias) }

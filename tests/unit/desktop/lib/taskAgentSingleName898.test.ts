@@ -13,7 +13,15 @@ const identity = (id: string, serial: number, name = 'Review') => displayIdentit
   bio: null, owner_user_id: 'owner', agent_public: true, desired_status: 'online',
   device_id: 'device', category: null, is_official: false, local_path: null, created_at: null, updated_at: null,
 })
-const group = { humans: [], agents: [{ id: 'claude', type: 'agent', role: 'member' }, { id: 'codex', type: 'agent', role: 'member' }] } as GroupCollabSnapshot
+const group: GroupCollabSnapshot = {
+  scheduler: { chat_id: 'room', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-10-30T00:00:00Z' },
+  humans: [], tasks: [], outputs: [],
+  agents: ['claude', 'codex'].map((id) => ({
+    id, type: 'agent', role: 'member', account_status: 'active', client: null, model_source: null, tools: [],
+    permission_scope: null, current_task_id: null, current_task_title: null, last_action: null, last_active_at: null,
+    listen_mode: 'passive',
+  })),
+}
 
 describe('one task-agent display name', () => {
   it('measures manual and automatic limits in graphemes without cutting a name', () => {

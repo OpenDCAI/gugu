@@ -5165,7 +5165,7 @@ app.whenReady().then(async () => {
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
-      sessionpageIdentityHost.ensureAgentAddress(input as Parameters<typeof sessionpageIdentityHost.ensureAgentAddress>[0]),
+      identityHost.ensureAgentAddress(input as Parameters<typeof identityHost.ensureAgentAddress>[0]),
     )
     // #6091 会话页「重命名」弹窗里改 agent 名。改完两处要知道:会话页(侧栏身份卡 / 分享按钮提示,按 conversationId
     // 认领)与 gugu 渲染层的通讯录(它缓存着 display_name,不叫它刷新,聊天页就还挂着旧名)。

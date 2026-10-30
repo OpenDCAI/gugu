@@ -27,7 +27,9 @@ const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 beforeEach(() => {
   actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   state.identitiesById = { a: identity('a', 2), b: identity('b', 7) }
-  state.chats = [{ id: 'source', kind: 'dm', peer_user_id: 'a', name: null, member_user_ids: ['a', 'b'] } as ChatItem]
+  state.chats = [{ id: 'source', kind: 'dm', status: 'active', peer_user_id: 'a', name: '', member_user_ids: ['a', 'b'],
+    created_at: '2026-10-30T00:00:00Z', last_message_at: null, last_message_preview: null, unread_count: 0,
+    pinned_message_id: null, last_read_seq: 0, next_message_seq: 1 }]
   container = document.createElement('div')
   title = document.createElement('div')
   document.body.append(container, title)

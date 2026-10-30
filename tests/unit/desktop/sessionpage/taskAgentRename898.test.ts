@@ -281,13 +281,15 @@ describe('task and identity shared rename operation', () => {
       expect(channel).toBe('sessionpageIdentity.renameAgent')
       return app.host.renameAgent(args[0] as { sessionId: string; name: string })
     })
+    const renameAgent = web.renameAgent
+    if (!renameAgent) throw new Error('Shared web rename handler is not registered')
     let release!: () => void
     state.getAuth.mockImplementationOnce(() => undefined)
       .mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
     try {
-      const first = web.renameAgent({ sessionId: 'task', name: 'First choice' })
+      const first = renameAgent({ sessionId: 'task', name: 'First choice' })
       await vi.waitFor(() => expect(release).toBeTypeOf('function'))
-      const second = web.renameAgent({ sessionId: 'task', name: 'Newer choice' })
+      const second = renameAgent({ sessionId: 'task', name: 'Newer choice' })
       await vi.waitFor(() => expect(app.title()).toBe('Newer choice'))
       expect(state.signedOut).toBe(false)
       release()

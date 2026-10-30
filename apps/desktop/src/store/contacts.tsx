@@ -70,7 +70,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
   // 提交快照，避免创建 Agent 前发出的旧响应把新 Agent 从成员选择器里冲掉。
   const contactsLoadGenerationRef = useRef(0)
 
-  const publishContactIdentities = useCallback(async (rows: readonly ContactUser[], accept = () => true) => {
+  const publishContactIdentities = useCallback(async (rows: readonly ContactUser[], accept: () => boolean = () => true) => {
     const repository = await getImRepository()
     const before = imSelectors.identitiesById(repository.snapshot())
     const readNames = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id))

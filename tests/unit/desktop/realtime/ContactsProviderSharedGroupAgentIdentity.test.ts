@@ -5,6 +5,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
+import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayIdentity'
 
 const { authUser, contactsServiceMock, identitiesById, getImRepositoryMock, refreshChatsMock, chatState, identityListeners, pendingNames, revisionConsumers } = vi.hoisted(() => {
   const identitiesById = {} as Record<string, ContactUser>
@@ -157,7 +158,7 @@ async function beginUpdate(operation: () => Promise<void>) {
   return { pending }
 }
 
-const sharedGroupAgent: ContactUser = {
+const sharedGroupAgent: DisplayIdentity = {
   id: 'shared-agent',
   display_name: 'Shared Agent',
   avatar: null,

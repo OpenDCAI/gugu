@@ -72,7 +72,7 @@ export function mirrorTaskIdentityName(sessionId: string, name: string, source?:
   const written = db.transaction((tx) => {
     const row = tx.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (!row) return null;
-    const config = row.config ?? { version: '1' as const, type: row.runtime };
+    const config: SessionConfig = row.config ?? { version: '1', type: row.runtime };
     const titleSource = source ?? titleSourceOf(row);
     if (row.title === name && config.agentDisplayName === name && config.identityNameManaged && config.titleSource === titleSource) return null;
     tx.update(sessions).set({ title: name, config: { ...config, agentDisplayName: name, identityNameManaged: true, titleSource } })
@@ -141,8 +141,9 @@ function writeSessionTitle(
       && (source !== 'manual' || (row.config.agentDisplayName === title && !row.config.identityNameManaged))) return null;
 
     // Legacy null configs become a valid v1 config so the explicit name source survives restart.
+    const config: SessionConfig = row.config ?? { version: '1', type: row.runtime };
     tx.update(sessions)
-      .set({ title, config: { ...(row.config ?? { version: '1' as const, type: row.runtime }), titleSource: source,
+      .set({ title, config: { ...config, titleSource: source,
         ...(source === 'manual' ? { agentDisplayName: title, identityNameManaged: false } : {}) } })
       .where(eq(sessions.id, sessionId))
       .run();
