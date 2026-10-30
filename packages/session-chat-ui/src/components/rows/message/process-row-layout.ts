@@ -2,7 +2,7 @@ import type { MeasureCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { backgroundTasksLabel } from '../background-tasks/background-tasks-parts';
-import { readableLabel, rowTranslator } from '../readable-label';
+import { readableLabel, rowTranslator, wrappedRowHeight } from '../readable-label';
 
 type Process = NonNullable<ChatMessage['conversationProcess']>;
 
@@ -16,9 +16,13 @@ export function processButtonLayout(process: Process, ctx: MeasureCtx) {
   const knownTime = Number.isFinite(process.startedAt) && (process.live || Number.isFinite(process.endedAt));
   // A stable timer slot keeps ticks in the presentation lane. This is geometry only, never displayed time.
   const elapsed = !knownTime ? null : process.live ? '999h59m' : formatElapsed(Math.max(0, process.endedAt! - process.startedAt! - (process.idleMs ?? 0)));
-  const text = [process.live ? translate('transcript.thinkingLive') : null, processSummary(process, translate, elapsed)].filter(Boolean).join(' · ');
-  const label = readableLabel(text, ctx, ctx.width - 40, 12, 22, 400, true);
-  return { width: Math.min(ctx.width, label.width + 40), height: label.height };
+  const summary = processSummary(process, translate, elapsed);
+  const label = readableLabel(summary, ctx, Number.MAX_SAFE_INTEGER, 12, 22, 400, true);
+  if (!process.live) return { width: Math.min(ctx.width, label.width + 40), height: 22 };
+  const available = Math.max(1, ctx.width - 40);
+  const prefix = readableLabel(`${translate('transcript.thinkingLive')}${summary ? ' · ' : ''}`, ctx, available, 12, 22);
+  return { width: Math.min(ctx.width, prefix.width + label.width + 40),
+    height: wrappedRowHeight([{ width: Math.min(available, prefix.width), height: prefix.height }, ...(summary ? [{ width: label.width, height: 22 }] : [])], available, 0) };
 }
 
 export function backgroundPillLayout(ownerId: string, ctx: MeasureCtx) {

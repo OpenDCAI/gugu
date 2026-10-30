@@ -4,6 +4,8 @@ import { withSentReplies } from './sent-replies';
 import { flattenTier } from './flatten';
 import { unit, type ItemSegmenter, type SegmentCtx } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
+import { conversationMessages } from './conversation-messages';
+import { messageReplyReference } from './conversation-density';
 type McpToolCall = Extract<TranscriptTurn['items'][number], { kind: 'mcp-tool-call' }>;
 
 const id = '6417511d-8f36-4cbc-8cbb-81ce9f97df73';
@@ -18,7 +20,8 @@ function turn(tool = send()): TranscriptTurn {
     { kind: 'message', id: 'input', seq: 0, role: 'user', text: '<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:source" chat="group" chat_kind="group"><![CDATA[你好]]></gugu_delivery>' }, tool,
   ] };
 }
-const words = (record: TranscriptTurn) => record.items.filter(item => item.kind === 'message' && item.role === 'assistant');
+type Message = Extract<TranscriptTurn['items'][number], { kind: 'message' }>;
+const words = (record: TranscriptTurn) => record.items.filter((item): item is Message => item.kind === 'message' && item.role === 'assistant');
 
 describe('session replies sent to IM', () => {
   it('exposes a successful send as ordinary reply text without changing the saved transcript', () => {
@@ -132,13 +135,16 @@ it('projects text, a confirmed file card and text at their actual call positions
   expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
 });
 
-it('ends an injected DM with its confirmed MCP reply instead of a second task summary', () => {
+it('keeps direct output after an injected DM reply, without adding a source arrow', () => {
   const record = turn();
   const input = record.items[0];
   if (input.kind !== 'message') throw new Error('fixture');
   input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
-  record.items.push({ kind: 'message', id: 'task-summary', seq: 3, role: 'assistant', text: 'I have completed the task: 你好，我在。' });
-  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['你好，我在。']);
+  record.items.push({ kind: 'message', id: 'task-summary', seq: 3, role: 'assistant', text: 'T1062-ADJ-OK 已回复。' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.text)).toEqual(['你好，我在。', 'T1062-ADJ-OK 已回复。']);
+  const direct = conversationMessages([record])[0]!.items.find(item => item.id === 'task-summary');
+  expect(direct).toMatchObject({ text: 'T1062-ADJ-OK 已回复。' });
+  expect(direct?.kind === 'message' && messageReplyReference(direct)).toBeNull();
   expect(record.items.at(-1)?.id).toBe('task-summary');
 });
 
@@ -153,13 +159,30 @@ it('keeps a normal task response and the explanation of an unsuccessful DM reply
   expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['The send failed.']);
 });
 
-it('also completes an injected DM when the confirmed reply is a file', () => {
+it('keeps one file projection and direct commentary after an injected DM attachment send', () => {
   const file = { ...send({ chat_id: 'group', file_name: 'reply.txt' }), tool: 'message_send_file',
+    rawInput: JSON.stringify({ chat_id: 'group', file_name: 'reply.txt', file_path: '/fixture/reply.txt' }),
     outputText: JSON.stringify({ status: 'sent', message_id: id, file_name: 'reply.txt' }) };
   const record = turn(file);
   const input = record.items[0];
   if (input.kind !== 'message') throw new Error('fixture');
   input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
   record.items.push({ kind: 'message', id: 'summary', seq: 3, role: 'assistant', text: 'I sent the file.' });
-  expect(words(withSentReplies(record, { allDestinations: true }))).toMatchObject([{ text: 'reply.txt' }]);
+  const projected = withSentReplies(record, { allDestinations: true });
+  expect(words(projected)).toMatchObject([{ text: 'reply.txt', sentAttachment: { messageId: id } }, { text: 'I sent the file.' }]);
+  expect(words(projected)[0]).toMatchObject({ sentTo: { kind: 'chat', conversationId: null, chatId: 'group', threadRootId: null, whisper: false, peer: 'Owner' } });
+  expect(projected.items.filter(item => item.kind === 'message' && 'sentAttachment' in item && item.sentAttachment)).toHaveLength(1);
+  expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
+  expect(record.items.at(-1)?.id).toBe('summary');
+});
+
+it('keeps a distant DM reply and direct output in order', () => {
+  const record = turn(send({ reply_to_message_id: 'older', text: 'T1062-DISTANT-OK' }));
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'direct', seq: 3, role: 'assistant', text: 'T1062-DISTANT-OK 已发出。' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.text)).toEqual(['T1062-DISTANT-OK', 'T1062-DISTANT-OK 已发出。']);
+  const direct = conversationMessages([record])[0]!.items.find(item => item.id === 'direct');
+  expect(direct?.kind === 'message' && messageReplyReference(direct)).toBeNull();
 });

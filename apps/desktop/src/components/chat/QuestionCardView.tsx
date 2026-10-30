@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { QuestionCard } from '@gugu/core/shared/ui/taskCardModels'
 import type { Settlement } from '@gugu/session-core/session-record/contract'
@@ -25,7 +25,7 @@ export function QuestionCardView({ card, chatId, messageId, agentUserId, time }:
   chatId: string
   messageId: string
   agentUserId: string
-  time: string
+  time: ReactNode
 }) {
   const { t } = useTranslation('assistant')
   const { user } = useAuth()
@@ -34,22 +34,27 @@ export function QuestionCardView({ card, chatId, messageId, agentUserId, time }:
   const mine = user?.id === card.ownerUserId && Boolean(device)
   const settlement = useQuestionSettlement(card, mine ? device?.is_current_device === true : null)
   const openable = mine && device?.is_current_device === true && card.options.length === 0
-  const Root = openable ? 'button' : 'div'
+  const interactiveTime = typeof time !== 'string'
+  const Root = openable && !interactiveTime ? 'button' : 'div'
   return (
     <Root
       type={openable ? 'button' : undefined}
+      role={openable && interactiveTime ? 'button' : undefined}
+      tabIndex={openable && interactiveTime ? 0 : undefined}
+      onKeyDown={openable && interactiveTime ? event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openTaskCardSession(card) } } : undefined}
+      data-openable={openable || undefined}
       data-testid="composer-card"
       data-card-type="question"
       title={openable ? t('message.taskCard.open', { ns: 'messaging' }) : undefined}
       onClick={openable ? () => openTaskCardSession(card) : undefined}
-      className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left enabled:cursor-pointer enabled:hover:border-[var(--border-strong)]"
+      className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left data-[openable]:cursor-pointer data-[openable]:hover:border-[var(--border-strong)]"
     >
       <span className="flex h-6 items-center gap-2">
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-document)] border border-[var(--border)]">
           <AgentHarnessIcon agentId={agentUserId} size={13} />
         </span>
         <span className="text-[var(--font-body)] font-semibold">{t(composerCardCopy.question.head, { ns: 'messaging' })}</span>
-        <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
       </span>
       <span className="line-clamp-6 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{card.text}</span>
       {card.options.length > 0 && <QuestionCardOptions card={card} chatId={chatId} messageId={messageId} answerable={mine && settlement?.state === 'pending'} />}

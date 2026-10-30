@@ -52,7 +52,7 @@ export const CONVERSATION_QUOTE_H = 22;
  */
 export function hasConversationActions(item: ChatMessage): boolean {
   if (!hasConversationBody(item)) return false;
-  // 发出去的那几条也带:那一行最前面常驻「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
+  // 每条发送气泡保留悬停操作;去处由气泡底部显示。
   return !(item.role === 'assistant' && item.conversationPart === 'body' && !item.conversationTail && !item.sentTo);
 }
 
