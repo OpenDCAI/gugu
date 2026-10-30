@@ -272,7 +272,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     </Show>
     <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
+      onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage && commands().canQuoteMessage?.(props.data) !== false ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
     </>}>
