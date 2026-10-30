@@ -16,7 +16,6 @@ In `apps/desktop/`:
 - `vite.config.mts`(仓库根,唯一一份;主进程/preload/渲染层都在这一次构建里)
 - `vitest.config.ts`
 - `tsconfig.json`
-- `drizzle.config.ts`
 - `flake.nix`
 
 Per-project (user repos): `.gugu.json`

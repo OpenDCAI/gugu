@@ -8,9 +8,12 @@
 
 ## Rules
 
-- never hand-edit numbered migrations
-- never hand-edit `drizzle/meta/`
-- use `pnpm exec drizzle-kit generate` for new migrations
+- never edit a numbered migration once it has shipped
+- new migrations are hand-written SQL: add `drizzle/00NN_<name>.sql`, append its entry to
+  `drizzle/meta/_journal.json` (next `idx`, a larger `when`), and update `schema.ts` in the same change
+- the SQL plus the journal is the only schema history; there are no drizzle-kit snapshots and no
+  `drizzle-kit generate`. `tests/migrations/schema-history.test.ts` checks the journal and that
+  `schema.ts` matches the database the migrations produce
 - treat schema invariants and data migrations as high risk
 
 ## Current Behavior
@@ -76,10 +79,8 @@ installed under `apps/desktop/session-tooling/node-deps/` (compiled for system N
    ```
    Commit this snapshot. It is the starting state your migration test will run against.
 
-3. **Write the migration**: edit `apps/desktop/electron/session/main/db/schema.ts`, then generate the SQL:
-   ```bash
-   pnpm run db:generate
-   ```
+3. **Write the migration by hand**: add `drizzle/00NN_<name>.sql`, append its journal entry, and make the
+   same change in `apps/desktop/electron/session/main/db/schema.ts`.
 
 4. **Write a migration test** in `apps/desktop/electron/session/main/db/tests/migrations/` using `openFixture('pre-XXXX')`.
    See `example.test.ts` in that directory for the pattern.
@@ -94,7 +95,7 @@ installed under `apps/desktop/session-tooling/node-deps/` (compiled for system N
    pnpm run test:migrations
    ```
 
-7. **Commit everything together**: migration SQL (`drizzle/`), `drizzle/meta/`,
+7. **Commit everything together**: migration SQL (`drizzle/`), `drizzle/meta/_journal.json`, `schema.ts`,
    `pre-XXXX.db`, updated `tooling/fixtures/*.db`, the migration test.
 
 ## Versioned JSON columns

@@ -7,7 +7,8 @@
  *       cp tooling/fixtures/baseline.db tooling/fixtures/pre-XXXX.db
  *     Commit this snapshot file together with your migration.
  *
- *  2. Write your migration (`pnpm run db:generate` after editing schema.ts).
+ *  2. Write your migration by hand: the SQL file, its `_journal.json` entry and
+ *     the matching schema.ts change (see schema-history.test.ts).
  *
  *  3. Write a test here using `openFixture('pre-XXXX')`. The fixture already
  *     has data up to the previous migration; openFixture() will apply your new
