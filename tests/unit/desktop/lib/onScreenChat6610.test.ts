@@ -74,6 +74,26 @@ describe('#6610 chat on screen', () => {
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
     expect(chatOnScreen()).toBeNull()
   })
+
+  it('waits for a new host answer and ignores a delayed answer from the previous subscription', async () => {
+    await harness.render(createNode(Shell, { shown: 'chat-1' }))
+    const previousAnswer = host.listener
+    expect(chatOnScreen()).toBe('chat-1')
+    await harness.render(null)
+    host.subscribeAppActive = (listener) => {
+      host.listener = listener // the real host's initial answer is asynchronous
+      return () => { host.listener = null }
+    }
+    await harness.render(createNode(Shell, { shown: 'chat-2' }))
+    expect(chatOnScreen()).toBeNull()
+    expect(seen.at(-1)).toBeNull()
+    await act(async () => { previousAnswer?.(true) })
+    expect(chatOnScreen()).toBeNull()
+    await act(async () => { host.listener?.(false) })
+    expect(chatOnScreen()).toBeNull()
+    await act(async () => { host.listener?.(true) })
+    expect(chatOnScreen()).toBe('chat-2')
+  })
 })
 
 describe('#7199 more than one place can show a chat', () => {

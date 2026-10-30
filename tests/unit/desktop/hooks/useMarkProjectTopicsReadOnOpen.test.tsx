@@ -139,6 +139,22 @@ describe('project-slot lifecycle', () => {
     expect(write).toHaveBeenCalledTimes(1)
   })
 
+  it('waits for the asynchronous initial host answer before treating a cold project slot as foreground', async () => {
+    host.subscribeAppActive = (listener) => {
+      host.listener = listener // preload invokes app:is-active asynchronously
+      return () => { host.listener = null }
+    }
+    await render(CHATS)
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(document.visibilityState).toBe('visible')
+    expect(write).not.toHaveBeenCalled()
+    await act(async () => { host.listener?.(false) })
+    expect(write).not.toHaveBeenCalled()
+    await act(async () => { host.listener?.(true) })
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
   it('reads once per opening and keeps later messages until the slot is hidden and reopened', async () => {
     await render(CHATS)
     expect(refreshChats).not.toHaveBeenCalled()
