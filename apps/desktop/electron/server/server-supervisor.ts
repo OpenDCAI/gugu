@@ -130,8 +130,10 @@ export async function runSupervisor(): Promise<void> {
   let stopping = false
 
   const layout = managedLayout()
+  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
   const versions = createAccountVersionConverger({
     layout,
+    followSupervisor,
     log,
     running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
     // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
@@ -179,6 +181,8 @@ export async function runSupervisor(): Promise<void> {
   const reconcile = (): void => {
     if (stopping) return
     const signedIn = listAccounts().filter((account) => account.signedIn)
+    // 受控云电脑先纠正旧 pin 再冷启动,避免先起桌面报告留下的旧包。
+    if (followSupervisor) versions.converge(signedIn)
     const wanted = new Set(signedIn.map((account) => account.userId))
     for (const userId of wanted) {
       if (children.has(userId)) continue
@@ -192,7 +196,7 @@ export async function runSupervisor(): Promise<void> {
       child.process.kill('SIGTERM')
     }
     // #6264 各账号对一对版本:只读每个账号目录里的两个小文件,要换的只重启那一个账号。
-    versions.converge(signedIn)
+    if (!followSupervisor) versions.converge(signedIn)
   }
 
   const stopAll = async (): Promise<void> => {

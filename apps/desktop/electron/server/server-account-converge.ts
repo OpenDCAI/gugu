@@ -64,6 +64,8 @@ export type AccountVersionConverger = {
 
 export function createAccountVersionConverger(options: {
   layout: Layout | null
+  /** 受控云电脑跟随控制器启动的守护包;普通 SSH 仍按桌面报告选包。 */
+  followSupervisor?: boolean
   log: SupervisorLog
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
@@ -80,6 +82,7 @@ export function createAccountVersionConverger(options: {
   exists?: (file: string) => boolean
 }): AccountVersionConverger {
   const { layout, log } = options
+  const followSupervisor = options.followSupervisor === true
   const now = options.now ?? Date.now
   const exists = options.exists ?? ((file: string) => fs.existsSync(file))
   const busy = options.busy ?? ((dataDir: string) => accountIsBusy(dataDir))
@@ -197,7 +200,7 @@ export function createAccountVersionConverger(options: {
     fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
     switches.set(account.userId, { version, previous: from, at: now(), quickExits: 0 })
     pending.set(account.userId, version)
-    log.info('这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
+    log.info(followSupervisor ? '这个账号跟随守护进程的包' : '这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
     if (options.running(account.userId) !== undefined) options.restart(account.userId)
     try {
       const removed = pruneVersions(layout.versions, [...inUse(), version])
@@ -213,8 +216,8 @@ export function createAccountVersionConverger(options: {
     converge(accounts) {
       if (!layout) return
       for (const account of accounts) {
-        const reports = readDesktopReports(account.dataDir)
-        if (Object.keys(reports).length === 0) continue
+        const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
+        if (!followSupervisor && Object.keys(reports).length === 0) continue
         const current = options.running(account.userId)
         const waiting = pending.get(account.userId)
         if (waiting && current !== undefined && current !== waiting) continue
@@ -227,11 +230,11 @@ export function createAccountVersionConverger(options: {
           reports,
           now: now(),
           running: effective,
-          switchRequested: request !== null,
-          switchConfirmed: request?.confirmed === true,
+          switchRequested: !followSupervisor && request !== null,
+          switchConfirmed: !followSupervisor && request?.confirmed === true,
           installed,
           busy: current !== undefined && busy(account.dataDir),
-          failed: (version) => failed(version, request),
+          failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
           fallback: layout.version,
           unpublished,
         })

@@ -256,16 +256,17 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       out(`运行状态:${running ? `在运行(进程 ${running.pid}${running.version ? `,版本 ${running.version}` : ''})` : '没在运行'}`)
       out(`常驻服务:${describeService()}`)
       const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
+      const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
       const all = listAccounts()
+      const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
       const pidOf = (userId: string) => {
-        const account = all.find((a) => a.userId === userId)
-        return account ? lockHolder(account.dataDir) : null
+        return runtimes.get(userId)?.pid ?? null
       }
-      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null)
+      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
-        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, accounts }))
+        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts }))
       }
       return process.exit(0)
     }

@@ -153,7 +153,8 @@ export function readProbe(home: string, marker: UpgradeMarker, watchingSince: nu
   for (const name of names) {
     const data = path.join(accountsDir, name, 'data')
     if (!fs.existsSync(path.join(data, 'server-session.enc'))) continue
-    if (pinnedVersionToRun(readAccountVersionPin(data), marker.to, (v) => fs.existsSync(versionBinary(path.join(home, 'versions'), v)))) continue
+    // 受控云电脑的旧 pin 不是例外:账号也必须真的在新包上,不能只看守护进程。
+    if (process.env.GUGU_CLOUD_COMPUTER !== '1' && pinnedVersionToRun(readAccountVersionPin(data), marker.to, (v) => fs.existsSync(versionBinary(path.join(home, 'versions'), v)))) continue
     accounts.push(parseHeartbeat(readJson(path.join(data, 'activity.json'))))
   }
   return {
