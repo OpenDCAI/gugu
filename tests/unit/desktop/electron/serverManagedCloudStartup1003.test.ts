@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
 import { checkAccountBoot } from '../../../../apps/desktop/electron/server/server-selftest'
 import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { runMatchVersion } from '../../../../apps/desktop/electron/server/match-version-cli'
 import { runSupervisor } from '../../../../apps/desktop/electron/server/server-supervisor'
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }))
@@ -108,6 +109,24 @@ describe('supervisor cold-start package selection', () => {
     await vi.advanceTimersByTimeAsync(3_000)
     expect(mocks.spawn).not.toHaveBeenCalled()
     expect(JSON.parse(fs.readFileSync(path.join(data, 'server-update.json'), 'utf8'))).toMatchObject({ state: 'failed', version: B })
+  })
+  it.each([false, true])('reports rejected boot without claiming an unchanged account rolled back (previous pin=%s)', async keepPin => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    const data = path.join(home, 'accounts', U, 'data')
+    if (!keepPin) fs.rmSync(path.join(data, 'server-version.json'))
+    const originalPin = readAccountVersionPin(data)
+    vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
+    const error = vi.fn()
+    const rc = await runMatchVersion(['--account', U, '--apply', B, '--now'], vi.fn(), error, {
+      home, runningVersion: () => mocks.spawn.mock.calls.length ? A : null, supervisorRunning: () => true,
+      now: () => Date.now(), sleep: async () => { vi.setSystemTime(Date.now() + 1); await runSupervisor() },
+    })
+    expect(rc).toBe(6)
+    expect(readBadVersions(home)[B]).toBe(Date.now())
+    expect(readAccountVersionPin(data)).toEqual(originalPin)
+    expect(mocks.spawn).toHaveBeenCalledTimes(keepPin ? 1 : 0)
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining('启动失败'))
+    expect(error).not.toHaveBeenLastCalledWith(expect.stringContaining('已回滚'))
   })
   it('does not reclassify quick-exit backoff or rollback as initial managed package selection', async () => {
     vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')

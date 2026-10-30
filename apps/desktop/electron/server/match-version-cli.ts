@@ -129,9 +129,14 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         return null
       }
     })()
-    // A recorded rollback is more specific than the matching package's generic failed state.
+    const pin = readAccountVersionPin(account.dataDir)
+    // Bad marks also record rejected first boots. A rollback additionally changes/removes the account pin.
     if ((readBadVersions(deps.home)[parsed.version] ?? -Infinity) >= requestedAt) {
-      err(`换版请求 ${parsed.version} 启动失败，已回滚到 ${readAccountVersionPin(account.dataDir)?.version ?? '守护进程版本'}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      const rolledBack = pin
+        ? pin.version !== parsed.version && pin.previous === null && pin.at >= requestedAt
+          && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)
+        : originalPin !== null
+      err(`换版请求 ${parsed.version} 启动失败${rolledBack ? `，已回滚到 ${pin?.version ?? '守护进程版本'}` : ''}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
       return 6
     }
     // 装好了、守护进程在等这个账号空闲(有 agent 在跑):当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
@@ -150,7 +155,6 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
       return 6
     }
     const replacement = readVersionSwitchRequest(account.dataDir, now())
-    const pin = readAccountVersionPin(account.dataDir)
     // Consumption removes the request file, so a changed pin also reports a superseded/rolled-back
     // target. An older, different pin is normal while the requested package is still being staged.
     if (replacement?.target && replacement.target !== parsed.version && replacement.at >= requestedAt) {
