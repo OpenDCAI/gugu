@@ -156,4 +156,19 @@ describe('real registered projection handlers and source authority', () => {
       }
     } finally { await s.finish(); }
   });
+
+  it('dispose returns an in-flight driver cleanup failure after closing media and releasing proof', async () => {
+    const s = await setup(), failure = new Error('Fixture driver disconnect failed');
+    try {
+      const opened = await s.open(); await s.signal({ type: 'answer', id: opened.id, sdp: { type: 'answer', sdp: 'fixture' } });
+      s.disconnect.mockRejectedValueOnce(failure);
+      const stopping = s.host.dispose(); expect(s.host.dispose()).toBe(stopping);
+      await expect(stopping).rejects.toBe(failure);
+      await expect(s.host.dispose()).rejects.toBe(failure);
+      expect(s.closed).toHaveBeenCalledTimes(1); expect(s.reports).toHaveBeenCalledWith(failure);
+      await expect(s.call('hello', {})).rejects.toThrow(/authentication/);
+    } finally {
+      await s.host.dispose().catch(() => {}); s.identity.dispose(); await s.source.close().catch(() => {});
+    }
+  });
 });

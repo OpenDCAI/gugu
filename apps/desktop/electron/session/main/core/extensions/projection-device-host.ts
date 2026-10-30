@@ -42,6 +42,7 @@ export function createProjectionDeviceHost(options: ProjectionDeviceHostOptions)
   const reported = new Set<unknown>();
   const feeds = new WeakMap<ProjectionSignalLease, ReturnType<typeof projectionVideoFeed>>();
   let disposed = false;
+  let stopping: Promise<void> | undefined;
   const report = (error: unknown) => {
     if (reported.has(error)) return;
     reported.add(error); if (reported.size > 256) reported.delete(reported.values().next().value);
@@ -141,13 +142,21 @@ export function createProjectionDeviceHost(options: ProjectionDeviceHostOptions)
       exact(payload, ['proof']); proofs.revoke(ctx.asker, payload.proof);
     }),
   };
-  return { handlers, async dispose() {
+  return { handlers, dispose() {
+    if (stopping) return stopping;
+    const completion = Promise.withResolvers<void>(); stopping = completion.promise;
+    // Revoking proofs synchronously removes pages, so retain their work first.
+    const ownedPages = [...pages.values()], pending = new Set(closing);
     disposed = true; proofs.dispose();
-    const results = await Promise.allSettled([...pages.values()].map(close));
-    await Promise.allSettled([...closing]); pages.clear();
-    for (const entry of cancelled.values()) entry.off(); cancelled.clear();
-    const all = [...results, ...(await Promise.allSettled([signals.dispose()]))];
-    const failure = all.find(result => result.status === 'rejected');
-    if (failure?.status === 'rejected') throw failure.reason;
+    for (const page of ownedPages) pending.add(close(page));
+    for (const work of closing) pending.add(work);
+    pending.add(signals.dispose());
+    void Promise.allSettled(pending).then(results => {
+      pages.clear();
+      for (const entry of cancelled.values()) entry.off(); cancelled.clear();
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    }).then(completion.resolve, completion.reject);
+    return stopping;
   } };
 }

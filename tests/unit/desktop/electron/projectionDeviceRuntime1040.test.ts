@@ -47,4 +47,17 @@ describe('actual outer projection runtime ownership', () => {
       signal: new AbortController().signal, assertCurrent() {}, release });
     expect((await opening).message).toMatch(/stopped/); expect(release).toHaveBeenCalledTimes(1); expect(openPipe).not.toHaveBeenCalled();
   });
+  it('keeps an already-draining failure while another owned resource is still closing', async () => {
+    const f = fixture(), failure = new Error('Earlier owned cleanup failed'), gate = Promise.withResolvers<void>();
+    const fast = f.runtime.track({ dispose: async () => { throw failure; } });
+    const failed = fast.dispose().then(() => undefined, error => error);
+    f.runtime.track({ dispose: async () => { await gate.promise; } });
+    const completion = f.runtime.dispose(); expect(f.runtime.dispose()).toBe(completion);
+    const stopping = completion.then(() => undefined, error => error);
+    try {
+      expect(await failed).toBe(failure); gate.resolve();
+      expect(await stopping).toBe(failure); expect(f.report).toHaveBeenCalledWith(failure);
+      await expect(f.runtime.dispose()).rejects.toBe(failure);
+    } finally { gate.resolve(); await stopping; await f.runtime.dispose().catch(() => {}); }
+  });
 });

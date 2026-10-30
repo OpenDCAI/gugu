@@ -18,6 +18,7 @@ export function createProjectionDeviceRuntime(input: Parameters<typeof createPro
     catch { process.stderr.write(`Projection device cleanup failed: ${String(error).slice(0, 1000)}\n`); }
   };
   let stopped = false;
+  let stopping: Promise<void> | undefined;
   let openingViewers = 0;
   const track = <T extends { dispose(): Promise<void> | void }>(host: T): T => {
     if (stopped) throw new Error('Projection device runtime stopped');
@@ -62,12 +63,19 @@ export function createProjectionDeviceRuntime(input: Parameters<typeof createPro
         return Object.freeze({ ...client, close: owned.dispose });
       } finally { openingViewers--; }
     },
-    async dispose() {
+    dispose() {
+      if (stopping) return stopping;
+      const completion = Promise.withResolvers<void>(); stopping = completion.promise;
+      // Snapshot before revocation or an await can remove completed cleanup from the set.
+      const pending = new Set(draining);
       stopped = true; identity.dispose();
-      const results = await Promise.allSettled([...active].map(close => close()));
-      const rest = await Promise.allSettled([...draining]);
-      const failure = [...results, ...rest].find(result => result.status === 'rejected');
-      if (failure?.status === 'rejected') throw failure.reason;
+      for (const close of active) pending.add(close());
+      for (const work of draining) pending.add(work);
+      void Promise.allSettled(pending).then(results => {
+        const failure = results.find(result => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+      }).then(completion.resolve, completion.reject);
+      return stopping;
     },
   };
 }
