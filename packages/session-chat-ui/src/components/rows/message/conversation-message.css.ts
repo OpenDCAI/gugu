@@ -8,12 +8,12 @@ import { CONVERSATION_FOOTER_H } from './conversation-body';
 
 export const conversationRoot = style({ position: 'relative', color: vars.fgBody });
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
-export const conversationName = style({ fontWeight: 650, whiteSpace: 'pre-wrap', maxWidth: '100%', flexShrink: 0 });
+export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', flexShrink: 0 });
 export const senderNameLink = style({ border: 0, padding: 0, background: 'transparent', color: 'inherit', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', textAlign: 'inherit', cursor: 'pointer', selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { textDecoration: 'underline', outlineOffset: 2 } } });
 const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } });
 globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
-export const conversationReference = style({ position: 'relative', display: 'inline-flex', width: 14, height: 18, flexShrink: 0, color: vars.fgMuted });
-export const conversationQuote = style({ display: 'inline-flex', alignItems: 'center', width: 14, height: 18, flexShrink: 0, color: 'inherit', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
+export const conversationReference = style({ position: 'relative', display: 'inline-flex', width: 18, height: 18, flexShrink: 0, color: vars.fgMuted });
+export const conversationQuote = style({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, flexShrink: 0, color: 'inherit', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
 export const conversationQuotePreview = style({ position: 'absolute', top: '100%', left: 0, zIndex: 10, width: 320, maxWidth: 'calc(100vw - 16px)', maxHeight: 224, overflow: 'auto', padding: 8, borderRadius: 8, border: `1px solid ${vars.border}`, background: vars.bg, color: vars.fg, fontSize: vars.typeChromeTinyFontSize, whiteSpace: 'pre-wrap' });
 export const conversationReferenceSeparator = style({ width: 4, flexShrink: 0, color: vars.fgMuted, textAlign: 'center' });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });

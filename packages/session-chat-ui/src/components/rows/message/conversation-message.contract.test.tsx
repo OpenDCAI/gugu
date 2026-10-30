@@ -441,7 +441,7 @@ describe('conversation density', () => {
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       expect(view.host.querySelector('span[title="Codex 11"]')).toBeNull();
       const quote = view.host.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
-      expect(quote.getBoundingClientRect().width).toBe(14);
+      expect(quote.getBoundingClientRect().width).toBe(18);
     } finally { view.dispose(); }
   });
   it('opens a message preview only on arrow hover, without moving its click target', async () => {
@@ -699,4 +699,18 @@ it('mounts one host source control and cleans it when the reference moves from n
     expect(view.host.querySelector('[data-user-message-actions] [data-slot="conversation-reference"]')).not.toBeNull();
   } finally { view.dispose(); }
   expect(cleanup).toHaveBeenCalledTimes(2);
+});
+it.each([188, 220, 320])('keeps a completed duration and step count on one line before truncating the sender at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'compact-process', role: 'assistant', text: '', conversationPart: 'head',
+    conversationProcess: { id: 'compact-process:work', startedAt: 0, endedAt: 6000, steps: 1 },
+    sentReplyTo: 'source', conversationReply: { itemId: 'source', text: 'Original' } }, width, { conversationAgentName: () => 'Claude 1 with a deliberately long sender name' });
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, header = row.firstElementChild as HTMLElement;
+    const process = header.querySelector<HTMLElement>('[data-conversation-process]')!;
+    expect(process.getBoundingClientRect().height, 'time and steps are an atomic line').toBe(22);
+    expect(header.getBoundingClientRect().height).toBe(28);
+    expect(process.textContent).toContain('6s · 1 step');
+    expect(process.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+    assertVisiblePrefix(header.querySelector<HTMLElement>('[title]')!, header);
+  } finally { view.dispose(); }
 });
