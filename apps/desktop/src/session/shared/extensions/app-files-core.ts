@@ -38,7 +38,7 @@ import { fileOpenersFor } from './file-openers';
 import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
 import type { AppIdentity as OwnerIdentity } from './app-identity';
-import { readUserSettingsConfig, writeUserSettingsConfig, type SettingsTableClient } from '@gugu/core/cloud/userSettings';
+import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
 
 /**
  * `gugu.files` as the host answers it: which file a page means, whether it may have it, and the
@@ -897,16 +897,20 @@ export function createAppFiles(platform: FilesPlatform) {
     async viewPreferences(chatId: string, showAppData?: boolean): Promise<{ showAppData: boolean }> {
       const { token, userId } = await platform.account();
       const source = await resourceChatIdOf(token, chatId, userId);
-      const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } }) as unknown as SettingsTableClient;
+      const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } }) as unknown as VersionedSettingsTableClient;
       const scope = `chat:${source}` as const;
+      if (showAppData !== undefined) {
+        if (typeof showAppData !== 'boolean') throw new AppFileError('invalid', 'showAppData must be a boolean');
+        await updateUserSettingsConfig(client, userId, scope, (latest) => ({ ...latest, workspace: {
+          ...(latest.workspace && typeof latest.workspace === 'object' && !Array.isArray(latest.workspace) ? latest.workspace : {}),
+          show_app_data: showAppData,
+        } }));
+        return { showAppData };
+      }
       const config = await readUserSettingsConfig(client, userId, scope);
       const workspace = config.workspace && typeof config.workspace === 'object' && !Array.isArray(config.workspace)
         ? config.workspace as Record<string, unknown> : {};
-      if (showAppData !== undefined) {
-        if (typeof showAppData !== 'boolean') throw new AppFileError('invalid', 'showAppData must be a boolean');
-        await writeUserSettingsConfig(client, userId, scope, { ...config, workspace: { ...workspace, show_app_data: showAppData } });
-      }
-      return { showAppData: showAppData ?? workspace.show_app_data === true };
+      return { showAppData: workspace.show_app_data === true };
     },
 
     /**

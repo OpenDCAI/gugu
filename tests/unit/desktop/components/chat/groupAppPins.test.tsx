@@ -10,24 +10,14 @@ const io = vi.hoisted(() => ({
   readWait: null as Promise<void> | null,
   writeWait: null as Promise<void> | null,
   writing: false,
+  reads: 0,
   listeners: [] as { userId: string; event: string; receive: (payload: unknown) => void; options?: { onSubscribed?: () => void } }[],
   stop: vi.fn(),
 }))
-vi.mock('@/lib/supabase', async (original) => ({ ...await original<typeof import('@/lib/supabase')>(), identityDb: { from: () => ({
-  select: () => ({ eq: (_: string, userId: string) => ({ eq: (_: string, scope: string) => ({ maybeSingle: async () => {
-    const data = io.rows.get(`${userId}/${scope}`) ?? null
-    const wait = io.readWait; io.readWait = null
-    if (wait) await wait
-    return { data, error: null }
-  } }) }) }),
-  upsert: (row: Record<string, unknown>) => ({ select: () => ({ single: async () => {
-    if (io.failWrite) return { data: null, error: { message: 'write refused' } }
-    io.writing = true
-    if (io.writeWait) await io.writeWait
-    io.rows.set(`${row.user_id}/${row.scope}`, structuredClone(row))
-    return { data: row, error: null }
-  } }) }),
-}) } }))
+vi.mock('@/lib/supabase', async (original) => {
+  const { versionedSettingsClient } = await import('../../../../support/versionedSettingsTestDouble')
+  return { ...await original<typeof import('@/lib/supabase')>(), identityDb: versionedSettingsClient(io) }
+})
 vi.mock('@/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (userId: string, event: string, receive: (payload: unknown) => void, options?: { onSubscribed?: () => void }) => {
     io.listeners.push({ userId, event, receive, options })
@@ -43,6 +33,7 @@ vi.mock('@/platform', async (original) => {
 const { readChatAppPins, setChatAppPin, watchChatAppPins } = await import('@/lib/chatAppPins')
 const { queryClient } = await import('@/session/renderer/lib/query-client')
 const { ChatHeaderActions } = await import('@/components/chat/ChatHeaderActions')
+const { useChatPinSettings } = await import('@/components/chat/useChatPinSettings')
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('@/session/shared/extensions/manifest')
 const { UI_EVENTS } = await import('@/lib/uiEvents')
@@ -52,7 +43,7 @@ function row(userId: string, chatId: string, ids: string[]) {
   io.rows.set(`${userId}/chat:${chatId}`, { scope: `chat:${chatId}`, config: { pinnedAppIds: ids }, updated_at: '2026-10-24T00:00:00Z' })
 }
 beforeEach(() => {
-  io.rows.clear(); io.listeners.length = 0; io.failWrite = false; io.readWait = null; io.writeWait = null; io.writing = false; io.stop.mockClear()
+  io.rows.clear(); io.listeners.length = 0; io.failWrite = false; io.readWait = null; io.writeWait = null; io.writing = false; io.reads = 0; io.stop.mockClear()
   queryClient.clear()
   harness = createReactHarness()
   runInAction(() => {
@@ -85,6 +76,34 @@ async function picker() {
 }
 
 describe('personal group App shortcuts', () => {
+  it('shares one row read and watcher across pin consumers, retaining it until the last consumer leaves', async () => {
+    function Consumer() {
+      const pins = useChatPinSettings('g1')
+      return createNode('output', {}, pins.ready ? pins.appIds.join(',') : 'waiting')
+    }
+    const renderConsumers = (count: number) => renderWithAppProviders(harness,
+      createNode('div', {}, ...Array.from({ length: count }, (_, key) => createNode(Consumer, { key }))),
+      { auth: { id: 'user-1' } })
+    row('user-1', 'g1', ['board'])
+    await renderConsumers(3)
+    await vi.waitFor(() => expect([...document.querySelectorAll('output')].map((node) => node.textContent)).toEqual(['board', 'board', 'board']))
+    expect(io.reads).toBe(1)
+    expect(io.listeners).toHaveLength(1)
+    row('user-1', 'g1', ['calendar'])
+    await act(async () => { io.listeners[0]!.receive({ setting: { user_id: 'user-1', scope: 'chat:g1' } }) })
+    await vi.waitFor(() => expect([...document.querySelectorAll('output')].map((node) => node.textContent)).toEqual(['calendar', 'calendar', 'calendar']))
+    expect(io.reads).toBe(2)
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    try {
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+      await vi.waitFor(() => expect(io.reads).toBe(3))
+    } finally { visibility.mockRestore() }
+    await renderConsumers(1)
+    expect(io.stop).not.toHaveBeenCalled()
+    await renderConsumers(0)
+    expect(io.stop).toHaveBeenCalledTimes(1)
+  })
+
   it('closes the desktop App picker when its selected header button is clicked again', async () => {
     await header('g1', 'user-1', false)
     const button = document.querySelector<HTMLButtonElement>('button[aria-label="群 Apps"]')!
@@ -138,7 +157,7 @@ describe('personal group App shortcuts', () => {
   })
 
   it('persists each user and group separately and retains unrelated preferences', async () => {
-    io.rows.set('u1/chat:g1', { scope: 'chat:g1', config: { other: true }, updated_at: 'now' })
+    io.rows.set('u1/chat:g1', { scope: 'chat:g1', config: { other: true }, updated_at: '2026-10-29T00:00:00.000Z' })
     expect(await readChatAppPins('u1', 'g1')).toEqual([])
     await setChatAppPin('u1', 'g1', 'board', true)
     await setChatAppPin('u1', 'g1', 'calendar', true)
@@ -152,7 +171,7 @@ describe('personal group App shortcuts', () => {
   })
 
   it('reports corrupt preferences and rejected writes instead of treating them as saved', async () => {
-    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedAppIds: 'board' }, updated_at: 'now' })
+    io.rows.set('u/chat:g', { scope: 'chat:g', config: { pinnedAppIds: 'board' }, updated_at: '2026-10-29T00:00:00.000Z' })
     await expect(readChatAppPins('u', 'g')).rejects.toThrow('Invalid pinned')
     row('u', 'g', ['board']); io.failWrite = true
     await expect(setChatAppPin('u', 'g', 'calendar', true)).rejects.toThrow('write refused')
@@ -236,10 +255,10 @@ describe('personal group App shortcuts', () => {
       await clickElement(pin())
       await vi.waitFor(() => expect(io.writing).toBe(true))
       await header('g2')
-      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g2'])).toEqual(['calendar']))
+      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g2'])).toEqual({ appIds: ['calendar'], topicIds: [] }))
       await act(async () => { release(); await io.writeWait })
-      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g1'])).toEqual(['board']))
-      expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g2'])).toEqual(['calendar'])
+      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g1'])).toEqual({ appIds: ['board'], topicIds: [] }))
+      expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g2'])).toEqual({ appIds: ['calendar'], topicIds: [] })
     } finally { release() }
   })
 })

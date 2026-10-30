@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive } from './process-alive'
+import { readAccountRuntime } from './server-account-runtime'
 import { recordLoginShell, startKeeper } from './server-keeper'
 import { accountIsBusy, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
@@ -270,6 +271,8 @@ function registerLaunchd(out: Out, executable: string, home: string): void {
 export type RunningServer = {
   pid: number
   version: string | null
+  /** 控制器启动的受控云电脑,从活进程环境读取。 */
+  managedCloud?: boolean
   /** 谁在管它;unknown = 读不到(macOS 读不了别的进程的环境)。 */
   supervisedBy: 'systemd' | 'launchd' | 'none' | 'unknown'
 }
@@ -289,6 +292,7 @@ export function describeProcess(pid: number, environ: string | null, cmdline: st
   const supervised = env.get('GUGU_SERVER_SUPERVISED')
   return {
     pid,
+    ...(env.get('GUGU_CLOUD_COMPUTER') === '1' ? { managedCloud: true } : {}),
     version: env.get('GUGU_TASK_HOST_VERSION') || fromPath,
     supervisedBy:
       environ === null
@@ -342,6 +346,8 @@ export type InstallServiceDeps = {
   /** 这次要跑起来的版本(= 执行这条命令的这一份);开发构建为 null,不比版本。 */
   targetVersion: string | null
   running: () => RunningServer | null
+  /** 受控云电脑:已登录账号的实际进程是否都在目标包上。 */
+  accountsMatchPackage?: (version: string) => boolean
   isAlive: (pid: number) => boolean
   /** 这台机器上有没有 agent 正在干活(跑一轮或等人批准)。 */
   isBusy: () => boolean
@@ -375,71 +381,73 @@ export async function installServiceWith(out: Out, deps: InstallServiceDeps): Pr
   const { mode, targetVersion } = deps
   const before = deps.running()
   const label = (version: string | null) => (version ? `咕咕 server ${version}` : '咕咕 server')
-  if (
-    before &&
-    targetVersion &&
-    before.version === targetVersion &&
-    (before.supervisedBy === 'unknown' || before.supervisedBy === expectedSupervisor(mode))
-  ) {
+  const accountsReady = (running: RunningServer): boolean => !running.managedCloud || !targetVersion || deps.accountsMatchPackage?.(targetVersion) === true
+  const alreadyRunning = !!(before && targetVersion && before.version === targetVersion &&
+    (before.supervisedBy === 'unknown' || before.supervisedBy === expectedSupervisor(mode)))
+  if (before && alreadyRunning && accountsReady(before)) {
     out(`${label(targetVersion)} 已在运行(进程 ${before.pid})。`)
     return true
   }
-  if (before) {
-    out(`正在把 ${label(before.version)}(进程 ${before.pid})换成 ${targetVersion ?? '这一版'}。`)
-    if (deps.isBusy()) {
-      out('⚠ 有 agent 正在运行,这一轮会被中断。')
-    }
-  }
-
-  if (before && targetVersion && before.version && before.version !== targetVersion && mode !== 'systemdUnreachable') {
-    deps.beforeReplace?.(before)
-  }
-  switch (mode) {
-    case 'systemd':
-      deps.registerSystemd(out)
-      break
-    case 'launchd':
-      deps.registerLaunchd(out)
-      break
-    case 'fallback': {
-      const cronOk = deps.registerCron()
-      deps.startDetached(before?.pid)
-      if (before) deps.stop(before.pid)
-      out('没有 systemd 用户会话,改用后台进程常驻。')
-      if (cronOk) out('已加入 crontab @reboot,重启后自动启动。')
-      else out('⚠ 没有可用的 crontab,重启后需再执行:gugu-server service install')
-      break
-    }
-    case 'systemdUnreachable': {
-      if (!before) {
-        out('⚠ 当前 shell 连不上 systemd 用户会话(su、docker exec 时常见)。任选其一:')
-        out(`  · 以 ${deps.user} 直接 SSH 登录后执行:gugu-server service install`)
-        out(`  · 请管理员执行 sudo loginctl enable-linger ${deps.user},再重新安装`)
-        return false
+  if (!alreadyRunning) {
+    if (before) {
+      out(`正在把 ${label(before.version)}(进程 ${before.pid})换成 ${targetVersion ?? '这一版'}。`)
+      if (deps.isBusy()) {
+        out('⚠ 有 agent 正在运行,这一轮会被中断。')
       }
-      out('当前 shell 连不上 systemd 用户会话,改由 systemd 以新版本重启。')
-      // 旧的那个不归 systemd 管(以前兜底起的):照兜底的办法自己接上。
-      if (before.supervisedBy === 'none') deps.startDetached(before.pid)
-      deps.stop(before.pid)
-      break
     }
-  }
-  // 管理器重启完旧进程还在 = 它不归这个管理器管(以前兜底起的、手动起的):停掉它,管理器那一份会接上。
-  if (before && (mode === 'systemd' || mode === 'launchd') && deps.isAlive(before.pid)) deps.stop(before.pid)
 
+    if (before && targetVersion && before.version && before.version !== targetVersion && mode !== 'systemdUnreachable') {
+      deps.beforeReplace?.(before)
+    }
+    switch (mode) {
+      case 'systemd':
+        deps.registerSystemd(out)
+        break
+      case 'launchd':
+        deps.registerLaunchd(out)
+        break
+      case 'fallback': {
+        const cronOk = deps.registerCron()
+        deps.startDetached(before?.pid)
+        if (before) deps.stop(before.pid)
+        out('没有 systemd 用户会话,改用后台进程常驻。')
+        if (cronOk) out('已加入 crontab @reboot,重启后自动启动。')
+        else out('⚠ 没有可用的 crontab,重启后需再执行:gugu-server service install')
+        break
+      }
+      case 'systemdUnreachable': {
+        if (!before) {
+          out('⚠ 当前 shell 连不上 systemd 用户会话(su、docker exec 时常见)。任选其一:')
+          out(`  · 以 ${deps.user} 直接 SSH 登录后执行:gugu-server service install`)
+          out(`  · 请管理员执行 sudo loginctl enable-linger ${deps.user},再重新安装`)
+          return false
+        }
+        out('当前 shell 连不上 systemd 用户会话,改由 systemd 以新版本重启。')
+        // 旧的那个不归 systemd 管(以前兜底起的):照兜底的办法自己接上。
+        if (before.supervisedBy === 'none') deps.startDetached(before.pid)
+        deps.stop(before.pid)
+        break
+      }
+    }
+    // 管理器重启完旧进程还在 = 它不归这个管理器管(以前兜底起的、手动起的):停掉它,管理器那一份会接上。
+    if (before && (mode === 'systemd' || mode === 'launchd') && deps.isAlive(before.pid)) deps.stop(before.pid)
+
+  }
   const deadline = deps.now() + CONFIRM_TIMEOUT_MS
   let now: RunningServer | null = null
   for (;;) {
     now = deps.running()
-    const replaced = !before || now?.pid !== before.pid
-    if (now && replaced && (!targetVersion || !now.version || now.version === targetVersion)) {
+    const replaced = alreadyRunning || !before || now?.pid !== before.pid
+    if (now && replaced && (!targetVersion || !now.version || now.version === targetVersion) && accountsReady(now)) {
       out(`${label(now.version ?? targetVersion)} 已在运行(进程 ${now.pid})。`)
       return true
     }
     if (deps.now() >= deadline) break
     await deps.sleep(CONFIRM_POLL_MS)
   }
-  if (now && before && now.pid === before.pid) {
+  if (now && now.managedCloud && now.version === targetVersion && !accountsReady(now)) {
+    out(`⚠ 守护进程已运行 ${targetVersion},账号尚未运行目标包。日志:${deps.logHint}`)
+  } else if (now && before && now.pid === before.pid) {
     out(`⚠ 旧的 ${label(before.version)}(进程 ${before.pid})没有退出。请执行 gugu-server stop,再执行 gugu-server service install。`)
   } else if (now) {
     out(`⚠ 在运行的是 ${label(now.version)}(进程 ${now.pid}),不是 ${targetVersion}。请执行 gugu-server stop,再执行 gugu-server service install。`)
@@ -464,6 +472,7 @@ export async function installService(out: Out): Promise<boolean> {
     mode,
     targetVersion: process.env.GUGU_TASK_HOST_VERSION ?? null,
     running: readRunningServer,
+    accountsMatchPackage: (version) => listAccounts().filter((account) => account.signedIn).every((account) => readAccountRuntime(account.dataDir).version === version),
     isAlive: isProcessAlive,
     isBusy: () => listAccounts().some((account) => account.signedIn && accountIsBusy(account.dataDir)),
     stop: (pid) => {

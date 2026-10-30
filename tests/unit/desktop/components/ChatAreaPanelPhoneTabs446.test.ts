@@ -7,6 +7,7 @@ import { chat, createNode, createReactHarness, renderWithAppProviders } from '..
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { queryClient } from '../../../../apps/desktop/src/session/renderer/lib/query-client'
+import { requestTopicSplit } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 
 const { getImRepositoryMock, TOPICS, pinPrefs } = vi.hoisted(() => ({
   getImRepositoryMock: vi.fn(),
@@ -18,11 +19,11 @@ const { getImRepositoryMock, TOPICS, pinPrefs } = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
-vi.mock('../../../../apps/desktop/src/lib/chatTopicPins', () => ({
-  readChatTopicPins: vi.fn(async () => [...pinPrefs.ids]),
-  setChatTopicPin: vi.fn(),
-  watchChatTopicPins: () => () => {},
+vi.mock('../../../../apps/desktop/src/lib/chatPinSettings', () => ({
+  readChatPinSettings: vi.fn(async () => ({ appIds: [], topicIds: [...pinPrefs.ids] })),
+  setChatPinPreference: vi.fn(),
 }))
+vi.mock('../../../../apps/desktop/src/lib/chatAppPins', () => ({ watchChatAppPins: () => () => {} }))
 // A closing panel retained for its exit animation must not count as an open panel.
 vi.mock('framer-motion', async (importOriginal) => ({
   ...await importOriginal<typeof import('framer-motion')>(),
@@ -124,10 +125,23 @@ describe('shared group topic tabs (#446, #837)', () => {
     expect(q('[data-testid="topic-split-close"]')).not.toBeNull()
   })
 
+  it('does not select Group when the open topic is not pinned, while retaining a keyboard entry point', async () => {
+    await render('g1')
+    await vi.waitFor(() => expect(tab('t1')).not.toBeNull())
+    await act(async () => { requestTopicSplit({ chatId: 't2', name: '周报', sourceChatId: 'g1' }) })
+    await vi.waitFor(() => expect(q('[data-testid="topic-split-pane"]')?.dataset.topicId).toBe('t2'))
+    expect(tab('main')?.getAttribute('aria-selected')).toBe('false')
+    expect(tab('t1')?.getAttribute('aria-selected')).toBe('false')
+    expect(tab('main')?.getAttribute('tabindex')).toBe('0')
+    await act(async () => { tab('main')!.click() })
+    expect(q('[data-testid="topic-split-pane"]')).toBeNull()
+    expect(tab('main')?.getAttribute('aria-selected')).toBe('true')
+  })
+
   it.each([false, true])('hides the strip without pins even when topics exist (mobile=%s)', async (mobile) => {
     pinPrefs.ids = []
     await render('g1', mobile)
-    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-topic-pins', 'user-1', 'g1'])).toEqual([]))
+    await vi.waitFor(() => expect(queryClient.getQueryData(['chat-pins', 'user-1', 'g1'])).toEqual({ appIds: [], topicIds: [] }))
     expect(q('[data-testid="phone-chat-tabs"]')).toBeNull()
   })
 
