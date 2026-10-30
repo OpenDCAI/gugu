@@ -61,9 +61,24 @@ const STRINGS = {
     offline: '离线：改动会在回线后补上',
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
-    edit: '源码',
+    edit: '编辑',
     split: '对照',
-    preview: '预览',
+    preview: '阅读',
+    bold: '加粗',
+    italic: '斜体',
+    code: '代码',
+    link: '链接',
+    block: '这一段',
+    citeBlock: '引用到聊天',
+    holdBlock: '加入待引用',
+    copyBlockLink: '复制这一段的链接',
+    findSource: '在源码里定位',
+    linkCopied: '已复制这一段的链接',
+    emptyTitle: '这份文档还是空的',
+    emptyHint: '直接开始写，或者请 agent 起个草稿',
+    emptyWrite: '开始写',
+    emptyDraft: '请 agent 起草',
+    emptyAsk: '帮我起草这份文档，内容：',
     apply: '应用',
     discard: '放弃',
     jsonInvalid: '不是合法的 JSON：{e}',
@@ -216,9 +231,24 @@ const STRINGS = {
     offline: 'Offline: changes catch up when back online',
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
-    edit: 'Source',
+    edit: 'Edit',
     split: 'Side by side',
-    preview: 'Preview',
+    preview: 'Read',
+    bold: 'Bold',
+    italic: 'Italic',
+    code: 'Code',
+    link: 'Link',
+    block: 'This block',
+    citeBlock: 'Cite in the chat',
+    holdBlock: 'Keep to cite',
+    copyBlockLink: 'Copy a link to it',
+    findSource: 'Find in the source',
+    linkCopied: 'Link copied',
+    emptyTitle: 'This document is empty',
+    emptyHint: 'Start writing, or ask an agent for a draft',
+    emptyWrite: 'Start writing',
+    emptyDraft: 'Ask an agent',
+    emptyAsk: 'Draft this document for me: ',
     apply: 'Apply',
     discard: 'Discard',
     jsonInvalid: 'Not valid JSON: {e}',
@@ -350,7 +380,7 @@ const state = {
   showAppData: false,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
   dragging: null, // the entry being dragged onto a folder (desktop)
-  mode: 'split',
+  mode: 'preview', // 阅读 first (owner 10-30, folder-docs)
   current: null, // { entry, file, view, unbind, offs: [] }
   opening: null,
   cm: null,
@@ -423,9 +453,32 @@ async function previewKit() {
 // A Workspace page starts when its folder or file is opened. Prepare its existing reader while it awaits context.
 const previewReady = previewKit().then((md) => ({ md }), (error) => ({ error }))
 
-// GFM (tables, strikethrough, task items).
+// A leading `---` block is the file's front matter, as the preview reads it: one quiet block, not the setext heading
+// lezer's markdown makes of `key: value` above the closing `---`.
+function frontmatterBlock(cm) {
+  return {
+    defineNodes: [{ name: 'Frontmatter', block: true, style: cm.lezerHighlight.tags.meta }],
+    parseBlock: [{
+      name: 'Frontmatter',
+      before: 'HorizontalRule',
+      parse(cx, line) {
+        if (cx.lineStart !== 0 || !/^---\s*$/.test(line.text)) return false
+        while (cx.nextLine()) {
+          if (/^---\s*$/.test(line.text)) {
+            cx.nextLine()
+            break
+          }
+        }
+        cx.addElement(cx.elt('Frontmatter', 0, cx.prevLineEnd()))
+        return true
+      },
+    }],
+  }
+}
+
+// GFM (tables, strikethrough, task items), and front matter.
 function markdownSupport(cm) {
-  return cm.markdown({ base: cm.markdownLanguage })
+  return cm.markdown({ base: cm.markdownLanguage, extensions: [frontmatterBlock(cm)] })
 }
 
 // ─── context ────────────────────────────────────────────────────────────────
@@ -486,6 +539,15 @@ function renderChrome() {
   $('more').setAttribute('aria-label', t.more)
   $('more').title = t.more
   for (const mode of ['edit', 'split', 'preview']) $(`mode-${mode}`).textContent = t[mode]
+  for (const fmt of ['bold', 'italic', 'code', 'link']) {
+    $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
+    $(`fmt-${fmt}`).title = t[fmt]
+  }
+  $('block-handle').setAttribute('aria-label', t.block)
+  $('doc-empty-title').textContent = t.emptyTitle
+  $('doc-empty-hint').textContent = t.emptyHint
+  $('empty-write-label').textContent = t.emptyWrite
+  $('empty-draft-label').textContent = t.emptyDraft
   $('json-apply').textContent = t.apply
   $('json-discard').textContent = t.discard
   $('copy-sel').textContent = t.copy
@@ -1588,6 +1650,9 @@ function closeCurrent() {
   $('editor').replaceChildren()
   $('preview').replaceChildren()
   $('peers').replaceChildren()
+  $('doc-empty').hidden = true
+  document.body.classList.remove('empty-doc')
+  hideBlockHandle()
   showSelection([], null)
   state.held = []
   state.found = null
@@ -1647,6 +1712,12 @@ async function mountText(current, preview) {
     if (state.current !== current) return
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     previewMarks()
+    // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
+    for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = !!file.readOnly
+    const empty = !file.text.trim()
+    document.body.classList.toggle('empty-doc', empty)
+    $('doc-empty').hidden = !empty
+    $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
   const changed = debounce(render, 120)
   current.offs.push(file.onChange((event) => { if (!event.entry) changed() }))
@@ -1676,6 +1747,7 @@ function showSelection(picks, end, inPreview = false) {
   selectionEnd = picks.length ? end : null
   picksInPreview = inPreview && picks.length > 0
   document.body.classList.toggle('has-selection', picks.length > 0)
+  document.body.classList.toggle('picks-in-preview', picksInPreview)
   // After the editor's update and the page's layout: reading positions inside an update is not allowed.
   requestAnimationFrame(placeSelectionBar)
 }
@@ -1890,13 +1962,143 @@ async function copySelection() {
   }, 1200)
 }
 
-function editorTheme(cm) {
-  return cm.EditorView.theme({
+// ─── the source's marks and the reading page's blocks (owner 10-30, folder-docs) ───────────────────────────────────
+
+// Wraps each range of the source's selection in a mark — **bold**, *italic*, `code`, [link]() — or takes the mark away
+// when it is already around it: one change to the same text everyone edits. A link leaves the caret in its ().
+const MARKS = { bold: ['**', '**'], italic: ['*', '*'], code: ['`', '`'], link: ['[', ']()'] }
+
+function format(kind) {
+  const view = state.current?.view
+  if (!view || picksInPreview || view.state.readOnly || !MARKS[kind]) return
+  const [open, close] = MARKS[kind]
+  const { EditorSelection } = state.cm.state
+  const doc = view.state
+  view.dispatch(doc.changeByRange((range) => {
+    const wrapped = kind !== 'link' && doc.sliceDoc(range.from - open.length, range.from) === open && doc.sliceDoc(range.to, range.to + close.length) === close
+    if (wrapped) {
+      return {
+        changes: [{ from: range.from - open.length, to: range.from }, { from: range.to, to: range.to + close.length }],
+        range: EditorSelection.range(range.from - open.length, range.to - open.length),
+      }
+    }
+    const end = range.to + open.length
+    return {
+      changes: [{ from: range.from, insert: open }, { from: range.to, insert: close }],
+      range: kind === 'link' ? EditorSelection.cursor(end + 2) : EditorSelection.range(range.from + open.length, end),
+    }
+  }))
+  view.focus()
+}
+
+// Reading with a pointer: the top-level block under it gets a ⋯ in its left margin. Its menu does with the whole block
+// what a selection's bar does (Cite, ＋ Keep), copies a link to its lines (the pill's own `at`), or shows them in the source.
+let handleBlock = null
+
+function hideBlockHandle() {
+  if ($('menu').hidden || state.menuAnchor !== $('block-handle')) {
+    handleBlock = null
+    $('block-handle').hidden = true
+  }
+}
+
+function showBlockHandle(event) {
+  if (touchPane?.matches || !state.current || state.current.file.type !== 'text') return
+  const root = $('preview').firstElementChild
+  let block = null
+  for (let node = event.target; node && node !== root && node !== $('preview'); node = node.parentElement) if (node.parentElement === root) block = node
+  if (!block?.dataset.line) return hideBlockHandle()
+  if (block === handleBlock && !$('block-handle').hidden) return
+  handleBlock = block
+  const box = block.getBoundingClientRect()
+  const pane = $('preview').getBoundingClientRect()
+  const handle = $('block-handle')
+  handle.hidden = false
+  handle.style.top = `${box.top + 2}px`
+  handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
+}
+
+function blockMenu() {
+  const current = state.current
+  const block = handleBlock
+  const span = spanOf(block?.dataset.line)
+  if (!current || !span) return
+  const t = state.t
+  const pick = { text: block.innerText || block.textContent || '', lines: span }
+  toggleMenu($('block-handle'), [
+    [t.citeBlock, () => void cite(current, [pick], state.held)],
+    [t.holdBlock, () => {
+      state.held.push(refOf(current, pick))
+      renderHeld()
+    }],
+    [t.copyBlockLink, () => void copyBlockLink(current, span)],
+    [t.findSource, () => findInSource(span)],
+  ])
+}
+
+async function copyBlockLink(current, [first, last]) {
+  try {
+    await gugu.clipboard.writeText(await gugu.linkTo({ kind: 'file', file: current.entry, at: placeOf(current.file.text, first, last) }))
+    showBanner(state.t.linkCopied, 'info')
+    setTimeout(() => { if ($('banner').textContent === state.t.linkCopied) hideBanner() }, 1500)
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// The block's lines marked in the source, as a pill's are: beside the reading when there is room, else the source alone.
+function findInSource(span) {
+  if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
+  state.found = { lines: span, said: false }
+  applyMarks()
+  const view = state.current?.view
+  if (view) view.dispatch({ effects: state.cm.EditorView.scrollIntoView(view.state.doc.line(Math.min(span[0], view.state.doc.lines)).from, { y: 'center' }) })
+}
+
+// A task ticked in the reading page ticks its line in the source: that line's `[ ]` / `[x]`, nothing else.
+function tickTask(event) {
+  const box = event.target
+  if (!(box instanceof HTMLInputElement) || box.type !== 'checkbox' || !$('preview').contains(box)) return
+  const view = state.current?.view
+  const n = spanOf(box.closest('li[data-line]')?.dataset.line)?.[0]
+  const line = view && n && n <= view.state.doc.lines ? view.state.doc.line(n) : null
+  const mark = line && /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)[ xX]\]/.exec(line.text)
+  if (!mark || view.state.readOnly) {
+    box.checked = !box.checked
+    return
+  }
+  const at = line.from + mark[1].length
+  view.dispatch({ changes: { from: at, to: at + 1, insert: box.checked ? 'x' : ' ' } })
+}
+
+// The source reads like writing (owner 10-30, folder-docs): the body font, headings by their level, the marks (#, **, >,
+// a link's address, front matter) faded, no underlines; in the theme's own colours, so dark reads as well as light (the
+// default style's active line and links were light-theme colours on a dark page). Line numbers: style.css (编辑 hides them).
+function editorTheme(cm, prose = true) {
+  const look = cm.EditorView.theme({
     '&': { height: '100%', color: 'var(--em-foreground)', backgroundColor: 'transparent' },
-    '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: '1.6' },
-    '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--em-foreground-muted)', border: 'none' },
+    '.cm-scroller': prose ? { fontFamily: 'var(--em-font-sans)', fontSize: '15px', lineHeight: '1.7' } : { fontFamily: 'var(--em-font-mono)', lineHeight: '1.6' },
+    '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--em-foreground-passive)', border: 'none' },
+    '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'transparent' },
+    '.cm-activeLineGutter': { color: 'var(--em-foreground-muted)' },
+    '.cm-selectionMatch': { backgroundColor: 'var(--em-hover)' },
     '&.cm-focused': { outline: 'none' },
   })
+  if (!prose) return look
+  const { tags: t } = cm.lezerHighlight
+  const writing = cm.language.HighlightStyle.define([
+    { tag: t.heading1, fontSize: '1.5em', fontWeight: '600' },
+    { tag: t.heading2, fontSize: '1.25em', fontWeight: '600' },
+    { tag: [t.heading3, t.heading4, t.heading5, t.heading6], fontWeight: '600' },
+    { tag: [t.processingInstruction, t.contentSeparator, t.url], color: 'var(--em-foreground-passive)' },
+    { tag: t.meta, color: 'var(--em-foreground-passive)', fontFamily: 'var(--em-font-mono)', fontSize: '0.8125em' },
+    { tag: t.strong, fontWeight: '600' },
+    { tag: t.emphasis, fontStyle: 'italic' },
+    { tag: t.strikethrough, textDecoration: 'line-through' },
+    { tag: t.link, color: 'var(--em-foreground-info)' },
+    { tag: t.monospace, fontFamily: 'var(--em-font-mono)', fontSize: '0.875em' },
+  ])
+  return [look, cm.language.syntaxHighlighting(writing)]
 }
 
 // JSON files are live objects in the open file (a Y.Map), not text: they are shown as indented text,
@@ -1919,7 +2121,7 @@ function mountJson(current) {
         cm.basicSetup,
         cm.json(),
         cm.EditorView.lineWrapping,
-        editorTheme(cm),
+        editorTheme(cm, false),
         selectionWatch(cm),
         cm.EditorState.readOnly.of(file.readOnly),
         cm.EditorView.updateListener.of((update) => {
@@ -2005,7 +2207,7 @@ function goneState(current) {
     current.view = new cm.EditorView({
       parent: $('editor'),
       doc: text,
-      extensions: [cm.basicSetup, current.file.type === 'text' ? markdownSupport(cm) : cm.json(), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), cm.EditorState.readOnly.of(true), cm.EditorView.editable.of(false)],
+      extensions: [cm.basicSetup, current.file.type === 'text' ? markdownSupport(cm) : cm.json(), cm.EditorView.lineWrapping, editorTheme(cm, current.file.type === 'text'), selectionWatch(cm), cm.EditorState.readOnly.of(true), cm.EditorView.editable.of(false)],
     })
   }
   document.body.classList.add('gone')
@@ -2015,11 +2217,14 @@ function goneState(current) {
 function watchPresence(current) {
   const render = (others) => {
     if (state.current !== current) return
+    // The host's avatar of each one here, ringed in their presence colour (the colour their cursor is drawn in).
     const chips = others.map((peer) => {
-      const chip = document.createElement('span')
+      const chip = document.createElement('gugu-avatar')
       chip.className = 'peer'
+      chip.setAttribute('user', peer.userId)
+      chip.setAttribute('size', 'xs')
+      chip.setAttribute('label', peer.name || peer.userId.slice(0, 6))
       chip.style.setProperty('--peer', peer.color)
-      chip.textContent = peer.name || peer.userId.slice(0, 6)
       chip.title = peer.name || peer.userId
       return chip
     })
@@ -2557,6 +2762,23 @@ function start() {
   for (const id of ['cite-sel', 'hold-sel', 'held-cite']) $(id).addEventListener('pointerdown', (event) => event.preventDefault())
   $('cite-sel').onclick = () => cite()
   $('hold-sel').onclick = () => hold()
+  for (const button of document.querySelectorAll('#sel-bar .fmt')) {
+    button.addEventListener('pointerdown', (event) => event.preventDefault())
+    button.onclick = () => format(button.dataset.fmt)
+  }
+  $('preview').addEventListener('pointermove', showBlockHandle)
+  $('preview').addEventListener('pointerleave', (event) => { if (event.relatedTarget !== $('block-handle') && !$('block-handle').contains(event.relatedTarget)) hideBlockHandle() })
+  $('preview').addEventListener('scroll', () => hideBlockHandle())
+  $('block-handle').onclick = () => blockMenu()
+  $('preview').addEventListener('change', tickTask)
+  $('empty-write').onclick = () => {
+    setMode(state.mode === 'split' && !narrowPane?.matches ? 'split' : 'edit')
+    state.current?.view?.focus()
+  }
+  $('empty-draft').onclick = () => {
+    const current = state.current
+    if (current) gugu.dispatch(state.t.emptyAsk, { draft: true, refs: [{ file: current.entry }] }).catch((error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))
+  }
   $('held-cite').onclick = () => cite()
   $('held-clear').onclick = () => {
     state.held = []
