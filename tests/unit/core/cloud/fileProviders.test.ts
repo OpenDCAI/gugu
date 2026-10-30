@@ -18,7 +18,7 @@ function cache() {
   const store: FileChunkCache = { get: vi.fn(async (key, index) => chunks.get(`${key}:${index}`) ?? null), put: vi.fn(async (key, index, bytes) => { chunks.set(`${key}:${index}`, bytes.slice()) }), clear: vi.fn(async key => { for (const entry of chunks.keys()) if (entry.startsWith(`${key}:`)) chunks.delete(entry) }) }
   return { chunks, store }
 }
-function api(row = revision, body = new Uint8Array(plain), extra: Record<string, unknown> = {}) {
+function api(row: Omit<FileRevision, 'sha256'> & { sha256: unknown; bucket_id?: string } = revision, body = new Uint8Array(plain), extra: Record<string, unknown> = {}) {
   const calls: { route: string; body: Record<string, unknown> }[] = []
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const route = String(input).split('/').at(-1)!, request = JSON.parse(init!.body as string)
@@ -34,6 +34,84 @@ function api(row = revision, body = new Uint8Array(plain), extra: Record<string,
 }
 
 describe('one cloud provider and verified raw chunk cache', () => {
+  const legacyRef = { message_id: 'historical-message' }
+  const legacyContext = { ...context, ref: legacyRef }
+  const legacyRow = { ...revision, item_id: undefined, version: undefined, message_id: legacyRef.message_id,
+    bucket_id: 'chat-media', object_name: 'old-account/portrait.png', content_type: 'image/png', sha256: null }
+
+  it('opens and previews a backend-identified historical object without inventing a digest', async () => {
+    const a = api(legacyRow, plain, legacyRow), c = cache()
+    const fetcher = vi.fn(async () => new Response(plain))
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), fetch: fetcher as typeof fetch })
+    const resolve = createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })
+    const file = await resolve(legacyRef, context.actor)
+    if (file.status !== 'ready') throw Error('ready expected')
+    expect(file.revision.sha256).toBeNull()
+    expect(digest(Buffer.concat([await file.read(0, 524288), await file.read(524288, plain.length - 524288)]))).toBe(revision.sha256)
+    await file.dispose()
+    const preview = await resolve(legacyRef, context.actor, { purpose: 'preview' })
+    if (preview.status !== 'ready') throw Error('ready expected')
+    const blob = await preview.content() as Blob
+    expect(digest(new Uint8Array(await blob.arrayBuffer()))).toBe(revision.sha256)
+    await preview.dispose()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    for (const call of a.calls.filter(call => call.route === 'file-download')) expect(call.body.ref).toEqual(legacyRef)
+  })
+
+  it.each([
+    { bucket_id: 'oss' }, { bucket_id: undefined }, { message_id: 'another-message' }, { object_name: '' },
+  ])('rejects missing digests without an exact historical identity: %j', async override => {
+    const a = api({ ...legacyRow, ...override }), c = cache()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink() })
+    await expect(cloud.metadata(legacyContext)).rejects.toThrow('Invalid file revision')
+  })
+
+  it.each([null, undefined, '', 'not-a-sha'])('requires a valid digest for current uploads: %j', async sha256 => {
+    const a = api({ ...revision, bucket_id: 'oss', sha256 }), c = cache()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink() })
+    await expect(cloud.metadata(context)).rejects.toThrow('Invalid file revision')
+  })
+
+  it('still verifies a historical object when the backend supplies its digest', async () => {
+    const row = { ...legacyRow, sha256: revision.sha256 }, a = api(row, plain, row), c = cache()
+    const changed = new Uint8Array(plain); changed[0] ^= 1
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), fetch: async () => new Response(changed) })
+    const file = await createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })(legacyRef, context.actor)
+    if (file.status !== 'ready') throw Error('ready expected')
+    await expect(file.read(0, 1)).rejects.toThrow('File SHA-256 mismatch'); await file.dispose()
+  })
+
+  it.each([{ bucket_id: 'oss' }, { object_name: 'different-object' }, { message_id: 'different-message' }])('rejects a changed historical download identity: %j', async override => {
+    const a = api(legacyRow, plain, { ...legacyRow, ...override }), c = cache(), fetcher = vi.fn()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), fetch: fetcher })
+    const file = await createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })(legacyRef, context.actor)
+    if (file.status !== 'ready') throw Error('ready expected')
+    await expect(file.read(0, 1)).rejects.toThrow('File download commitment changed')
+    expect(fetcher).not.toHaveBeenCalled(); await file.dispose()
+  })
+
+  it('rejects truncated historical bytes and a revoked historical read', async () => {
+    for (const revoke of [false, true]) {
+      const a = api(legacyRow, plain, legacyRow), c = cache()
+      const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(),
+        fetch: async () => { if (revoke) a.fetcher.mockResolvedValue(Response.json({ status: 'gone' })); return new Response(revoke ? plain : plain.subarray(0, -1)) } })
+      const file = await createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })(legacyRef, context.actor)
+      if (file.status !== 'ready') throw Error('ready expected')
+      await expect(file.read(0, 1)).rejects.toThrow(revoke ? 'File access or revision changed' : 'Truncated file response')
+      await file.dispose()
+    }
+  })
+
+  it('rejects a historical object replaced during the download even when its length stays equal', async () => {
+    const a = api(legacyRow, plain, legacyRow), c = cache()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), fetch: async () => {
+      a.fetcher.mockResolvedValue(Response.json({ ...legacyRow, status: 'ready', object_name: 'replacement-object' })); return new Response(plain)
+    } })
+    const file = await createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })(legacyRef, context.actor)
+    if (file.status !== 'ready') throw Error('ready expected')
+    await expect(file.read(0, 1)).rejects.toThrow('File access or revision changed'); await file.dispose()
+  })
+
   it('keeps the object response HTTP status in the download failure reason', async () => {
     const a = api(), c = cache()
     const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(),
