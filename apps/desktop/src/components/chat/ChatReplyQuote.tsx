@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Reply } from '@/lib/icons'
+import { IconButton } from '../ui/IconButton'
 import { MessageHoverTrigger } from './HoverActionBar'
 import './chat-reply-quote.css'
 
@@ -17,10 +18,10 @@ export function ChatReplyQuote({ disclosure, onJump, children, insideBubble = fa
   const Root = disclosure.mobile || insideBubble ? 'div' : MessageHoverTrigger
   return (
     <Root className="gg-chat-reply-quote" data-chat-reply-quote data-open={disclosure.open} data-marker={disclosure.showMarker} data-mobile={disclosure.mobile}>
-      <button type="button" className="gg-chat-reply-jump" aria-label={t('message.showQuoted')} title={t('message.showQuoted')}
+      <IconButton size="sm" className="gg-chat-reply-jump" aria-label={t('message.showQuoted')} title={t('message.showQuoted')}
         disabled={!onJump} onClick={(event) => { event.stopPropagation(); onJump?.() }}>
-        <Reply className="size-3 shrink-0" aria-hidden />
-      </button>
+        <Reply aria-hidden />
+      </IconButton>
       <div className="gg-chat-reply-preview">{children}</div>
     </Root>
   )

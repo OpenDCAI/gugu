@@ -1,6 +1,4 @@
 .gg-chat-reply-quote { display: flex; align-items: flex-start; gap: 5px; max-width: 100%; min-width: 0; color: var(--muted-fg); }
-.gg-chat-reply-jump { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; padding: 2px; background: transparent; color: inherit; cursor: pointer; }
-.gg-chat-reply-jump:disabled { cursor: default; }
 .gg-chat-reply-preview { display: none; min-width: 0; max-width: 100%; }
 .gg-chat-reply-quote[data-marker="false"][data-open="false"] { display: none; }
 .gg-chat-reply-quote[data-open="true"] > .gg-chat-reply-preview { display: block; }
