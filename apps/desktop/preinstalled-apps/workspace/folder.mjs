@@ -6,7 +6,7 @@
 // Only the public API: gugu.files, and Node's own modules for the files on this computer.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, extname, isAbsolute, join } from 'node:path'
 
 const CHAT = {
   type: 'string',
@@ -179,7 +179,7 @@ async function saveLocally(entry, data, agent) {
   if (!Number.isInteger(version)) throw new Error(`read: ${entry.name} came back with no version`)
   const dir = join(tmpdir(), 'gugu-workspace', who, entry.id, `v${version}`)
   await mkdir(dir, { recursive: true })
-  const path = join(dir, localFileName(entry.name))
+  const path = join(dir, localFileName(entry.savedName))
   await writeFile(path, data)
   return { path, version }
 }
@@ -301,7 +301,12 @@ export const create = {
       file = new File([content], title.trim(), { type })
     } else {
       const bytes = await localFile(path, 'create')
-      file = new File([bytes], typeof title === 'string' && title.trim() ? title.trim() : basename(path))
+      let name = basename(path)
+      if (typeof title === 'string' && title.trim()) {
+        name = title.trim()
+        if (!/\.[A-Za-z0-9]{1,8}$/.test(name)) name += extname(path)
+      }
+      file = new File([bytes], name)
     }
     const sourceMessageIds = (source_message_ids ?? []).map((id) => String(id).replace(/^msg:/, ''))
     const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds, ...(keep === undefined ? {} : { keep }) })

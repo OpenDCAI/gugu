@@ -6,6 +6,7 @@ import {
   openComposerImage,
   openImageFromThumb,
   openImageViewer,
+  registerFullImage,
   registerImageViewerHost,
 } from '../../../../apps/desktop/src/lib/imageViewer'
 
@@ -93,14 +94,24 @@ describe('galleryAround', () => {
     expect(host).toHaveBeenCalledWith(expect.objectContaining({ index: 1 }))
     expect(host.mock.calls[0][0].items).toHaveLength(2)
   })
+
+  it('carries original file facts through the gallery independently of thumbnail alt', () => {
+    const image = thumb('blob:thumbnail', 'a description')
+    const file = { name: '截图.v2', contentType: 'image/png' }
+    const load = vi.fn(async () => 'blob:original')
+    const release = registerFullImage(image, load, undefined, file)
+    expect(galleryAround(image).items[0]).toMatchObject({ alt: 'a description', file, full: load })
+    release()
+    expect(galleryAround(image).items[0].file).toBeUndefined()
+  })
 })
 
 describe('openComposerImage', () => {
   it('图片 chip 进查看器;文本附件与读不到字节的图交回宿主的附件对话框', () => {
     const host = vi.fn()
     unregister = registerImageViewerHost(host)
-    expect(openComposerImage({ kind: 'image', name: 'shot.png', previewUrl: 'data:image/png;base64,AA' })).toBe(true)
-    expect(host).toHaveBeenCalledWith({ items: [{ url: 'data:image/png;base64,AA', alt: 'shot.png' }], index: 0 })
+    expect(openComposerImage({ kind: 'image', name: '截图.v2', mimeType: 'image/png', previewUrl: 'data:image/png;base64,AA' })).toBe(true)
+    expect(host).toHaveBeenCalledWith({ items: [{ url: 'data:image/png;base64,AA', alt: '截图.v2', file: { name: '截图.v2', contentType: 'image/png' } }], index: 0 })
     expect(openComposerImage({ kind: 'file', name: 'notes.md' })).toBe(false)
     expect(openComposerImage({ kind: 'image', name: 'broken.png' })).toBe(false)
     expect(host).toHaveBeenCalledTimes(1)

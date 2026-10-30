@@ -17,6 +17,7 @@ import {
   fileTypeOf,
   folderOf,
   personId,
+  savedFileName,
   typedFileName,
   type AppFileClaimant,
   type AppFileEntry,
@@ -244,6 +245,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     chat: row.chat_id,
     metadata: row.metadata ?? {},
     name: row.filename,
+    savedName: folder ? row.filename : savedFileName(file),
     contentType: row.content_type,
     type: fileTypeOf(row.kind, row.content_type),
     parentId: row.parent_id ?? null,
@@ -1262,12 +1264,13 @@ export function createAppFiles(platform: FilesPlatform) {
      */
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
       const local = await localFile(surface, args.ref);
-      if (local) return { name: local.entry.name, kind: 'file', file: local.file };
+      if (local) return { name: savedFileName(local.entry), kind: 'file', file: local.file };
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
+      const name = savedFileName({ name: row.filename, contentType: row.content_type });
+      if (row.kind === 'file') return { name, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
       try {
-        return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
+        return { name, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
       } catch (error) {
         throw new AppFileError(error instanceof ChatFolderReadError && error.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
       }

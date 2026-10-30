@@ -52,6 +52,12 @@ export function mimeTypeFromName(fileName) {
   return MIME_BY_EXT[extensionOf(fileName)] ?? null
 }
 
+/** The table's first extension for a content type, or null when its type is unknown. */
+export function extensionFromMimeType(mimeType) {
+  const type = normalizeMimeType(mimeType)
+  return Object.keys(MIME_BY_EXT).find(extension => MIME_BY_EXT[extension] === type) ?? null
+}
+
 /** 扩展包(`.guguext`,#6646):聊天里画成扩展卡片;浏览器对这个后缀报空 type,只能按名补。 */
 export const EXTENSION_ARCHIVE_MIME = 'application/vnd.gugu.extension+zip'
 

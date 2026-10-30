@@ -71,7 +71,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 20: several files at once — `files.download([…])` (one folder on the desktop, the share sheet on the phone) and
 // `files.keep([…], how)`.
 // 21: tools modules receive the real MCP per-call AbortSignal in run(args, call).
-// 23: `files.forward(file | files)` — the host's forward page for chat files, sent by reference.
+// 23: `files.forward(file | files)` — the host's forward page for chat files, sent by reference; file entries expose
+// savedName, the host-resolved filename for local copies.
 export const EXTENSION_API_VERSION = 23;
 
 /**
