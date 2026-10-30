@@ -7,6 +7,9 @@ import type { RawMessageRow } from '@gugu/core/cloud/messageItem'
 import type { SearchChat, SearchCoverage, SearchIndexOp } from '@gugu/core/shared/search/types'
 import { globalSearchV3Enabled } from '../session/renderer/features/global-search/global-search-flag'
 import { rpcOn } from '../session/renderer/lib/ipc'
+import { rendererLogger } from './log'
+
+const log = rendererLogger('search-index')
 
 let queued: SearchIndexOp[] = []
 let flush: Promise<void> | null = null
@@ -35,5 +38,5 @@ export const feedCoverage = (coverage: SearchCoverage) => feed({ kind: 'coverage
 
 /** Read-path callers must not fail their own read because indexing failed; the backfill re-reads. */
 export function feedQuietly(write: Promise<void>): void {
-  write.catch((error) => console.error('[search-index] apply failed', error))
+  write.catch((error: unknown) => log.error({ error: String(error) }, 'apply failed'))
 }
