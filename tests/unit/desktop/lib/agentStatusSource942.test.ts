@@ -27,7 +27,7 @@ let archivedAt: string | null
 const disposers: Array<() => void> = []
 
 async function settle() {
-  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  await vi.dynamicImportSettled()
 }
 
 beforeEach(() => {
