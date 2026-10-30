@@ -10,6 +10,7 @@ const gugu = {
   openLink: vi.fn(async (_url: string) => undefined),
   reportError: vi.fn(async (_message: string) => undefined),
   openBrowserTab: vi.fn(async (_url: string) => undefined),
+  clipboard: { writeText: vi.fn(async (_text: string) => undefined) },
   files: {
     openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined),
     open: vi.fn(async (_file: unknown): Promise<unknown> => undefined),
@@ -93,10 +94,37 @@ describe('gugu.markdown(): the shared dialect', () => {
     expect(root.querySelector('pre > code.language-ts')?.textContent).toBe('const a = 1\n');
   });
 
-  it('frontmatter is a yaml code block only when asked (a file), never a setext heading', () => {
-    const text = '---\ntitle: x\n---\n\n正文';
-    expect(rendered(text, { frontmatter: true }).querySelector('pre > code.language-yaml')?.textContent).toContain('title: x');
-    expect(rendered(text).querySelector('code.language-yaml')).toBeNull();
+  it('frontmatter is read only when asked (a file), never a setext heading: plain pairs are a property list, more is yaml', () => {
+    const text = '---\ntitle: "11 月计划"\nowner: 陈思远\n---\n\n正文';
+    const props = rendered(text, { frontmatter: true, sourceLines: true }).querySelector('dl.gg-md-props');
+    expect([...(props?.children ?? [])].map((node) => [node.tagName, node.textContent])).toEqual([['DT', 'title'], ['DD', '11 月计划'], ['DT', 'owner'], ['DD', '陈思远']]);
+    expect(props?.getAttribute('data-line'), 'it keeps the lines it was written on').toBe('1-4');
+    expect(rendered(text).querySelector('dl, code.language-yaml')).toBeNull();
+    const nested = '---\ntags:\n  - a\n---\n\n正文';
+    expect(rendered(nested, { frontmatter: true }).querySelector('pre > code.language-yaml')?.textContent).toContain('tags:');
+    expect(rendered(nested, { frontmatter: true }).querySelector('dl')).toBeNull();
+    const fenced = '```yaml\na: 1\n```';
+    expect(rendered(fenced, { frontmatter: true }).querySelector('dl'), 'a fenced yaml block on line 1 is code').toBeNull();
+  });
+
+  it('a code block has a head with its language and a copy button that goes through the host clipboard', async () => {
+    document.documentElement.lang = 'zh-CN';
+    const box = rendered('```bash\npnpm release\n```\n\n```\nplain\n```', { sourceLines: true });
+    const blocks = [...box.querySelectorAll('.gg-md > .gg-md-code')];
+    expect(blocks.map((block) => [block.getAttribute('data-line'), block.querySelector('.gg-md-code-head > span')?.textContent])).toEqual([['1-3', 'bash'], ['5-7', '']]);
+    expect(box.querySelector('.gg-md > pre'), 'no bare pre at the top').toBeNull();
+    const copy = blocks[0]!.querySelector('[data-gg-copy]');
+    expect(copy?.getAttribute('aria-label')).toBe('复制');
+    click(copy);
+    expect(gugu.clipboard.writeText).toHaveBeenCalledWith('pnpm release\n');
+    await vi.waitFor(() => expect(copy?.hasAttribute('data-copied')).toBe(true));
+    expect(gugu.openLink).not.toHaveBeenCalled();
+    // A page without the host's clipboard draws no copy button (there is no other way to the clipboard).
+    const bare = document.createElement('article');
+    document.body.append(bare);
+    renderer({ ...gugu, clipboard: undefined })(bare, '```bash\nx\n```');
+    expect(bare.querySelector('.gg-md-code-head')).not.toBeNull();
+    expect(bare.querySelector('[data-gg-copy]')).toBeNull();
   });
 
   it('code is coloured with the transcript highlighter: one span per token, carrying the dual-theme vars', async () => {
@@ -323,7 +351,9 @@ describe('gugu.markdown(): sourceLines — each block says the lines of the give
     expect(lines(box.querySelector('ul'))).toBe('8-9');
     // The blocks a line is picked in, inside a block: each list item, each table row.
     expect([...box.querySelectorAll('li')].map(lines)).toEqual(['8-8', '9-9']);
-    expect(lines(box.querySelector('table'))).toBe('11-13');
+    // A table's lines are on its scroll box, the block a page meets at the top (its ⋯ in the folder App).
+    expect(lines(box.querySelector('.gg-md > .gg-md-table-scroll'))).toBe('11-13');
+    expect(box.querySelector('table')?.hasAttribute('data-line')).toBe(false);
     expect([...box.querySelectorAll('tr')].map(lines)).toEqual(['11-11', '13-13']);
     expect(lines([...box.querySelectorAll('p')].at(-1))).toBe('15-15');
     // Control: without the option no block says its lines.
