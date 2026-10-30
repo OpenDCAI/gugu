@@ -214,7 +214,7 @@ function AssistantRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Messa
       </StreamContext.Provider>
       <Show when={showFooter()}>
         <div class={footerRow} style={{ height: `${props.vars.footerH}px` }}>
-          <CopyButton text={props.data.text} variant="inline" labelKey="transcript.copyMessage" />
+          <CopyButton text={props.data.text} variant="inline" />
         </div>
       </Show>
     </div>
