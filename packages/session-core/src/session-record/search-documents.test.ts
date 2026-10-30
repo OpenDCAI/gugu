@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TranscriptTurn, TranscriptItem } from '../acp/models/turns/turn';
+import type { TranscriptMessage } from '../acp/models/turns/messages';
 import { taskSearchDocuments } from './search-documents';
 import { formatDeliveryTimestamp, parseDeliveryTimestamp, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const at = '2026-10-30T12:00:00.000Z';
 const turn = (items: TranscriptItem[]): TranscriptTurn => ({ id: 's:turn:s0', referenceId: 'live', seq: 0, initiator: 'user', items });
-const message = (text: string, role: 'user' | 'assistant' = 'user'): TranscriptItem => ({ kind: 'message', id: 's:turn:s0:m', seq: 0, role, text, at: Date.parse(at) });
+const message = (text: string, role: 'user' | 'assistant' = 'user'): TranscriptMessage => ({ kind: 'message', id: 's:turn:s0:m', seq: 0, role, text, at: Date.parse(at) });
 const send = (tool: string, status = 'done', output = '{}'): TranscriptItem => ({ kind: 'mcp-tool-call', id: 's:turn:s0:tool', seq: 1,
   toolCallId: 'call', server: 'gugu', tool, title: tool, status, rawInput: JSON.stringify({ text: 'delivered', chat_id: 'chat' }), rawOutput: output }) as TranscriptItem;
 
