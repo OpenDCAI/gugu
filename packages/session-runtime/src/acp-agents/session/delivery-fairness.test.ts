@@ -198,6 +198,21 @@ describe('queued communication liveness', () => {
     } finally { p.cell.dispose(); }
   });
 
+  it('close retains every admitted same-key steer that has no consumption event', async () => {
+    const p = await fixture();
+    try {
+      for (const text of ['older admitted', 'newer admitted']) {
+        const next = p.cell.promptDetached({ text, origin: 'communication', coalesceKey: 'same' }, { steerIfBusy: true });
+        void next.completion.catch(() => {});
+        expect(await next.admission).toMatchObject({ success: true, data: { queued: false } });
+      }
+      // No tool/turn completion has proved consumption; close must preserve both replay copies.
+      expect(p.nativeInputs).toEqual(['owner-turn', 'older admitted', 'newer admitted']);
+      await p.cell.closeSession();
+      expect(p.cell.sessionState.queuedPrompts.map(prompt => prompt.text)).toEqual(['older admitted', 'newer admitted']);
+    } finally { p.cell.dispose(); }
+  });
+
   it('a foreground end before the steering receipt never dispatches that retained input twice', async () => {
     const p = await fixture();
     try {
