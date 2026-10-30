@@ -17,6 +17,7 @@ import { Menu, MenuItem } from '../ui/Menu'
 import { AddGroupMembers } from './AddGroupMembers'
 import { InviteButton } from './InviteButton'
 import { useMobileShell } from '../../hooks/useMobileShell'
+import { closeInfoTab } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { settingsErrorStyle } from './groupSettingsStyles'
 
 // @@@6418 群成员面板里「和人有关的操作」:邀请、点开资料卡(角色 / 倾听模式 / 移出 / 发消息 / 悄悄话)、
@@ -153,8 +154,9 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   // 桌面上群输入框的「新任务」就是这件事(gugu-dev#181),这里只留给手机。
   const mobile = useMobileShell()
   const createAgentInGroup = useCallback(() => {
+    if (mobile) closeInfoTab(chatId)
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
-  }, [chatId])
+  }, [chatId, mobile])
 
   const headerActions: ReactNode = showInvite && mobile ? (
     <InviteButton icon={<Plus />} label={t('group.memberList.createAgent')} onClick={createAgentInGroup} testId="member-list-create-agent" />
@@ -212,7 +214,11 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
         <MemberProfilePopover
           profile={renderedProfile}
           onClose={() => setActiveProfile(null)}
-          onOpenChat={renderedProfile.member.id !== currentUserId && onOpenUserChat ? (target) => { setActiveProfile(null); onOpenUserChat(target) } : undefined}
+          onOpenChat={renderedProfile.member.id !== currentUserId && onOpenUserChat ? (target) => {
+            setActiveProfile(null)
+            if (mobile) closeInfoTab(chatId)
+            onOpenUserChat(target)
+          } : undefined}
           onWhisper={renderedProfile.member.id !== currentUserId && onWhisper ? (target) => { setActiveProfile(null); onWhisper(target) } : undefined}
           editControls={editControlsFor(renderedProfile.member)}
         />
