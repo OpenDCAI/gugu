@@ -920,6 +920,7 @@ export default {
     "unreadable": "Couldn't read which sessions it started, so it can't be closed right now. Try again later.",
     "confirm": "Close and clear",
     "closing": "Closing…",
+    "closed": "Gugu closed",
     "cancel": "Cancel",
     "scheduleStarting": "One of its scheduled tasks is starting. Wait a moment and try again; nothing has been deleted.",
     "failedAt": {
@@ -927,7 +928,6 @@ export default {
       "schedules": "Something went wrong removing its scheduled tasks; nothing has been deleted. Try again.",
       "started": "Something went wrong deleting the sessions it started; it is still here. Try again.",
       "identity": "Something went wrong deleting it; it is still here. Try again.",
-      "session": "It has been deleted, but its own session could not be stopped.",
       "home": "It has been deleted, but its home wasn't fully cleared; it will be cleared again when you set up a new one."
     },
     "elsewhereTitle": "Close it on the computer it lives on",

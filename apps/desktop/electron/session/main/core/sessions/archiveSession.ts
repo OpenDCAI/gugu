@@ -72,7 +72,8 @@ async function archiveOne(projectId: string, sessionId: string, skipTransportSto
   return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop));
 }
 
-async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean): Promise<ArchivedSessionRef[]> {
+/** Caller holds serializeSessionArchival, including permanent identity-driven deletion. */
+export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)

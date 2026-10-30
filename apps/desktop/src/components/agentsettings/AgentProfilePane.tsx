@@ -99,6 +99,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
     setRemoving(true)
     try {
       await removeOwnedAgent(agent.id)
+      toast(t('toast.deletedAgent', { ns: 'contacts' }), 'success')
       onClose?.()
     } catch (err) {
       profileLog.error({ err: String((err as Error)?.message ?? err) }, 'delete agent failed')

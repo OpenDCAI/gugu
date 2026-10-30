@@ -61,6 +61,18 @@ const CODEX_FIRST_LINE_MAX_BYTES = 128 * 1024;
 const CONTINUATION_MATCH_WINDOW_MS = 5 * 60_000;
 const DAY_MS = 86_400_000;
 
+// In-app-deleted sessions whose transcripts still exist on disk must not resurrect as
+// "external forks". In-memory only for v1: after an app restart a deleted fork whose
+// transcript survives can reappear once (delete it again, or remove the transcript).
+const tombstonedProviderSessionIds = new Set<string>();
+
+/** Called by the permanent Agent task removal entry so the capture scan never re-registers a deleted session. */
+export function tombstoneDeletedSession(providerSessionIds: Array<string | null | undefined>): void {
+  for (const providerSessionId of providerSessionIds) {
+    if (providerSessionId) tombstonedProviderSessionIds.add(providerSessionId);
+  }
+}
+
 /**
  * spec session-fork-share:用户在 TUI 里(claude `/fork` 复制成后台会话、`/branch`、
  * `--resume <源> --fork-session`,codex `/fork`)fork 出的会话不走咕咕的路,咕咕只能轮询发现。
@@ -506,7 +518,7 @@ export async function captureExternalForks(projectId: string, sessionId: string)
     .from(sessions)
     .where(eq(sessions.projectId, projectId));
 
-  const knownProviderSessionIds = new Set<string>();
+  const knownProviderSessionIds = new Set<string>(tombstonedProviderSessionIds);
   for (const row of projectRows) {
     knownProviderSessionIds.add(row.id);
     if (row.providerSessionId) knownProviderSessionIds.add(row.providerSessionId);

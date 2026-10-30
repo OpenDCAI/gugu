@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openFixture } from '@tooling/utils/db';
@@ -17,7 +18,12 @@ const mocks = vi.hoisted(() => ({
   stopped: [] as string[],
   teardown: vi.fn(),
   mounted: new Set<string>(),
+  userData: '',
 }));
+
+vi.mock('electron', () => ({ app: { getPath: () => mocks.userData }, clipboard: {}, nativeImage: {} }));
+// Only the assistant ownership UI helper is replaced; close/delete/archive below are real.
+vi.mock('@/lib/myAssistant', () => ({ isMyAssistant: () => false }));
 
 vi.mock('@main/db/client', () => ({
   get db() {
@@ -63,6 +69,9 @@ const { permanentlyDeleteAgentSession } = await import('./permanently-delete-age
 const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
+
+beforeEach(async () => { mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-')); });
+afterEach(async () => { await rm(mocks.userData, { recursive: true, force: true }); });
 
 describe('archiveSession', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -474,6 +483,124 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     await expect(permanentlyDeleteAgentSession('stop-failed')).rejects.toThrow('runtime stop unavailable');
     expect(fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get('stop-failed')).toBeUndefined();
     await expect(restoreSession('p1', 'stop-failed')).rejects.toThrow('Session not found');
+  });
+
+  it('removes owned attachment files, non-FK history and saved UI/model state, keeping other tasks and user files', async () => {
+    insert('purged');
+    insert('untouched');
+    const ownedDir = join(mocks.userData, 'task-attachments', 'purged');
+    const legacyDir = join(mocks.userData, 'task-attachments', 'legacy-location');
+    const keptDir = join(mocks.userData, 'task-attachments', 'untouched');
+    await mkdir(ownedDir, { recursive: true });
+    await mkdir(legacyDir, { recursive: true });
+    await mkdir(keptDir, { recursive: true });
+    const owned = join(ownedDir, 'copy.txt');
+    const legacy = join(legacyDir, 'legacy.txt');
+    const userFile = join(mocks.userData, 'user-original.txt');
+    const keptCopy = join(keptDir, 'kept.txt');
+    for (const file of [owned, legacy, userFile, keptCopy]) await writeFile(file, 'retained unless owned by the deleted task');
+    for (const [id, origin, path] of [['copy', 'copy', owned], ['legacy', 'copy', legacy], ['reference', 'reference', userFile]]) {
+      fixture.sqlite.prepare('INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES (?, ?, ?, 1, ?, ?)').run(id, 'purged', id, path, origin);
+    }
+    fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('untouched-copy', 'untouched', 'kept.txt', 1, ?, 'copy')").run(keptCopy);
+    for (const id of ['purged', 'untouched']) {
+      fixture.sqlite.prepare("INSERT INTO activity_events (event_id, observed_at, kind, session_id, data) VALUES (?, 1, 'session.created', ?, '{}')").run(id, id);
+      fixture.sqlite.prepare('INSERT INTO session_run_intervals (session_id, started_at, last_seen_at) VALUES (?, 1, 2)').run(id);
+      fixture.sqlite.prepare("INSERT INTO session_model_sources (session_id, source, started_at) VALUES (?, 'gugu', 1)").run(id);
+      fixture.sqlite.prepare("INSERT OR REPLACE INTO activity_session_projects (session_id, project_id) VALUES (?, 'p1')").run(id);
+    }
+    const { viewStateService } = await import('../view-state/view-state-service');
+    const { recordSessionPlatformModel, sessionPlatformModel } = await import('./platform-model-selection');
+    const { recordSessionOutput, sessionOutputs } = await import('./session-outputs');
+    await viewStateService.save('session:purged', { open: true });
+    await viewStateService.save('session:purged:tabs', ['history']);
+    await recordSessionPlatformModel('purged', { modelId: 'original-model' });
+    await recordSessionOutput('purged', { kind: 'file', path: userFile });
+    await permanentlyDeleteAgentSession('purged');
+    expect(existsSync(ownedDir)).toBe(false);
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(userFile)).toBe(true);
+    expect(existsSync(keptCopy)).toBe(true);
+    for (const table of ['activity_events', 'session_run_intervals', 'session_model_sources', 'activity_session_projects']) {
+      expect(fixture.sqlite.prepare(`SELECT session_id FROM ${table}`).all()).toEqual([{ session_id: 'untouched' }]);
+    }
+    expect(fixture.sqlite.prepare('SELECT id FROM session_attachments').all()).toEqual([{ id: 'untouched-copy' }]);
+    expect(await viewStateService.get('session:purged')).toBeNull();
+    expect(await viewStateService.get('session:purged:tabs')).toBeNull();
+    expect(await sessionPlatformModel('purged')).toBeUndefined();
+    expect(await sessionOutputs('purged')).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key = 'session-archival:purged'").get()).toBeUndefined();
+  });
+
+  it('serializes permanent deletion with a Restore queued while runtime teardown is pending', async () => {
+    insert('delete-race');
+    mocks.mounted.add('delete-race');
+    const stopping = Promise.withResolvers<{ success: boolean }>();
+    mocks.teardown.mockReturnValueOnce(stopping.promise);
+    const deleting = permanentlyDeleteAgentSession('delete-race');
+    await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('delete-race', 'archive'));
+    let restoreSettled = false;
+    const restoring = restoreSession('p1', 'delete-race').then(
+      () => { restoreSettled = true; return 'restored'; },
+      (error: Error) => { restoreSettled = true; return error.message; },
+    );
+    await Promise.resolve();
+    expect(restoreSettled).toBe(false);
+    stopping.resolve({ success: true });
+    await deleting;
+    expect(await restoring).toContain('Session not found');
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions').all()).toEqual([]);
+  });
+
+  it.each([false, true])('closes through real identity cleanup and SQLite archival, delete-started=%s', async (deleteStarted) => {
+    insert('assistant-task');
+    insert('started-task');
+    const { closeLocalAssistant } = await import('@/lib/assistantClose');
+    const { releaseDeletedOwnedAgent } = await import('../../../../sessionpage/owner-agent-deletion');
+    const { createAgent, updateAgent, listAgents } = await import('@gugu/core');
+    const home = await mkdtemp(join(tmpdir(), 'gugu-close-chain-'));
+    const env = { GUGU_HOME: home };
+    const binding = new Map([['assistant-id', 'assistant-task'], ['child-id', 'started-task']]);
+    for (const [agentId, sessionId] of binding) {
+      await createAgent({ name: agentId, gugu_user_id: agentId, agent_type: 'codex' }, env);
+      await updateAgent({ guguUserId: agentId }, { cache: { emdash_session_id: sessionId, sessionpage_owner_user_id: 'owner' } }, env);
+    }
+    const summary = (id: string, agentId: string) => ({ conversationId: id, projectId: 'p1', title: id, agent: { userId: agentId } });
+    const own = summary('assistant-task', 'assistant-id');
+    const child = summary('started-task', 'child-id');
+    const deletedIdentities: string[] = [];
+    const wipeHome = vi.fn(async () => {});
+    const resetLocalState = vi.fn();
+    try {
+      await closeLocalAssistant({ assistantId: 'assistant-id', deleteStarted }, { own: [own], started: [child] }, {
+        listSessions: async () => [own, child], listAutomations: async () => [], deleteAutomation: async () => {},
+        removeAgent: async agentId => {
+          deletedIdentities.push(agentId); // The cloud identity RPC boundary alone is injected.
+          const { sessionpageSessionIdForAgent, releaseAgentLocalFootprint } = await import('../../../../sessionpage/agent-local-footprint');
+          await releaseDeletedOwnedAgent(agentId, {
+            sessionIdForAgent: id => sessionpageSessionIdForAgent(id, env),
+            cancelInFlightTurn: async () => false,
+            releaseFootprint: id => releaseAgentLocalFootprint({ agentUserId: id, identityRemoved: true, env }),
+            removeBoundSession: permanentlyDeleteAgentSession,
+          });
+        },
+        archiveSession: async (projectId, sessionId) => { await archiveSession(projectId, sessionId); },
+        wipeHome, resetLocalState,
+      });
+      expect(wipeHome).toHaveBeenCalledOnce();
+      expect(resetLocalState).toHaveBeenCalledOnce();
+      expect(deletedIdentities).toEqual(deleteStarted ? ['child-id', 'assistant-id'] : ['assistant-id']);
+      const history = await listSessionHistory({ source: 'gugu', status: 'archived' });
+      expect(history.rows.map(row => row.gugu?.sessionId)).toEqual(deleteStarted ? [] : ['started-task']);
+      await expect(restoreSession('p1', 'assistant-task')).rejects.toThrow('Session not found');
+      if (deleteStarted) {
+        await expect(restoreSession('p1', 'started-task')).rejects.toThrow('Session not found');
+        expect(await listAgents(env)).toEqual([]);
+      } else {
+        expect((await listAgents(env)).map(agent => agent.gugu_user_id)).toEqual(['child-id']);
+        await expect(restoreSession('p1', 'started-task')).resolves.toMatchObject({ id: 'started-task', archivedAt: null });
+      }
+    } finally { await rm(home, { recursive: true, force: true }); }
   });
 
   it('把这条会话放回列表', async () => {

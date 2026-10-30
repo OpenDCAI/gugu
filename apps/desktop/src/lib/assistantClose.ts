@@ -6,11 +6,11 @@
 // 顺序是硬的:
 //   1. 定时任务先撤 —— 在删任何东西之前。正好有一条在启动(automation_runs_active)= 整个停下,让人稍等再关;
 //      ❌ 先删它再撤定时任务:撤不掉的那几条会照点往一个已经不在的会话里投。
-//   2. 它开过的任务走现有归档;勾了永久删除时先删这些任务的身份。
+//   2. 它开过的任务走现有归档;勾了永久删除时删身份,由同一删除入口清掉绑定任务。
 //   3. 删它自己的身份(同一个「删除 agent」:撤掉正在跑的那一轮、放掉本机的登记;服务端把和它的私聊收起来)。
-//   4. 收起它自己的会话(停掉进程)。
-//   5. 清掉它在这台电脑上的家(主进程算路径)。
-//   6. 清掉这台电脑上记着的开通进度、「自定义」卡、没走完的开通记录、搬家记录 —— 下次进来就是「认识咕咕」
+//   身份删除已经停掉并删除它自己的任务,不能再归档一次。
+//   4. 清掉它在这台电脑上的家(主进程算路径)。
+//   5. 清掉这台电脑上记着的开通进度、「自定义」卡、没走完的开通记录、搬家记录 —— 下次进来就是「认识咕咕」
 //      (第 3 步一过就一定做,后面哪步没成也做)。
 // 任何一步失败都如实报出来(第几步、为什么进日志),❌ 吞掉接着走、❌ 报「关好了」。
 
@@ -37,7 +37,7 @@ export type LocalCloseDeps = {
   listSessions: () => Promise<readonly CloseSession[]>
   listAutomations: () => Promise<readonly { id: string; agentSessionId?: string | null }[]>
   deleteAutomation: (id: string) => Promise<void>
-  /** 同一个「删除 agent」(删身份 + 放掉本机登记)。 */
+  /** 同一个「删除 agent」:删身份、放掉本机登记并永久删除绑定任务,之后不能再归档它。 */
   removeAgent: (agentUserId: string) => Promise<void>
   /** 收起一条会话(停掉它的进程)。 */
   archiveSession: (projectId: string, sessionId: string) => Promise<void>
@@ -45,7 +45,7 @@ export type LocalCloseDeps = {
   resetLocalState: () => void
 }
 
-export type AssistantCloseStep = 'check' | 'schedules' | 'started' | 'identity' | 'session' | 'home'
+export type AssistantCloseStep = 'check' | 'schedules' | 'started' | 'identity' | 'home'
 
 export class AssistantCloseError extends Error {
   constructor(
@@ -94,16 +94,14 @@ export async function closeLocalAssistant(
     for (const session of started) {
       if (input.deleteStarted && session.agent?.userId && session.agent.userId !== input.assistantId) {
         await deps.removeAgent(session.agent.userId)
+      } else {
+        await deps.archiveSession(session.projectId, session.conversationId)
       }
-      await deps.archiveSession(session.projectId, session.conversationId)
     }
   })
   await step('identity', () => deps.removeAgent(input.assistantId))
   // 它已经删掉了:后面哪一步没成都照实报,但这台电脑上记着的开通进度一律清掉 —— 咕咕那一格要回到「认识咕咕」,❌ 停在半截的步骤上。
   try {
-    await step('session', async () => {
-      for (const session of plan.own) await deps.archiveSession(session.projectId, session.conversationId)
-    })
     await step('home', deps.wipeHome)
   } finally {
     deps.resetLocalState()

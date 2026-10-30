@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { app } from 'electron';
 import { db } from '@main/db/client';
@@ -192,6 +192,37 @@ export async function resolveSessionAttachmentPath(sessionId: string, target: st
 function insideRoot(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel !== '' && !rel.startsWith('..') && !rel.startsWith(sep) && rel !== path;
+}
+
+/**
+ * 删会话时清掉它拥有的那些文件。**必须在删会话行之前调**:要按行找文件。
+ *
+ * ⚠️ 行是被 FK cascade 连坐删的,**盘上的文件不会跟着走** —— 少了这一步,会话删干净了,
+ * 字节还留在 userData 里,而且再没有任何一行记录指向它们(连 GC 的线索都没了)。
+ *
+ * 两部分:
+ * - 按会话 id 起名的那个目录整个删掉:新建页先落盘、后登记,用户在发送前把某枚 chip 点掉的话,
+ *   那一件就只剩文件没有行;这个目录里只可能有我们自己拷的字节。
+ * - 每一行自己的 `stored_path`(只认附件根目录里的、`copy` 的):迁移前的附件住在按旧 id 起名的
+ *   目录里,只有行知道它们是谁的。删完把空了的父目录也收掉。`reference` 指着用户自己盘上的文件,
+ *   从来不碰。
+ */
+export async function deleteSessionAttachmentFiles(
+  sessionId: string,
+  userDataDir?: string
+): Promise<void> {
+  const root = sessionAttachmentsRoot(userDataDir);
+  await rm(sessionAttachmentDirectory(sessionId, userDataDir), { recursive: true, force: true });
+  const rows = await db
+    .select({ storedPath: sessionAttachments.storedPath })
+    .from(sessionAttachments)
+    .where(and(eq(sessionAttachments.sessionId, sessionId), eq(sessionAttachments.origin, 'copy')));
+  for (const { storedPath } of rows) {
+    if (!insideRoot(root, storedPath)) continue;
+    await rm(storedPath, { force: true });
+    // 还有别人的文件就留着(ENOTEMPTY);已经没了也不要紧。
+    await rmdir(dirname(storedPath)).catch(() => undefined);
+  }
 }
 
 /**

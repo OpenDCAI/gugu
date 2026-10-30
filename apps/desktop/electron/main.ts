@@ -1088,7 +1088,7 @@ async function revokeAgentCards(agentUserId: string): Promise<void> {
 /**
  * 设备 runtime 删掉了名册上的一行(主账号与附加账号的宿主同用这一个)。
  * `owner-change`:换账号时归属未知的老行,连会话一起拆(原样)。
- * `cloud-gone`:身份已永久删除,任务历史一起删除;自动归档不经过这里。
+ * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:云端明确 removed,才删除任务历史。
  */
 async function onLocalAgentRosterRemoved(
   agent: { gugu_user_id: string | null; cache?: Record<string, unknown> | null },
@@ -1096,11 +1096,11 @@ async function onLocalAgentRosterRemoved(
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
-  if (reason === 'cloud-gone') {
+  if (reason === 'cloud-gone' || reason === 'cloud-removed') {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
     await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
-    if (sessionId) await removeDeletedAgentTask(sessionId)
+    if (reason === 'cloud-removed' && sessionId) await removeDeletedAgentTask(sessionId)
     return
   }
   unregisterSessionpageDeliveryOwners(agentUserId)

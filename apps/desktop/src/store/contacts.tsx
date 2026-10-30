@@ -20,8 +20,6 @@ import { recordContactsRender } from '../lib/perfCounters'
 import { isMyAssistant } from '../lib/myAssistant'
 import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
 import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
-import { notify } from '../lib/notices'
-import { i18n } from '../i18n'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
 type RevisionRefreshOptions = { throwOnError?: boolean }
@@ -439,7 +437,6 @@ export function ContactsProvider({ children, active = true }: { children: React.
     async (agentId: string) => {
       await contactsService.removeOwnedAgent(agentId)
       // The identity RPC is the deletion receipt. Local teardown/refresh cannot undo it.
-      notify({ title: i18n.t('toast.deletedAgent', { ns: 'contacts' }), tier: 'success' })
       try {
         await platform.releaseOwnedAgentLocalFootprint?.(agentId)
       } catch (error) {

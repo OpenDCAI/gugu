@@ -10,6 +10,7 @@ import { moveJournalStore } from '@renderer/features/assistant/assistant-move-wi
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { cn } from '../../lib/cn'
+import { notify } from '../../lib/notices'
 import { listDevicesOnceIdentified } from '../../lib/listDevicesOnceIdentified'
 import { wakeCloudComputerUntilOnline } from '@gugu/core/cloud/cloudComputer'
 import { rendererCloudComputerClient } from '../../lib/cloudComputer'
@@ -168,6 +169,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
     setFailure(null)
     try {
       await closeLocalAssistant({ assistantId, deleteStarted }, plan, deps)
+      notify({ title: t('closeDialog.closed'), tier: 'success' })
       onClose()
     } catch (error) {
       const known = error instanceof AssistantCloseError ? error : new AssistantCloseError('home', 'failed', error)

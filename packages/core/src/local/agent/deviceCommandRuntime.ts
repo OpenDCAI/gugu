@@ -156,9 +156,9 @@ export interface AgentRuntimeStateReport {
 
 /**
  * 名册上的一行为什么被删:`owner-change` = 换了登录账号,没记 owner 的老行归属未知、整个拆掉;
- * `cloud-gone` = 云端已经没有这个 agent(#2151 的 gone 守卫,#6938)。
+ * `cloud-gone` = 不可写(不存在或非本账号);`cloud-removed` = presence 明确 account_status='removed'。
  */
-export type AgentRosterRemovalReason = 'owner-change' | 'cloud-gone'
+export type AgentRosterRemovalReason = 'owner-change' | 'cloud-gone' | 'cloud-removed'
 
 export interface ClearLocalAgentRuntimesOptions {
   env?: NodeJS.ProcessEnv

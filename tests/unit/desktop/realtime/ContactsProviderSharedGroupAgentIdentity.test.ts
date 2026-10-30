@@ -167,7 +167,7 @@ describe('agent rename canonical publication #6021', () => {
 vi.mock('../../../../apps/desktop/src/lib/groupInvitations', () => ({ listGroupInvitations: vi.fn(async () => []) }))
 
 describe('confirmed Agent deletion has one identity receipt', () => {
-  it('announces success before waiting for local cleanup', async () => {
+  it('returns the identity receipt without emitting per-agent toasts during a compound user action', async () => {
     let finishCleanup!: () => void
     releaseLocal.mockImplementation(() => new Promise<void>(resolve => { finishCleanup = resolve }))
     const harness = await renderProvider()
@@ -175,9 +175,11 @@ describe('confirmed Agent deletion has one identity receipt', () => {
       let removal!: Promise<void>
       await act(async () => { removal = store!.removeOwnedAgent('agent-1'); await Promise.resolve() })
       expect(contactsServiceMock.removeOwnedAgent).toHaveBeenCalledExactlyOnceWith('agent-1')
-      expect(notify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tier: 'success' }))
+      expect(notify).not.toHaveBeenCalled()
       await act(async () => { finishCleanup(); await removal })
-      expect(notify).toHaveBeenCalledOnce()
+      releaseLocal.mockResolvedValue(undefined)
+      await act(async () => { await store!.removeOwnedAgent('agent-2') })
+      expect(notify).not.toHaveBeenCalled()
     } finally { harness.cleanup() }
   })
   it('does not report a rejected identity deletion as success or begin cleanup', async () => {
@@ -195,7 +197,7 @@ describe('confirmed Agent deletion has one identity receipt', () => {
       if (stage === 'cleanup') releaseLocal.mockRejectedValue(new Error('cannot cancel its in-flight turn'))
       else refreshChatsMock.mockRejectedValue(new Error('refresh unavailable'))
       await act(async () => { await expect(store!.removeOwnedAgent('agent-1')).resolves.toBeUndefined() })
-      expect(notify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tier: 'success' }))
+      expect(notify).not.toHaveBeenCalled()
     } finally { harness.cleanup() }
   })
 })

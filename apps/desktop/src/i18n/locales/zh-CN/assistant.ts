@@ -937,6 +937,7 @@ export default {
     "unreadable": "读不到它开过哪些会话，现在关不了，稍后再试。",
     "confirm": "关闭并清除",
     "closing": "正在关闭…",
+    "closed": "已关闭咕咕",
     "cancel": "取消",
     "scheduleStarting": "它的一个定时任务正在启动，稍等一下再关。什么都还没删。",
     "failedAt": {
@@ -944,7 +945,6 @@ export default {
       "schedules": "撤它的定时任务时出了问题，什么都还没删。请再试一次。",
       "started": "删它开过的会话时出了问题，它本身还在。请再试一次。",
       "identity": "删它本身时出了问题，它还在。请再试一次。",
-      "session": "它已经删掉了，但没能停下它自己的会话。",
       "home": "它已经删掉了，但它的家没清干净；开通新的一位时会再清一次。"
     },
     "elsewhereTitle": "要在它住的电脑上关闭",
