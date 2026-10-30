@@ -600,3 +600,103 @@ it.each([
     expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
   } finally { view.dispose(); }
 });
+function assertVisiblePrefix(element: HTMLElement, container: HTMLElement) {
+  const node = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+  expect(node, 'text begins in a real painted node').not.toBeNull();
+  const range = document.createRange(); range.setStart(node!, 0); range.setEnd(node!, 1);
+  const glyph = range.getBoundingClientRect(); let left = container.getBoundingClientRect().left;
+  let right = container.getBoundingClientRect().right, top = container.getBoundingClientRect().top, bottom = container.getBoundingClientRect().bottom;
+  for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) {
+    const css = getComputedStyle(parent), box = parent.getBoundingClientRect();
+    if (/(hidden|clip|auto|scroll)/.test(css.overflowX)) { left = Math.max(left, box.left); right = Math.min(right, box.right); }
+    if (/(hidden|clip|auto|scroll)/.test(css.overflowY)) { top = Math.max(top, box.top); bottom = Math.min(bottom, box.bottom); }
+    if (parent === container) break;
+  }
+  expect(glyph.left, 'first glyph is not clipped at the left edge').toBeGreaterThanOrEqual(left - 1);
+  expect(glyph.right, 'first glyph is not clipped at the right edge').toBeLessThanOrEqual(right + 1);
+  expect(glyph.top, 'first glyph is not clipped at the top').toBeGreaterThanOrEqual(top - 1);
+  expect(glyph.bottom, 'first glyph is not clipped at the bottom').toBeLessThanOrEqual(bottom + 1);
+  return { prefix: node!.textContent!.slice(0, 6), glyph: { left: glyph.left, right: glyph.right }, visible: { left, right } };
+}
+it.each([188, 220, 320, 390, 600])('shared name and process prefixes stay visible at width %s', async width => {
+  for (const role of ['assistant', 'user'] as const) {
+    const raw: ChatMessage = { kind: 'message', id: `prefix-${role}`, role, text: role === 'user'
+      ? '<gugu_delivery route="chat" from="这是一位名字非常长的另一位智能体ClaudeXYZ" from_id="user:peer"><![CDATA[hello]]></gugu_delivery>' : '',
+      sentReplyTo: 'original', conversationReply: { itemId: 'original', text: 'Original' },
+      ...(role === 'assistant' ? { conversationPart: 'head', conversationProcess: { id: 'p', startedAt: 0, endedAt: 75000, steps: 10 } } : {}) };
+    const view = await mount(raw, width, { conversationAgentName: () => '这是一位名字非常长的智能体ClaudeXYZ' });
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, header = row.firstElementChild as HTMLElement;
+      const name = header.querySelector<HTMLElement>('[title]')!;
+      assertVisiblePrefix(name, header);
+      const arrow = header.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!.getBoundingClientRect();
+      const process = header.querySelector<HTMLElement>('[data-conversation-process]');
+      if (process) {
+        const box = process.getBoundingClientRect();
+        expect(Math.abs((arrow.top + arrow.bottom) / 2 - (box.top + box.bottom) / 2), 'arrow shares the process band').toBeLessThanOrEqual(1);
+        assertVisiblePrefix(process.querySelector('span')!, header);
+      }
+    } finally { view.dispose(); }
+  }
+});
+it.each([188, 220, 320, 390, 600])('destination prefix stays visible and capped at width %s', async width => {
+  const view = await mount({ kind: 'message', id: 'destination-prefix', role: 'assistant', text: 'Done', conversationPart: 'body',
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '非常长的接收群名字'.repeat(20) } }, width);
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, target = row.querySelector<HTMLElement>('[data-slot="sent-to"]')!;
+    assertVisiblePrefix(target, row);
+    expect(target.getBoundingClientRect().width).toBeLessThanOrEqual(180);
+    expect(getComputedStyle(target).textOverflow).toBe('ellipsis');
+  } finally { view.dispose(); }
+});
+
+it.each([188, 220, 320, 600])('keeps a repeated speaker reference in the existing time footer at width %s', async width => {
+  for (const source of ['delivery', 'tool', 'native-input'] as const) {
+    const reveal = vi.fn(), target = source === 'native-input' ? 'gugu-session://11111111-1111-4111-8111-111111111111?message=original' : 'original';
+    const raw: ChatMessage = { kind: 'message', id: `repeat-${source}`, role: source === 'tool' ? 'assistant' : 'user', at: 1700000000000,
+      text: source === 'delivery' ? '<gugu_delivery route="chat" from="Peer" from_id="user:peer"><![CDATA[follow-up]]></gugu_delivery>' : 'follow-up',
+      conversationPreviousSpeaker: source === 'delivery' ? 'user:peer' : source === 'tool' ? '$agent' : '$owner',
+      ...(source === 'tool' ? { sentReplyTo: target } : {}), conversationReply: { itemId: target, text: 'Exact original', from: 'Other' } };
+    const view = await mount(raw, width, { onConversationReply: reveal });
+    const plain = await mount({ ...raw, conversationReply: undefined, sentReplyTo: undefined }, width);
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!, footer = row.querySelector<HTMLElement>('[data-user-message-actions]')!;
+      const reference = footer.querySelector<HTMLElement>('[data-slot="conversation-reference"]')!, arrow = reference.querySelector<HTMLButtonElement>('button')!;
+      expect(row.querySelectorAll('[data-slot="conversation-reference"]')).toHaveLength(1);
+      expect(reference).not.toBeNull(); expect(arrow.textContent).toBe('');
+      expect(getComputedStyle(reference).opacity).toBe('1'); expect(getComputedStyle(reference).pointerEvents).toBe('auto');
+      const box = arrow.getBoundingClientRect(), time = footer.querySelector('time')!.getBoundingClientRect();
+      expect(box.top).toBeGreaterThanOrEqual(footer.getBoundingClientRect().top - 1);
+      expect(box.bottom).toBeLessThanOrEqual(footer.getBoundingClientRect().bottom + 1);
+      expect(Math.abs((box.top + box.bottom) / 2 - (time.top + time.bottom) / 2)).toBeLessThanOrEqual(1);
+      expect(row.getBoundingClientRect().height).toBe(plain.host.firstElementChild!.getBoundingClientRect().height);
+      expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      expect(row.textContent).not.toContain('Exact original');
+      row.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')).toBeNull();
+      arrow.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toBe('Other：Exact original');
+      arrow.click(); expect(reveal).toHaveBeenCalledExactlyOnceWith(target);
+      reference.dispatchEvent(new PointerEvent('pointerleave'));
+      arrow.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })); arrow.click();
+      expect(reveal).toHaveBeenCalledTimes(1);
+      document.querySelector<HTMLButtonElement>('[data-slot="conversation-quote-preview"] button')!.click();
+      expect(reveal).toHaveBeenCalledTimes(2); expect(reveal).toHaveBeenLastCalledWith(target);
+    } finally { view.dispose(); plain.dispose(); }
+  }
+});
+it('mounts one host source control and cleans it when the reference moves from name to footer', async () => {
+  const cleanup = vi.fn(), mountSource = vi.fn(() => cleanup);
+  const raw: ChatMessage = { kind: 'message', id: 'host-reference', role: 'assistant', text: 'follow-up', at: 1700000000000,
+    sentReplyTo: 'original', conversationReply: { itemId: 'original', text: 'Original', from: 'Other' } };
+  const view = await mount(raw, 320, { onTooltipMount: mountSource, onConversationReply: () => {} });
+  try {
+    expect(mountSource).toHaveBeenCalledTimes(1);
+    view.update({ ...raw, conversationPreviousSpeaker: '$agent' });
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(cleanup).toHaveBeenCalledTimes(1); expect(mountSource).toHaveBeenCalledTimes(2);
+    expect(view.host.querySelectorAll('[data-slot="conversation-reference"]')).toHaveLength(1);
+    expect(view.host.querySelector('[data-user-message-actions] [data-slot="conversation-reference"]')).not.toBeNull();
+  } finally { view.dispose(); }
+  expect(cleanup).toHaveBeenCalledTimes(2);
+});

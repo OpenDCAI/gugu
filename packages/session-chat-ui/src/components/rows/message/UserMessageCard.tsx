@@ -11,7 +11,7 @@ import { blockPlainText } from '@session-chat/core/markdown/plain-text';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { vars as themeVars } from '@session-chat/styles/theme.css';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js';
 import type { ChatAttachment, ChatMessage } from '@session-chat/model';
 import {
   attachChipHeight,
@@ -49,7 +49,7 @@ import {
   userMessageExpandRow,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null; footerReference?: () => JSX.Element }) {
   const translate = useChatTranslator();
   const commands = useCommands();
   const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
@@ -275,8 +275,9 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
       </div>
     </Show>
-    <Show when={!props.conversation || hasConversationActions(props.data)}>
+    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
+      reference={props.footerReference}
       onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage && commands().canQuoteMessage?.(props.data) !== false ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>

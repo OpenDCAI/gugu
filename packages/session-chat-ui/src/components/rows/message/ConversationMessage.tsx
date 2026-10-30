@@ -83,11 +83,14 @@ function headerLayout(item: ChatMessage, ctx: MeasureCtx) {
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
   if (item.conversationNarration) return conversationNarrationHeight(item, ctx);
-  if (item.conversationPart === 'head') return headerLayout(item, ctx).height + backgroundHeight(item, ctx);
+  if (item.conversationPart === 'head') {
+    const head = headerLayout(item, ctx);
+    return head.height + backgroundHeight(item, ctx) + (head.referenceInFooter ? measureUserMessage(item, conversationContext(ctx, item), conversationVars(item, vars)) : 0);
+  }
   const header = item.conversationPart === 'body' ? 0 : headerLayout(item, ctx).height;
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
-  const actions = hasConversationActions(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
+  const actions = hasConversationActions(item) || headerLayout(item, ctx).referenceInFooter || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
   const bodyCtx = conversationContext(ctx, item);
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
@@ -132,14 +135,15 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     return messageSenderTarget(facts()) ?? (!facts() && self()?.userId ? { kind: 'sender', userId: self()!.userId } : null);
   };
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => replySenderLabel(quote, measuredCtx());
+  const reference = () => <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
+    text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}：` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>;
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
     <Show when={props.data.conversationPart !== 'body' && head().height > 0}>
     <div class={conversationHeader} style={{ height: `${head().height}px` }}>
       <Show when={head().name}>{label => <SenderName class={conversationName} name={label().text} target={senderTarget()} style={{ width: `${head().nameWidth}px` }} />}</Show>
-      <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
-        text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}：` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>
+      {reference()}
       <Show when={messageQuote(props.data) && subject() && props.data.conversationProcess}>
         <span class={conversationReferenceSeparator} data-slot="conversation-reference-separator" aria-hidden="true">·</span>
       </Show>
@@ -154,8 +158,9 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     <Show when={subject() && props.data.conversationProcess}>
       <ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} />
     </Show>
-    <Show when={props.data.conversationPart !== 'head'}>
-      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation sender={name} />
+    <Show when={props.data.conversationPart !== 'head' || head().referenceInFooter}>
+      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation sender={name}
+        footerReference={head().referenceInFooter ? reference : undefined} />
     </Show>
   </div>;
 }

@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { Show } from 'solid-js';
+import { Show, type JSX } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconCheck, IconCopy, IconEdit } from '@session-chat/components/primitives/icons';
 import { createClipboard } from '@session-chat/components/primitives/use-clipboard';
@@ -15,6 +15,7 @@ export function UserMessageActions(props: {
   readOnly?: boolean;
   vars: Pick<MessageVars, 'footerH'>;
   onQuote?: () => void;
+  reference?: () => JSX.Element;
 }) {
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -25,7 +26,7 @@ export function UserMessageActions(props: {
   };
 
   return (
-    <div data-user-message-actions={props.itemId} class={userMessageActions}
+    <div data-user-message-actions={props.itemId} data-conversation-reference-footer={props.reference ? 'true' : undefined} class={userMessageActions}
       style={{ height: `${userMessageActionsHeight(props.vars)}px` }}>
       <Show when={props.onQuote}>
         <button type="button" class={userMessageActionButton} aria-label={translate('transcript.quoteMessage')}
@@ -38,6 +39,7 @@ export function UserMessageActions(props: {
           {`${date().getHours()}:${String(date().getMinutes()).padStart(2, '0')}`}
         </time>}
       </Show>
+      {props.reference?.()}
       {/* Virtual rows are reused: copy feedback belongs to this message ID. */}
       <Show when={props.itemId} keyed>
         {(itemId) => {
