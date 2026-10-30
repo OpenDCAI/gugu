@@ -61,6 +61,7 @@ import { createFrameScheduler } from './components/engine/frame-scheduler';
 import { createTweenRegistry } from './components/engine/tween-registry';
 import { SEGMENTERS, UNIT_REGISTRY } from './components/engine/unit-registry';
 import { UnitRow } from './components/engine/UnitRow';
+import { latestConversationBubbleId } from './components/rows/message/conversation-body';
 import type { ChatCaches } from './core/caches';
 import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
@@ -725,6 +726,9 @@ export function ChatRoot(props: ChatRootProps) {
     return makeUnitsView(committedUnitsArr, activeUnits());
   });
 
+  const latestConversationMessageId = createMemo(() => latestConversationBubbleId(units(), { theme: theme() }));
+  const pendingBubbleMeasures = new Set<string>();
+
   /**
    * 「跑完后的最后一条回复」—— 整个转录里唯一带页脚(复制按钮)的那条(#4981)。
    *
@@ -816,6 +820,7 @@ export function ChatRoot(props: ChatRootProps) {
         expandedId: expandedUserId(),
         editingMessage: editingMessage(),
         finalReplyId: finalReplyId(),
+        latestConversationMessageId: latestConversationMessageId(),
         background: backgroundAttachment(),
       };
       // lastWidth > 0 iff onCleanup wrote a snapshot on a prior dispose.
@@ -1293,9 +1298,44 @@ export function ChatRoot(props: ChatRootProps) {
     props.onAtBottomChange?.(value);
   };
 
+  const measureUnitAt = (ui: number): void => {
+    const u = units().at(ui);
+    if (!u) return;
+    const unitDef = UNIT_REGISTRY[u.kind];
+    if (!unitDef) return;
+    const c = u.chrome;
+    const unitInsetX = c?.insetX ?? 0;
+    const ctx: MeasureCtx = {
+      theme: theme(),
+      width: Math.max(0, containerWidth() - 2 * unitInsetX),
+      isCollapsed: (id: string) => viewState().isCollapsed(id),
+      expanded: (id: string) => viewState().isCollapsed(id),
+      caches: caches(),
+      measureEpoch: measureEpoch(),
+      expandedId: expandedUserId(),
+      editingMessage: editingMessage(),
+      finalReplyId: finalReplyId(),
+      latestConversationMessageId: latestConversationMessageId(),
+      background: backgroundAttachment(),
+    };
+    const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
+    const h = unitReservedHeight(u, contentH);
+    const delta = virt.setSize(ui, h);
+    if (delta !== 0) onHeightChanged(ui, delta);
+  };
+
+  createEffect(on(latestConversationMessageId, (next, previous) => {
+    if (previous && previous !== next) pendingBubbleMeasures.add(previous.replace(/:batch-\d+$/, ''));
+  }));
+
   const readPhase = () => {
     const el = scrollEl;
     if (!el) return;
+    for (const id of pendingBubbleMeasures) {
+      const index = unitIndexOf(id);
+      if (index >= 0) measureUnitAt(index);
+    }
+    pendingBubbleMeasures.clear();
     // Settle size changes that landed between frames against the previous
     // intent before reading intent from virt (a translation: userDelta survives).
     applyAboveCompensation();
@@ -1505,6 +1545,7 @@ export function ChatRoot(props: ChatRootProps) {
     expandedUserId();
     editingMessage();
     finalReplyId();
+    latestConversationMessageId();
     backgroundAttachment();
     needsProject = true;
     scheduler.request();
@@ -1544,38 +1585,11 @@ export function ChatRoot(props: ChatRootProps) {
       prefetchEnd = ahead;
     }
 
-    const w = containerWidth();
-    const t = theme();
-
     let measured = 0;
 
-    const prefetchUnit = (ui: number): void => {
-      const u = us.at(ui);
-      if (!u) return;
-      const unitDef = UNIT_REGISTRY[u.kind];
-      if (!unitDef) return;
-      const c = u.chrome;
-      const unitInsetX = c?.insetX ?? 0;
-      const ctx: MeasureCtx = {
-        theme: t,
-        width: Math.max(0, w - 2 * unitInsetX),
-        isCollapsed: (id: string) => viewState().isCollapsed(id),
-        expanded: (id: string) => viewState().isCollapsed(id),
-        caches: caches(),
-        measureEpoch: measureEpoch(),
-        expandedId: expandedUserId(),
-        editingMessage: editingMessage(),
-        finalReplyId: finalReplyId(),
-        background: backgroundAttachment(),
-      };
-      const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
-      const h = unitReservedHeight(u, contentH);
-      const delta = virt.setSize(ui, h);
-      if (delta !== 0) onHeightChanged(ui, delta);
-    };
 
     while (prefetchStart <= prefetchEnd && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-      prefetchUnit(prefetchStart);
+      measureUnitAt(prefetchStart);
       measured++;
       prefetchStart++;
     }
@@ -1583,7 +1597,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (prefetchStart > prefetchEnd) {
       let backCursor = visStart - 1;
       while (backCursor >= behind && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-        prefetchUnit(backCursor);
+        measureUnitAt(backCursor);
         measured++;
         backCursor--;
       }
@@ -1878,12 +1892,20 @@ export function ChatRoot(props: ChatRootProps) {
       // 对话布局里折着的长消息,气泡下面那一行的「展开全文」:和点气泡本身一样展开。
       const expand = t.closest('[data-expand-user-card]') as HTMLElement | null;
       if (expand?.dataset.expandUserCard) {
+        if (expand.dataset.conversationBubbleKey) {
+          viewState().setCollapsed(expand.dataset.conversationBubbleKey, true);
+          return;
+        }
         setExpandedUserId(expand.dataset.expandUserCard);
         return;
       }
 
       const userCard = t.closest('[data-user-card]') as HTMLElement | null;
       if (userCard?.dataset.userCard) {
+        if (userCard.dataset.conversationBubbleKey) {
+          if (userCard.dataset.userCardExpandable === 'true') viewState().setCollapsed(userCard.dataset.conversationBubbleKey, true);
+          return;
+        }
         const id = userCard.dataset.userCard;
         if (expandedUserId() !== id) {
           setExpandedUserId(id);
@@ -2076,6 +2098,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 expandedId={expandedUserId()}
                                 editingMessage={editingMessage()}
                                 finalReplyId={finalReplyId()}
+                                latestConversationMessageId={latestConversationMessageId()}
                                 background={backgroundAttachment()}
                               />
                               <Show when={isPinAnchor()}>

@@ -29,7 +29,7 @@ import { useChatTranslator } from '@session-chat/localization';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { agentSendLabel } from '@session-chat/state/agent-send';
 import { UserMessageActions } from './UserMessageActions';
-import { CONVERSATION_EXPAND_H, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -158,6 +158,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const maxH = () => (isExpanded() ? vars().expandedMaxH : vars().collapsedMaxH);
   const clampedH = () => Math.min(fullContentH(), maxH());
   const isOverflowing = () => fullContentH() > maxH();
+  const canCollapse = () => props.conversation && mCtx()?.expanded(conversationBubbleKey(props.data))
+    && mCtx()?.latestConversationMessageId !== props.data.id && fullContentH() > vars().collapsedMaxH;
 
   // Track the animated clip edge during expand/collapse tween so the bottom
   // border and rounded corners are never hidden by the UnitRow overflow clip.
@@ -212,6 +214,8 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     <div
       ref={setMenuRoot}
       data-user-card={props.data.id}
+      data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
+      data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
       data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
@@ -255,7 +259,14 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
     <Show when={props.conversation && isOverflowing() && !isExpanded()}>
       <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
-        <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}>{translate('transcript.showFullText')}</button>
+        <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}
+          data-conversation-bubble-key={conversationBubbleKey(props.data)}>{translate('transcript.showFullText')}</button>
+      </div>
+    </Show>
+    <Show when={canCollapse()}>
+      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
+        <button type="button" class={userMessageExpand} data-collapse-id={conversationBubbleKey(props.data)}
+          data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
       </div>
     </Show>
     <Show when={!props.conversation || hasConversationActions(props.data)}>

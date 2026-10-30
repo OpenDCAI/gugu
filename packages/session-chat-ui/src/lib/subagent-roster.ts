@@ -1,4 +1,6 @@
 import type { ToolNode, TranscriptItem, TranscriptTurn } from './../model';
+import { toolRunCategory, type ToolRunCategory } from '@session-chat/state/tool-run';
+import { toolStepDetail } from './tool-step-detail';
 
 /**
  * 还没回话的子智能体花名册(#4981)。
@@ -77,6 +79,10 @@ export type SubagentCall = {
   toolCallId: string;
   /** 供应商给这次调用起的名字。拿不到就是空串 —— ❌ 不编。 */
   title: string;
+  /** The observed tool kind, localized when rendered rather than parsed from its title. */
+  category: ToolRunCategory;
+  /** Full real arguments; the compact row only clips their visual presentation. */
+  detail: string;
   status: ToolNode['status'];
   seq: number;
 };
@@ -90,12 +96,14 @@ function collectCalls(
     // 正好该被这几个 `in` 挡在外面,所以这里不是为了迁就类型。
     const parent = 'parentToolCallId' in item ? item.parentToolCallId : undefined;
     const callId = 'toolCallId' in item ? item.toolCallId : undefined;
-    if (parent && callId) {
+    if (parent && callId && item.kind !== 'tool-group') {
       const byId = out.get(parent) ?? new Map<string, SubagentCall>();
       // 同一次调用会来好几条事件 ⇒ 按它自己的 toolCallId 去重,后到的覆盖先到的。
       byId.set(callId, {
         toolCallId: callId,
         title: ('title' in item ? item.title : undefined) ?? '',
+        category: toolRunCategory(item, true) ?? 'tool',
+        detail: toolStepDetail(item) ?? item.title,
         status: item.status,
         seq: item.seq,
       });

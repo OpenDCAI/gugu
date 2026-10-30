@@ -1,4 +1,31 @@
 import type { ChatMessage } from '@session-chat/model';
+import type { MeasureCtx } from '@session-chat/core/define';
+import type { UnitsView } from '@session-chat/state/flatten';
+
+export function isConversationMessage(item: ChatMessage, ctx: Pick<MeasureCtx, 'theme'>): boolean {
+  if (!ctx.theme.layout?.agentConversation || item.hookNotice || item.questionAnswer || item.role === 'thought') return false;
+  return !item.guguDelivery || item.guguDelivery.segments.every(segment => segment.facts?.route === 'chat' || segment.facts?.route === 'session-direct');
+}
+
+export function latestConversationBubbleId(units: UnitsView, ctx: Pick<MeasureCtx, 'theme'>): string | null {
+  for (let i = units.length - 1; i >= 0; i--) {
+    const unit = units.at(i);
+    if (unit?.kind !== 'message') continue;
+    const item = unit.data as ChatMessage;
+    if (!isConversationMessage(item, ctx) || item.conversationPart === 'head'
+      || item.conversationNarration || !hasConversationBody(item)) continue;
+    const count = item.guguDelivery?.segments.length ?? 0;
+    return count > 1 ? `${item.id}:batch-${count - 1}` : item.id;
+  }
+  return null;
+}
+
+/** Persist the reader's choice by actual message identity, not the mutable live/stored row prefix. */
+export function conversationBubbleKey(item: ChatMessage): string {
+  const messageId = item.guguDelivery?.segments.length === 1 ? item.guguDelivery.segments[0]?.facts?.messageId : undefined;
+  const batch = /:batch-\d+$/.exec(item.id)?.[0] ?? '';
+  return `conversation-bubble:${messageId ?? (item.sourceItemId ? item.sourceItemId + batch : item.id)}`;
+}
 
 /** 对话布局里名字那一行、过程行的高(ConversationMessage 与只有过程的那一行 turn-process 共用,两边一样高才没有空白)。 */
 export const CONVERSATION_HEADER_H = 24;
