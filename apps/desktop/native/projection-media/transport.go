@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/pion/interceptor"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -40,6 +41,7 @@ type Transport struct {
 	open         chan struct{}
 	low          chan struct{}
 	incoming     chan []byte
+	keyframes    chan struct{}
 	once         sync.Once
 	opened       sync.Once
 }
@@ -71,7 +73,7 @@ func New(config Config) (*Transport, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &Transport{peer: peer, done: make(chan struct{}), closed: make(chan struct{}), open: make(chan struct{}), low: make(chan struct{}, 1), incoming: make(chan []byte, 64)}
+	t := &Transport{peer: peer, done: make(chan struct{}), closed: make(chan struct{}), open: make(chan struct{}), low: make(chan struct{}, 1), incoming: make(chan []byte, 64), keyframes: make(chan struct{}, 1)}
 	t.selectedPair = func() (*webrtc.ICECandidatePair, error) {
 		if peer.SCTP() == nil || peer.SCTP().Transport() == nil {
 			return nil, errors.New("projection transport is not connected")
@@ -87,12 +89,21 @@ func New(config Config) (*Transport, error) {
 	if err != nil {
 		return fail(err)
 	}
-	// Drain RTCP so the default interceptors can process receiver reports and NACK feedback.
+	// Read authenticated RTCP through Pion, retaining default NACK handling.
+	// One pending request is enough; the service applies a timed recovery budget.
 	go func() {
-		buffer := make([]byte, 1500)
 		for {
-			if _, _, e := sender.Read(buffer); e != nil {
+			packets, _, err := sender.ReadRTCP()
+			if err != nil {
 				return
+			}
+			for _, packet := range packets {
+				if _, ok := packet.(*rtcp.PictureLossIndication); ok {
+					select {
+					case t.keyframes <- struct{}{}:
+					default:
+					}
+				}
 			}
 		}
 	}()
