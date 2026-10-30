@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
 import { readDeliveryEnvelope, recoverDeliveryEnvelopes, renderDeliveryEnvelope } from '../../../../packages/core/src/local/agent/deliveryEnvelope'
+import { hermesPromptMeta, indexHermesPrompts, originalHermesPrompt } from '../../../../packages/session-core/src/acp/hermes-prompt'
 
 // The Hermes bridge end to end over its two real protocols: ACP on stdio to the test (standing in for Gugu's
 // runtime), the serve gateway's JSON-RPC over a real WebSocket to a fake `hermes serve` that plays scripted turns.
@@ -262,17 +263,21 @@ describe('hermes serve bridge', () => {
     const bridge = startBridge(PLATFORM_ENV)
     await newSession(bridge)
     const envelope = renderDeliveryEnvelope({ route: 'chat', from: 'Probe', fromId: 'user:probe', messageId: 'msg:accepted-prefixed', chat: 'probe', at: 'test', content: 'Hello' })
-    await bridge.request('session/prompt', { sessionId: 'stored-1', prompt: [
+    const prompt = [
       { type: 'text', text: '<resource_changes>飞书已连接</resource_changes>' },
       { type: 'text', text: '<gugu_profile_review>Review profile</gugu_profile_review>' },
       { type: 'text', text: envelope },
-    ] })
+    ]
+    await bridge.request('session/prompt', { sessionId: 'stored-1', prompt })
     const native = String(bridge.rpcs('prompt.submit')[0].text)
     expect(native).toContain('<resource_changes>')
-    const received = readDeliveryEnvelope(native)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? []
+    const originals = indexHermesPrompts([{ kind: 'message', role: 'user', text: envelope, _meta: hermesPromptMeta(prompt) }])
+    const original = originalHermesPrompt(native, originals)!
+    expect(readDeliveryEnvelope(native)).toBeNull()
+    const received = readDeliveryEnvelope(original)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? []
     expect(received).toEqual(['msg:accepted-prefixed'])
     expect(recoverDeliveryEnvelopes(envelope, [], false, new Set(received))).toBeNull()
-    expect(recoverDeliveryEnvelopes(envelope, [native])).toBeNull()
+    expect(recoverDeliveryEnvelopes(envelope, [original])).toBeNull()
   })
 
   it('steering joins the running turn (one answer for the prompt); idle steering asks for a prompt', async () => {

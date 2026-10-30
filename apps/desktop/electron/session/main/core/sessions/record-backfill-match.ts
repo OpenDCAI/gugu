@@ -1,5 +1,5 @@
 import type { TranscriptTurn } from '@gugu/session-core/acp';
-import { stripNativePromptNotices } from '@gugu/core/local/agent/nativePromptNotices';
+import { indexHermesPrompts, originalHermesPrompt, type HermesPromptIndex } from '@gugu/session-core/acp/hermes-prompt';
 
 /**
  * 认「库里这一轮 = 记录里那一轮」靠什么,按记录的格式分:
@@ -38,16 +38,16 @@ export function turnIdentityKeys(turn: TranscriptTurn): Set<string> {
 
 const squeeze = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-/** 这一轮人说的完整原文,略去原生合并的前置提示并压掉空白。没有提问 = null。 */
-export function turnPrompt(turn: TranscriptTurn): string | null {
+/** 人说的完整原文;仅 Hermes 原生全文有宿主摘要凭据时还原当时正文,不按标签猜。 */
+export function turnPrompt(turn: TranscriptTurn, hermes?: HermesPromptIndex): string | null {
   const user = turn.items.find((item) => item.kind === 'message' && item.role === 'user');
-  const text = user && 'text' in user ? squeeze(stripNativePromptNotices(user.text)) : '';
+  const text = user && 'text' in user ? squeeze(hermes ? originalHermesPrompt(user.text, hermes) ?? user.text : user.text) : '';
   return text || null;
 }
 
 /** 问答成对的指纹:人说的那句 + agent 最后回的那句。只有一边(只调了工具、没说话)= null。 */
-export function turnFingerprint(turn: TranscriptTurn): string | null {
-  const prompt = turnPrompt(turn);
+export function turnFingerprint(turn: TranscriptTurn, hermes?: HermesPromptIndex): string | null {
+  const prompt = turnPrompt(turn, hermes);
   const replies = turn.items.filter((item) => item.kind === 'message' && item.role === 'assistant' && 'text' in item && item.text.trim());
   const reply = replies.at(-1);
   if (!prompt || !reply || !('text' in reply)) return null;
@@ -56,8 +56,8 @@ export function turnFingerprint(turn: TranscriptTurn): string | null {
 
 type Identity = { keys: Set<string>; fingerprint: string | null; prompt: string | null };
 
-const identify = (turn: TranscriptTurn): Identity =>
-  ({ keys: turnIdentityKeys(turn), fingerprint: turnFingerprint(turn), prompt: turnPrompt(turn) });
+const identify = (turn: TranscriptTurn, hermes?: HermesPromptIndex): Identity =>
+  ({ keys: turnIdentityKeys(turn), fingerprint: turnFingerprint(turn, hermes), prompt: turnPrompt(turn, hermes) });
 
 /** 拿来定位的认法:只认确定的身份 —— 编号,或问答成对的指纹。光凭提问原文不定位:「继续」会重复。 */
 function anchors(a: Identity, b: Identity, mode: RecordIdentity): boolean {
@@ -128,12 +128,15 @@ export function recordTurnsAfterStore(
   record: readonly TranscriptTurn[],
   storedNewestFirst: readonly TranscriptTurn[],
   identity: RecordIdentity = 'ids',
-  options: { hasOlderStoredTurns?: boolean } = {},
+  options: { hasOlderStoredTurns?: boolean; hermesPromptReceipts?: boolean } = {},
 ): TranscriptTurn[] | null {
   if (storedNewestFirst.length === 0) return [...record];
-  const stored = storedNewestFirst.map(identify);
+  const stored = storedNewestFirst.map((turn) => identify(turn));
   const mode: RecordIdentity = identity === 'ids' && stored.every((one) => one.keys.size === 0) ? 'content' : identity;
-  const seen = record.map(identify);
+  const hermes = options.hermesPromptReceipts ? indexHermesPrompts(storedNewestFirst.flatMap((turn) => turn.items)) : undefined;
+  if (hermes && record.some((turn) => turn.items.some((item) => item.kind === 'message' && item.role === 'user'
+    && originalHermesPrompt(item.text, hermes) === null))) return null;
+  const seen = record.map((turn) => identify(turn, hermes));
   if (mode === 'content') return contentTail(record, seen, stored, options.hasOlderStoredTurns ?? false);
   for (let newer = 0; newer < stored.length; newer += 1) {
     let at = -1;

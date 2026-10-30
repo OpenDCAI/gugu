@@ -30,7 +30,10 @@ export async function syncStoredHistoryFromRecord(sessionId: string): Promise<{ 
       const windows = identity === 'content' ? [...TAIL_WINDOWS, Number.MAX_SAFE_INTEGER] : TAIL_WINDOWS;
       for (const limit of windows) {
         const tail = await readStoredTailNow(sessionId, limit);
-        missing = recordTurnsAfterStore(record, tail, identity, { hasOlderStoredTurns: tail.length === limit });
+        missing = recordTurnsAfterStore(record, tail, identity, {
+          hasOlderStoredTurns: tail.length === limit,
+          hermesPromptReceipts: sessionRecordHarnessForProvider(row.provider) === 'hermes',
+        });
         if (missing !== null || tail.length < limit) break;
       }
       return missing;

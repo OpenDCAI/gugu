@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TranscriptTurn } from '@gugu/session-core/acp';
-import { recordIdentityFor, recordTurnsAfterStore, turnIdentityKeys } from './record-backfill-match';
+import { recordIdentityFor, recordTurnsAfterStore, turnIdentityKeys, turnPrompt } from './record-backfill-match';
+import { hermesPromptMeta } from '@gugu/session-core/acp/hermes-prompt';
 
 /** A turn as the runtime stored it (`S:turn:sN`) or as the record timeline reads it (`S:turn:N`). */
 const turn = (id: string, prompt: string | null, own: { message?: string; tool?: string; reply?: string } = {}): TranscriptTurn => ({
@@ -14,6 +15,17 @@ const turn = (id: string, prompt: string | null, own: { message?: string; tool?:
 } as unknown as TranscriptTurn);
 
 describe('filling the store from the record (#980)', () => {
+  const xmlExample = '<resource_changes>用户给出的 XML 样例，请解释它</resource_changes>';
+
+  it('preserves user-authored XML even when it has the same tag as a host notice', () => {
+    expect(turnPrompt(turn('S:turn:0', xmlExample))).toBe(xmlExample);
+  });
+
+  it('keeps a user-authored XML prompt as the backfill anchor', () => {
+    const stored = [turn('S:turn:s0', xmlExample, { message: 'auto:assistant:0', reply: 'This is an XML example' })];
+    const record = [turn('S:turn:0', xmlExample, { message: 'hermes:1#0', reply: 'This is an XML example' }), turn('S:turn:1', 'new terminal turn', { message: 'hermes:2#0', reply: 'new reply' })];
+    expect(recordTurnsAfterStore(record, stored, 'content')).toEqual([record[1]]);
+  });
   it('reads identity from ids the agent minted, not from turn numbers or synthesized segments', () => {
     expect(turnIdentityKeys(turn('S:turn:s4', 'hi', { message: 'msg_1', tool: 'call_9' })))
       .toEqual(new Set(['message:msg_1', 'tool:call_9']));
@@ -125,8 +137,11 @@ describe('filling the store from the record (#980)', () => {
   it.each(['Hello', '<gugu_delivery route="chat" msg="msg:accepted-1"><![CDATA[Hello]]></gugu_delivery>'])('matches the stored prompt after Hermes joins resource and profile notices before %s', (prompt) => {
     const native = `<resource_changes>飞书已连接</resource_changes>\n<gugu_profile_review>Review profile</gugu_profile_review>\n${prompt}`;
     const stored = [turn('S:turn:s0', prompt, { message: 'auto:assistant:0', reply: 'answer' })];
+    const user = stored[0].items.find(item => item.kind === 'message' && item.role === 'user');
+    if (user?.kind === 'message') user._meta = hermesPromptMeta([{ type: 'text', text: native }]);
     const record = [turn('S:turn:0', native, { message: 'hermes:1#0', reply: 'answer' }), turn('S:turn:1', 'next', { message: 'hermes:2#0', reply: 'next answer' })];
-    expect(recordTurnsAfterStore(record, stored, 'content')).toEqual([record[1]]);
+    expect(recordTurnsAfterStore(record, stored, 'content', { hermesPromptReceipts: true })).toEqual([record[1]]);
+    expect(recordTurnsAfterStore(record, stored, 'content')).toBeNull();
   });
 
   it.each(['auto:assistant:0', 'hermes-row-12'])('aligns Hermes SQLite rows with stored %s messages by prompt and final reply', (message) => {

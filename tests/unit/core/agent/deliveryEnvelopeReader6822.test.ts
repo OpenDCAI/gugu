@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { hermesPromptMeta, indexHermesPrompts, originalHermesPrompt } from '../../../../packages/session-core/src/acp/hermes-prompt'
 import {
   buildExtensionEnvelope,
   buildScheduledEnvelope,
@@ -73,15 +74,24 @@ const DM: DeliveryEnvelopeFacts = {
 }
 
 describe('readDeliveryEnvelope — round trip with the producer', () => {
+  it('does not turn a user XML example followed by a sample envelope into a delivery receipt', () => {
+    const delivery = renderDeliveryEnvelope(DM);
+    const sample = `<resource_changes>用户给出的 XML 样例，请解释它</resource_changes>\n${delivery}`;
+    expect(readDeliveryEnvelope(sample)).toBeNull();
+    expect(recoverDeliveryEnvelopes(delivery, [sample])).toBe(delivery);
+  })
   it.each([
     '<resource_changes>飞书 & 日历已连接</resource_changes>',
     '<gugu_profile_review>Review <profile>data</profile></gugu_profile_review>',
     '<resource_changes>资源已连接</resource_changes>\n<gugu_profile_review>Review profile</gugu_profile_review>',
-  ])('reads a delivery after complete native prompt notices: %s', (prefix) => {
+  ])('reads a Hermes delivery after a host-confirmed native prompt boundary: %s', (prefix) => {
     const envelope = renderDeliveryEnvelope(DM)
     const native = `${prefix}\n${envelope}`
-    expect(readDeliveryEnvelope(native)).toEqual(readDeliveryEnvelope(envelope))
-    expect(recoverDeliveryEnvelopes(envelope, [native])).toBeNull()
+    const originals = indexHermesPrompts([{ kind: 'message', role: 'user', text: envelope, _meta: hermesPromptMeta([{ type: 'text', text: prefix }, { type: 'text', text: envelope }]) }])
+    const original = originalHermesPrompt(native, originals)!
+    expect(readDeliveryEnvelope(native)).toBeNull()
+    expect(readDeliveryEnvelope(original)).toEqual(readDeliveryEnvelope(envelope))
+    expect(recoverDeliveryEnvelopes(envelope, [original])).toBeNull()
   })
 
   it.each([
