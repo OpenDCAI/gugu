@@ -2,18 +2,19 @@ import { eq } from 'drizzle-orm';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
-import { archiveSession } from '@main/core/sessions/archiveSession';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
 import { automations, sessions, projects } from '@main/db/schema';
 
 export async function deleteProject(id: string): Promise<void> {
+  const archive = async (sessionId: string) =>
+    (await import('@main/core/sessions/archiveSession')).archiveSession(id, sessionId);
   const provider = projectManager.getProject(id);
   const sessionRows = await db
     .select({ id: sessions.id })
     .from(sessions)
     .where(eq(sessions.projectId, id));
-  for (const row of sessionRows) await archiveSession(id, row.id);
+  for (const row of sessionRows) await archive(row.id);
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);
@@ -25,7 +26,7 @@ export async function deleteProject(id: string): Promise<void> {
     return { rows, deleted };
   });
   if (current.rows.length) {
-    for (const row of current.rows) await archiveSession(id, row.id);
+    for (const row of current.rows) await archive(row.id);
     // Keep the original root and every attached folder, including folders with no
     // tasks. Restore must expose those same memberships rather than reconstructing them.
     await db.update(projects).set({ archivedAt: new Date().toISOString() }).where(eq(projects.id, id));
