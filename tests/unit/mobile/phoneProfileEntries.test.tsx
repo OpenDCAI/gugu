@@ -5,7 +5,7 @@ import type { PhonePageProps } from '../../../apps/desktop/src/mobile/assistant/
 import { clickElement, createReactHarness, typeInto } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ updateAgentProfile: vi.fn() }) }))
-vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ status: 'not_open', list: null }) }))
+vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ status: 'failed', list: null }) }))
 const rename = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'offline-mac', label: '离线 Mac' }], phones: [], loading: false, error: null, rename }) }))
 vi.mock('../../../apps/desktop/src/components/devices/AssistantDevicesPage', () => ({ AssistantDevicesPage: () => <div data-testid="device-content" /> }))

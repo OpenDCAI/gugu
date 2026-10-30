@@ -14,10 +14,10 @@ describe('integration error text', () => {
     expect(integrationErrorText(translateWith(zhCNCapabilityMessages), '高德地图', failure)).toBe('高德地图拒绝了这个 Key，重新填一下。');
   });
 
-  it('#921 not open: it is Gugu that has not opened the connection to you, not the provider refusing', () => {
-    const failure = { connected: false, errorType: 'not_open' as const };
-    expect(integrationErrorText(translateWith(enUSCapabilityMessages), 'AMap', failure)).toBe("Gugu hasn't opened the AMap connection to you yet.");
-    expect(integrationErrorText(translateWith(zhCNCapabilityMessages), '高德地图', failure)).toBe('咕咕还没对你开放高德地图连接。');
+  it('preserves a service configuration failure in either locale', () => {
+    const failure = { connected: false, error: 'Credential service encryption key is not configured.', errorType: 'generic' as const };
+    expect(integrationErrorText(translateWith(enUSCapabilityMessages), 'AMap', failure)).toBe(failure.error);
+    expect(integrationErrorText(translateWith(zhCNCapabilityMessages), '高德地图', failure)).toBe(failure.error);
   });
 
   it('#921 the provider answered but cannot be used right now (quota, QPS, temporary): try again later, not "check the address"', () => {

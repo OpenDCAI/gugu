@@ -29,11 +29,6 @@ export type IntegrationError =
   | { type: 'unsupported_host'; message: string }
   | { type: 'invalid_input'; message: string }
   /**
-   * #921 The platform that keeps this credential is not open to the person yet (not on its allowlist, or not
-   * configured): `503 not_open`. Not a reason to keep the credential on the device instead.
-   */
-  | { type: 'not_open'; message: string }
-  /**
    * #921 The request did not reach the platform in time (`408 request_timeout`), even after the device sent it a
    * second time by itself. Temporary; the copy never asks the person to retry.
    */

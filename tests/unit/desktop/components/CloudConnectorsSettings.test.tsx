@@ -10,7 +10,7 @@ import { clickElement, createNode, createReactHarness } from '../../../support/t
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { useAssistantPanelPage } from '../../../../apps/desktop/src/lib/assistantPanelPage'
 
-vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'failed', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('@/lib/assistantPanelBridge',() => ({ useAssistantPanelAccountId: () => 'owner',requireAssistantPanelBridge: () => { throw new Error('Unexpected identity lookup') } }))
 vi.mock('@/components/assistant/assistant-panel-files',() => ({ ASSISTANT_PANEL_CHANGED: 'panel-changed',useCloudAssistantFiles: () => ({ panel: { ownerId: 'owner',assistantId: 'a1' } }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-shell',() => ({ useAssistantShell: () => ({ assistant: { id: 'a1' },chatId: 'dm' }) }))

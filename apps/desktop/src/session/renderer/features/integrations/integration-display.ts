@@ -57,7 +57,6 @@ const INTEGRATION_ERROR_KEYS = {
   host_unreachable: 'integrations.errorHostUnreachable',
   unsupported_host: 'integrations.errorUnsupportedHost',
   invalid_input: 'integrations.errorInvalidInput',
-  not_open: 'integrations.errorNotOpen',
   timed_out: 'integrations.errorTimedOut',
   network: 'integrations.errorNetwork',
   key_rejected: 'integrations.errorKeyRejected',

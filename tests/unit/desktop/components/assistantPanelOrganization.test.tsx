@@ -6,7 +6,7 @@ import type { AssistantContext } from '../../../../apps/desktop/src/session/rend
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
 const reads = vi.hoisted(() => ({ today: vi.fn(), entries: [{ name: '项目资料', path: '/assistant/资料/项目资料', type: 'directory', size: 0 }], ask: vi.fn(), go: vi.fn() }))
-vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'not_open', error: '', refresh: async () => {}, apply: () => {} }) }))
+vi.mock('@/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ client: null, list: null, status: 'failed', error: '', refresh: async () => {}, apply: () => {} }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-data', () => ({
   useDirectory: () => ({ data: reads.entries, isSuccess: true, isLoading: false }),
   useMemoryNotes: () => ({ data: { notes: [] }, isLoading: false }),

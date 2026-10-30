@@ -120,7 +120,7 @@ function ProfileHome({
   const devices = useDevicesStore()
   const deviceCount = deviceMachines(withoutAssistantHome([...devices.devices, ...(devices.phones ?? [])], props.cloudDeviceId ?? null)).length
   const chats = useChatChannels()
-  const counts = integrations.data && (chats.status === 'ready' || chats.status === 'not_open') ? assistantApplicationCounts(integrations.data.items, integrations.data.configured, integrations.data.statuses, chats.list) : null
+  const counts = integrations.data && chats.status === 'ready' ? assistantApplicationCounts(integrations.data.items, integrations.data.configured, integrations.data.statuses, chats.list) : null
   const appsDetail = integrations.error ? t('connectors.loadFailed') : !counts ? undefined : t(counts.saved > counts.connected ? 'connectors.savedCount' : 'connectors.connectedCount', { count: counts.saved > counts.connected ? counts.saved : counts.connected })
   const devicesDetail = devices.error ? t('library.failed') : devices.loading ? t('library.loading') : t('connectors.deviceCount', { count: deviceCount })
   return (

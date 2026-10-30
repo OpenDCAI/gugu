@@ -96,10 +96,10 @@ describe('integrations whose credential the platform keeps (#921)', () => {
     expect(store.upsertAccount).toHaveBeenCalledWith('amap', { accountId: 'default', credentials: { apiKey: GOOD } });
   });
 
-  it('keeps nothing on the device when the platform is not open to the person', async () => {
-    platform.connect.mockResolvedValueOnce({ success: false, errorType: 'not_open', error: '高德地图 is not open to you yet.' });
+  it('keeps nothing on the device when the platform reports a configuration failure', async () => {
+    platform.connect.mockResolvedValueOnce({ success: false, errorType: 'generic', error: 'Credential service encryption key is not configured.' });
 
-    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: false, errorType: 'not_open' });
+    expect(await new IntegrationConnectionService().connect('amap', { apiKey: GOOD })).toMatchObject({ success: false, errorType: 'generic' });
     expect(store.upsertAccount).not.toHaveBeenCalled();
     expect(network).not.toHaveBeenCalled();
   });

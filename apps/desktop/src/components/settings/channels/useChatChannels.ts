@@ -1,13 +1,13 @@
 import { messageForUser } from '@/lib/userFacingError'
 import { rendererLogger } from '@/lib/log'
 import { useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore } from 'react'
-import { isChatChannelsNotOpen,type ChatChannelList,type ChatChannelsClient } from '@gugu/core/cloud/chatChannels'
+import type { ChatChannelList, ChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 import { rendererChatChannelsClient } from '@/lib/chatChannels'
 import { getRendererSession,observeRendererSession } from '@/lib/sessionPublication'
 import { assistantPanelCacheStore } from '@/components/assistant/assistant-panel-cache'
 import { ASSISTANT_PANEL_CHANGED } from '@/components/assistant/assistant-panel-events'
 
-export type ChatChannelsStatus='loading'|'ready'|'not_open'|'failed'
+export type ChatChannelsStatus='loading'|'ready'|'failed'
 const REFRESH_MS=10_000
 const subscribe=(listener:()=>void)=>observeRendererSession(()=>listener())
 const account=()=>getRendererSession()?.user.id??null
@@ -34,7 +34,7 @@ export function useChatChannels(): {
   const owner=useSyncExternalStore(subscribe,account,()=>null)
   const client=useMemo(()=>rendererChatChannelsClient(),[])
   const cache=useMemo(()=>assistantPanelCacheStore().accountState(owner??'','application-connections:wechat',isList),[owner])
-  const initial=()=>{const list=cache.peek()??null;return {owner,list,status:list?'ready' as const:client&&owner?'loading' as const:'not_open' as const,error:''}}
+  const initial=()=>{const list=cache.peek()??null;return {owner,list,status:list?'ready' as const:client&&owner?'loading' as const:'failed' as const,error:''}}
   const [state,setState]=useState<{owner:string|null;list:ChatChannelList|null;status:ChatChannelsStatus;error:string}>(initial)
   const currentOwner=useRef(owner);currentOwner.current=owner
   const apply=useCallback((next:ChatChannelList)=>{
@@ -49,7 +49,7 @@ export function useChatChannels(): {
       rendererLogger('settings/connections').warn({error},'application connection status unavailable')
       setState(previous=>{
         const list=previous.owner===owner?previous.list:cache.peek()??null
-        return {owner,list,status:list?'ready':isChatChannelsNotOpen(error)?'not_open':'failed',error:messageForUser(error)}
+        return {owner,list,status:list?'ready':'failed',error:messageForUser(error)}
       })
     }
   },[client,owner,apply,cache])
