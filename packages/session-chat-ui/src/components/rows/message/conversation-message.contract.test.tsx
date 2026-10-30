@@ -415,11 +415,14 @@ describe('conversation density', () => {
       expect(getComputedStyle(quote).display === 'none').toBe(adjacent);
       expect(getComputedStyle(quote.querySelector('span')!).display).toBe('none');
       expect(getComputedStyle(row.querySelector('[data-slot="conversation-quote-separator"]')!).display).toBe('none');
+      const before = quote.getBoundingClientRect();
+      const originalPoint = { x: before.left + before.width / 2, y: before.top + before.height / 2 };
       body.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       expect(getComputedStyle(quote).display).not.toBe('none');
       expect(getComputedStyle(quote.querySelector('span')!).display).not.toBe('none');
       expect(row.getBoundingClientRect().height).toBe(height);
+      if (!adjacent) expect(document.elementFromPoint(originalPoint.x, originalPoint.y)?.closest('[data-slot="conversation-quote"]')).toBe(quote);
       quote.click();
       expect(reveal).toHaveBeenCalledExactlyOnceWith('real-source');
       body.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));

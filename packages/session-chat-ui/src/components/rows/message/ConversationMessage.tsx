@@ -157,13 +157,13 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
         </div>
       }</Show>
       <Show when={messageQuote(props.data)}>{quote => <>
-        <span class={conversationTimeSeparator} data-slot="conversation-quote-separator" aria-hidden="true" />
         <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
           data-compact={head().quoteWidth < 40 ? 'true' : undefined}
           data-adjacent={props.data.conversationReplyAdjacent ? 'true' : 'false'}
           style={{ 'max-width': `${head().quoteWidth}px` }}
           disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
           aria-label={translate('transcript.showOriginalMessage')}>
+          <span class={conversationTimeSeparator} data-slot="conversation-quote-separator" aria-hidden="true" />
           <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
           <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
