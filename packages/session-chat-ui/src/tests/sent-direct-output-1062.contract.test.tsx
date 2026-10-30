@@ -8,11 +8,11 @@ import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach(dispose => dispose()));
-it.each(['ADJ', 'DISTANT', 'FILE'] as const)('shows direct output after a %s send in both process states and hides only silence', async mode => {
+it.each([['ADJ', 900], ['DISTANT', 900], ['FILE', 900], ['FILE', 390]] as const)('shows direct output after a %s send at %spx in both process states and hides only silence', async (mode, width) => {
   const context = createChatContext();
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context), host = document.createElement('div');
-  host.style.cssText = 'position:fixed;inset:0;width:900px;height:5000px';
+  host.style.cssText = `position:fixed;inset:0;width:${width}px;height:5000px`;
   document.body.append(host);
   const view = createChatView({ context, state, parent: host, commands: { conversationAgentName: () => 'Fixture agent' } });
   cleanups.push(() => { view.dispose(); state.dispose(); context.dispose(); host.remove(); });
@@ -20,8 +20,9 @@ it.each(['ADJ', 'DISTANT', 'FILE'] as const)('shows direct output after a %s sen
   const directText = mode === 'ADJ' ? 'T1062-ADJ-OK 已回复。' : mode === 'DISTANT' ? 'T1062-DISTANT-OK 已发出。' : 'The file is ready; here is additional context.';
   const send: TranscriptItem = { kind: 'mcp-tool-call', id: 'send', seq: 1, toolCallId: 'send', title: 'message_send', server: 'gugu',
     tool: mode === 'FILE' ? 'message_send_file' : 'message_send', status: 'done', at: 2000, completedAt: 3000,
-    rawInput: JSON.stringify({ chat_id: 'fixture-dm', reply_to_message_id: mode === 'DISTANT' ? 'older' : 'source',
-      ...(mode === 'FILE' ? { file_name: 'proof.txt', file_path: '/fixture/proof.txt' } : { text: `T1062-${mode}-OK` }) }),
+    rawInput: JSON.stringify({ chat_id: 'fixture-dm',
+      ...(mode === 'FILE' ? { file_name: 'proof.txt', file_path: '/fixture/proof.txt' }
+        : { reply_to_message_id: mode === 'DISTANT' ? 'older' : 'source', text: `T1062-${mode}-OK` }) }),
     outputText: mode === 'FILE' ? JSON.stringify({ status: 'sent', message_id: messageId, file_name: 'proof.txt' }) : `sent (id=msg:${messageId})` };
   const turn: TranscriptTurn = { id: 'direct-output', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 9000, outcome: { kind: 'done' }, items: [
     { kind: 'message', id: 'input', seq: 0, role: 'user', text: '<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:source" chat="fixture-dm" chat_kind="dm"><![CDATA[Please respond]]></gugu_delivery>' }, send,
@@ -39,7 +40,12 @@ it.each(['ADJ', 'DISTANT', 'FILE'] as const)('shows direct output after a %s sen
     expect(host.querySelectorAll('[data-user-card="direct"]')).toHaveLength(1);
     expect(host.querySelector('[data-agent-conversation-message="silent"]')).toBeNull();
     expect(host.textContent).not.toContain('[NO_REPLY]');
-    if (mode === 'FILE') expect(host.querySelectorAll('[data-attachment-chip]')).toHaveLength(1);
+    if (mode === 'FILE') {
+      expect(host.querySelectorAll('[data-attachment-chip]')).toHaveLength(1);
+      const destinations = host.querySelectorAll('[data-slot="sent-to"]');
+      expect(destinations, 'a real captionless file tool receipt keeps its destination').toHaveLength(1);
+      expect(destinations[0]?.getAttribute('aria-label')).toContain('Owner');
+    }
     else expect(host.querySelectorAll(`[data-user-card="send:sent:${messageId}"]`)).toHaveLength(1);
   }
 });

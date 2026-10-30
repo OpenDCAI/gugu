@@ -11,7 +11,16 @@ import '@renderer/index.css';
 
 let harness: ReturnType<typeof createReactHarness>;
 let previousLocale: LocalePreference;
-beforeEach(() => { previousLocale = getLocaleSnapshot().preference; });
+beforeEach(async () => {
+  previousLocale = getLocaleSnapshot().preference;
+  // Playwright retains its pointer between cases. Start outside the fixture so mounting a
+  // new trigger cannot inherit a hover or an open preview from the previous case.
+  const away = document.createElement('div');
+  away.dataset.testid = 'source-test-pointer-away';
+  away.style.cssText = 'position:fixed;right:4px;bottom:4px;width:10px;height:10px;z-index:2147483647';
+  document.body.append(away);
+  try { await page.getByTestId('source-test-pointer-away').hover(); } finally { away.remove(); }
+});
 afterEach(async () => {
   harness?.cleanup();
   await act(async () => setLocalePreference(previousLocale));

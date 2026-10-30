@@ -1,4 +1,4 @@
-import { agentSendOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
+import { agentSendOf, messageSendTargetOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
 import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment';
 import type { TranscriptTurn } from '@session-chat/model';
 
@@ -26,7 +26,7 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
       ...(item.completedAt !== undefined ? { at: item.completedAt } : {}),
       ...(replyTo ? { sentReplyTo: replyTo } : {}), ...(chat ? { sentChat: chat } : {}) };
     // 对话布局:气泡下面常驻一小段「发到 群名」(管家 10-28),去向与会话页那一行同一个读法。
-    const to = options.allDestinations ? agentSendOf(item, turn)?.to : undefined;
+    const to = options.allDestinations ? attachment ? messageSendTargetOf(item, turn) : agentSendOf(item, turn)?.to : undefined;
     if (to) Object.assign(reply, { sentTo: to });
     replies.push(reply);
     if (options.allDestinations) {

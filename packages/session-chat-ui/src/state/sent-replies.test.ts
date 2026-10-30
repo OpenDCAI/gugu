@@ -161,6 +161,7 @@ it('keeps a normal task response and the explanation of an unsuccessful DM reply
 
 it('keeps one file projection and direct commentary after an injected DM attachment send', () => {
   const file = { ...send({ chat_id: 'group', file_name: 'reply.txt' }), tool: 'message_send_file',
+    rawInput: JSON.stringify({ chat_id: 'group', file_name: 'reply.txt', file_path: '/fixture/reply.txt' }),
     outputText: JSON.stringify({ status: 'sent', message_id: id, file_name: 'reply.txt' }) };
   const record = turn(file);
   const input = record.items[0];
@@ -169,6 +170,7 @@ it('keeps one file projection and direct commentary after an injected DM attachm
   record.items.push({ kind: 'message', id: 'summary', seq: 3, role: 'assistant', text: 'I sent the file.' });
   const projected = withSentReplies(record, { allDestinations: true });
   expect(words(projected)).toMatchObject([{ text: 'reply.txt', sentAttachment: { messageId: id } }, { text: 'I sent the file.' }]);
+  expect(words(projected)[0]).toMatchObject({ sentTo: { kind: 'chat', conversationId: null, chatId: 'group', threadRootId: null, whisper: false, peer: 'Owner' } });
   expect(projected.items.filter(item => item.kind === 'message' && 'sentAttachment' in item && item.sentAttachment)).toHaveLength(1);
   expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
   expect(record.items.at(-1)?.id).toBe('summary');

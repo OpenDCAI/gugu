@@ -75,6 +75,28 @@ function inputFactsBefore(turn: TranscriptTurn, item: TranscriptItem): DeliveryR
   return facts?.route === 'chat' ? facts : null;
 }
 
+function chatSendTarget(args: Record<string, unknown>, item: TranscriptItem, turn?: TranscriptTurn): Extract<AgentSendTarget, { kind: 'chat' }> {
+  const whisper = args.whisper === true;
+  const facts = turn ? inputFactsBefore(turn, item) : null;
+  const here = facts !== null && sourceChatMatches(facts, args.chat_id);
+  const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
+  const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
+  const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
+  return { kind: 'chat', conversationId,
+    ...(!conversationId && typeof args.chat_id === 'string' ? { chatId: args.chat_id } : {}),
+    threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) };
+}
+
+/** Text and file sends share a destination; a captionless file does not have `text` to parse. */
+export function messageSendTargetOf(item: TranscriptItem, turn?: TranscriptTurn): Extract<AgentSendTarget, { kind: 'chat' }> | null {
+  if (item.kind !== 'mcp-tool-call' || item.status === 'error' || item.parentToolCallId || !isGuguServer(item.server)
+    || !/(?:^|__)message_send(?:_file)?$/.test(item.tool)) return null;
+  try {
+    const args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
+    return args && typeof args.chat_id === 'string' && args.chat_id.trim() ? chatSendTarget(args, item, turn) : null;
+  } catch { return null; }
+}
+
 /**
  * What the agent said through 咕咕 instead of in its own reply: a top-level `message_send` / `session_message` with its
  * text. The session timeline shows it as the agent speaking, with where it went (desktop flatten and the phone's
@@ -92,15 +114,7 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
   } catch { return null; }
   if (!args || typeof args.text !== 'string' || !args.text.trim()) return null;
   if (relay) return { text: args.text, to: { kind: 'session', count: Array.isArray(args.to) ? args.to.length : 0 } };
-  const whisper = args.whisper === true;
-  const facts = turn ? inputFactsBefore(turn, item) : null;
-  const here = facts !== null && sourceChatMatches(facts, args.chat_id);
-  const linked = here && facts.sourceLink ? parseConversationLink(facts.sourceLink)?.chatId ?? null : null;
-  const conversationId = linked ?? (typeof args.chat_id === 'string' && CONVERSATION_ID.test(args.chat_id) ? args.chat_id.toLowerCase() : null);
-  const peer = here && facts.chatKind === 'dm' && facts.from ? facts.from.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim() : '';
-  return { text: args.text, to: { kind: 'chat', conversationId,
-    ...(!conversationId && typeof args.chat_id === 'string' ? { chatId: args.chat_id } : {}),
-    threadRootId: here && !whisper ? facts.thread : null, whisper, ...(peer ? { peer } : {}) } };
+  return { text: args.text, to: chatSendTarget(args, item, turn) };
 }
 
 /** Only the explicit send to this input's destination can preview an IM reply. */
