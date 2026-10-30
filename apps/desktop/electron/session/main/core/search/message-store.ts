@@ -124,7 +124,8 @@ export class AccountMessageSearch {
     if (!this.store) {
       this.store = new MessageSearchStore(this.userData(), accountId);
       this.lifetime = new AbortController();
-      this.storeOpened?.(this.store, this.lifetime.signal);
+      try { this.storeOpened?.(this.store, this.lifetime.signal); }
+      catch (error) { this.close(); throw error; }
     }
     return this.store;
   }

@@ -80,7 +80,10 @@ export function buildSearchSql(
     where.push('m.created_at >= ? AND m.created_at < ?')
     params.push(midnight(query.filters.on), midnight(query.filters.on, true))
   }
-  let sql = `SELECT m.*, CASE WHEN m.role = 'assistant' THEN task.agent_user_id ELSE m.sender_id END AS sender_id, task.title AS task_title, task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
+  let sql = `SELECT m.id,m.chat_id,m.task_id,m.message_ref,m.role,m.thread_root_id,m.seq,
+    CASE WHEN m.role = 'assistant' THEN task.agent_user_id ELSE m.sender_id END AS sender_id,
+    m.created_at,m.created_at_iso,m.text,m.is_whisper,m.to_user_ids,m.has_file,m.has_image,m.has_link,
+    task.title AS task_title,task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
     FROM msg m
     LEFT JOIN chat ON chat.id = m.chat_id
     LEFT JOIN task ON task.id = m.task_id

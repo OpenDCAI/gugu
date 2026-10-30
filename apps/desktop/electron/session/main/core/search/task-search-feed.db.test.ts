@@ -61,6 +61,16 @@ it('replaces revised items, handles truncation, and follows committed archive/re
   await vi.waitFor(() => expect(store.global(request).results[0]).toMatchObject({ title: 'Restored', text: 'revision' }));
 });
 
+it('reprojects a truncated sequence from current storage when a later commit has already reused it', async () => {
+  put(0, 'retained'); put(1, 'removed'); start();
+  await vi.waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  state.source!.prepare('DELETE FROM session_turns WHERE seq>=1').run();
+  sessionEvents._emit('session:history-changed', { sessionId: 's', fromSeq: 1 });
+  put(1, 'replacement');
+  sessionEvents._emit('session:history-changed', { sessionId: 's', seq: 1 });
+  await vi.waitFor(() => expect(store.global(request).results.map(hit => hit.text)).toEqual(['replacement', 'retained']));
+});
+
 it('detaches the old lifetime before any later source commit can write it', async () => {
   put(0, 'before'); start();
   await vi.waitFor(() => expect(store.global(request).results).toHaveLength(1));
