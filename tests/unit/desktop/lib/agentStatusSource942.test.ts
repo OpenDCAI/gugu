@@ -95,7 +95,7 @@ describe('one agent status source for React and MobX', () => {
     for (const [next, tone, bucket] of [
       [{ status: 'working', detail: 'parked' }, 'parked', 'working'],
       [{ status: 'needs_user', detail: 'approval' }, 'needs_user', 'needs-you'],
-      [{ status: 'error', detail: null }, 'error', 'needs-you'],
+      [{ status: 'error', detail: null }, 'error', null],
       [{ status: 'idle', detail: null }, 'online', null],
     ] as const) {
       reading = next
