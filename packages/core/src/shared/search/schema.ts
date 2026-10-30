@@ -1,7 +1,7 @@
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 export const EXTRACTOR_VERSION = 1
 
-/** One database per account. Timestamps are UTC epoch microseconds; IDs stay in storage form. */
+/** One database per account. Compare UTC epoch microseconds; preserve the original message ISO string. */
 export const SEARCH_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS chat (
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS msg (
   seq INTEGER NOT NULL,
   sender_id TEXT,
   created_at INTEGER NOT NULL,
+  created_at_iso TEXT NOT NULL,
   text TEXT NOT NULL,
   body TEXT NOT NULL,
   is_whisper INTEGER NOT NULL CHECK (is_whisper IN (0, 1)),

@@ -63,9 +63,9 @@ describe('local search visibility against the migrated backend', () => {
           local.prepare('INSERT INTO actor_scope VALUES (?,?,?,?)').run(scope.actorId, scope.chatId,
             scope.floor.known ? 1 : 0, scope.floor.known && scope.floor.at ? searchTimestampMicros(scope.floor.at) : null)
         }
-        local.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
-          VALUES (?,?,?,?,?,?,?,'',?,?,?,?,?,?)`).run(document.id, document.chatId, document.threadRootId,
-          document.seq, document.senderId, searchTimestampMicros(document.createdAt), document.text,
+        local.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
+          VALUES (?,?,?,?,?,?,?,?,'',?,?,?,?,?,?)`).run(document.id, document.chatId, document.threadRootId,
+          document.seq, document.senderId, searchTimestampMicros(document.createdAt), document.createdAt, document.text,
           document.isWhisper ? 1 : 0, JSON.stringify(document.toUserIds), document.deletedAt ? searchTimestampMicros(document.deletedAt) : null,
           document.hasFile ? 1 : 0, document.hasImage ? 1 : 0, document.hasLink ? 1 : 0)
         if (cell.access) {
@@ -73,8 +73,11 @@ describe('local search visibility against the migrated backend', () => {
             cell.access.fromHistory ? 1 : 0, cell.access.hiddenForActor === null ? null : cell.access.hiddenForActor ? 1 : 0)
         }
         const query = buildSearchSql({ text: '', filters: {}, sort: 'recent' }, { accountId: 'account', actorId: cell.actorId })
-        expect(local.prepare(query.sql).all(...query.params).map((row) => row.id), 'SQLite with the same actor and raw fixture')
+        const rows = local.prepare(query.sql).all(...query.params)
+        expect(rows.map((row) => row.id), 'SQLite with the same actor and raw fixture')
           .toEqual(cell.searchVisible ? [document.id] : [])
+        expect(rows.map((row) => row.created_at_iso), 'SQLite preserves the raw fixture timestamp')
+          .toEqual(cell.searchVisible ? [document.createdAt] : [])
       } finally {
         local.close()
         await db.query('ROLLBACK')

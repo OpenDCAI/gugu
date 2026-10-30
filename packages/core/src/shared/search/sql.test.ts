@@ -16,11 +16,12 @@ function fixture() {
   db.exec(SEARCH_SCHEMA_SQL)
   db.exec(`INSERT INTO chat VALUES ('g','group','group',NULL),('t','topic','topic','g'),('other','other','group',NULL);
     INSERT INTO actor_scope VALUES ('owner','g',1,NULL),('owner','t',1,NULL),('owner','other',1,NULL),('agent','g',0,NULL);`)
-  function put(id: string, text: string, options: { chat?: string; to?: string[]; whisper?: boolean; seq?: number; at?: number } = {}) {
+  function put(id: string, text: string, options: { chat?: string; to?: string[]; whisper?: boolean; seq?: number; at?: string } = {}) {
     const seq = options.seq ?? 1
-    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
-      VALUES (?,?,NULL,?,'peer',?,?,?, ?,?,NULL,1,0,0)`)
-      .run(id, options.chat ?? 'g', seq, (options.at ?? new Date(2026, 9, 29, 12).getTime()) * 1000, text, segment(text), options.whisper ? 1 : 0, JSON.stringify(options.to ?? []))
+    const at = options.at ?? '2026-10-29T12:00:00Z'
+    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
+      VALUES (?,?,NULL,?,'peer',?,?,?,?, ?,?,NULL,1,0,0)`)
+      .run(id, options.chat ?? 'g', seq, searchTimestampMicros(at), at, text, segment(text), options.whisper ? 1 : 0, JSON.stringify(options.to ?? []))
     db.prepare('INSERT INTO msg_actor VALUES (?,?,0,0)').run('owner', id)
   }
   function query(text: string, filters: SearchQuery['filters'] = {}, actorId = 'owner') {
@@ -68,11 +69,28 @@ describe('shared SQL on real SQLite FTS5', () => {
 
   it('does not round a pre-floor message up into a membership boundary', () => {
     const { db, put, query } = fixture()
-    put('early', 'needle')
-    db.prepare("UPDATE msg SET created_at=? WHERE id='early'").run(searchTimestampMicros('2026-10-20T12:00:00.000100Z'))
+    put('early', 'needle', { at: '2026-10-20T12:00:00.000100Z' })
     db.prepare("UPDATE actor_scope SET floor_at=? WHERE actor_id='owner' AND chat_id='g'")
       .run(searchTimestampMicros('2026-10-20T12:00:00.000900Z'))
     expect(query('needle')).toEqual([])
+  })
+
+  it('returns original ISO timestamps while sorting and filtering by exact microseconds', () => {
+    const { db, put } = fixture()
+    const messages = [
+      { id: 'early', at: '2026-10-20T12:00:00.000100Z' },
+      { id: 'offset', at: '2026-10-20T14:00:00.000500+02:00' },
+      { id: 'late', at: '2026-10-20T12:00:00.000900Z' },
+    ]
+    for (const message of messages) put(message.id, 'needle', { at: message.at })
+    const query = buildSearchSql({ text: 'needle', filters: {}, sort: 'recent' }, { accountId: 'owner', actorId: 'owner' })
+    const rows = () => db.prepare(query.sql).all(...query.params)
+      .map((row) => ({ id: row.id, at: row.created_at_iso, micros: row.created_at }))
+    const expected = messages.toReversed().map(({ id, at }) => ({ id, at, micros: searchTimestampMicros(at) }))
+    expect(rows()).toEqual(expected)
+    db.prepare("UPDATE actor_scope SET floor_at=? WHERE actor_id='owner' AND chat_id='g'")
+      .run(searchTimestampMicros('2026-10-20T12:00:00.000500Z'))
+    expect(rows()).toEqual(expected.slice(0, 2))
   })
 
   it('binds filters, inherits included topics and never turns origin into an implicit filter', () => {
