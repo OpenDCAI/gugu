@@ -1,0 +1,21 @@
+.gg-topics-menu {
+  mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent);
+  overscroll-behavior: contain;
+}
+.gg-topic-menu-row { position: relative; }
+.gg-topic-menu-open { height: 48px; }
+.gg-topic-menu-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; line-height: var(--lh-caption); }
+.gg-topic-name { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gg-topic-name[data-unread] { font-weight: var(--font-weight-semibold); }
+.gg-topic-name > svg { flex-shrink: 0; color: var(--faint-fg); }
+.gg-topic-time { flex-shrink: 0; color: var(--faint-fg); font-size: var(--font-caption); }
+.gg-topic-preview { color: var(--muted-fg); font-size: var(--font-caption); }
+.gg-topic-menu-pin { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); opacity: 0; pointer-events: none; }
+.gg-topic-menu-pin .gg-menu-item-label { display: flex; align-items: center; justify-content: center; }
+.gg-topic-menu-row:is(:hover, :focus-within, :has([data-highlighted])) .gg-topic-menu-pin { opacity: 1; pointer-events: auto; }
+.gg-topic-empty { display: flex; flex-direction: column; gap: 4px; }
+.gg-topic-empty small { color: var(--faint-fg); font-size: var(--font-caption); }
+.gg-topic-pins-error { padding: 6px 10px; color: var(--text-error); font-size: var(--font-caption); }
+@media (hover: none) {
+  .gg-topic-menu-pin { opacity: 1; pointer-events: auto; }
+}

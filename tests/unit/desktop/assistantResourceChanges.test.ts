@@ -108,6 +108,21 @@ it('summarizes more than twenty changes and oversized names under 1500 character
   expect((await journal.prepare()).text.length).toBeLessThanOrEqual(1500)
 })
 
+it('tells an already-running assistant once that a connection is only for linking issues', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['github'] }))
+  await (await journal.prepare()).accepted()
+  const marked = snapshot({ apps: ['github'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'github:default', name: 'github', modifiedAt: stamp, note: '只用来关联 issue，助理不能直接用' }] })
+    : line)
+  await journal.observe(marked)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('只用来关联 issue，助理不能直接用')
+  await notice.accepted()
+  await journal.observe(marked)
+  expect((await journal.prepare()).text).toBe('')
+})
+
 it('tells an already-running assistant once when a connected application gains its delegation route', async () => {
   const { journal } = await fixture()
   await journal.observe(snapshot({ apps: ['feishu'] }))
@@ -122,6 +137,27 @@ it('tells an already-running assistant once when a connected application gains i
   expect(notice.text).toContain('飞书已连接，要用就派任务')
   expect(notice.text).toContain('lark-calendar')
   expect(notice.text).toContain('session_spawn')
+  await notice.accepted()
+  await journal.observe(routed)
+  expect((await journal.prepare()).text).toBe('')
+})
+
+it('tells a resumed assistant once that a connection with session tools is used through a task', async () => {
+  const { journal } = await fixture()
+  await journal.observe(snapshot({ apps: ['amap'] }))
+  await (await journal.prepare()).accepted()
+  // A session opened before the fix has a row without a route; the upgrade's first index read announces it once.
+  const routed = snapshot({ apps: ['amap'] }).map(line => line.includes('"integrations"')
+    ? JSON.stringify({ ...JSON.parse(line), items: [{ id: 'amap:default', name: 'amap', modifiedAt: stamp,
+      use: { note: '高德地图已连接，要用就派任务；任务会话里自带它的工具', delegate: { tool: 'session_spawn' }, task_skills: [] } }] })
+    : line)
+  await journal.observe(routed)
+  const notice = await journal.prepare()
+  expect(notice.text).toContain('高德地图已连接，要用就派任务；任务会话里自带它的工具')
+  expect(notice.text).not.toContain('任务技能')
+  // The group's read hint must not point back to the catalog or call it a command-line app.
+  expect(notice.text).not.toContain('catalog_list')
+  expect(notice.text).not.toContain('命令行应用')
   await notice.accepted()
   await journal.observe(routed)
   expect((await journal.prepare()).text).toBe('')

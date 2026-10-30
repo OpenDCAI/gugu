@@ -302,7 +302,7 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
     same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}`) &&
     // 每一步的 id 与状态也要比:新一步开始时完成数不变,只比完成数的话「进行中」那一行永远进不了悬停时间线。
     same(a.subagents, b.subagents, (g) =>
-      `${g.id}|${g.name}|${g.model ?? ''}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}|${g.calls.map((c) => `${c.toolCallId}:${c.status}:${c.title}`).join(',')}`)
+      `${g.id}|${g.name}|${g.model ?? ''}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}|${g.calls.map((c) => `${c.toolCallId}:${c.status}:${c.title}:${c.category}:${c.detail}`).join(',')}`)
   );
 }
 
@@ -372,7 +372,7 @@ export function connectSession(
   source: ConnectSessionSource,
   options: ConnectSessionOptions
 ): () => void {
-  let hadActiveTurn = source.activeTurn.getSnapshot() !== null;
+  let activeTurnId = source.activeTurn.getSnapshot()?.id ?? null;
 
   const syncSessionState = (): void => {
     const snapshot = source.sessionState.getSnapshot();
@@ -387,16 +387,19 @@ export function connectSession(
   const syncActiveTurn = (): void => {
     const turn = source.activeTurn.getSnapshot() ?? null;
     if (turn) state.session.setPendingPrompt(null);
-    if (!turn && hadActiveTurn) {
+    if (activeTurnId !== null && activeTurnId !== (turn?.id ?? null)) {
       // ❌ 别在这里就把刚讲完的那一轮抹掉。调用方收到这个回调后要去后端对账（实测一次往返 ~100ms），
       // 而已提交列表只由对账结果 seed 填充 —— 先抹掉就等于让画面整段空掉一百毫秒：transcript 消失、
       // 输入框退回空会话的占位文案再弹回来。用户看到的是「答完了反而闪一下」。
       // 保留最后这一帧，由对账落地时的 seed 覆盖它（失败也会清，见 acp-chat-store._refreshHistory）。
       options.onTurnCommitted();
+      // 连续排队时,显示节拍可能直接从 A 发到 B,中间没有空帧。同样要对账 A,但立即画 B;
+      // 先通知再换帧,让宿主保留 A 的身份,历史请求回来时才不会把仍在流式的 B 清掉。
+      if (turn) state.transcript.activeTurn.set(turn);
     } else {
       state.transcript.activeTurn.set(turn);
     }
-    hadActiveTurn = turn !== null;
+    activeTurnId = turn?.id ?? null;
   };
   const syncTerminals = (): void => {
     if (!source.terminals) return;

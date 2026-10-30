@@ -94,7 +94,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
             <div class={turnProcessHeaderSlot}>
               <CollapseHeader
                 id={props.data.id}
-                collapsible={!props.data.placeholder}
+                collapsible={!props.data.placeholder && !props.data.empty}
                 expanded={expanded()}
                 active={props.data.live && !props.data.withBody}
                 height={height()}

@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -24,7 +25,7 @@ export function ReferralCard() {
   const handleCopyInvite = useCallback(async () => {
     if (!inviteUrl) return
     try {
-      await navigator.clipboard.writeText(inviteUrl)
+      await platform.writeClipboardText(inviteUrl)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch (error) {

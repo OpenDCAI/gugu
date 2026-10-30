@@ -32,12 +32,12 @@ export const localImportSource: SessionImportSource = {
   list: (params) => rpc.sessionImport.listLocalSessions(params),
   preview: (params) => rpc.sessionImport.previewLocalSession(params),
   importSession: (params) => rpc.sessionImport.importLocalSession(params),
-  sessionView: 'code',
+  sessionView: 'general',
 };
 
 /**
  * 那台机器上的导入:与本机同一组 `sessionImport.*` 动词,rpc 送到那台机器(会话建在**那台机器**上:原件在哪台,会话就归哪台)。
- * directTerminal:这台机器是用 SSH 装上的(有真终端)。false = 只经远程隧道连着:会话接进聊天腿(通用),❌ 建一条打不开的终端会话。
+ * 导入一律默认通用。directTerminal 只限定显式终端请求能不能用,不决定默认模式。
  */
 export function machineImportSource(deviceId: string, directTerminal: boolean): SessionImportSource {
   const machine = rpcOn(deviceId).sessionImport;
@@ -47,7 +47,7 @@ export function machineImportSource(deviceId: string, directTerminal: boolean): 
     list: (params) => machine.listLocalSessions(params),
     preview: (params) => machine.previewLocalSession(params),
     importSession: (params) => machine.importLocalSession(directTerminal ? params : { ...params, sessionView: 'general' }),
-    sessionView: directTerminal ? 'code' : 'general',
+    sessionView: 'general',
   };
 }
 

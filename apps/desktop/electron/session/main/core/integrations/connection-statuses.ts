@@ -4,6 +4,7 @@ import { getIssueProvider } from '@main/core/issues/registry';
 import type { ConnectionStatus, IssueProviderCapabilities, IssueProviderType } from '@shared/issue-providers';
 import { integrationConnectionService } from './integration-connection-service';
 import { integrationCredentialStore } from './integration-credential-store-instance';
+import { platformCredentials } from './platform-credentials-instance';
 
 /** 一家集成「连没连上」从哪读:issue 系统走它的 issue provider(GitHub 的多账号在那),其余直接问凭据。 */
 export type ConnectionSource = Pick<IssueProvider, 'capabilities' | 'checkConnection' | 'isConfigured'>;
@@ -56,7 +57,11 @@ function connectionSource(integrationId: string): ConnectionSource {
   return {
     capabilities: NO_ISSUE_CAPABILITIES,
     checkConnection: () => integrationConnectionService.checkConnection(integrationId, NO_ISSUE_CAPABILITIES),
-    isConfigured: () => integrationCredentialStore.isConfigured(integrationId),
+    // #921 平台保管的那几家:先问一下平台(别的设备连的,这台的资源库也要列出来),再看本机照抄下来的那一行。
+    isConfigured: async () => {
+      if (platformCredentials.isPlatformProvider(integrationId)) await platformCredentials.refresh();
+      return integrationCredentialStore.isConfigured(integrationId);
+    },
   };
 }
 

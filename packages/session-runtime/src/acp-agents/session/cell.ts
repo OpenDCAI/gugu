@@ -138,6 +138,8 @@ export class SessionCell {
   private replayingHistory = false;
   private lastReplayedSessionContext: string | null = null;
   private replayHistoryUnknown = false;
+  /** #980 见 `useRecordedDeliveries`。`undefined` = 这次以重放为准。 */
+  private recordedDeliveryIds: ReadonlySet<string> | null | undefined = undefined;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
   /** A replied assistant turn yields at its next tool boundary to this queued input (#566). */
@@ -199,7 +201,7 @@ export class SessionCell {
     this.liveSettings = deps.liveSettings;
     this.pendingSessionContext = deps.sessionContext?.trim() || null;
     this.machine = new SessionMachine(deps.sessionId);
-    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId });
+    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId, newTurnReference: () => `source:${crypto.randomUUID()}` });
     this.rawLog = new RawAcpLog({
       sessionId: deps.sessionId,
       providerId: deps.providerId,
@@ -369,6 +371,8 @@ export class SessionCell {
 
   beginReplay(at = Date.now()): void {
     this.replayHistoryUnknown = false;
+    this.recordedDeliveryIds = undefined;
+    this.transcript.setTurnIndexBase(0);
     this.replayingHistory = true;
     this.promptSequence += 1;
     this.applyEvent({ type: 'ReplayStarted' });
@@ -400,16 +404,31 @@ export class SessionCell {
     this.replayHistoryUnknown = true;
   }
 
+  /**
+   * #980 这次接回没让 agent 重放:agent 收到过哪些投递,改由宿主从 agent 自己的记录里读出来交到这里
+   * (补投去重从前靠重放)。`null` = 宿主读不出来 —— 与重放失败同一个处理:补投照旧,标「可能已收到」。
+   */
+  useRecordedDeliveries(ids: readonly string[] | null): void {
+    this.recordedDeliveryIds = ids ? new Set(ids) : null;
+  }
+
+  /** #980 没有重放把回合序号顶上去:从宿主给的序号接着数,❌ 与库里上一次运行的同名回合撞号。 */
+  continueTurnIndexAt(base: number): void {
+    this.transcript.setTurnIndexBase(base);
+  }
+
   private reconcileReplayedQueue(): void {
     const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
     const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
-    if (!queued.length || (!hasCanonicalReplay && !this.replayHistoryUnknown)) return;
+    const recorded = this.recordedDeliveryIds;
+    const historyUnknown = this.replayHistoryUnknown || recorded === null;
+    if (!queued.length || (!hasCanonicalReplay && !historyUnknown)) return;
     const recover = this.deps.recoverDelivery;
     if (!recover) throw new Error('SessionCell: delivery recovery requires the core envelope owner');
     const inputs = [...this.transcript.history, ...(this.transcript.activeTurn ? [this.transcript.activeTurn] : [])]
       .flatMap((turn) => turn.items.flatMap((item) => item.kind === 'message' && item.role === 'user' ? [item.text] : []));
     for (const prompt of queued) {
-      const text = recover(prompt.text, inputs, this.replayHistoryUnknown);
+      const text = recover(prompt.text, inputs, historyUnknown, recorded ?? undefined);
       if (text === prompt.text) continue;
       const result = text === null ? this.removeQueuedPrompt(prompt.id) : this.editQueuedPrompt(prompt.id, {
         text, origin: prompt.origin, hiddenContext: prompt.hiddenContext,

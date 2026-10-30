@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { safeFailureLine } from '../sessions/gugu-reason';
 import { log } from '@renderer/utils/logger';
 import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card';
@@ -323,7 +324,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     try {
       // 带上标签:「任务名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
       // ❌ 把会话标题当插值参数塞进文案模板:标题是用户写的任意文字。
-      await navigator.clipboard.writeText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
+      await platform.writeClipboardText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
       flash(copiedLabel);
     } catch (error) {
       log.error({ error }, 'sidebar identity copy failed');

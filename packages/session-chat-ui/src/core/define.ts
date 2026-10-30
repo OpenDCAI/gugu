@@ -72,6 +72,8 @@ export type MeasureCtx = {
   caches: ChatCaches;
   measureEpoch?: number;
   expandedId?: string | null;
+  /** Latest visible conversation bubble: full text without persisting a manual expansion. */
+  latestConversationMessageId?: string | null;
   /** The inline user-message editor replaces the measured bubble. */
   editingMessage?: { itemId: string; text: string };
   /**

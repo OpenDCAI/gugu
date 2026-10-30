@@ -4,6 +4,7 @@ import type { Device } from '@gugu/core/shared/types/chat'
 import { normalizeDeviceRow } from '@gugu/core/cloud/devices'
 import type { HumanAuthSession } from '@gugu/core'
 import type { AppPlatform, FeedbackLogTail } from './types'
+import { writeBrowserClipboardText } from './browserClipboard'
 import { unavailableCapability } from './errors'
 import { anchorDownload } from './anchorDownload'
 import { systemSettingsUrl, type HostOs } from '../../shared/system-settings-urls'
@@ -148,7 +149,7 @@ export const electronPlatform: AppPlatform = {
       await api.writeClipboardText(value)
       return
     }
-    await navigator.clipboard.writeText(value)
+    await writeBrowserClipboardText(value)
   },
   setBadge(count) {
     electronApi()?.setBadge(count)

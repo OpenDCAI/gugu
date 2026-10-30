@@ -11,6 +11,29 @@ export function isUnstableDropPath(path: string): boolean {
   return false;
 }
 
+/** 别的 App 的私有目录:`~/Library/Containers/<id>/`、`~/Library/Group Containers/<id>/`(只认家目录下的,项目里同名的子目录不算)。 */
+const APP_CONTAINER = /^\/Users\/[^/]+\/Library\/(?:Group )?Containers\/([^/]+)\//;
+/** 咕咕自己的应用标识:Mac 现在是 `nextmind.gugu*`,#7394 之前是 `com.gugu.app*`。 */
+const OWN_CONTAINER = /(?:^|\.)(?:nextmind\.gugu|com\.gugu\.app)(?:\.|$)/;
+/** 系统临时目录:macOS 的 `$TMPDIR` 在 `/var/folders` 下,还有 `/tmp`。 */
+const TEMP_DIRECTORY = /^\/(?:private\/)?(?:var\/folders|tmp)\//;
+
+/**
+ * 这条原路径能不能留给 agent 之后去读(#985)。不能的,mention 改指咕咕自己存的那一份:
+ * - 会消失的:拖放临时文件(`isUnstableDropPath`)和系统临时目录里别人放的文件;
+ * - 读了会弹系统授权框的:别的 App 的私有目录。agent 是咕咕的子进程,macOS 把这次读算在咕咕头上,
+ *   弹「访问其他 App 的数据」—— 回合就停在弹窗上,没人在屏幕前就一直停着。
+ * 咕咕自己放的不算:自己的容器、自己写进临时目录的 `gugu-drop-*`。
+ * 只管文件:文件夹没有字节可拷,本就是要 agent 在原处干活,调用方按原路径给。
+ */
+export function mustCopyRatherThanReference(path: string): boolean {
+  if (isUnstableDropPath(path)) return true;
+  const container = APP_CONTAINER.exec(path)?.[1];
+  if (container) return !OWN_CONTAINER.test(container);
+  if (TEMP_DIRECTORY.test(path)) return !/\/gugu-drop-[^/]*$/.test(path);
+  return false;
+}
+
 export function isClipboardImageFile(file: File): boolean {
   if (file.type.startsWith('image/')) return true;
   return isHeicLikeFile(file);

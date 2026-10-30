@@ -4,13 +4,13 @@ import { dirname, join } from 'node:path'
 
 type Row = Record<string, unknown>
 type Kind = '设备' | '项目' | '能力' | '设备资料' | '记忆' | '定时' | '连接应用'
-// The assistant has no shell: a connected CLI application is used through a delegated task.
-const INTEGRATION_READ = 'catalog_list；命令行应用派任务（session_spawn）'
-/** A connected CLI application's state includes how it is used, so a resumed session hears about a new or changed route. */
-function integrationState(use: unknown): string {
+// The assistant has no shell: a connected application is used as its state says, through a delegated task.
+const INTEGRATION_READ = '按 state 用（派任务用 session_spawn）'
+/** A connection's state includes how the assistant may use it, so a resumed session hears about a new or changed route. */
+function integrationState(use: unknown, note: unknown): string {
   const route = use && typeof use === 'object' ? use as Row : undefined
   const skills = Array.isArray(route?.task_skills) ? route.task_skills.map(text).filter(Boolean) : []
-  return route?.note ? [text(route.note), ...(skills.length ? [`任务技能：${skills.join('、')}`] : [])].join('；') : 'configured'
+  return route?.note ? [text(route.note), ...(skills.length ? [`任务技能：${skills.join('、')}`] : [])].join('；') : text(note) || 'configured'
 }
 type Item = { name: string; state: string; scope: string; accounts?: string[] }
 type Group = { kind: Kind; read: string; items: Record<string, Item> }
@@ -76,7 +76,7 @@ export function resourceGroups(lines: readonly string[], partial = false): Recor
       if (!id) continue
       group.items[id] = { name: safeName(item.name ?? item.title) || id, scope,
         ...(source === 'integrations' ? { accounts: [...new Set([...(group.items[id]?.accounts ?? []), account ?? 'default'])].sort() } : {}),
-        state: source === 'integrations' ? integrationState(item.use) : source === 'assistant_memory' ? text(item.modifiedAt)
+        state: source === 'integrations' ? integrationState(item.use, item.note) : source === 'assistant_memory' ? text(item.modifiedAt)
           : source === 'projects' ? text(item.path) : source === 'assistant_schedules'
             ? json([item.active, item.enabled, item.at, item.cron, item.tz, item.title]) : text(item.modifiedAt) }
     }

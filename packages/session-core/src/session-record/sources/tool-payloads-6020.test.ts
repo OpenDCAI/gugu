@@ -37,9 +37,11 @@ it('#6020 a Claude result with a block that is neither text nor a picture stays 
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
   parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'doc', title: 'read', rawInput: {} }));
   for (const entry of entries) if (entry.event) parser.pushEvent(entry.event);
+  // The picture's bytes are kept once, in `images` (#980); the disclosed result keeps every block, the picture as a note.
+  const disclosed = JSON.stringify(content, null, 2).replace('"IMAGE_PAYLOAD"', '"[image 1: 13 base64 chars]"');
   expect(parser.activeTurn?.items[0]).toMatchObject({
-    rawOutput: JSON.stringify(content, null, 2),
-    outputText: JSON.stringify(content, null, 2),
+    rawOutput: disclosed,
+    outputText: disclosed,
     images: [{ mimeType: 'image/png', data: 'IMAGE_PAYLOAD' }],
   });
 });

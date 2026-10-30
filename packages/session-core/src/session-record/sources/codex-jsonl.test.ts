@@ -493,6 +493,42 @@ describe('codex rollout 记录源', () => {
         .map((item) => (item as { text: string }).text);
       expect(texts.join('')).toContain('尾读到了');
     });
+
+    // #980:咕咕驱动的 codex(app-server,0.16x)一轮里常插进几十条输入(实测一份 rollout 459 条输入、45 个 task_started),
+    // turn_context 也比 task_started 多(113 个,却只有 45 个不同的 turn_id:压缩后同一轮再写一遍)。codex 自己的轮就是
+    // task_started 那 45 个;活运行时同样按原生轮分(cell.ts 把轮里插进来的输入记成 steering,适配器重放时也打 guguSteering)。
+    // ⇒ 只有 task_started 开轮;压缩后重写的 turn_context、`item_completed` 里的 UserMessage 都不开,轮里的输入全是 steering。
+    it('app-server 记录:压缩后重写的 turn_context 不开新轮,轮里插进来的输入都留在这一轮里', async () => {
+      const line = (type: string, payload: Record<string, unknown>) => JSON.stringify({ timestamp: '2026-10-30T01:00:00.000Z', type, payload });
+      const user = (text: string, id: string) => [
+        line('response_item', { type: 'message', role: 'user', id: `msg_${id}`, content: [{ type: 'input_text', text }] }),
+        // app-server 另记一条同一句话的条目:❌ 再算一次。
+        line('event_msg', { type: 'item_completed', item: { type: 'UserMessage', id, content: [{ type: 'text', text }] } }),
+      ];
+      const context = (turn: string) => line('turn_context', { turn_id: turn, root_turn_id: turn, cwd: '/w', model: 'm' });
+      const { timeline } = await build([
+        line('event_msg', { type: 'task_started', turn_id: 'turn-a', root_turn_id: 'turn-a' }),
+        context('turn-a'),
+        ...user('第一句', 'u1'),
+        line('response_item', { type: 'function_call', name: 'app_check', namespace: 'mcp__gugu', arguments: '{}', call_id: 'call_a' }),
+        ...user('插进来的第二句', 'u2'),
+        line('response_item', { type: 'function_call_output', call_id: 'call_a', output: 'ok' }),
+        line('compacted', { message: '', replacement_history: [] }),
+        context('turn-a'),
+        line('event_msg', { type: 'item_completed', item: { type: 'ContextCompaction', id: 'c1' } }),
+        ...user('压缩后插进来的第三句', 'u3'),
+        line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '三句都收到' }] }),
+        line('event_msg', { type: 'task_complete', turn_id: 'turn-a', last_agent_message: null }),
+        line('event_msg', { type: 'task_started', turn_id: 'turn-b', root_turn_id: 'turn-b' }),
+        context('turn-b'),
+        ...user('下一轮', 'u4'),
+        line('event_msg', { type: 'task_complete', turn_id: 'turn-b', error: { message: 'boom' }, last_agent_message: null }),
+      ]);
+      const turns = timeline.getSnapshot().turns;
+      const users = (turn: (typeof turns)[number]) => turn.items.flatMap((item) => item.kind === 'message' && item.role === 'user' ? [item.text] : []);
+      expect(turns.map(users)).toEqual([['第一句', '插进来的第二句', '压缩后插进来的第三句'], ['下一轮']]);
+      expect(turns.map((turn) => turn.outcome?.kind)).toEqual(['done', 'error']);
+    });
   });
 
   it('task_complete 出边界，task_started 不出', async () => {

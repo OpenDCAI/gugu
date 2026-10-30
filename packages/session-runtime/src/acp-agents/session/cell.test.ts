@@ -65,6 +65,19 @@ async function flushDrains(): Promise<void> {
 }
 
 describe('SessionCell prompts', () => {
+  it('gives repeated runtime turn IDs distinct durable reference identities across restarts', async () => {
+    const first = makeCell().cell, restarted = makeCell().cell;
+    try {
+      expect((await first.prompt({ text: 'same words' })).success).toBe(true);
+      expect((await restarted.prompt({ text: 'same words' })).success).toBe(true);
+      const a = first.history().committed[0]!, b = restarted.history().committed[0]!;
+      expect(a.id).toBe(b.id);
+      expect(a.referenceId).toMatch(/^source:[0-9a-f-]{36}$/);
+      expect(b.referenceId).toMatch(/^source:[0-9a-f-]{36}$/);
+      expect(a.referenceId).not.toBe(b.referenceId);
+    } finally { first.dispose(); restarted.dispose(); }
+  });
+
   it.each(['prompt', 'queueBehindTurn'] as const)('keeps a newer draft when %s receives delayed native admission', async (method) => {
     const receipt = Promise.withResolvers<SessionPromptReceipt>();
     const prompt = vi.fn((_params: unknown, dispatch: { requestId: string }) => {

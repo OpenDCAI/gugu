@@ -107,7 +107,7 @@ export function createAssistantWorkOutboxHost(deps: {
     if (subscribeFlight) return subscribeFlight
     unsubscribe?.(); unsubscribe = null; live = false
     const owner = current.ownerId
-    subscribeFlight = deps.subscribe(owner, () => { void pump.kick() }, up => { live = up }).then(off => {
+    subscribeFlight = deps.subscribe(owner, () => { kick() }, up => { live = up }).then(off => {
       if (stopped) { off(); return }
       unsubscribe = off; subscriptionOwner = owner
     }).finally(() => { subscribeFlight = null })

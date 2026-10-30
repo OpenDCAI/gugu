@@ -156,7 +156,7 @@ describe('conversation edit control', () => {
   it('keeps copying available without a native revert point', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
-    const el = renderCard({ generating: false });
+    const el = renderCard({ generating: false, commands: { writeClipboardText: writeText } });
     el.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')!.click();
     expect(writeText).toHaveBeenCalledWith(MESSAGE.text);
     await vi.waitFor(() => expect(el.querySelector('button[aria-label="Copied"]')).not.toBeNull());
@@ -180,7 +180,7 @@ describe('conversation edit control', () => {
     const [message, setMessage] = createSignal(MESSAGE);
     const onEditMessage = vi.fn();
     const el = renderCard({ generating: false, message,
-      commands: { canRevertMessage: () => true, onEditMessage } });
+      commands: { canRevertMessage: () => true, onEditMessage, writeClipboardText: writeText } });
     el.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')!.click();
     await vi.waitFor(() => expect(el.querySelector('button[aria-label="Copied"]')).not.toBeNull());
     setMessage({ ...MESSAGE, id: 'u2', text: 'A different message' });

@@ -48,7 +48,8 @@ import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
 import { AppNameProvider } from './lib/app-name';
 import { ChatNameProvider } from './lib/chat-name';
-import { CHAT_COMPOSER_EDGE_FADE_PX } from './layout-geometry';
+import { CHAT_COMPOSER_EDGE_FADE_PX, CHAT_PIN_FADE_HEIGHT_PX } from './layout-geometry';
+import { itemScrollTarget } from './core/scroll-to-item';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { CachesContext } from './components/contexts/CachesContext';
@@ -60,6 +61,7 @@ import { createFrameScheduler } from './components/engine/frame-scheduler';
 import { createTweenRegistry } from './components/engine/tween-registry';
 import { SEGMENTERS, UNIT_REGISTRY } from './components/engine/unit-registry';
 import { UnitRow } from './components/engine/UnitRow';
+import { latestConversationBubbleId } from './components/rows/message/conversation-body';
 import type { ChatCaches } from './core/caches';
 import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
@@ -70,7 +72,7 @@ import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
-import { joinsFoldRunAt } from './state/turn-fold';
+import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier,
   isDeliveredFromAgent,
@@ -519,7 +521,10 @@ export function ChatRoot(props: ChatRootProps) {
   const maxScrollTop = () => Math.max(0, contentH() - viewHeight());
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
-  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active);
+  // Identity changes only once per new turn, not for every streamed update.
+  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
+    ?? state().transcript.state.committedTurns.at(-1)?.id);
+  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
   // O(1) lookup: itemId -> index of the FIRST unit for that item in the
@@ -540,6 +545,10 @@ export function ChatRoot(props: ChatRootProps) {
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
   const NO_ACTIVE_UNITS: ReturnType<typeof flattenTier> = [];
+  // An incremental append only reads the new tail's fold keys. Keep the full
+  // fold snapshot reactive so older headers still rebuild their hidden rows.
+  const committedFolds = createMemo(() => viewState().snapshot());
+  let lastCommittedFolds: Record<string, boolean> | undefined;
 
   // ── Committed-tier build + model-swap reset (single effect) ────────────────
   // This effect owns BOTH the incremental committed build and the model-swap
@@ -573,10 +582,14 @@ export function ChatRoot(props: ChatRootProps) {
 
     const prev = lastCommitted;
     const ctx = segmentCtx(false);
+    const folds = committedFolds();
 
     if (
+      folds === lastCommittedFolds &&
       next.length > prev.length &&
       (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1]) &&
+      // The previous acknowledgement stops being the latest when another turn arrives.
+      (prev.length === 0 || !isEmptyAgentTurn(prev[prev.length - 1])) &&
       // 新来的那一轮要并进上一条还没收尾的折叠(#4981)时,只 flatten 新的画不出合并,走整条重建。
       !joinsFoldRunAt(next, prev.length, ctx.foldTurnProcess === true)
     ) {
@@ -587,7 +600,7 @@ export function ChatRoot(props: ChatRootProps) {
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
       const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
-      committedDayKey = trailingDayKey(tail, committedDayKey);
+      committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
         const u = newUnits[j];
@@ -599,7 +612,7 @@ export function ChatRoot(props: ChatRootProps) {
     } else {
       // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
       committedUnitsArr = flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY);
-      committedDayKey = trailingDayKey(next);
+      committedDayKey = trailingDayKey(next, undefined, ctx.latestTurnId);
       committedIndexById.clear();
       for (let i = 0; i < committedUnitsArr.length; i++) {
         const u = committedUnitsArr[i];
@@ -610,6 +623,7 @@ export function ChatRoot(props: ChatRootProps) {
     }
 
     lastCommitted = next;
+    lastCommittedFolds = folds;
     setCommittedUnitsVersion((v) => v + 1);
   });
 
@@ -660,7 +674,7 @@ export function ChatRoot(props: ChatRootProps) {
     const build = (withBackground: boolean) => {
       const full = segmentCtx(true);
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
-      if ((!at || at.items.length === 0) && !pendingPrompt) {
+      if (!at && !pendingPrompt) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
       }
@@ -710,6 +724,9 @@ export function ChatRoot(props: ChatRootProps) {
     committedUnitsVersion();
     return makeUnitsView(committedUnitsArr, activeUnits());
   });
+
+  const latestConversationMessageId = createMemo(() => latestConversationBubbleId(units(), { theme: theme() }));
+  const pendingBubbleMeasures = new Set<string>();
 
   /**
    * 「跑完后的最后一条回复」—— 整个转录里唯一带页脚(复制按钮)的那条(#4981)。
@@ -802,6 +819,7 @@ export function ChatRoot(props: ChatRootProps) {
         expandedId: expandedUserId(),
         editingMessage: editingMessage(),
         finalReplyId: finalReplyId(),
+        latestConversationMessageId: latestConversationMessageId(),
         background: backgroundAttachment(),
       };
       // lastWidth > 0 iff onCleanup wrote a snapshot on a prior dispose.
@@ -1268,9 +1286,44 @@ export function ChatRoot(props: ChatRootProps) {
     props.onAtBottomChange?.(value);
   };
 
+  const measureUnitAt = (ui: number): void => {
+    const u = units().at(ui);
+    if (!u) return;
+    const unitDef = UNIT_REGISTRY[u.kind];
+    if (!unitDef) return;
+    const c = u.chrome;
+    const unitInsetX = c?.insetX ?? 0;
+    const ctx: MeasureCtx = {
+      theme: theme(),
+      width: Math.max(0, containerWidth() - 2 * unitInsetX),
+      isCollapsed: (id: string) => viewState().isCollapsed(id),
+      expanded: (id: string) => viewState().isCollapsed(id),
+      caches: caches(),
+      measureEpoch: measureEpoch(),
+      expandedId: expandedUserId(),
+      editingMessage: editingMessage(),
+      finalReplyId: finalReplyId(),
+      latestConversationMessageId: latestConversationMessageId(),
+      background: backgroundAttachment(),
+    };
+    const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
+    const h = unitReservedHeight(u, contentH);
+    const delta = virt.setSize(ui, h);
+    if (delta !== 0) onHeightChanged(ui, delta);
+  };
+
+  createEffect(on(latestConversationMessageId, (next, previous) => {
+    if (previous && previous !== next) pendingBubbleMeasures.add(previous.replace(/:batch-\d+$/, ''));
+  }));
+
   const readPhase = () => {
     const el = scrollEl;
     if (!el) return;
+    for (const id of pendingBubbleMeasures) {
+      const index = unitIndexOf(id);
+      if (index >= 0) measureUnitAt(index);
+    }
+    pendingBubbleMeasures.clear();
     // Settle size changes that landed between frames against the previous
     // intent before reading intent from virt (a translation: userDelta survives).
     applyAboveCompensation();
@@ -1480,6 +1533,7 @@ export function ChatRoot(props: ChatRootProps) {
     expandedUserId();
     editingMessage();
     finalReplyId();
+    latestConversationMessageId();
     backgroundAttachment();
     needsProject = true;
     scheduler.request();
@@ -1519,38 +1573,11 @@ export function ChatRoot(props: ChatRootProps) {
       prefetchEnd = ahead;
     }
 
-    const w = containerWidth();
-    const t = theme();
-
     let measured = 0;
 
-    const prefetchUnit = (ui: number): void => {
-      const u = us.at(ui);
-      if (!u) return;
-      const unitDef = UNIT_REGISTRY[u.kind];
-      if (!unitDef) return;
-      const c = u.chrome;
-      const unitInsetX = c?.insetX ?? 0;
-      const ctx: MeasureCtx = {
-        theme: t,
-        width: Math.max(0, w - 2 * unitInsetX),
-        isCollapsed: (id: string) => viewState().isCollapsed(id),
-        expanded: (id: string) => viewState().isCollapsed(id),
-        caches: caches(),
-        measureEpoch: measureEpoch(),
-        expandedId: expandedUserId(),
-        editingMessage: editingMessage(),
-        finalReplyId: finalReplyId(),
-        background: backgroundAttachment(),
-      };
-      const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
-      const h = unitReservedHeight(u, contentH);
-      const delta = virt.setSize(ui, h);
-      if (delta !== 0) onHeightChanged(ui, delta);
-    };
 
     while (prefetchStart <= prefetchEnd && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-      prefetchUnit(prefetchStart);
+      measureUnitAt(prefetchStart);
       measured++;
       prefetchStart++;
     }
@@ -1558,7 +1585,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (prefetchStart > prefetchEnd) {
       let backCursor = visStart - 1;
       while (backCursor >= behind && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-        prefetchUnit(backCursor);
+        measureUnitAt(backCursor);
         measured++;
         backCursor--;
       }
@@ -1628,17 +1655,12 @@ export function ChatRoot(props: ChatRootProps) {
     const behavior = opts?.behavior ?? 'auto';
 
     const computeTarget = () => {
-      const rowTop = virt.top(idx) + padTop();
-      const vh = Math.max(0, el.clientHeight - padBottom());
-      let target: number;
-      if (align === 'center') {
-        target = rowTop - (vh - rowH) / 2;
-      } else if (align === 'end') {
-        target = rowTop - vh + rowH;
-      } else {
-        target = rowTop;
-      }
-      return Math.max(0, target + extraOffset);
+      const pin = pinAnchors().findLast(anchor => anchor < idx);
+      const end = pin === undefined ? undefined : pinEnds().find(boundary => boundary > pin);
+      const topInset = pin !== undefined && (end === undefined || idx < end)
+        ? Math.max(0, virt.size(pin) + userTopGap - (us.at(pin)?.gapBefore ?? 0)) + CHAT_PIN_FADE_HEIGHT_PX : 0;
+      return itemScrollTarget({ rowTop: virt.top(idx) + padTop(), rowHeight: rowH,
+        viewportHeight: Math.max(0, el.clientHeight - padBottom()), topInset, align, offset: extraOffset });
     };
 
     const t0 = computeTarget();
@@ -1858,12 +1880,20 @@ export function ChatRoot(props: ChatRootProps) {
       // 对话布局里折着的长消息,气泡下面那一行的「展开全文」:和点气泡本身一样展开。
       const expand = t.closest('[data-expand-user-card]') as HTMLElement | null;
       if (expand?.dataset.expandUserCard) {
+        if (expand.dataset.conversationBubbleKey) {
+          viewState().setCollapsed(expand.dataset.conversationBubbleKey, true);
+          return;
+        }
         setExpandedUserId(expand.dataset.expandUserCard);
         return;
       }
 
       const userCard = t.closest('[data-user-card]') as HTMLElement | null;
       if (userCard?.dataset.userCard) {
+        if (userCard.dataset.conversationBubbleKey) {
+          if (userCard.dataset.userCardExpandable === 'true') viewState().setCollapsed(userCard.dataset.conversationBubbleKey, true);
+          return;
+        }
         const id = userCard.dataset.userCard;
         if (expandedUserId() !== id) {
           setExpandedUserId(id);
@@ -2055,6 +2085,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 expandedId={expandedUserId()}
                                 editingMessage={editingMessage()}
                                 finalReplyId={finalReplyId()}
+                                latestConversationMessageId={latestConversationMessageId()}
                                 background={backgroundAttachment()}
                               />
                               <Show when={isPinAnchor()}>

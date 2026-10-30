@@ -16,7 +16,7 @@ export type ImportOutcome =
  * 还把各自的失败原因搅在一起。慢一点，但每条的结果都说得清。
  */
 export async function runImport(
-  source: Pick<SessionImportSource, 'importSession'>,
+  source: Pick<SessionImportSource, 'importSession' | 'sessionView'>,
   rows: LocalSessionRow[],
   onProgress: (done: number) => void,
   /** 失败原因怎么说给人听(本机 / 别的机器说法不同,见 describeImportFailure)。 */
@@ -32,6 +32,7 @@ export async function runImport(
         filePath: row.filePath,
         title: row.title,
         cwd: row.cwd,
+        sessionView: source.sessionView,
       });
       outcomes.push({
         kind: result.alreadyImported ? 'existing' : 'imported',

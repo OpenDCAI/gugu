@@ -4,6 +4,8 @@ import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/
 import { coded, guguError, refOf, type GuguHost } from './host';
 import { createModalApi } from './modal';
 import { countsOf } from './check-counts';
+import { projectionSources } from './projection-source';
+import { mountProjection } from './projection-view';
 
 /**
  * `gugu` itself, built on a host — the same object wherever an App runs (F16): a page (desktop webview or
@@ -145,10 +147,14 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
+  if (host.program && host.projection && host.onProjectionSource) api.projection = projectionSources(host);
+  else if (host.projection && host.onProjection) api.projection = {
+    mount: (element: HTMLElement, id: string, options?: Parameters<typeof mountProjection>[3]) => mountProjection(host, element, id, options),
+  };
   if (raw.modal) api.modal = createModalApi(raw);
   // `gugu.dispatch(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
   if (typeof raw.dispatch === 'function') {

@@ -69,6 +69,8 @@ export type ChatImageAttachment = ChatAttachment;
 export type ChatMessage = {
   kind: 'message';
   id: string;
+  /** View-only durable source; null means the runtime row has no safe persistent identity yet. */
+  sourceItemId?: string | null;
   seq?: number;
   role: ChatRole;
   /** Markdown source text. */
@@ -91,7 +93,7 @@ export type ChatMessage = {
    * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
    * `chatId` the group the quoted message was said in (absent for a DM).
    */
-  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean; background?: true };
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
   /**
@@ -99,6 +101,10 @@ export type ChatMessage = {
    * steps under the process line (design 0), ❌ a bubble of its own.
    */
   conversationNarration?: boolean;
+  /** A Stop hook's final reason remains visible below its counted process. */
+  conversationTerminalReason?: boolean;
+  /** The answer immediately before Stop is always shown in full. */
+  conversationFull?: boolean;
   /** The replay segment is live and this reply is its last event (not merely an active turn). */
   conversationCaret?: boolean;
   /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
@@ -108,7 +114,7 @@ export type ChatMessage = {
   /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
   sentChat?: string;
   /** View-only disclosure of the completed thinking/execution segment. */
-  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean; trigger?: TurnProcessItem['trigger'] };
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
   /**
    * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
    * process line, each `body` only a bubble. The process steps go between them, so they never land
@@ -502,6 +508,8 @@ export type TurnProcessItem = {
   turnId: string;
   /** This segment explicitly chose silence; a status label, never an assistant reply. */
   silent?: boolean;
+  /** A retained acknowledgement with no expandable agent activity. */
+  empty?: boolean;
   /**
    * 这一轮还在跑：头上的时间在数、带微光，底下的内容**默认摊开**（点一下收起）；
    * 落定后同一条头默认收起、写的是总时长（点开还原）。
@@ -515,11 +523,6 @@ export type TurnProcessItem = {
   withBody?: boolean;
   /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「执行中 · 9m16s · 39 步」)。 */
   steps?: number;
-  /**
-   * 对话布局、在跑:这一轮不是主人手打起的(群消息投递、定时任务、agent 自己起的)。过程行写清在干什么
-   * (「执行中 · 处理「gugu」群消息」),❌ 只露出后台药丸(管家 10-28:主人手打的消息不能被不是他发起的事挡住)。
-   */
-  trigger?: { kind: 'delivery' | 'schedule' | 'agent'; chatIds?: string[] };
   /**
    * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
    * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。

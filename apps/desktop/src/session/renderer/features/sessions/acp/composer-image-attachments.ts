@@ -22,10 +22,19 @@ export interface EnqueueImageAttachmentDeps {
   update: (updater: (prev: ComposerAttachment[]) => ComposerAttachment[]) => void;
   /** 读成 data URL 当缩略图;读不出来就没有缩略图,不影响上传。 */
   readPreview: (file: File) => Promise<string | undefined>;
-  upload: (file: File, mimeType: AttachmentMimeType) => Promise<AttachmentRef | null>;
+  upload: (file: File, mimeType: AttachmentMimeType, options: {
+    signal?: AbortSignal;
+    uploadId: string;
+    onProgress: (progress: { sent: number; total?: number }) => void;
+  }) => Promise<AttachmentRef | null>;
+  signal?: AbortSignal;
+  onRetry?: (error: unknown) => void;
+  onFailure?: (error: unknown) => void;
+  /** 已保存的正文路径可自动接替失败的图片块;等待保存完成后再放行发送。 */
+  fallback?: { available: Promise<boolean>; meta: string };
   /** 上传成功后把服务端 ref 记进账本 —— 发送与删除都只认它。 */
   rememberRef: (chipId: string, ref: AttachmentRef) => void;
-  labels: { uploading: string; failed: string };
+  labels: { uploading: string; failed: string; retrying?: string };
   formatSize: (bytes: number) => string;
 }
 
@@ -50,6 +59,7 @@ export async function enqueueImageAttachment(
       kind: 'image',
       mimeType,
       state: 'uploading',
+      cancelable: true,
       meta: labels.uploading,
     },
   ]);
@@ -59,13 +69,55 @@ export async function enqueueImageAttachment(
     if (previewUrl) patch({ previewUrl });
   });
 
-  const ref = await deps.upload(file, mimeType);
+  let ref: AttachmentRef | null = null;
+  let attempt = 0;
+  const uploadId = crypto.randomUUID();
+  const maxAttempts = 3;
+  while (!deps.signal?.aborted && attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      ref = await deps.upload(file, mimeType, {
+        signal: deps.signal,
+        uploadId,
+        onProgress: ({ sent, total }) => patch({
+          progress: total ? Math.min(100, sent / total * 100) : undefined,
+        }),
+      });
+      break;
+    } catch (error) {
+      if (deps.signal?.aborted) return;
+      const code = (error as { code?: unknown } | null)?.code;
+      if ((code !== 'TIMEOUT' && code !== 'DISCONNECTED') || attempt >= maxAttempts) {
+        deps.onFailure?.(error);
+        break;
+      }
+      deps.onRetry?.(error);
+      patch({ progress: undefined, meta: labels.retrying ?? labels.uploading });
+      await retryDelay(250 * 2 ** (attempt - 1), deps.signal);
+    }
+  }
+  if (deps.signal?.aborted) return;
   if (!ref) {
-    patch({ state: 'error', meta: labels.failed });
+    const pathAvailable = await deps.fallback?.available;
+    if (deps.signal?.aborted) return;
+    if (pathAvailable) {
+      patch({ state: 'done', progress: undefined, cancelable: undefined, meta: deps.fallback?.meta });
+      return;
+    }
+    patch({ state: 'error', progress: undefined, cancelable: undefined, meta: labels.failed });
     return;
   }
   deps.rememberRef(chipId, ref);
-  patch({ name: ref.name, mimeType: ref.mimeType, state: 'done', meta: deps.formatSize(file.size) });
+  patch({ name: ref.name, mimeType: ref.mimeType, state: 'done', progress: undefined, cancelable: undefined, meta: deps.formatSize(file.size) });
+}
+
+function retryDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener('abort', finish, { once: true });
+  });
 }
 
 /**

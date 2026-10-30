@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   PLAYWRIGHT_CONFIG,
+  closeSessionBrowserTools,
   SessionBrowserTools,
   agentVisibleTools,
   answeredLocally,
@@ -122,7 +123,7 @@ describe('#7191 agent 存成文件的截图、快照落在会话的工作目录'
 })
 
 describe('#7191 会话结束时还在开页签的那一次', () => {
-  it('turn cancellation closes its pending connection; the next message reconnects without a browser resume action', async () => {
+  it('session shutdown closes its pending connection; the next message reconnects without a browser resume action', async () => {
     let finishOpening!: (transport: { close(): void }) => void
     let openSignal: AbortSignal | undefined
     const transport = { close: vi.fn() }
@@ -138,6 +139,7 @@ describe('#7191 会话结束时还在开页签的那一次', () => {
     try {
       const pending = provider.call(program, { name: 'browser_snapshot', _meta: { 'gugu/sessionId': id } }, stoppedTurn.signal)
       await vi.waitFor(() => expect(openSignal).toBeDefined())
+      await closeSessionBrowserTools(id)
       stoppedTurn.abort()
       expect(await pending).toMatchObject({ isError: true })
       expect(openSignal?.aborted).toBe(true)
@@ -151,6 +153,40 @@ describe('#7191 会话结束时还在开页签的那一次', () => {
       await provider.retire('browser-cancel')
     }
   })
+
+  it('cancels A without closing a shared MCP connection or failing concurrent B', async () => {
+    const { CallToolRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+    const server = new Server({ name: 'two-calls', version: '1' }, { capabilities: { tools: {} } });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    let finishA!: () => void, finishB!: () => void;
+    server.setRequestHandler(CallToolRequestSchema, async request => {
+      await new Promise<void>(resolve => { if (request.params.name === 'a') finishA = resolve; else finishB = resolve; });
+      return { content: [{ type: 'text', text: request.params.name }] };
+    });
+    await server.connect(serverSide);
+    const client = browserToolsClient('/tmp'); await client.connect(clientSide);
+    const factory = vi.spyOn(SessionBrowserTools.prototype, 'client').mockImplementation(function (this: SessionBrowserTools) {
+      // A real shared MCP connection; use the production close path to expose accidental teardown.
+      Object.assign(this, { closeServer: () => client.close() });
+      return Promise.resolve(client);
+    });
+    const bridge = { openTransport: vi.fn(), toolStarting: () => ({ ok: true as const }), toolFinished: vi.fn(), setInitialUrl: vi.fn(), workspaceRoot: async () => null };
+    const provider = createBrowserAppProgram(() => bridge), sid = randomUUID();
+    const program = { extensionId: 'parallel-browser', server: 'browser-use', native: 'browser-use' as const,
+      digest: 'd', command: 'Gugu Browser Use', args: [], env: {}, cwd: '/tmp', dataDir: '/tmp' };
+    const a = new AbortController();
+    try {
+      const pendingA = provider.call(program, { name: 'a', _meta: { 'gugu/sessionId': sid } }, a.signal);
+      const pendingB = provider.call(program, { name: 'b', _meta: { 'gugu/sessionId': sid } }, new AbortController().signal);
+      await vi.waitFor(() => { expect(finishA).toBeDefined(); expect(finishB).toBeDefined(); });
+      a.abort();
+      expect(await pendingA).toMatchObject({ isError: true });
+      finishB();
+      expect(await pendingB).toMatchObject({ content: [{ text: 'b' }] });
+      expect(provider.status('parallel-browser').running).toBe(1);
+      finishA();
+    } finally { finishA?.(); finishB?.(); await provider.retire('parallel-browser'); factory.mockRestore(); await server.close(); }
+  });
 
   it('作罢:开页签的那一步收到中止,开好的连接当场关掉,❌ 半截连上的一份留在页签上', async () => {
     let finishOpening!: (transport: { close(): void }) => void
