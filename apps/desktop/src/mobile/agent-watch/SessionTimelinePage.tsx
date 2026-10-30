@@ -108,7 +108,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
   const agentUserId = agent?.agentUserId ?? session.agent?.userId
-  const presentation = shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
+  const presentation = !agentUserId && !online ? null
+    : shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
