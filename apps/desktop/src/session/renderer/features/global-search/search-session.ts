@@ -1,7 +1,11 @@
 // Global search (globalSearch.v3): the one search state shared by the modal and the in-chat results bar.
 // "Results" in the bar reopens the modal on exactly this state; nothing else keeps a copy of a query.
 import { useSyncExternalStore } from 'react'
-import type { SearchMessageHit, SearchQuery, SearchResults } from '@gugu/core/shared/search/types'
+import type { SearchHit, SearchQuery, SearchResults } from '@gugu/core/shared/search/types'
+import { UI_EVENTS } from '@/lib/uiEvents'
+import { askReveal } from '@/hooks/useSourceMessageReveal'
+import { messageQuoteLink } from '@gugu/core/shared/ui/messageQuote'
+import { notify } from '@/lib/notices'
 import { followLink } from '@/lib/guguLinks'
 import { chatComposerTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { conversationLink } from '@gugu/core/shared/ui/guguLink'
@@ -10,10 +14,11 @@ import { rpcOn } from '@renderer/lib/ipc'
 
 export type SearchChip =
   | { kind: 'in'; chatId: string }
+  | { kind: 'in-task'; taskId: string; title: string }
   | { kind: 'from'; userId: string }
   | { kind: 'on'; date: string }
 
-export type SearchFacet = 'all' | 'file' | 'image' | 'link'
+export type SearchFacet = 'all' | 'file' | 'image' | 'link' | 'message' | 'task'
 
 export interface SearchSession {
   text: string
@@ -23,7 +28,7 @@ export interface SearchSession {
   /** The query the results below answer; the bar and the modal both page through this one result set. */
   query: SearchQuery | null
   /** Loaded pages of results, in order. */
-  results: SearchMessageHit[]
+  results: SearchHit[]
   /** How many messages match in all (the facet total), whatever has been loaded so far. */
   total: number
   nextCursor: string | null
@@ -62,7 +67,7 @@ export function useSearchSession(): SearchSession {
 
 /** A single chat scope reads newest first; everything else by relevance. */
 export const defaultSort = (chips: readonly SearchChip[]): SearchQuery['sort'] =>
-  chips.filter((chip) => chip.kind === 'in').length === 1 ? 'recent' : 'relevant'
+  chips.filter((chip) => (chip.kind === 'in' || chip.kind === 'in-task')).length === 1 ? 'recent' : 'relevant'
 
 /** Every entry point: a fresh query, optionally scoped. Reopening the bar's results uses reopenGlobalSearch. */
 export function openGlobalSearch(options: { text?: string; chips?: SearchChip[] } = {}): void {
@@ -103,7 +108,19 @@ export async function loadMoreHits(): Promise<void> {
 }
 
 /** The existing conversation link opens the chat (or topic) at the message and flashes it. */
-export function showHit(hit: SearchMessageHit): void {
+export function showHit(hit: SearchHit): void {
+  if (hit.kind === 'task') {
+    set({ selectedId: hit.id, barChatId: `task:${hit.taskId}` })
+    askReveal(`task:${hit.taskId}`, messageQuoteLink({ kind: 'session', sessionId: hit.taskId, itemId: hit.reference }), 'primary', session.query?.text)
+    followLink({ kind: 'session', sessionId: hit.taskId, projectId: hit.projectId })
+    focusCleanup?.()
+    void import('../sessions/open-session-in-session').then(({ openSessionInSessionWhenReady }) => {
+      if (session.selectedId !== hit.id) return
+      focusCleanup = openSessionInSessionWhenReady({ projectId: hit.projectId, sessionId: hit.taskId, transcript: true,
+        onReady: () => window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    }).catch(error => notify({ tier: 'error', title: String(error) }))
+    return
+  }
   set({ selectedId: hit.id, barChatId: hit.chatId })
   followLink(conversationLink(hit.chatId, hit.id))
   // Entering the chat from search lands in that chat's composer once it has rendered (the shared focus contract),

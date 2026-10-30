@@ -60,6 +60,14 @@ describe('conversation reply references', () => {
     expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-a')).toBe('original');
     expect(resolveConversationMessageReference(turns, messageQuoteLink(source), 'session-b')).toBeNull();
   });
+  it('reveals a successful Gugu speaking item by its stable reference without admitting generic tools', () => {
+    const send = { kind: 'mcp-tool-call', id: 'stored:send', seq: 0, toolCallId: 'call', server: 'gugu', tool: 'session_message',
+      title: 'session_message', status: 'done', rawInput: JSON.stringify({ text: 'visible delivery', to: ['session:other'] }) };
+    const turns = [{ id: 'stored', referenceId: 'original', seq: 0, initiator: 'agent', items: [send] }] as TranscriptTurn[];
+    const link = messageQuoteLink({ kind: 'session', sessionId: 's', itemId: 'original:send' });
+    expect(resolveConversationMessageReference(turns, link, 's')).toBe('stored:send');
+    expect(resolveConversationMessageReference([{ ...turns[0], items: [{ ...send, tool: 'generic' }] } as TranscriptTurn], link, 's')).toBeNull();
+  });
   it('resolves a reply to the actual earlier sender across turns without mutating stored messages', () => {
     const turns: TranscriptTurn[] = [
       { id: 't1', seq: 0, initiator: 'user', items: [

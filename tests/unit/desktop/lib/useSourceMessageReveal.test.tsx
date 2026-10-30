@@ -5,7 +5,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
-import { askReveal, useSourceMessageReveal } from '../../../../apps/desktop/src/hooks/useSourceMessageReveal'
+import { askReveal, useAskedSourceMessage, useSourceMessageReveal } from '../../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 
 let harness: ReturnType<typeof createReactHarness>
@@ -133,6 +133,19 @@ describe('source message reveal', () => {
     await harness.render(createNode(Pane, { ready: true }))
     expect(scrollToIndex).toHaveBeenCalledWith({ index: 0, align: 'center' })
     expect(reveal).not.toHaveBeenCalled()
+  })
+
+  it('hands a task quote and query to the ready transcript through the same intent queue', async () => {
+    const reveal = vi.fn()
+    function Task({ ready }: { ready: boolean }) {
+      useAskedSourceMessage({ activeChatId: 'task:task-id', ready, reveal })
+      return null
+    }
+    await harness.render(createNode(Task, { ready: false }))
+    await act(async () => { askReveal('task:task-id', 'gugu-session://task-id?message=old', 'primary', 'needle'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    expect(reveal).not.toHaveBeenCalled()
+    await harness.render(createNode(Task, { ready: true }))
+    expect(reveal).toHaveBeenCalledExactlyOnceWith('gugu-session://task-id?message=old', 'needle')
   })
 
   it('ignores a request for another group', async () => {

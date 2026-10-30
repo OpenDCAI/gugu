@@ -11,6 +11,8 @@ interface OpenSessionInSessionOptions {
   projectId: string;
   sessionId: string;
   timeout?: number;
+  /** Reveal a stored conversation item, including history recorded before a task changed presentation. */
+  transcript?: boolean;
   /** Commit navigation or layout only after the task workspace can be opened. */
   onReady?: () => void;
   /**
@@ -41,6 +43,7 @@ export function openSessionInSessionWhenReady({
   sessionId,
   timeout = 10_000,
   preview = false,
+  transcript = false,
   onlyIfNoTabs = false,
   host,
   onReady,
@@ -61,7 +64,7 @@ export function openSessionInSessionWhenReady({
       const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (!onlyIfNoTabs || !paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) {
         paneLayout?.open(
-          sessionTabKind(session.data.runtime),
+          transcript ? 'acp-chat' : sessionTabKind(session.data.runtime),
           { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
           { preview }
         );

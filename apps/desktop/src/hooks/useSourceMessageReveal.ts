@@ -5,9 +5,9 @@ import { UI_EVENTS } from '../lib/uiEvents'
 import { revealSourceMessage, SOURCE_MESSAGE_FLASH_MS } from '../lib/sourceMessageReveal'
 
 /** `gugu.showMessage` in a chat not on screen (MainLayout brings it up): the message its list goes to when it shows it. */
-const askedReveals = new Map<string, string>()
-export function askReveal(chatId: string, messageId: string, viewportKey = 'primary'): void {
-  askedReveals.set(JSON.stringify([viewportKey, chatId]), messageId)
+const askedReveals = new Map<string, { messageId: string; query?: string }>()
+export function askReveal(chatId: string, messageId: string, viewportKey = 'primary', query?: string): void {
+  askedReveals.set(JSON.stringify([viewportKey, chatId]), { messageId, query })
 }
 
 /**
@@ -77,23 +77,7 @@ export function useSourceMessageReveal(input: {
     if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
   }, [flashTimerRef])
 
-  useEffect(() => {
-    const takeAsked = () => {
-      if (!activeChatId || !enabled) return
-      const own = JSON.stringify([viewportKey, activeChatId]), primary = JSON.stringify(['primary', activeChatId])
-      const key = askedReveals.has(own) ? own : navigationTarget ? primary : null
-      const messageId = key ? askedReveals.get(key) : undefined
-      if (!key || !messageId) return
-      if (!ready) { onNavigateRef.current?.(); return }
-      askedReveals.delete(key)
-      reveal(messageId)
-    }
-    takeAsked()
-    window.addEventListener(UI_EVENTS.chatAsked, takeAsked)
-    return () => {
-      window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
-    }
-  }, [activeChatId, enabled, ready, navigationTarget, viewportKey, reveal])
+  useAskedSourceMessage({ activeChatId, enabled, ready, navigationTarget, viewportKey, reveal, onNavigate: () => onNavigateRef.current?.() })
   const currentTarget = useRef(input)
   currentTarget.current = input
   return useCallback((messageId: string) => {
@@ -102,4 +86,35 @@ export function useSourceMessageReveal(input: {
     askReveal(activeChatId, messageId, viewportKey)
     window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
   }, [])
+}
+
+/** One pending intent, consumed by the visible chat/DM/task view only when that view is ready. */
+export function useAskedSourceMessage({ activeChatId, enabled = true, ready = true, navigationTarget = false, viewportKey = 'primary', reveal, onNavigate }: {
+  activeChatId: string | null
+  enabled?: boolean
+  ready?: boolean
+  navigationTarget?: boolean
+  viewportKey?: string
+  reveal: (messageId: string, query?: string) => void
+  onNavigate?: () => void
+}): void {
+  const navigate = useRef(onNavigate)
+  navigate.current = onNavigate
+  useEffect(() => {
+    const takeAsked = () => {
+      if (!activeChatId || !enabled) return
+      const own = JSON.stringify([viewportKey, activeChatId]), primary = JSON.stringify(['primary', activeChatId])
+      const key = askedReveals.has(own) ? own : navigationTarget ? primary : null
+      const asked = key ? askedReveals.get(key) : undefined
+      if (!key || !asked) return
+      if (!ready) { navigate.current?.(); return }
+      askedReveals.delete(key)
+      reveal(asked.messageId, asked.query)
+    }
+    takeAsked()
+    window.addEventListener(UI_EVENTS.chatAsked, takeAsked)
+    return () => {
+      window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
+    }
+  }, [activeChatId, enabled, ready, navigationTarget, viewportKey, reveal])
 }

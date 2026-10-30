@@ -20,7 +20,7 @@ const hits: SearchMessageHit[] = [
   { kind: 'message', id: B, chatId: G, threadRootId: null, seq: 1, senderId: null, createdAt: '2026-10-26T06:02:00Z', text: '回滚预案-v2.pdf', attachment: 'file', highlights: [{ start: 0, end: 2 }], rank: { score: 1, reasons: [] } },
 ]
 vi.mock('@renderer/lib/ipc', () => ({
-  rpcOn: () => ({ search: { global: async (request: { cursor?: string | null }) => {
+  rpcOn: () => ({ search: { tasks: async () => [], global: async (request: { cursor?: string | null }) => {
     calls.queries.push(request)
     // paged: one result per page, so the bar has to fetch the second page itself.
     const results = !calls.paged ? hits : request.cursor ? hits.slice(1) : hits.slice(0, 1)
