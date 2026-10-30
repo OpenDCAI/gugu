@@ -65,8 +65,9 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
     }
     if (threadRootId === null && !caughtUp.has(chatId) && !stopped) {
       caughtUp.add(chatId)
-      // Reported even when nothing was newer: the index counts a chat as read through only after this run said so.
-      if (coverage.newestSeq !== null) await record(coverage)
+      // A stream already read to its start is reported even when nothing was newer (or its timeline is empty): the
+      // index counts a chat as read through only after this run said so. Others report from the older-history pass.
+      if (coverage.exhausted) await record(coverage)
     }
     // Then older history, until a page comes back empty.
     while (!coverage.exhausted && await readable()) {
@@ -86,6 +87,9 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
     }
   }
 
+  // A stream whose read failed waits for the next round, so one failing chat never starves the ones after it.
+  const failedThisRound = new Set<string>()
+
   function next(): SearchCoverage | null {
     const active = host.activeChatId()
     const chats = [...host.chats()].sort((a, b) => Number(b.id === active) - Number(a.id === active)
@@ -93,8 +97,10 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
     for (const chat of chats) {
       const main = streams.get(key(chat.id, null))
         ?? { chatId: chat.id, threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: false }
-      if (!main.exhausted || !caughtUp.has(chat.id)) return main
-      for (const stream of streams.values()) if (stream.chatId === chat.id && !stream.exhausted) return stream
+      if ((!main.exhausted || !caughtUp.has(chat.id)) && !failedThisRound.has(key(chat.id, null))) return main
+      for (const stream of streams.values()) {
+        if (stream.chatId === chat.id && !stream.exhausted && !failedThisRound.has(key(chat.id, stream.threadRootId))) return stream
+      }
     }
     return null
   }
@@ -103,12 +109,12 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
     for (const coverage of await source.coverage()) streams.set(key(coverage.chatId, coverage.threadRootId), coverage)
     while (!stopped) {
       const stream = next()
-      if (!stream) { await host.sleep(RETRY_MS); continue }
+      if (!stream) { failedThisRound.clear(); await host.sleep(RETRY_MS); continue }
       try {
         await readStream(stream)
       } catch (error) {
-        log.warn({ error: String(error) }, 'page failed; retrying')
-        await host.sleep(RETRY_MS)
+        failedThisRound.add(key(stream.chatId, stream.threadRootId))
+        log.warn({ error: String(error), chatId: stream.chatId }, 'page failed; trying again next round')
       }
     }
   })().catch((error: unknown) => log.error({ error: String(error) }, 'stopped'))

@@ -93,3 +93,31 @@ describe('search backfill', () => {
     finally { stop() }
   })
 })
+
+describe('search backfill completeness after a restart and with a failing chat', () => {
+  it('reports an exhausted chat whose main timeline is empty, so it can count as complete again', async () => {
+    coverage.length = 0
+    await run({
+      coverage: async () => [{ chatId: 'empty', threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: true }],
+      mainPage: async () => [],
+      threadPage: async () => [],
+    }, [chat('empty', '2026-10-30')])
+    expect(coverage).toEqual([{ chatId: 'empty', threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: true }])
+  })
+
+  it('lets the chats after one that keeps failing get their coverage', async () => {
+    coverage.length = 0
+    const reads: string[] = []
+    await run({
+      coverage: async () => [],
+      mainPage: async (chatId) => {
+        reads.push(chatId)
+        if (chatId === 'broken') throw new Error('read failed')
+        return []
+      },
+      threadPage: async () => [],
+    }, [chat('broken', '2026-10-30'), chat('fine', '2026-10-29')])
+    expect(reads).toEqual(['broken', 'fine'])
+    expect(coverage).toEqual([{ chatId: 'fine', threadRootId: null, oldestSeq: null, newestSeq: null, exhausted: true }])
+  })
+})
