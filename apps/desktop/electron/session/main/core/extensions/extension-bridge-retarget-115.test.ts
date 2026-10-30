@@ -64,13 +64,13 @@ describe('a resident page moved to another file (摩擦单 F115)', () => {
     expect(extensionSurfaceBindingForTests(PAGE)?.sessionId).toBe('task-a');
     const captured = await captureSessionpageProjectionViewer(PAGE);
     expect(captured).toMatchObject({ appId: 'workspace', version: '1.0.0', sessionId: 'task-a', deviceId: 'actual-task-host', id: String(PAGE) });
-    let finish!: () => void;
-    resourceChat.mockImplementationOnce(async id => { await new Promise<void>(resolve => { finish = resolve; }); return id; });
+    const lookup = Promise.withResolvers<void>();
+    resourceChat.mockImplementationOnce(async id => { await lookup.promise; return id; });
     const moving = retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT });
     try {
       expect(captured.signal.aborted).toBe(true); expect(() => captured.assertCurrent()).toThrow(/page changed/);
-      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
-    } finally { finish?.(); await moving; captured.release(); }
+      await vi.waitFor(() => expect(resourceChat).toHaveBeenCalledOnce());
+    } finally { lookup.resolve(); await moving; captured.release(); }
     const next = await captureSessionpageProjectionViewer(PAGE);
     expect(next.epoch).toBeGreaterThan(captured.epoch); expect(next.sessionId).toBe('task-b');
     unbindExtensionSurface(PAGE); expect(next.signal.aborted).toBe(true);
