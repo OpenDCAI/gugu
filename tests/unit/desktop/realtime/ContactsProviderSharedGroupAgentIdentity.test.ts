@@ -29,6 +29,7 @@ const { authUser, contactsServiceMock, identitiesById, putIdentitiesMock, getImR
       updateContactAlias: vi.fn(),
       removeOwnedAgent: vi.fn(),
       updateOwnedAgentProfile: vi.fn(),
+      uploadOwnedAgentAvatar: vi.fn(),
     },
     refreshChatsMock: vi.fn(),
     chatState: { chats: [] as unknown[] },
@@ -57,8 +58,11 @@ vi.mock('../../../../apps/desktop/src/session/renderer/lib/shell-port', () => ({
   isSessionShellUnsupported: () => false,
 }))
 
-const { renameLocal } = vi.hoisted(() => ({ renameLocal: vi.fn() }))
+const { renameLocal, renameTask } = vi.hoisted(() => ({ renameLocal: vi.fn(), renameTask: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal } }))
+const { assistant, reportAssistant } = vi.hoisted(() => ({ assistant: { id: null as string | null }, reportAssistant: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/myAssistant', () => ({ isMyAssistant: (ownerId: string, id: string) => ownerId === authUser.id && id === assistant.id }))
+vi.mock('../../../../apps/desktop/src/components/assistant/assistant-app-client', () => ({ reportAssistantAppChange: reportAssistant }))
 
 import { ContactsProvider } from '../../../../apps/desktop/src/store/contacts'
 import { desktopIdentityEntries } from '../../../support/desktopIdentityEntries'
@@ -72,6 +76,7 @@ import { useContactsStore, type ContactsContextValue } from '../../../../apps/de
 // Contacts uses the actual registered desktop callback and the real parser, not an invoke shortcut.
 const desktopPort = createSessionShellPort(desktopIdentityEntries({
   sessionpageIdentityHost: { agentNames: async () => pendingNames },
+  identityHost: { renameAgent: renameTask },
   authProvider: { getAuth: async () => ({ userId: authUser.id, accessToken: 'token' }) },
   loadEmdashBridge: () => ({}),
 }).invoke)
@@ -108,10 +113,19 @@ const sharedGroupRow = {
 }
 
 beforeEach(() => {
+  assistant.id = null
+  reportAssistant.mockReset().mockResolvedValue(undefined)
   renameLocal.mockReset().mockResolvedValue(undefined)
   store = null
   identityListeners.clear()
   pendingNames.length = 0
+  renameTask.mockReset().mockImplementation(async ({ sessionId, name }: { sessionId: string; name: string }) => {
+    const row = pendingNames.find((entry) => entry.conversationId === sessionId)!
+    row.displayName = name.trim()
+    row.pendingManual = true
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, { detail: { agentUserId: row.agentUserId, displayName: row.displayName } }))
+    return { ...row }
+  })
   revisionConsumers.clear()
   for (const id of Object.keys(identitiesById)) delete identitiesById[id]
   putIdentitiesMock.mockReset().mockImplementation(async (identities: ContactUser[]) => {
@@ -128,6 +142,9 @@ beforeEach(() => {
   contactsServiceMock.getSentRequests.mockResolvedValue([])
   contactsServiceMock.updateContactAlias.mockResolvedValue(undefined)
   contactsServiceMock.removeOwnedAgent.mockResolvedValue(undefined)
+  contactsServiceMock.updateOwnedAgentProfile.mockImplementation(async (id: string, fields: { display_name?: string }) => ({
+    ...sharedGroupAgent, id, display_name: fields.display_name?.trim() ?? sharedGroupAgent.display_name,
+  }))
 })
 
 describe('ContactsProvider shared-group Agent projection', () => {
@@ -152,6 +169,77 @@ describe('ContactsProvider shared-group Agent projection', () => {
 
 
 describe('agent rename canonical publication #6021', () => {
+  it('validates an avatar before changing its linked task name', async () => {
+    pendingNames.push({ conversationId: 'task', agentUserId: sharedGroupAgent.id, displayName: 'Existing' })
+    const harness = await renderProvider()
+    try {
+      await expect(store!.uploadAgentAvatar(sharedGroupAgent.id, new File([], 'empty.png', { type: 'image/png' }), { name: 'Rejected upload' })).rejects.toThrow()
+      expect(renameTask).not.toHaveBeenCalled()
+      expect(contactsServiceMock.uploadOwnedAgentAvatar).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+
+  it('retains the assistant profile contract even if a task directory row shares its ID', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1' }
+    assistant.id = agent.id
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: 'Task label', pendingManual: true })
+    const updated = { ...agent, display_name: 'x'.repeat(50), bio: 'Assistant bio' }
+    contactsServiceMock.updateOwnedAgentProfile.mockResolvedValue(updated)
+    const harness = await renderProvider()
+    try {
+      await act(async () => { await store!.updateAgentProfile(agent.id, { name: updated.display_name, bio: updated.bio! }) })
+      expect(renameTask).not.toHaveBeenCalled()
+      expect(contactsServiceMock.updateOwnedAgentProfile).toHaveBeenCalledExactlyOnceWith(agent.id, { display_name: updated.display_name, bio: updated.bio })
+      expect(identitiesById[agent.id]).toEqual(updated)
+      expect(reportAssistant).toHaveBeenCalledOnce()
+    } finally { harness.cleanup() }
+  })
+
+  it('renames a bound task through the actual shared shell entry even when an earlier name is pending', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1', display_name: 'Earlier task choice' }
+    identitiesById[agent.id] = agent
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name, pendingManual: true })
+    const harness = await renderProvider()
+    try {
+      await act(async () => { await store!.renameAgent(agent.id, '  Later profile choice  ') })
+      expect(renameTask).toHaveBeenCalledExactlyOnceWith({ sessionId: 'task', name: '  Later profile choice  ' })
+      expect(contactsServiceMock.updateOwnedAgentProfile).not.toHaveBeenCalled()
+      expect(renameLocal).not.toHaveBeenCalled()
+      expect(identitiesById[agent.id].display_name).toBe('Later profile choice')
+    } finally { harness.cleanup() }
+  })
+
+  it('keeps the task name operation separate from a later bio response containing an old cloud name', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1' }
+    identitiesById[agent.id] = agent
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name })
+    contactsServiceMock.updateOwnedAgentProfile.mockResolvedValue({ ...agent, bio: 'Updated bio' })
+    const harness = await renderProvider()
+    try {
+      await act(async () => { await store!.updateAgentProfile(agent.id, { name: 'Profile choice', bio: 'Updated bio' }) })
+      expect(contactsServiceMock.updateOwnedAgentProfile).toHaveBeenCalledExactlyOnceWith(agent.id, { bio: 'Updated bio' })
+      expect(renameTask).toHaveBeenCalledOnce()
+      expect(renameLocal).not.toHaveBeenCalled()
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Profile choice', bio: 'Updated bio' })
+    } finally { harness.cleanup() }
+  })
+
+  it('uses the same task rename operation when an avatar upload includes a name', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: 'user-1' }
+    identitiesById[agent.id] = agent
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name })
+    contactsServiceMock.uploadOwnedAgentAvatar.mockResolvedValue({ ...agent, avatar: 'avatar.png' })
+    const harness = await renderProvider()
+    try {
+      const file = new File(['avatar'], 'avatar.png', { type: 'image/png' })
+      await act(async () => { await store!.uploadAgentAvatar(agent.id, file, { name: 'Avatar choice', bio: 'Bio' }) })
+      expect(renameTask).toHaveBeenCalledExactlyOnceWith({ sessionId: 'task', name: 'Avatar choice' })
+      expect(contactsServiceMock.uploadOwnedAgentAvatar).toHaveBeenCalledExactlyOnceWith(agent.id, file, { bio: 'Bio' })
+      expect(renameLocal).not.toHaveBeenCalled()
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Avatar choice', avatar: 'avatar.png' })
+    } finally { harness.cleanup() }
+  })
+
   it('publishes the confirmed identity and normalized name through the existing local persistence bridge', async () => {
     const updated = { ...sharedGroupAgent, owner_user_id: 'user-1', display_name: '新名字' }
     contactsServiceMock.updateOwnedAgentProfile.mockResolvedValue(updated)

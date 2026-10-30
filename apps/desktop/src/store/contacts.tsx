@@ -22,6 +22,7 @@ import { isMyAssistant } from '../lib/myAssistant'
 import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
 import { findSessionShellPort } from '@/session/renderer/lib/shell-port'
 import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
+import { validateAgentAvatarFile } from '../lib/agentAvatar'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
 type RevisionRefreshOptions = { throwOnError?: boolean }
@@ -378,14 +379,32 @@ export function ContactsProvider({ children, active = true }: { children: React.
     await (await getImRepository()).putIdentities([updated])
   }, [getImRepository])
 
-  const applyAgentProfileUpdate = useCallback(async (updated: ContactUser) => (await getImRepository()).putIdentities([updated]), [getImRepository])
+  const applyAgentProfileUpdate = useCallback(async (updated: ContactUser) => {
+    const names = isMyAssistant(userId, updated.id) ? undefined : await findSessionShellPort()?.agentNames()
+    const pending = names?.find((row) => row.agentUserId === updated.id && row.pendingManual)
+    await (await getImRepository()).putIdentities([{ ...updated, ...(pending ? { display_name: pending.displayName } : {}) }])
+  }, [getImRepository, userId])
 
-  // #1228: update an owned agent's name + bio together (真接 bio — was dropped before).
+  // An exact host binding uses the same local-first name operation as the task menu.
+  const renameLinkedTask = useCallback(async (agentId: string, name: string | undefined) => {
+    if (name === undefined || isMyAssistant(userId, agentId)) return null
+    const shell = findSessionShellPort()
+    if (!shell) return null
+    const linked = (await shell.agentNames()).find((row) => row.agentUserId === agentId)
+    return linked ? shell.renameAgent({ sessionId: linked.conversationId, name }) : null
+  }, [userId])
+
+  // #1228: keep bio/avatar updates together; a linked task's name uses its shared rename operation.
   const updateAgentProfile = useCallback(async (agentId: string, fields: { name?: string; bio?: string; avatar?: string | null }) => {
     const ownerId = userId
     const personal = isMyAssistant(ownerId, agentId)
+    const renamed = await renameLinkedTask(agentId, fields.name)
+    if (renamed && fields.bio === undefined && fields.avatar === undefined) {
+      await refreshChats()
+      return
+    }
     const updated = await contactsService.updateOwnedAgentProfile(agentId, {
-      ...(fields.name !== undefined ? { display_name: fields.name } : {}),
+      ...(fields.name !== undefined && !renamed ? { display_name: fields.name } : {}),
       ...(fields.bio !== undefined ? { bio: fields.bio } : {}),
       ...(fields.avatar !== undefined ? { avatar: fields.avatar } : {}),
     })
@@ -397,9 +416,9 @@ export function ContactsProvider({ children, active = true }: { children: React.
     // @@@share-card-rename 云端 identity.users.display_name 是所有显示面的真源。本机花名册仍同步运行时
     // 所需的 agent 元数据，但会话页分享/身份卡按 agentUserId 回读云端名字，不从这格渲染。
     // 只在名字真的改了时才动本机(改 bio / 头像不该碰花名册)。
-    if (fields.name !== undefined) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
+    if (fields.name !== undefined && !renamed) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
     await refreshChats()
-  }, [applyAgentProfileUpdate, refreshChats, userId])
+  }, [applyAgentProfileUpdate, renameLinkedTask, refreshChats, userId])
 
   // Every name entry uses the profile path, including its canonical identity and local roster publication.
   const renameAgent = useCallback(async (agentId: string, name: string) => {
@@ -407,15 +426,18 @@ export function ContactsProvider({ children, active = true }: { children: React.
   }, [updateAgentProfile])
 
   const uploadAgentAvatar = useCallback(async (agentId: string, file: File, profile?: { name?: string; bio?: string }) => {
+    const validationError = validateAgentAvatarFile(file)
+    if (validationError) throw new Error(validationError)
+    const renamed = await renameLinkedTask(agentId, profile?.name)
     const updated = await contactsService.uploadOwnedAgentAvatar(agentId, file, {
-      ...(profile?.name !== undefined ? { display_name: profile.name } : {}),
+      ...(profile?.name !== undefined && !renamed ? { display_name: profile.name } : {}),
       ...(profile?.bio !== undefined ? { bio: profile.bio } : {}),
     })
     await applyAgentProfileUpdate(updated)
     // 换头像这条路同样能带着新名字过来(资料页有待上传头像时走的就是它)——运行时元数据一视同仁。
-    if (profile?.name !== undefined) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
+    if (profile?.name !== undefined && !renamed) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
     await refreshChats()
-  }, [applyAgentProfileUpdate, refreshChats])
+  }, [applyAgentProfileUpdate, renameLinkedTask, refreshChats])
 
   const setAgentLook = useCallback(async (agentId: string, look: AgentLook) => {
     await updateAgentProfile(agentId, { avatar: contactsService.agentLookAvatarUrl(look) })

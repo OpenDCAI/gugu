@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   provision: vi.fn(),
   warn: vi.fn(),
   beforeWrite: undefined as (() => Promise<void>) | undefined,
+  actualQueue: false,
 }))
 vi.mock('@gugu/core', () => ({
   listAgents: async () => state.roster,
@@ -44,6 +45,7 @@ vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning
   awaitSessionpageCloudIdentity: async () => {},
   withSessionpageProvisionLock: (label: string, run: () => Promise<unknown>) => {
     state.lock(label)
+    if (state.actualQueue) return actualProvisionLock(label, run)
     const queued = state.lockTail.then(run)
     state.lockTail = queued.catch(() => undefined)
     return queued
@@ -78,6 +80,7 @@ import { createSessionpageIdentityHost, reconcileSessionpageOwnerNames } from '.
 import { createWebSessionShellAnswers } from '../../../../apps/desktop/src/lib/session-shell-web-answers'
 import { createSessionShellPort, SESSION_SHELL_CHANNELS } from '../../../../apps/desktop/src/session/shared/lib/ipc/shell-port'
 import { desktopIdentityEntries } from '../../../support/desktopIdentityEntries'
+import { actualProvisionLock, provisionQueueSourceHash } from '../../../support/actualProvisionQueue'
 import { resolveSessionpageSessionPeers } from '../../../../apps/desktop/electron/sessionpage/session-addressing'
 import { loadSessionpageCanonicalAgentIdentities } from '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-identity'
 import { resolveSessionpageAgentCard } from '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-card'
@@ -119,6 +122,7 @@ function desktop(app: ReturnType<typeof setup>) {
   const sendUiEvent = vi.fn()
   const entries = desktopIdentityEntries({
     sessionpageIdentityHost: app.host,
+    identityHost: app.host,
     authProvider: { getAuth: async () => state.signedOut ? null : auth },
     loadEmdashBridge: () => emdash,
     emdash, auth, record: { action: 'peers' },
@@ -138,6 +142,7 @@ beforeEach(() => {
   state.getAuth.mockReset()
   state.lock.mockClear()
   state.lockTail = Promise.resolve()
+  state.actualQueue = false
   state.reconnected = undefined
   state.notify = undefined
   state.notified = undefined
@@ -265,7 +270,8 @@ describe('task and identity shared rename operation', () => {
     expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task' }), expect.any(String))
   })
 
-  it('returns and broadcasts the current name when an older cloud write completes while logged in', async () => {
+  it.each([false, true])('returns and broadcasts the current name when an older cloud write completes while logged in (actual queue: %s)', async (actualQueue) => {
+    state.actualQueue = actualQueue
     const app = setup()
     const events = new EventTarget()
     vi.stubGlobal('window', events)
@@ -324,6 +330,41 @@ describe('task and identity shared rename operation', () => {
 
 
 describe('actual desktop identity registrations', () => {
+  it('accepts a later explicit profile choice through the same parsed task rename entry after an offline edit', async () => {
+    const app = setup()
+    state.error = 'offline'
+    await app.renameTask('task', 'Earlier task choice', 'manual')
+    state.error = null
+    expect(await desktop(app).port.renameAgent({ sessionId: 'task', name: 'Later profile choice' })).toMatchObject({ displayName: 'Later profile choice' })
+    expect([app.title(), state.roster[0].name, state.rows[0].display_name]).toEqual(['Later profile choice', 'Later profile choice', 'Later profile choice'])
+  })
+
+  it.each([false, true])('keeps newer task intent across an older profile confirmation and failed publication (actual queue: %s)', async (actualQueue) => {
+    state.actualQueue = actualQueue
+    const app = setup()
+    const entry = desktop(app)
+    state.rows[0].display_name = 'Older profile'
+    let release!: () => void
+    state.getAuth.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    const older = entry.invoke('owned-agent:rename-local-footprint', { agentUserId: AGENT, name: 'Older profile' })
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    const newer = app.renameTask('task', 'Newer task', 'manual')
+    await vi.waitFor(() => expect(app.title()).toBe('Newer task'))
+    expect(state.roster[0].name).toBe('Newer task')
+    expect(state.signedOut).toBe(false)
+    state.error = 'offline'
+    release()
+    expect(await Promise.all([older, newer])).toEqual([true, true])
+    expect([app.title(), state.roster[0].name]).toEqual(['Newer task', 'Newer task'])
+    expect(app.mirror).not.toHaveBeenCalled()
+    state.error = null
+    expect((await app.host.agentNames())[0]).toMatchObject({ displayName: 'Newer task', pendingManual: true })
+    await app.host.synchronizeNames()
+    expect([app.title(), state.roster[0].name, state.rows[0].display_name]).toEqual(['Newer task', 'Newer task', 'Newer task'])
+    expect((await app.host.agentNames())[0].pendingManual).toBeUndefined()
+    if (actualQueue) console.log('ACTUAL_PROVISION_QUEUE_SOURCE', provisionQueueSourceHash)
+  })
+
   it('publishes a confirmed profile rename through the real local-footprint handler', async () => {
     const app = setup()
     state.rows[0].display_name = 'Profile choice' // The profile cloud mutation already succeeded.

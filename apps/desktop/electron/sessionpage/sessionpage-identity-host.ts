@@ -197,6 +197,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       const state = deps.taskNames?.state(sessionId)
       // Check after auth/roster awaits, immediately before the synchronous task mirror.
       if (expectedTaskName !== undefined && state?.title && state.title !== expectedTaskName) return true
+      if (source === 'manual' && expectedTaskName === undefined && state?.pendingManual && state.title !== name) return true
       if (source === 'generated' && !state?.fallback) return false
     }
     await adoptRecordName(agent, name, source)

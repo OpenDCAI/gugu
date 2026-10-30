@@ -20,6 +20,7 @@ export function desktopIdentityEntries(bindings: Record<string, unknown>) {
           : Object.entries(SESSION_SHELL_CHANNELS).find(([name]) => key.getText(ast) === `SESSION_SHELL_CHANNELS.${name}`)?.[1]
         if (channel && [SESSION_SHELL_CHANNELS.agentNames, SESSION_SHELL_CHANNELS.sessionPeers,
           SESSION_SHELL_CHANNELS.agentCard, SESSION_SHELL_CHANNELS.shareAgent,
+          SESSION_SHELL_CHANNELS.renameAgent,
           'owned-agent:rename-local-footprint'].includes(channel)) callbacks.set(channel, callback.getText(ast))
       }
     }
