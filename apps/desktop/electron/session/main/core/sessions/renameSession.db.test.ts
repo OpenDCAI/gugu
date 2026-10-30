@@ -148,12 +148,23 @@ describe('conversation title precedence', () => {
     expect(applyHarnessTitle('legacy-counter', 'Casual greeting')).toBe(true);
   });
 
-  it('a row without config treats its title as explicit and can still be renamed', async () => {
+  it.each([
+    { runtime: 'pty', type: 'pty' },
+    { runtime: 'acp', type: 'acp' },
+    { runtime: null, type: 'pty' },
+  ])('a row without config preserves its legacy transport on rename and mirror: $runtime', async ({ runtime, type }) => {
+    fixture.sqlite.prepare('UPDATE sessions SET runtime = ? WHERE id = ?').run(runtime, 'no-config');
     expect(applyHarnessTitle('no-config', 'Something')).toBe(false);
     await renameSession('no-config', 'New name');
     const row = fixture.sqlite.prepare('SELECT title, config FROM sessions WHERE id = ?').get('no-config') as { title: string; config: string };
     expect(row.title).toBe('New name');
-    expect(sessionConfig.schema.parse(JSON.parse(row.config))).toMatchObject({ version: '1', type: 'pty', titleSource: 'manual' });
+    expect(sessionConfig.schema.parse(JSON.parse(row.config))).toMatchObject({ version: '1', type, titleSource: 'manual', agentDisplayName: 'New name', identityNameManaged: false });
+
+    fixture.sqlite.prepare('UPDATE sessions SET config = NULL WHERE id = ?').run('no-config');
+    mirrorTaskIdentityName('no-config', 'Canonical name', 'manual');
+    const mirrored = fixture.sqlite.prepare('SELECT title, runtime, config FROM sessions WHERE id = ?').get('no-config') as { title: string; runtime: string | null; config: string };
+    expect(mirrored).toMatchObject({ title: 'Canonical name', runtime });
+    expect(sessionConfig.schema.parse(JSON.parse(mirrored.config))).toMatchObject({ version: '1', type, titleSource: 'manual', agentDisplayName: 'Canonical name', identityNameManaged: true });
   });
 
   // #7337 自动名有两个来源(咕咕起的、harness 起的):先到先得、只起一次;显式命名照样压过两者。
