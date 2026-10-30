@@ -324,6 +324,7 @@ export function MemberProfileCard({
           <Button
             size="sm"
             className={profileButtonClass}
+            data-testid="member-profile-whisper-button"
             onClick={() => {
               onWhisper({
                 id: member.id,

@@ -140,7 +140,7 @@ async function click(element: HTMLElement | null) {
 }
 
 describe('#969 leaving the group info page', () => {
-  async function renderMembers(onOpenUserChat = vi.fn()) {
+  async function renderMembers(onOpenUserChat = vi.fn(), onWhisper = vi.fn()) {
     publishProjectGroupChats([], new Map(), new Map([['claude', { projectId: 'project-1', sessionId: 'session-1' }]]))
     updateDeviceSessions('navigation-device', { sessions: [{
       conversationId: 'session-1', projectId: 'project-1', title: 'Task', harness: 'claude', runtime: 'acp',
@@ -150,7 +150,7 @@ describe('#969 leaving the group info page', () => {
     openInfoTab('other-group-navigation', 'members')
     const members = createNode(ControlledMemberListPanel, {
       chatId: 'group-navigation', chatKind: 'group', head, snapshot: SNAPSHOT,
-      onReload: vi.fn(async () => {}), onOpenUserChat,
+      onReload: vi.fn(async () => {}), onOpenUserChat, onWhisper,
     })
     await renderWithAppProviders(harness, createNode(DevicesContext.Provider, { value: {
       devices: [device('navigation-device', [])], loading: false, error: null,
@@ -180,23 +180,41 @@ describe('#969 leaving the group info page', () => {
     expect(infoTabOf('other-group-navigation')).not.toBeNull()
   })
 
-  it('New Agent closes only the source info before asking the shell to open the group-bound creation page', async () => {
+  // Every member-panel action that hands the user to another surface goes through the same step.
+  it.each(['message', 'whisper', 'new agent'] as const)('on mobile, %s closes only the source info before handing off', async (action) => {
     shell.mobile = true
-    await renderMembers()
-    const sourceAtNavigation: Array<ReturnType<typeof infoTabOf>> = []
+    const sourceAtHandOff: Array<ReturnType<typeof infoTabOf>> = []
+    const record = () => { sourceAtHandOff.push(infoTabOf('group-navigation')) }
+    const open = vi.fn((_target: MemberProfileChatTarget) => record())
+    const whisper = vi.fn((_target: MemberProfileChatTarget) => record())
     const create = vi.fn((event: Event) => {
-      sourceAtNavigation.push(infoTabOf('group-navigation'))
+      record()
       expect((event as CustomEvent).detail).toEqual({ chatId: 'group-navigation' })
     })
     window.addEventListener(UI_EVENTS.createAgentInGroup, create)
     try {
-      await click(q('[data-testid="member-list-create-agent"]'))
-      expect(create).toHaveBeenCalledOnce()
-      expect(sourceAtNavigation).toEqual([null])
+      await renderMembers(open, whisper)
+      if (action === 'new agent') await click(q('[data-testid="member-list-create-agent"]'))
+      else {
+        await click(q('[data-member-row="claude"]'))
+        await click(q(action === 'message' ? '[data-testid="member-profile-send-message-button"]' : '[data-testid="member-profile-whisper-button"]'))
+      }
+      const handedOff = { message: open, whisper, 'new agent': create }[action]
+      expect(handedOff).toHaveBeenCalledOnce()
+      if (action === 'whisper') expect(whisper.mock.calls[0]?.[0]).toMatchObject({ id: 'claude', type: 'agent' })
+      expect(sourceAtHandOff).toEqual([null])
       expect(infoTabOf('other-group-navigation')).not.toBeNull()
     } finally {
       window.removeEventListener(UI_EVENTS.createAgentInGroup, create)
     }
+  })
+
+  it('Whisper on desktop keeps the side info open', async () => {
+    const whisper = vi.fn(() => { expect(infoTabOf('group-navigation')).not.toBeNull() })
+    await renderMembers(vi.fn(), whisper)
+    await click(q('[data-member-row="claude"]'))
+    await click(q('[data-testid="member-profile-whisper-button"]'))
+    expect(whisper).toHaveBeenCalledOnce()
   })
 })
 

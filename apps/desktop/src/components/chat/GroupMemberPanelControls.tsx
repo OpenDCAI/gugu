@@ -153,10 +153,14 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   // 新建一个 Agent 直接进这个群:谁都能把自己的 Agent 加进群(同上),所以入口跟「邀请」一起给。
   // 桌面上群输入框的「新任务」就是这件事(gugu-dev#181),这里只留给手机。
   const mobile = useMobileShell()
-  const createAgentInGroup = useCallback(() => {
+  // #969 手机上群信息页盖在会话上面:把用户交给别处(私聊、悄悄话、新建 Agent)的动作都从这里走,先关掉源群的信息页。
+  const handOff = useCallback((go: () => void) => {
     if (mobile) closeInfoTab(chatId)
-    window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
+    go()
   }, [chatId, mobile])
+  const createAgentInGroup = useCallback(() => handOff(() => {
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
+  }), [chatId, handOff])
 
   const headerActions: ReactNode = showInvite && mobile ? (
     <InviteButton icon={<Plus />} label={t('group.memberList.createAgent')} onClick={createAgentInGroup} testId="member-list-create-agent" />
@@ -216,10 +220,12 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
           onClose={() => setActiveProfile(null)}
           onOpenChat={renderedProfile.member.id !== currentUserId && onOpenUserChat ? (target) => {
             setActiveProfile(null)
-            if (mobile) closeInfoTab(chatId)
-            onOpenUserChat(target)
+            handOff(() => onOpenUserChat(target))
           } : undefined}
-          onWhisper={renderedProfile.member.id !== currentUserId && onWhisper ? (target) => { setActiveProfile(null); onWhisper(target) } : undefined}
+          onWhisper={renderedProfile.member.id !== currentUserId && onWhisper ? (target) => {
+            setActiveProfile(null)
+            handOff(() => onWhisper(target))
+          } : undefined}
           editControls={editControlsFor(renderedProfile.member)}
         />
       ) : null}
