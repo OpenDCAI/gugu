@@ -1,6 +1,6 @@
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { FileOpenerCandidate } from './file-openers';
-import { extensionFromMimeType, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
+import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
 /**
  * The App runtime's wire: what the platform script, the preload and main agree on
  * (the App platform's L3 runtime interface).
@@ -613,7 +613,7 @@ export function typedFileName(file: { name: string; contentType?: string | null 
 export function savedFileName(file: { name: string; contentType?: string | null }): string {
   const type = normalizeMimeType(file.contentType);
   if (SUFFIX_OF_CONTENT_TYPE[type]) return typedFileName(file);
-  if (/\.[A-Za-z0-9]{1,8}$/.test(file.name)) return file.name;
+  if (mimeTypeFromName(file.name)) return file.name;
   const extension = extensionFromMimeType(type);
   return extension ? `${file.name}.${extension}` : file.name;
 }

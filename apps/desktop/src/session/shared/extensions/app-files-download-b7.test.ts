@@ -65,11 +65,16 @@ describe('saving a document of the workspace reads it from the file service (L11
     expect(row.filename).toBe(filename);
   });
 
-  it('saves stored bytes under the suffix their content type names', async () => {
-    Object.assign(row, { kind: 'file', filename: '报告', content_type: 'application/pdf' });
+  it.each([
+    ['报告', 'application/pdf', '报告.pdf'],
+    ['截图.v2', 'image/png', '截图.v2.png'],
+    ['报告.final', 'application/pdf', '报告.final.pdf'],
+    ['photo.jpeg', 'image/jpeg', 'photo.jpeg'],
+  ])('saves stored %s (%s) as %s', async (filename, contentType, expected) => {
+    Object.assign(row, { kind: 'file', filename, content_type: contentType });
     const source = await files.downloadSource({ pageId: 7, extensionId: 'board', itemId: ITEM }, { ref: { chat: CHAT, id: ITEM } });
-    expect(source).toMatchObject({ name: '报告.pdf', kind: 'file' });
-    expect(row.filename).toBe('报告');
+    expect(source).toMatchObject({ name: expected, kind: 'file' });
+    expect(row.filename).toBe(filename);
     if (source.kind === 'file') await source.file.dispose();
   });
 
