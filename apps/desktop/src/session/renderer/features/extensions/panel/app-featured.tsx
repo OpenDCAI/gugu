@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
 import { cn } from '@/lib/cn';
 import { Button } from '@renderer/lib/ui/button';
@@ -10,6 +10,43 @@ import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ResourceMenu } from '@/components/ResourceMenu';
 import type { ResourceContext } from '@shared/resource-actions';
+
+/**
+ * 精选卡的底图:这一版 README 的第一张图,解码好了才算取到。一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里,
+ * 这次运行里不丢(❌ 默认的 5 分钟回收:离开 Apps 一会儿再进来,又是骨架 + 重取 README,owner 10-30「既然曾经缓存过,为什么又要失效」)。
+ */
+export function featuredShotQuery(api: Pick<ProductPageApi, 'marketReadme'>, hostKey: string, id: string, version: string) {
+  return queryOptions({
+    queryKey: ['market-readme-shot', hostKey, id, version],
+    // 没读到就抛:失败不进缓存,下次再取(主进程那边已记日志)。
+    queryFn: async () => {
+      const result = await api.marketReadme({ extensionId: id, version });
+      if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
+      const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
+      if (artwork) {
+        const image = new window.Image();
+        image.src = artwork.src;
+        await image.decode();
+      }
+      return artwork;
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
+
+/**
+ * 画着一份精选时,换上新的那份之前先把它每张卡的底图取好、解码好:新精选 / 新一版整张换上,❌ 先换成骨架再出图。
+ * 有一张取不到就抛:调用方留着画着的那份(下载站连不上时一直留着,❌ 换成空白)。
+ */
+export async function featuredShotsReady(
+  client: QueryClient,
+  api: Pick<ProductPageApi, 'marketReadme'>,
+  hostKey: string,
+  featured: readonly { manifest: { id: string; version: string } }[]
+): Promise<void> {
+  await Promise.all(featured.map((item) => client.fetchQuery(featuredShotQuery(api, hostKey, item.manifest.id, item.manifest.version))));
+}
 
 /**
  * A market feature uses its README's first image as complete artwork. App identity and
@@ -57,24 +94,8 @@ export function AppFeaturedCard({
   onAction: () => void;
   resource?: ResourceContext;
 }) {
-  // 底图跟着 README 走:一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里。再进这一页时第一帧就是截图,
-  // 不会每次先画图标版、等 README 取回来再换(owner 10-20「每次点进去 banner image 都要变一下」)。
-  const { data: shot = null, isPending, isError, refetch } = useQuery({
-    queryKey: ['market-readme-shot', hostKey, id, version],
-    // 没读到就抛:失败不进缓存,下次进来再取(主进程那边已记日志)。
-    queryFn: async () => {
-      const result = await api.marketReadme({ extensionId: id, version });
-      if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
-      const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
-      if (artwork) {
-        const image = new window.Image();
-        image.src = artwork.src;
-        await image.decode();
-      }
-      return artwork;
-    },
-    staleTime: Infinity,
-  });
+  // 取过的这一版底图一直在缓存里,换上的新一版清单读时已取好(featuredShotsReady):再进这一页、换上新一版,第一帧就是截图。
+  const { data: shot = null, isPending, isError, refetch } = useQuery({ ...featuredShotQuery(api, hostKey, id, version), retryOnMount: false });
 
   const card = variant === 'card';
   const artwork = isPending || isError || Boolean(shot);
@@ -95,7 +116,7 @@ export function AppFeaturedCard({
           </div>
         ) : shot ? (
           <>
-            <img src={shot.src} alt="" loading="lazy" decoding="async" />
+            <img src={shot.src} alt="" />
             {!card ? (
               <button type="button" className="mk-hero-open" aria-label={translate('extensions.detailsOf', { name })} />
             ) : null}

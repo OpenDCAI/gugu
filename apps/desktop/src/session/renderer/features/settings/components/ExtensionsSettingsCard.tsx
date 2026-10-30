@@ -4,6 +4,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import { CircleAlert, Trash2Icon } from '@/lib/icons';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { observer } from 'mobx-react-lite';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
 import { useDebounce } from '@renderer/lib/hooks/useDebounce';
@@ -29,6 +30,7 @@ import { alsoOnMachines, INSTALL_CONSENT_HUMAN_WINDOW_MS, type InstallGrant, typ
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { installedElsewhere } from '@renderer/features/extensions/installed-elsewhere';
 import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
+import { featuredShotsReady } from '@renderer/features/extensions/panel/app-featured';
 import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
@@ -128,6 +130,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const host = library.extensions;
   const store = host.store;
   const api = host.api;
+  const queryClient = useQueryClient();
   const remote = library.remote;
   // 看的是另一台机器、它此刻连不上:市场清单问不了(问了只会挂满超时)。
   const machineOffline = Boolean(remote && !remote.online);
@@ -286,9 +289,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const shelfRequest = useRef(0);
   const readShelf = useCallback(async (search = '', pages = 1) => {
     const ticket = (shelfRequest.current += 1);
-    setShelf((current) =>
-      current.status === 'ready' && current.query === search && !current.errorKind ? current : { status: 'loading' }
-    );
+    const keeps = (current: ShelfState) => current.status === 'ready' && current.query === search && !current.errorKind;
+    const painted = keeps(shelfRef.current);
+    setShelf((current) => (keeps(current) ? current : { status: 'loading' }));
     try {
       const ranking = search === ''
         ? Promise.resolve(chatDb.rpc('market_install_ranking')).then(({ data, error }) => {
@@ -327,6 +330,9 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
         last = next.data;
       }
       const { featured, ...home } = marketHome(items.map((item) => ({ ...item, ...item.cloud })), scores);
+      // 画着一份时,新的那份等精选底图解码好再整份换上;取不到就留着画着的那份(下面 catch)。第一次读不等:没有可留的,卡片自己取。
+      if (painted) await featuredShotsReady(queryClient, api, host.key, featured);
+      if (ticket !== shelfRequest.current) return;
       shelfFetchedAt.current = result.data.fetchedAt;
       const ready: Extract<ShelfState, { status: 'ready' }> = {
         status: 'ready',

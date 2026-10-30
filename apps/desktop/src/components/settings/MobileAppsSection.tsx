@@ -11,6 +11,7 @@ import { sessionSkinClassName } from '../sessionpage/sessionSkin'
 import { queryClient } from '@/session/renderer/lib/query-client'
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages'
 import { AppMarketContent, type MarketBrowsePage } from '@/session/renderer/features/extensions/panel/app-market-content'
+import { featuredShotsReady } from '@/session/renderer/features/extensions/panel/app-featured'
 import { AppProductPage } from '@/session/renderer/features/extensions/panel/app-product-page'
 import { appLifecycle } from '@/session/renderer/features/extensions/panel/app-lifecycle'
 import type { AppLifecycle } from '@/session/renderer/features/extensions/panel/app-lifecycle-button'
@@ -46,7 +47,16 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
   const client = useQueryClient()
-  const catalog = useQuery({ queryKey: MARKET_KEY, queryFn: readPhoneMarketPage })
+  // 这次运行里一直留着(桌面的 lastShelf):再进来先画它。画着一份时,新的那份等精选底图解码好再换上;取不到就留着画着的那份。
+  const catalog = useQuery({
+    queryKey: MARKET_KEY,
+    queryFn: async () => {
+      const page = await readPhoneMarketPage()
+      if (client.getQueryData(MARKET_KEY)) await featuredShotsReady(client, phoneProductApi, 'phone', page.featured)
+      return page
+    },
+    gcTime: Infinity,
+  })
   const [tab, setTab] = useState<MarketBrowsePage | 'installed'>('market')
   const [query, setQuery] = useState('')
   const [chip, setChip] = useState<'all' | MarketCategory>('all')
@@ -158,12 +168,8 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
         <div className={`${skin} mk phone-app-market`} data-testid="phone-app-market">
           <SearchField value={query} placeholder={translate('extensions.searchPlaceholder')} onChange={(event) => { setQuery(event.target.value); setPages(1) }} />
           {error}
-          {catalog.isPending ? <ShelfSkeleton label={translate('extensions.loading')} /> : catalog.isError ? (
-            <div className="mk-status" role="alert">
-              {translate('extensions.marketUnavailable')}
-              <Button onClick={() => void catalog.refetch()}>{translate('extensions.retry')}</Button>
-            </div>
-          ) : catalog.data ? (
+          {/* 画着一份就一直画它:重读没读到(下载站连不上、精选底图取不到)不换成错误面板。 */}
+          {catalog.data ? (
             <AppMarketContent
               view={tab} onRetry={() => void catalog.refetch()}
               shelf={{ status: 'ready', query, errorKind: null, items: rows.slice(0, pages * MARKET_PAGE_SIZE), total: rows.length, page: pages - 1, hasMore, loadingMore: false, invalid: [], featured: catalog.data.featured, home: catalog.data.home }}
@@ -172,7 +178,12 @@ const MobileAppsContent = observer(function MobileAppsContent({ appDetail }: { a
               lifecycleOf={lifecycleOf} installedIds={new Set(store.manifests.map((manifest) => manifest.id))}
               pending={pending} downloadPercent={{}} onOpen={setDetail} onAction={act} sentinelRef={sentinel}
             />
-          ) : null}
+          ) : catalog.isPending ? <ShelfSkeleton label={translate('extensions.loading')} /> : (
+            <div className="mk-status" role="alert">
+              {translate('extensions.marketUnavailable')}
+              <Button onClick={() => void catalog.refetch()}>{translate('extensions.retry')}</Button>
+            </div>
+          )}
         </div>
       )}
       {detail ? (

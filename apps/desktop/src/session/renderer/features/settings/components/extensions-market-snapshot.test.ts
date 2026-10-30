@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -118,7 +119,7 @@ describe('the App page market: the index in hand at once, the download site behi
 
   async function open() {
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
   }
   async function close() {
