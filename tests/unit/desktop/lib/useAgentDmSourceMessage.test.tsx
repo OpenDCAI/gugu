@@ -19,23 +19,23 @@ const frame = () => act(async () => { for (const callback of frames.splice(0)) c
 it('keeps the routed intent until ready, loads its IM anchor and older alias, then centers and flashes', async () => {
   const scrollToItem = vi.fn(), leaveTail = vi.fn(), onMissing = vi.fn()
   const input = {
-    chatId: 'dm-paging', shown: true, ready: false, view: { current: { scrollToItem } as unknown as ChatView },
+    chatId: '11111111-1111-4111-8111-111111111111', shown: true, ready: false, view: { current: { scrollToItem } as unknown as ChatView },
     sessionId: 's', turns: [], aliases: new Map<string, readonly string[]>(), messageIds: [] as string[],
     oldestTurnId: 'newer' as string | null, hasOlder: true,
-    loadMessageAnchor: vi.fn(async () => { input.messageIds = ['m']; await render() }),
-    loadOlder: vi.fn(async () => { input.oldestTurnId = 'older'; input.aliases = new Map([['native-item', ['m']]]); input.hasOlder = false; await render() }),
+    loadMessageAnchor: vi.fn(async () => { input.messageIds = ['22222222-2222-4222-8222-222222222222']; await render() }),
+    loadOlder: vi.fn(async () => { input.oldestTurnId = 'older'; input.aliases = new Map([['native-item', ['22222222-2222-4222-8222-222222222222']]]); input.hasOlder = false; await render() }),
     leaveTail, onMissing,
   }
   let result!: ReturnType<typeof useAgentDmSourceMessage>
   function Probe() { result = useAgentDmSourceMessage(input); return null }
   async function render() { await harness.render(createNode(Probe)) }
   await render()
-  await act(async () => { askReveal(input.chatId, 'm'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+  await act(async () => { askReveal(input.chatId, '22222222-2222-4222-8222-222222222222'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
   expect(input.loadMessageAnchor).not.toHaveBeenCalled()
   input.ready = true
   await render()
   await frame(); await frame()
-  expect(input.loadMessageAnchor).toHaveBeenCalledWith('m')
+  expect(input.loadMessageAnchor).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222')
   expect(input.loadOlder).toHaveBeenCalledOnce()
   expect(scrollToItem).toHaveBeenCalledWith('native-item', { align: 'center' })
   expect(leaveTail).toHaveBeenCalled()
@@ -46,13 +46,13 @@ it('keeps the routed intent until ready, loads its IM anchor and older alias, th
 it('reports an unavailable canonical anchor without flashing a different item', async () => {
   const scrollToItem = vi.fn(), onMissing = vi.fn()
   function Probe() {
-    useAgentDmSourceMessage({ chatId: 'dm-missing', shown: true, ready: true, view: { current: { scrollToItem } as unknown as ChatView },
+    useAgentDmSourceMessage({ chatId: '33333333-3333-4333-8333-333333333333', shown: true, ready: true, view: { current: { scrollToItem } as unknown as ChatView },
       turns: [], aliases: new Map(), messageIds: [], oldestTurnId: null, hasOlder: false,
       loadMessageAnchor: async () => { throw new Error('not readable') }, loadOlder: async () => {}, leaveTail: vi.fn(), onMissing })
     return null
   }
   await harness.render(createNode(Probe))
-  await act(async () => { askReveal('dm-missing', 'gone'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+  await act(async () => { askReveal('33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
   expect(onMissing).toHaveBeenCalledOnce()
   expect(scrollToItem).not.toHaveBeenCalled()
 })
