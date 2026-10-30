@@ -44,6 +44,12 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     if (itemId) state.placed = state.view.revealItem(itemId)
   }, [summary, legacyFirst])
   useEffect(place, [place, shown])
+  // IM landing must keep retrying even when the host has no native journal API.
+  useEffect(() => {
+    if (!shown || !sessionId) return
+    const timer = setInterval(place, 500)
+    return () => clearInterval(timer)
+  }, [place, shown, sessionId])
   useEffect(() => {
     if (!shown || !sessionId || summary?.nativeInputVersion !== 1) return
     let active = true
@@ -66,9 +72,9 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
         rendererLogger('session/read').warn({ sessionId, error: String(error) }, 'Visible replies could not be acknowledged')
       } finally { busy = false }
     }
-    const timer = setInterval(() => { place(); void flush() }, 500)
+    const timer = setInterval(() => { void flush() }, 500)
     return () => { active = false; clearInterval(timer) }
-  }, [shown, sessionId, deviceId, summary?.nativeInputVersion, summary?.nativeUnreadKeys, summary?.nativeUnreadAliases, place])
+  }, [shown, sessionId, deviceId, summary?.nativeInputVersion, summary?.nativeUnreadKeys, summary?.nativeUnreadAliases])
   return {
     onReady: (view: ChatView) => { current.current.view = view; place() },
     onVisibleItems: useCallback((ids: readonly string[]) => {
