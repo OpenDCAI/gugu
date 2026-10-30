@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { EXTRACTOR_VERSION, SCHEMA_VERSION, SEARCH_SCHEMA_DROP_SQL, SEARCH_SCHEMA_SQL } from '@gugu/core/shared/search/schema';
 import type { SearchIndexOp, SearchQuery } from '@gugu/core/shared/search/types';
 import type { MessageSearchRequest } from '@shared/core/message-search';
-import { coverageKey, readCoverage, readDateAnchor, readMessages } from './message-store-read';
+import { coverageKey, taskCoverageKey, readTaskCoverage, readCoverage, readDateAnchor, readMessages } from './message-store-read';
 import { applyOps } from './message-store-write';
 
 function accountPath(userData: string, accountId: string): string {
@@ -57,9 +57,18 @@ export class MessageSearchStore {
     return readCoverage(this.db);
   }
 
+  taskCoverage() { return readTaskCoverage(this.db); }
+
   apply(ops: readonly SearchIndexOp[]): void {
     this.db.transaction(() => applyOps(this.db, this.accountId, ops))();
-    for (const op of ops) if (op.kind === 'coverage') this.current.add(coverageKey(op.coverage.chatId, op.coverage.threadRootId));
+    for (const op of ops) {
+      if (op.kind === 'coverage') this.current.add(coverageKey(op.coverage.chatId, op.coverage.threadRootId));
+      if (op.kind === 'taskCoverage') {
+        if (op.coverage.exhausted) this.current.add(taskCoverageKey(op.coverage.taskId));
+        else this.current.delete(taskCoverageKey(op.coverage.taskId));
+      }
+      if (op.kind === 'removeTask' || op.kind === 'truncateTask') this.current.delete(taskCoverageKey(op.taskId));
+    }
   }
 
   close(): void {
@@ -71,31 +80,47 @@ export class MessageSearchStore {
 export class AccountMessageSearch {
   private store: MessageSearchStore | null = null;
   private accountId: string | null = null;
+  private lifetime: AbortController | null = null;
+  private generation = 0;
 
   constructor(
     private readonly userData: () => string,
     private readonly currentAccount: () => Promise<string | null>,
     private readonly enabled: () => Promise<boolean>,
+    private readonly storeOpened?: (store: MessageSearchStore, signal: AbortSignal) => void,
   ) {}
 
   accountChanged(accountId: string | null): void {
     if (this.accountId === accountId) return;
-    this.store?.close();
-    this.store = null;
+    this.close();
     if (this.accountId) removeMessageSearchAccountFiles(this.userData(), this.accountId);
     this.accountId = accountId;
   }
 
+  close(): void {
+    this.generation++;
+    this.lifetime?.abort();
+    this.lifetime = null;
+    this.store?.close();
+    this.store = null;
+  }
+
   private async open(): Promise<MessageSearchStore> {
-    if (!(await this.enabled())) throw new Error('Global search is not enabled');
+    if (!(await this.enabled())) { this.close(); throw new Error('Global search is not enabled'); }
     return this.openEnabled();
   }
 
   private async openEnabled(): Promise<MessageSearchStore> {
+    const generation = this.generation;
     const accountId = await this.currentAccount();
+    if (generation !== this.generation) throw new Error('Search account changed while opening');
     if (!accountId) throw new Error('Search is not signed in');
     this.accountChanged(accountId);
-    this.store ??= new MessageSearchStore(this.userData(), accountId);
+    if (!this.store) {
+      this.store = new MessageSearchStore(this.userData(), accountId);
+      this.lifetime = new AbortController();
+      this.storeOpened?.(this.store, this.lifetime.signal);
+    }
     return this.store;
   }
 
@@ -106,13 +131,16 @@ export class AccountMessageSearch {
    * The only write, and the one place that decides whether the index is written. Off: nothing is opened and the ops
    * are dropped (false). A dropped write also closes an open store, so its completeness has to be earned again.
    */
-  async write(ops: readonly SearchIndexOp[]): Promise<boolean> {
-    if (!(await this.enabled())) {
-      this.store?.close();
-      this.store = null;
-      return false;
-    }
-    (await this.openEnabled()).apply(ops);
+  async update(read: (store: MessageSearchStore) => readonly SearchIndexOp[], expected?: MessageSearchStore): Promise<boolean> {
+    if (!(await this.enabled())) { this.close(); return false; }
+    if (expected && this.store !== expected) return false;
+    const store = await this.openEnabled();
+    if (expected && store !== expected) return false;
+    store.apply(read(store));
     return true;
+  }
+
+  async write(ops: readonly SearchIndexOp[]): Promise<boolean> {
+    return this.update(() => ops);
   }
 }

@@ -19,9 +19,11 @@ function fixture() {
     const seq = options.seq ?? 1
     const at = options.at ?? '2026-10-29T12:00:00Z'
     const has = options.has ?? ['file']
-    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,text,body,is_whisper,to_user_ids,has_file,has_image,has_link)
-      VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id, options.chat ?? 'g', seq, options.sender ?? 'peer', searchTimestampMicros(at), at, text, segment(text), options.whisper ? 1 : 0, JSON.stringify(options.to ?? []), Number(has.includes('file')), Number(has.includes('image')), Number(has.includes('link')))
+    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,text,is_whisper,to_user_ids,has_file,has_image,has_link)
+      VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, options.chat ?? 'g', seq, options.sender ?? 'peer', searchTimestampMicros(at), at, text, options.whisper ? 1 : 0, JSON.stringify(options.to ?? []), Number(has.includes('file')), Number(has.includes('image')), Number(has.includes('link')))
+    const row = db.prepare('SELECT rowid FROM msg WHERE id=?').get(id) as { rowid: number }
+    db.prepare('INSERT INTO msg_fts(rowid,body) VALUES (?,?)').run(row.rowid, segment(text))
   }
   function query(text: string, filters: SearchQuery['filters'] = {}, sort: SearchQuery['sort'] = 'recent') {
     const { sql, params } = buildSearchSql({ text, filters, sort }, 'owner')
@@ -40,10 +42,13 @@ describe('shared SQL on real SQLite FTS5', () => {
     expect(query('布')).toEqual(['nonphrase', 'plan'])
   })
 
-  it('keeps the external-content index in sync through body replacement and deletion', () => {
+  it('replaces contentless tokens and cascades deletion without storing segmented text', () => {
     const { db, put, query } = fixture()
     put('message', '發布')
-    db.prepare('UPDATE msg SET text=?,body=? WHERE id=?').run('完成', segment('完成'), 'message')
+    db.prepare('UPDATE msg SET text=? WHERE id=?').run('完成', 'message')
+    const { rowid } = db.prepare('SELECT rowid FROM msg WHERE id=?').get('message') as { rowid: number }
+    db.prepare('INSERT OR REPLACE INTO msg_fts(rowid,body) VALUES (?,?)').run(rowid, segment('完成'))
+    expect(db.prepare('SELECT body FROM msg_fts').get()?.body).toBeNull()
     expect(query('发布')).toEqual([])
     expect(query('完成')).toEqual(['message'])
     db.prepare('DELETE FROM msg WHERE id=?').run('message')
@@ -81,7 +86,7 @@ describe('shared SQL on real SQLite FTS5', () => {
     expect(query('needle', { from: ["peer') OR 1=1 --"] })).toEqual([])
     const result = buildSearchSql({ text: 'needle', filters: {}, sort: 'recent', origin: { chatId: 'g' } }, 'owner')
     expect(db.prepare(result.sql).all(...result.params)).toHaveLength(4)
-    expect(() => query('needle', { in: [{ kind: 'session', id: 'task' }] })).toThrow(/not available/)
+    expect(query('needle', { in: [{ kind: 'session', id: 'task' }] })).toEqual([])
   })
 
   it('combines attachment requirements and excludes a different valid sender', () => {

@@ -4,6 +4,7 @@ import type { RawMessageRow } from '../../cloud/messageItem'
 export interface SearchQuery {
   text: string
   filters: {
+    kind?: 'message' | 'task'
     in?: { kind: 'chat' | 'topic' | 'session'; id: string; includeTopics?: boolean }[]
     from?: string[]
     has?: ('file' | 'image' | 'link')[]
@@ -54,7 +55,30 @@ export interface SearchCoverage {
   exhausted: boolean
 }
 
+export interface SearchTask {
+  id: string
+  title: string
+  projectId: string
+}
+
+export interface SearchTaskDocument {
+  id: string
+  taskId: string
+  reference: string
+  seq: number
+  role: 'user' | 'assistant'
+  createdAt: string
+  text: string
+}
+
+export interface SearchTaskCoverage {
+  taskId: string
+  lastSeq: number
+  exhausted: boolean
+}
+
 export interface SearchCoverageReport {
+  tasks?: SearchTaskCoverage[]
   /** Every listed chat's main timeline is exhausted. */
   complete: boolean
   chats: SearchCoverage[]
@@ -94,6 +118,18 @@ export interface SearchMessageHit {
   rank: SearchRank
 }
 
+export interface SearchTaskHit extends Omit<SearchMessageHit, 'kind' | 'chatId' | 'threadRootId' | 'attachment'> {
+  kind: 'task'
+  taskId: string
+  projectId: string
+  title: string
+  reference: string
+  role: 'user' | 'assistant'
+  attachment: null
+}
+
+export type SearchHit = SearchMessageHit | SearchTaskHit
+
 /** Facet counts stop here; a count above it means "more than SEARCH_FACET_CAP". */
 export const SEARCH_FACET_CAP = 1000
 
@@ -104,10 +140,12 @@ export interface SearchFacets {
   image: number
   link: number
   otherChats: number
+  messages?: number
+  tasks?: number
 }
 
 export interface SearchResults {
-  results: SearchMessageHit[]
+  results: SearchHit[]
   facets: SearchFacets
   coverage: SearchCoverageReport
   nextCursor: string | null
@@ -121,3 +159,11 @@ export type SearchIndexOp =
   | { kind: 'chats'; chats: SearchChat[] }
   | { kind: 'clearChat'; chatId: string }
   | { kind: 'coverage'; coverage: SearchCoverage }
+  /** Local task inventory; it cannot remove chat messages. */
+  | { kind: 'tasks'; tasks: SearchTask[] }
+  | { kind: 'task'; task: SearchTask }
+  | { kind: 'removeTask'; taskId: string }
+  /** Replace a whole turn, including removal of items no longer visible after revision. */
+  | { kind: 'taskTurn'; taskId: string; seq: number; documents: SearchTaskDocument[] }
+  | { kind: 'truncateTask'; taskId: string; fromSeq: number }
+  | { kind: 'taskCoverage'; coverage: SearchTaskCoverage }

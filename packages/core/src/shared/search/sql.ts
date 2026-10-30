@@ -45,7 +45,7 @@ export function buildSearchSql(
   }
   if (query.filters.in?.length) {
     const scopes = query.filters.in.map((scope) => {
-      if (scope.kind === 'session') throw new SearchQueryError('Task transcript search is not available in this message index', 0)
+      if (scope.kind === 'session') { params.push(scope.id); return 'm.task_id = ?' }
       if (scope.kind !== 'chat' && scope.kind !== 'topic') throw new SearchQueryError('Unknown search scope', 0)
       params.push(scope.id)
       if (scope.kind === 'chat' && scope.includeTopics !== false) {
@@ -56,6 +56,7 @@ export function buildSearchSql(
     })
     where.push(`(${scopes.join(' OR ')})`)
   }
+  if (query.filters.kind) where.push(query.filters.kind === 'task' ? 'm.task_id IS NOT NULL' : 'm.chat_id IS NOT NULL')
   if (query.filters.from?.length) {
     where.push(`m.sender_id IN (${query.filters.from.map(() => '?').join(', ')})`)
     params.push(...query.filters.from)
@@ -79,9 +80,10 @@ export function buildSearchSql(
     where.push('m.created_at >= ? AND m.created_at < ?')
     params.push(midnight(query.filters.on), midnight(query.filters.on, true))
   }
-  let sql = `SELECT m.*, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
+  let sql = `SELECT m.*, task.title AS task_title, task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
     FROM msg m
-    JOIN chat ON chat.id = m.chat_id
+    LEFT JOIN chat ON chat.id = m.chat_id
+    LEFT JOIN task ON task.id = m.task_id
     ${fts ? 'JOIN msg_fts ON msg_fts.rowid = m.rowid' : ''}
     WHERE ${where.length ? where.join('\n      AND ') : '1'}
     ${options.unordered ? '' : `ORDER BY ${query.sort === 'relevant' && fts ? 'text_rank ASC, ' : ''}m.created_at DESC, m.seq DESC, m.id ASC`}`
