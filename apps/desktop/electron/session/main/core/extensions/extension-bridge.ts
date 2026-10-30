@@ -1856,6 +1856,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'filesDownload':
+    case 'filesForward':
     case 'filesOpenWith':
     case 'showMessage': {
       const files = await import('@main/core/extensions/app-files');
@@ -1864,6 +1865,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
+      // 「转发」: the window that shows chats draws its forward page for them (the chats picked are the person's, not the page's).
+      if (method === 'filesForward') return void (await deliver(shown, { kind: 'forwardFiles', detail: await files.forwardTargets(page, args) }));
       if (method === 'filesOpenWith') {
         // 「用 X 打开」 where the file lives: a working-copy file opens in its session's pane, here; a chat file — who
         // claims it (opensFiles.chat), the person's remembered choice among several — the window that shows the chat

@@ -545,6 +545,17 @@ export interface AppShowMessageDetail {
   messageId: string;
 }
 
+/**
+ * `gugu.files.forward`: the chat's own forward page (ForwardMessageDialog) opens for these files; each chat picked gets one
+ * file card per file, sent by reference (attachments/share) — a stored file at the version the page named, a text
+ * document as its text is now. Where the files are is the chat the page leaves out of the list, as a message's forward does.
+ */
+export const APP_FORWARD_FILES_EVENT = 'gugu:app-forward-files';
+export interface AppForwardFilesDetail {
+  chatId: string;
+  files: Array<{ itemId: string; version: number; name: string; document: boolean }>;
+}
+
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
 export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };

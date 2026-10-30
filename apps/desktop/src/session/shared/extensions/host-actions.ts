@@ -1,5 +1,5 @@
 import type { GuguLinkTarget, LinkPlace } from '@gugu/core/shared/ui/guguLink';
-import type { AppComposeDetail, AppForumConsentDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
+import type { AppComposeDetail, AppForumConsentDetail, AppForwardFilesDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
 import type { GroupAvatarMember } from '@gugu/core/shared/types/chat';
 import type { ExtensionManifest } from './manifest';
 import type { MarketCodeSource } from './market';
@@ -50,6 +50,8 @@ export type ExtensionHostAction =
   /** `gugu.showMessage` / `files.openWith`: the window that shows chats does it, bringing the chat up. */
   | { kind: 'showMessage'; detail: AppShowMessageDetail }
   | { kind: 'openWith'; detail: AppOpenWithDetail }
+  /** `files.forward`: the window's forward page for chat files (ChatFileForwardHost). */
+  | { kind: 'forwardFiles'; detail: AppForwardFilesDetail }
   /** G1 Beside the page that asked, in its own slot (the origin's): the page stays as it is. */
   | { kind: 'peek'; target: PeekTarget }
   /** A link's or a banner's click (no page asked): the App in a chat's panel, or — naming no chat — on its own page. */

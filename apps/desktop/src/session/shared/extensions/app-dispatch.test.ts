@@ -54,7 +54,7 @@ const phone = (picked: unknown = null) => {
 };
 
 describe('the verb row: what a call needs', () => {
-  it('this build is 22', () => expect(EXTENSION_API_VERSION).toBe(22));
+  it('this build is 23', () => expect(EXTENSION_API_VERSION).toBe(23));
 
   it('the person picks, or only a draft goes down: no capability, but their gesture; a named target: what its delivery needed', () => {
     expect(dispatchNeeds({})).toBeNull();

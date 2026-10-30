@@ -70,7 +70,7 @@ import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/progra
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
 import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
 import { closeAppModal, focusAppModalClose, showAppModal } from '../appModal/appModal'
-import { APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_FORWARD_FILES_EVENT, APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
 
 const log = rendererLogger('app-slot/phone-host')
 
@@ -732,6 +732,12 @@ export function hostAppFrame(
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
         return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
+      case 'filesForward':
+        // The shell's forward page (ChatFileForwardHost), as main's relay brings it up on the desktop.
+        if (!Array.isArray(args.refs)) refused('invalid', 'files.forward(files): give one file or more')
+        return files.forwardTargets(surface(), { refs: args.refs.map(chatRef) }).then((detail) => {
+          window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail }))
+        })
       case 'filesDownload':
         // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
         if (Array.isArray(args.refs)) {

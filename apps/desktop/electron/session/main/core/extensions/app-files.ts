@@ -26,6 +26,7 @@ import {
   type AppFileEntry,
   type AppFileOpened,
   type AppFileRef,
+  type AppForwardFilesDetail,
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
@@ -421,6 +422,17 @@ export async function uploadAppFiles(
 }
 
 export const messageToShow = files.messageToShow;
+
+/** `files.forward`: a chat's files — a working copy's file is on a computer, in no chat to send it from. */
+export async function forwardTargets(page: DesktopFilePage, args: { refs?: unknown }): Promise<AppForwardFilesDetail> {
+  if (!Array.isArray(args.refs)) throw new AppFileError('invalid', 'files.forward(files): give one file or more');
+  const refs = args.refs.map((given) => {
+    const ref = fileRefOf(given);
+    if (!isChat(ref)) throw new AppFileError('invalid', "files.forward: only a chat's files are forwarded");
+    return ref;
+  });
+  return files.forwardTargets(chatSurface(page), { refs });
+}
 export const chatMembersOf = files.members;
 export const chatsOf = files.chats;
 export const surfaceChatOf = files.chat;

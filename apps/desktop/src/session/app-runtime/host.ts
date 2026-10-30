@@ -66,6 +66,7 @@ export interface GuguHost extends ProjectionHost {
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
     download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
+    forward?(args: { refs: AppFileRef[] }): Promise<void>;
   };
   readonly clipboard?: {
     writeText(text: string): Promise<void>;
