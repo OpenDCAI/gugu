@@ -6,14 +6,14 @@
  * 画法沿用原来「输出」卡里后台命令 / 子智能体那两节(同一套密度面板、同一套图标和措辞),只是从浮层挪进了列表。
  */
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
-import { GridLoader } from '@session-chat/components/primitives/GridLoader';
-import { IconCheck, IconSquareTerminal, IconStop, IconUser, IconX } from '@session-chat/components/primitives/icons';
+import { IconSquareTerminal, IconStop, IconUser, IconX } from '@session-chat/components/primitives/icons';
 import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, Show, Switch } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
+import { SubagentProgress } from './SubagentProgress';
 import {
   backgroundTaskButton,
   backgroundTaskDismiss,
@@ -29,11 +29,6 @@ import {
   subagentPanelMeta,
   subagentPanelModel,
   subagentPanelName,
-  subagentTimeline,
-  subagentTimelineErrorDot,
-  subagentTimelineMarker,
-  subagentTimelineStep,
-  subagentTimelineTitle,
 } from './background-tasks.css';
 
 /** 单子里一行的高(4 + 20 + 4)、行距、单子的内距、单子与上面那一行之间的空。 */
@@ -263,6 +258,11 @@ function SubagentPanel(props: {
     place();
   });
   const onScrollOrResize = (): void => place();
+  onMount(() => {
+    const observer = new ResizeObserver(place);
+    observer.observe(panelEl!);
+    onCleanup(() => observer.disconnect());
+  });
   window.addEventListener('scroll', onScrollOrResize, true);
   window.addEventListener('resize', onScrollOrResize);
   onCleanup(() => {
@@ -301,25 +301,7 @@ function SubagentPanel(props: {
           when={props.agent.calls.length > 0}
           fallback={<span class={subagentPanelEmpty}>{translate('transcript.backgroundTasks.noSteps')}</span>}
         >
-          <div class={subagentTimeline} data-slot="subagent-timeline">
-            <For each={props.agent.calls}>
-              {(call) => (
-                <div class={subagentTimelineStep} data-slot="subagent-timeline-step" data-status={call.status}>
-                  <span class={subagentTimelineMarker} data-status={call.status}>
-                    <Switch fallback={<GridLoader />}>
-                      <Match when={call.status === 'done'}>
-                        <IconCheck />
-                      </Match>
-                      <Match when={call.status === 'error'}>
-                        <span class={subagentTimelineErrorDot} />
-                      </Match>
-                    </Switch>
-                  </span>
-                  <span class={subagentTimelineTitle}>{call.title}</span>
-                </div>
-              )}
-            </For>
-          </div>
+          <SubagentProgress calls={props.agent.calls} />
         </Show>
       </div>
     </Portal>
