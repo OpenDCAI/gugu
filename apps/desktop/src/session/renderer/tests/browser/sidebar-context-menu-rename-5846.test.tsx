@@ -76,6 +76,7 @@ vi.mock('@renderer/lib/layout/navigation-provider', () => ({
 
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names'
+import { taskStatusPresentation } from '@/lib/taskAgentStatus'
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener'
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
@@ -157,6 +158,25 @@ it('uses the canonical name and offers only one task/agent rename entry', async 
   sessionNavigationFocus.focusLayer = 'nav'
   await 右键改名()
   expect(modalStore.activeModalArgs).toMatchObject({ sessionId: 'conv-1', currentTitle: 'Canonical identity' })
+})
+
+it('updates the mounted task row name while preserving its identity status source', async () => {
+  sessionAgentNames.note('conv-1', 'Current identity', 'agent-1')
+  mount()
+  await until('identified task row mounted', () => host.querySelector('[data-session-id="conv-1"]')?.textContent?.includes('Current identity') === true)
+  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+  const assertIdentityStatus = async () => {
+    await until('canonical identity status rendered', () => row.dataset.agentTone === taskStatusPresentation({ kind: 'agent', agentUserId: 'agent-1' })?.tone)
+    const presentation = taskStatusPresentation({ kind: 'agent', agentUserId: 'agent-1' })
+    expect(presentation).not.toBeNull()
+    expect(row.dataset.agentTone).toBe(presentation!.tone)
+  }
+  await assertIdentityStatus()
+  sessionAgentNames.note('conv-1', 'Renamed identity', 'agent-1')
+  await until('same task row renamed', () => row.textContent?.includes('Renamed identity') === true)
+  expect(host.querySelector('[data-session-id="conv-1"]')).toBe(row)
+  expect(row.textContent).not.toContain('Current identity')
+  await assertIdentityStatus()
 })
 
 it('#5846 改的是右键那一行 —— 与键盘光标 / 主区停在哪条会话无关', async () => {

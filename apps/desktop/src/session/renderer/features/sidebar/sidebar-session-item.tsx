@@ -122,7 +122,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
   const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
-  const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
+  const agentUserId = sessionAgentNames.identityFor(sessionId)?.agentUserId ?? listed?.summary.agent?.userId;
   const presentation = shownStatus.presentation(agentUserId, session
     ? taskStatusPresentation(agentUserId
       ? { kind: 'agent', agentUserId }

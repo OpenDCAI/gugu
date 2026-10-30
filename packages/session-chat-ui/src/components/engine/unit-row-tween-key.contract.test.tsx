@@ -37,7 +37,9 @@ import type { ChatMessage } from '@session-chat/model';
 import { createViewState } from '@session-chat/state/view-state';
 import { For, batch, createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { SenderNameProvider } from '@session-chat/lib/sender-avatar';
+import { conversationSenderName } from '@session-chat/components/rows/message/ConversationMessage';
 import { messageUnitDef, normalizeMessage } from '@session-chat/components/rows/message/message.def';
 import { createTweenRegistry } from './tween-registry';
 import type { TweenRegistry } from './tween-registry';
@@ -58,6 +60,61 @@ function messageUnit(id: string, text: string): RenderUnit {
 type RegistryEvent = { op: 'set'; key: string };
 
 describe('UnitRow tween key (#5332)', () => {
+  it('keeps actual logical and display name contexts current across a mounted rename', async () => {
+    const width = 220;
+    const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 0, agentConversation: true });
+    const caches = createChatCaches(), viewState = createViewState(), virt = new Virtualizer();
+    virt.setCount(1, () => 0);
+    const registry = createTweenRegistry(virt, () => {}, { reducedMotion: () => true });
+    const item = normalizeMessage({ kind: 'message', id: 'current-name-row', role: 'user',
+      text: '<gugu_delivery route="chat" from="Creation-time name" from_id="user:sender" msg="msg:current"><![CDATA[Original body.]]></gugu_delivery>' });
+    const rowUnit = unit('message', item, item, { key: 'self' });
+    const [name, setName] = createSignal('Current identity');
+    const senderName = (id: string | null) => id === 'user:sender' ? name() : null;
+    const measure = vi.spyOn(messageUnitDef, 'measure');
+    const originalRender = messageUnitDef.Render;
+    let display: (() => MeasureCtx) | undefined;
+    const rendered = vi.spyOn(messageUnitDef, 'Render').mockImplementation(props => {
+      display = props.ctx.measureCtx;
+      return originalRender(props);
+    });
+    const host = document.createElement('div');
+    host.style.width = `${width}px`;
+    host.dataset.chatLayout = 'double';
+    document.body.append(host);
+    const dispose = render(() => <ThemeContext.Provider value={() => theme}><CachesContext.Provider value={caches}>
+      <CommandsContext.Provider value={() => ({})}><SenderNameProvider value={senderName}>
+        <UnitRow unit={rowUnit} index={0} rowWidth={width} theme={theme} viewState={viewState}
+          virt={virt} onHeightChanged={() => {}} tweenRegistry={registry} caches={caches} />
+      </SenderNameProvider></CommandsContext.Provider>
+    </CachesContext.Provider></ThemeContext.Provider>, host);
+    try {
+      await document.fonts.ready;
+      await nextPaint();
+      const row = host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      const assertCurrent = () => {
+        const logical = measure.mock.calls.at(-1)?.[1];
+        expect(logical).toBeDefined();
+        expect(display).toBeDefined();
+        expect(conversationSenderName(item, logical!)).toBe(name());
+        expect(conversationSenderName(item, display!())).toBe(name());
+        expect(row.querySelector('span[title]')?.textContent?.replace(/\n/g, '')).toBe(name());
+        expect(row.querySelector('[data-user-card]')?.textContent).toContain('Original body.');
+        expect(Math.abs(virt.size(0) - row.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
+      };
+      assertCurrent();
+      const initialHeight = virt.size(0);
+      setName('W'.repeat(40));
+      await nextPaint();
+      expect(host.querySelector('[data-agent-conversation-message]')).toBe(row);
+      assertCurrent();
+      expect(virt.size(0)).toBeGreaterThan(initialHeight);
+    } finally {
+      dispose(); host.remove(); caches.clearAll();
+      rendered.mockRestore(); measure.mockRestore();
+    }
+  });
+
   it('a prepend that shifts every row onto a different unit leaves each row on its own live entry', async () => {
     const theme = buildChatTheme(DEFAULT_CONFIG, LAYOUT);
     const caches = createChatCaches();

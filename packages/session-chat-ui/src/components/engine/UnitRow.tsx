@@ -40,6 +40,7 @@ import { useChatTranslator } from '@session-chat/localization';
 import { useSelfIdentity } from '@session-chat/lib/self-identity';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
+import { useSenderName } from '@session-chat/lib/sender-avatar';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import type { ChatCaches } from '@session-chat/core/caches';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -161,6 +162,7 @@ export function UnitRow(props: UnitRowProps) {
   const translate = useChatTranslator();
   const self = useSelfIdentity();
   const chatName = useChatName();
+  const senderName = useSenderName();
   const appName = useAppName();
   let rowEl: HTMLElement | undefined;
 
@@ -174,7 +176,7 @@ export function UnitRow(props: UnitRowProps) {
 
   const logicalMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
-    translate, commands: commands(), selfIdentity: self(), chatName, appName,
+    translate, commands: commands(), selfIdentity: self(), chatName, appName, senderName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
     isCollapsed: (id) => props.viewState.isCollapsed(id),
     expanded: (id) => props.viewState.isCollapsed(id),
@@ -358,7 +360,7 @@ export function UnitRow(props: UnitRowProps) {
   // Display measureCtx: also holds the expanded user-card open during collapse.
   const displayMeasureCtx = (): MeasureCtx => ({
     theme: props.theme,
-    translate, commands: commands(), selfIdentity: self(), chatName, appName,
+    translate, commands: commands(), selfIdentity: self(), chatName, appName, senderName,
     width: Math.max(0, props.rowWidth - 2 * insetX()),
     isCollapsed: displayViewState.isCollapsed,
     expanded: displayViewState.isCollapsed,

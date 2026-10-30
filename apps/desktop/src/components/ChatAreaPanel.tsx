@@ -9,6 +9,7 @@ import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useChatStore } from '../store/chatContext'
+import { useContactsStore } from '../store/contactsContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
@@ -121,6 +122,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
+  const { contacts } = useContactsStore()
   const surfaceVisible = activeTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
