@@ -61,8 +61,20 @@ describe('account message index on real SQLite FTS5', () => {
     expect(ids(store, 'needle')).toEqual(['cached']);
     store.apply([{ kind: 'task', task: { id: 's', title: 'Task', projectId: 'p', terminal: true } }]);
     expect(ids(store, 'needle')).toEqual([]);
-    expect(store.global(query('needle', { kind: 'task' })).coverage).toMatchObject({ complete: false,
+    expect(store.global(query('needle', { kind: 'task' })).coverage).toMatchObject({ complete: true,
       tasks: [{ taskId: 's', exhausted: false, reason: 'terminal' }] });
+  });
+  it('requires eligible task coverage while terminal tasks stay explicitly outside its progress', () => {
+    const store = open();
+    store.apply([{ kind: 'tasks', tasks: [
+      { id: 'terminal', title: 'Terminal', projectId: 'p', terminal: true },
+      { id: 'acp', title: 'Conversation', projectId: 'p' },
+    ] }]);
+    const request = query('', { kind: 'task' });
+    expect(store.global(request).coverage.complete).toBe(false);
+    store.apply([{ kind: 'taskCoverage', coverage: { taskId: 'acp', lastSeq: 4, exhausted: true } }]);
+    expect(store.global(request).coverage).toMatchObject({ complete: true,
+      tasks: expect.arrayContaining([{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }]) });
   });
   it('places unknown task dates last without a recent reason or any date-filter match', () => {
     const store = open();

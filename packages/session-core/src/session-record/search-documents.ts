@@ -1,4 +1,4 @@
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { parseDeliveryTimestamp, readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { SearchTaskDocument } from '@gugu/core/shared/search/types';
 import { messageReferenceId } from '../acp/models/turns/message-reference';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
@@ -23,9 +23,9 @@ export function taskSearchDocuments(taskId: string, turn: TranscriptTurn): Searc
       // Only chat deliveries have their canonical copy in the account message index.
       // Other routes also carry messageId, but their visible body belongs to this task.
       if (envelope) return envelope.segments.flatMap((segment, index) => segment.facts?.route === 'chat' ? []
-        : document(segment.body, item.role, segment.facts?.at ?? item.at ?? turn.startedAt,
+        : document(segment.body, item.role, parseDeliveryTimestamp(segment.facts?.at) ?? item.at ?? turn.startedAt,
           segment.facts?.fromId?.replace(/^user:/, '') ?? null,
-          segment.facts?.messageId ? `delivery:${segment.facts.route}:${segment.facts.messageId}` : `${reference}:delivery:${index}`));
+          segment.facts?.messageId ? `delivery:${turn.seq}:${segment.facts.route}:${segment.facts.messageId}` : `${reference}:delivery:${index}`));
       return document(item.text, item.role, item.at ?? turn.startedAt);
     }
     if (item.kind !== 'mcp-tool-call' || item.status !== 'done' || successfulMessageSend(item)) return [];

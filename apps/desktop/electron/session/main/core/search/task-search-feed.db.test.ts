@@ -9,6 +9,7 @@ import { sessionEvents } from '../sessions/session-events';
 import { startTaskSearch } from './task-search-feed';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import type { Session } from '@shared/core/sessions/sessions';
+import { formatDeliveryTimestamp, mergeDeliveryEnvelopes, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const state = vi.hoisted(() => ({ source: null as Database.Database | null }));
 vi.mock('@main/db/client', () => ({ db: undefined, get sqlite() { return state.source; } }));
@@ -63,7 +64,7 @@ it('keeps PTY tasks explicitly unindexed even if they already have stored turns'
     { taskId: 's', lastSeq: -1, exhausted: false, reason: 'terminal' },
   ]));
   expect(store.global(request).results).toEqual([]);
-  expect(store.global(request).coverage.complete).toBe(false);
+  expect(store.global(request).coverage.complete).toBe(true);
 });
 
 it('uses the command palette local-project predicate to exclude retired remote project tasks', () => {
@@ -72,6 +73,20 @@ it('uses the command palette local-project predicate to exclude retired remote p
   start();
   expect(store.tasks()).toEqual([]);
   expect(store.global(request).results).toEqual([]);
+});
+
+it('retains an earlier visible delivery when a later copy in another turn is truncated', async () => {
+  const text = renderDeliveryEnvelope({ route: 'session-direct', from: 'Sender', fromId: 'user:person',
+    messageId: 'msg:same-delivery', at: formatDeliveryTimestamp('2026-10-30T12:00:00Z'), content: 'deliveryneedle' });
+  put(5, text); put(9, mergeDeliveryEnvelopes([text, text]));
+  // Deliveries enter the transcript as user messages, with independent durable turn references.
+  state.source!.prepare("UPDATE session_turns SET data=json_set(data,'$.items[0].role','user')").run();
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(store.global(request).results.map(hit => hit.seq)).toEqual([9, 5]);
+  state.source!.prepare('DELETE FROM session_turns WHERE seq>=7').run();
+  sessionEvents._emit('session:history-changed', { sessionId: 's', fromSeq: 7 });
+  await waitFor(() => expect(store.global(request).results.map(hit => [hit.seq, hit.text])).toEqual([[5, 'deliveryneedle']]));
 });
 
 it('shares replay visibility with the transcript and rechecks successors after an old revision', async () => {
