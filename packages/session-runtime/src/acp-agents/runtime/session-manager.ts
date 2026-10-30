@@ -2643,6 +2643,7 @@ export class SessionManager implements InboundRouter {
       modelId: cell?.config.modelOptions?.selected ?? null,
       rateLimit: cell?.usage?.rateLimit ?? null,
       title: cell?.transcript.title ?? null,
+      ...(cell?.transcriptPath ? { transcriptPath: cell.transcriptPath } : {}),
       recentActions: recent.actions,
       lastActionAt: recent.lastActionAt,
       failure: cell?.sessionState.failure ?? state.failure ?? null,
