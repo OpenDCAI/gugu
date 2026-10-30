@@ -48,7 +48,8 @@ describe('shared SQL on real SQLite FTS5', () => {
     db.prepare('UPDATE msg SET text=? WHERE id=?').run('完成', 'message')
     const { rowid } = db.prepare('SELECT rowid FROM msg WHERE id=?').get('message') as { rowid: number }
     db.prepare('INSERT OR REPLACE INTO msg_fts(rowid,body) VALUES (?,?)').run(rowid, segment('完成'))
-    expect(db.prepare('SELECT body FROM msg_fts').get()?.body).toBeNull()
+    const stored = db.prepare('SELECT body FROM msg_fts').get() as { body: string | null } | undefined
+    expect(stored?.body).toBeNull()
     expect(query('发布')).toEqual([])
     expect(query('完成')).toEqual(['message'])
     db.prepare('DELETE FROM msg WHERE id=?').run('message')

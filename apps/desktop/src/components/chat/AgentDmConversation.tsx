@@ -106,7 +106,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
     sessionId: target?.sessionId, turns, aliases, messageIds: visibleMessages.map(message => message.id), oldestTurnId: read.timeline.turns[0]?.id ?? null,
     hasOlder: Boolean(target && read.timeline.hasOlder), loadMessageAnchor,
     loadOlder: read.loadOlder, leaveTail: reading.leaveTail,
-    onMissing: () => toast({ title: translateSessionMessage('transcript.originalMessageMissing'), variant: 'destructive' }) })
+    onMissing: () => toast(translateSessionMessage('transcript.originalMessageMissing'), 'error') })
   useEffect(() => { view.current?.find(searchQuery) }, [searchQuery, view])
   const error = messagesError ?? (read.phase === 'error' ? new Error(read.error ?? '') : null)
   const openAttachment = (href: string) => {
