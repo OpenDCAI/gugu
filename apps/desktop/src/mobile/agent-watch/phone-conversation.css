@@ -177,3 +177,18 @@
 @media (prefers-reduced-motion: reduce) {
   .gg-aw .gg-aw-thread-host [data-slot='aui_thread-viewport'] { scroll-behavior: auto; }
 }
+
+/* #1036: transcript facts stay readable at phone widths. Child steps keep their own disclosure. */
+.gg-aw [data-slot='tool-group-trigger'] { flex-wrap: wrap; height: auto; }
+.gg-aw [data-slot='tool-group-trigger-label'],
+.gg-aw [data-slot='tool-group-trigger-detail'] {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  flex-shrink: 1;
+}
+.gg-aw .gg-aw-bg-name { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.gg-aw .gg-aw-bg-row { flex-wrap: wrap; }
+.gg-aw .gg-aw-bg-head { white-space: normal; height: auto; }

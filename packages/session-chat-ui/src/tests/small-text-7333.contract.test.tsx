@@ -86,7 +86,7 @@ const boundaryRows = [
 describe('the transcript\'s small text in the master\'s tiers (#7333 母版补页 05)', () => {
   // 420 is where the 12px sentences first outgrew the row (compaction 415, context reset 427 wide); 320 is a narrow pane.
   it.each(boundaryRows.flatMap((row) => [420, 320].map((width) => ({ ...row, width }))))(
-    '$label at $width: label (and action) 12/18, inside the 24px row; a cut sentence is whole in the title',
+    '$label at $width: label (and action) 12/18, inside the measured row; narrow sentences wrap in full',
     async ({ def, data, row, slots, width }) => {
       const reading = await renderAndMeasureUnit(def as never, data as never, makeContractCtx({ width }), ((host) => {
         const root = host.querySelector<HTMLElement>(`[data-slot="${row}"]`)
@@ -106,7 +106,8 @@ describe('the transcript\'s small text in the master\'s tiers (#7333 母版补�
       const read = reading.inspected
       expect(read.rowCount, 'the row is not in the DOM').toBe(1)
       expect(reading.dom).toBe(reading.computed)
-      expect(read.rowHeight, 'the row is no longer 24 high').toBe(24)
+      expect(read.rowHeight).toBe(reading.computed)
+      expect(read.rowHeight).toBeGreaterThanOrEqual(24)
       for (const slot of slots) expectTier(read, slot, CAPTION)
       if (slots.includes('session-condition-action' as never)) {
         expect(read['session-condition-action:cut'], 'the in-sentence action was cut').toBe(0)
@@ -118,12 +119,12 @@ describe('the transcript\'s small text in the master\'s tiers (#7333 母版补�
     },
   )
 
-  it('at 320 the fixed sentences really are cut — the title check above is exercised, not passed by default', async () => {
+  it('at 320 the fixed sentences wrap instead of requiring a hover title', async () => {
     const reading = await renderAndMeasureUnit(contextResetUnitDef, boundaryRows[2].data as never, makeContractCtx({ width: 320 }), (host) => {
       const label = host.querySelector<HTMLElement>('[data-slot="context-reset-label"]')
       return { cut: label && label.scrollWidth > label.clientWidth + 0.5 ? 1 : 0 }
     })
-    expect(reading.inspected.cut).toBe(1)
+    expect(reading.inspected.cut).toBe(0)
   })
 
   it('the session condition\'s action stays part of the sentence: on the label\'s line, same tier, no row of its own', async () => {
@@ -140,7 +141,7 @@ describe('the transcript\'s small text in the master\'s tiers (#7333 母版补�
     expect(reading.inspected.after, 'the action does not follow the label').toBeGreaterThanOrEqual(0)
   })
 
-  it('a provider notice too long for the row is cut with an ellipsis at 12/18, the whole sentence kept in the title', async () => {
+  it('a long provider notice wraps at 12/18 and keeps the original title', async () => {
     const title = '供应商提示:这一段话很长很长,'.repeat(6)
     const reading = await renderAndMeasureUnit(
       sessionNoticeUnitDef,
@@ -160,8 +161,8 @@ describe('the transcript\'s small text in the master\'s tiers (#7333 母版补�
     )
     expect(reading.inspected.found).toBe(1)
     expectTier(reading.inspected, 'session-notice-label', CAPTION)
-    expect(reading.inspected.cut, 'the sentence fit — this does not test the cut').toBe(1)
-    expect(reading.inspected.ellipsis).toBe(1)
+    expect(reading.inspected.cut, 'a non-disclosing notice must not be cut').toBe(0)
+    expect(reading.inspected.ellipsis).toBe(0)
     expect(reading.inspected.titleKept).toBe(1)
     expect(reading.spill).toBeLessThanOrEqual(0.5)
   })
