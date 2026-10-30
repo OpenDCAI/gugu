@@ -210,28 +210,29 @@ export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
       }),
       select: (_columns: string) => ({
         eq: (_userColumn: 'user_id', userValue: string) => ({
-          eq: (_machineColumn: 'machine_id', machineValue: string) => {
-            const lookup = (tierValue: string | null) => ({
+          eq: (_machineColumn: 'machine_id', machineValue: string) => ({
+            order: async () => ({
+              data: this.rows
+                .filter((r) => r.user_id === userValue && r.machine_id === machineValue)
+                .map((r) => ({ device_id: r.device_id, tier: r.tier ?? 'production' })),
+              error: null,
+            }),
+            eq: (_tierColumn: 'tier', tierValue: string) => ({
               limit: (_n: number) => ({
                 maybeSingle: async () => {
                   const match = this.rows.find(
                     (r) =>
                       r.user_id === userValue &&
                       r.machine_id === machineValue &&
-                      (tierValue === null || (r.tier ?? 'production') === tierValue),
+                      (r.tier ?? 'production') === tierValue,
                   )
                   return match
                     ? { data: { device_id: match.device_id }, error: null }
                     : { data: null, error: null }
                 },
               }),
-            })
-            return {
-              eq: (_tierColumn: 'tier', tierValue: string) => lookup(tierValue),
-              // rows are kept newest-seen first
-              order: () => lookup(null),
-            }
-          },
+            }),
+          }),
         }),
       }),
     }

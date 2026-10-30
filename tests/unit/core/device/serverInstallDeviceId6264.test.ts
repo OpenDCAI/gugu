@@ -42,7 +42,10 @@ function emptyCloud(lookups: string[] = []): HeartbeatClient {
   })
   return {
     from: () => ({
-      select: () => ({ eq: () => ({ eq: (_c: string, machineId: string) => ({ ...chain(machineId), order: () => chain(machineId).eq() }) }) }),
+      select: () => ({ eq: () => ({ eq: (_c: string, machineId: string) => ({
+        ...chain(machineId),
+        order: async () => { lookups.push(machineId); return { data: [], error: null } },
+      }) }) }),
       upsert: async () => ({ error: null }),
     }),
     rpc: async () => ({ error: null }),
@@ -122,29 +125,30 @@ test('server 模式却没有安装目录:直接报错,不悄悄退回硬件标�
   await expect(resolve({ GUGU_SERVER_MODE: '1', GUGU_HOME: guguHome })).rejects.toThrow(/GUGU_SERVER_HOME/)
 })
 
-// #1005 — 账号进程跟着桌面在 beta / 正式版之间换构建:同一个 server 账号目录 ❌ 因 tier 换一行设备,
+// #1005 — 账号进程跟着桌面在 beta / 正式版之间换构建:同一个 server 安装 ❌ 因 tier 换一行设备,
 // 否则它托管的 agent 还绑在旧行上,云端按设备核对的写入(归档同步)永远 42501。
 type Row = { device_id: string; user_id: string; machine_id: string; tier: string; last_seen_at: string }
-function cloudTable(rows: Row[], writes: Record<string, unknown>[] = []): HeartbeatClient {
-  const lookup = (match: (row: Row) => boolean, newestFirst: boolean) => ({
-    limit: () => ({
-      maybeSingle: async () => {
-        const found = rows.filter(match).sort((a, b) => newestFirst ? b.last_seen_at.localeCompare(a.last_seen_at) : 0)[0]
-        return { data: found ? { device_id: found.device_id } : null, error: null }
-      },
-    }),
-  })
+/** 带 (user_id, machine_id, tier) 唯一约束的设备表。 */
+function cloudTable(rows: Row[]): HeartbeatClient {
   return {
     from: () => ({
-      select: () => ({ eq: (_u: string, userId: string) => ({ eq: (_m: string, machineId: string) => {
-        const mine = (row: Row) => row.user_id === userId && row.machine_id === machineId
-        return { eq: (_t: string, tier: string) => lookup((row) => mine(row) && row.tier === tier, false), order: () => lookup(mine, true) }
-      } }) }),
-      upsert: async (value: Record<string, unknown>) => {
-        writes.push(value)
-        const row = rows.find((r) => r.device_id === value.device_id)
-        if (row) Object.assign(row, value)
-        else rows.push({ tier: 'production', ...(value as Omit<Row, 'tier'>) })
+      select: () => ({ eq: (_u: string, userId: string) => ({ eq: (_m: string, machineId: string) => ({
+        order: async () => ({ error: null, data: rows
+          .filter((row) => row.user_id === userId && row.machine_id === machineId)
+          .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at)) }),
+        eq: (_t: string, tier: string) => ({ limit: () => ({ maybeSingle: async () => {
+          const found = rows.find((row) => row.user_id === userId && row.machine_id === machineId && row.tier === tier)
+          return { data: found ? { device_id: found.device_id } : null, error: null }
+        } }) }),
+      }) }) }),
+      upsert: async (value: Row) => {
+        const existing = rows.find((row) => row.device_id === value.device_id)
+        const next = { ...existing, ...value }
+        if (rows.some((row) => row !== existing && row.user_id === next.user_id && row.machine_id === next.machine_id && row.tier === next.tier)) {
+          return { error: { message: 'duplicate key value violates unique constraint "gugu_devices_user_machine_tier_uq"' } }
+        }
+        if (existing) Object.assign(existing, value)
+        else rows.push(next)
         return { error: null }
       },
     }),
@@ -152,27 +156,27 @@ function cloudTable(rows: Row[], writes: Record<string, unknown>[] = []): Heartb
   } as unknown as HeartbeatClient
 }
 
+let clock = 0
 async function heartbeat(env: NodeJS.ProcessEnv, client: HeartbeatClient): Promise<string> {
   const deviceId = await resolveLocalDeviceId({ env, userId: USER_A, heartbeatClient: client, deviceIdCacheWriter: noCache })
   await syncDeviceHeartbeat(client, { userId: USER_A, deviceId, capabilities: { terminals: [], runtimes: [] }, hostInfo: () => ({}) as never,
-    nowIso: () => new Date().toISOString() }, env)
+    nowIso: () => new Date(Date.UTC(2026, 9, 30) + ++clock * 1000).toISOString() }, env)
   return deviceId
 }
 
-test('同一个 server 账号目录在 beta 与正式版之间来回换构建:设备 id 不变,心跳不改行的 tier', async () => {
+test('新装的 beta server 登记为 beta;同一次安装在 beta 与正式版之间来回换:一行、id 不变、tier 跟着构建', async () => {
   const env = await serverEnv()
   const rows: Row[] = []
-  const writes: Record<string, unknown>[] = []
-  const client = cloudTable(rows, writes)
+  const client = cloudTable(rows)
   const first = await heartbeat({ ...env, GUGU_TIER: 'beta' }, client)
+  expect(rows.map((row) => row.tier)).toEqual(['beta'])
   for (const tier of ['production', 'beta', 'production']) {
     expect(await heartbeat({ ...env, GUGU_TIER: tier }, client)).toBe(first)
+    expect(rows.map((row) => [row.device_id, row.tier])).toEqual([[first, tier]])
   }
-  expect(rows.map((row) => row.device_id)).toEqual([first])
-  expect(writes.every((write) => !('tier' in write))).toBe(true)
 })
 
-test('已经因换构建分成两行的 server 账号目录:留在正在用的那行,不管现在是哪个 tier', async () => {
+test('已经因换构建分成两行的安装:换构建时各自留在本 tier 那行,登记不撞唯一约束', async () => {
   const env = await serverEnv()
   await resolve(env)
   const machineId = (await readFile(join(env.GUGU_SERVER_HOME!, SERVER_INSTALL_ID_FILE), 'utf8')).trim()
@@ -180,11 +184,10 @@ test('已经因换构建分成两行的 server 账号目录:留在正在用的�
     { device_id: 'old-beta', user_id: USER_A, machine_id: machineId, tier: 'beta', last_seen_at: '2026-10-29T13:33:54Z' },
     { device_id: 'in-use', user_id: USER_A, machine_id: machineId, tier: 'production', last_seen_at: '2026-10-30T02:15:13Z' },
   ]
-  for (const tier of ['beta', 'production']) {
-    expect(await heartbeat({ ...env, GUGU_TIER: tier }, cloudTable(rows))).toBe('in-use')
-  }
-  expect(rows).toHaveLength(2)
-  expect(rows.map((row) => row.tier)).toEqual(['beta', 'production'])
+  const client = cloudTable(rows)
+  expect(await heartbeat({ ...env, GUGU_TIER: 'production' }, client)).toBe('in-use')
+  expect(await heartbeat({ ...env, GUGU_TIER: 'beta' }, client)).toBe('old-beta')
+  expect(rows.map((row) => [row.device_id, row.tier])).toEqual([['old-beta', 'beta'], ['in-use', 'production']])
 })
 
 test('同一个账号在同一台机器上的两个 server 安装:各是各的设备,不并成一行', async () => {
