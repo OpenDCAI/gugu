@@ -89,7 +89,8 @@ export function createPhoneProvisioner({ ownerId, cloud, store, deviceId, projec
     }
     if (request.birthGroupChatId && !agent.birthGroup) {
       try {
-        const joined = await cloud.rpc('chat', 'add_group_agent', { p_chat_id: request.birthGroupChatId, p_agent_user_id: agent.agentUserId, p_message: null })
+        // The UI acts as the owner; an Agent caller must retain its own group authority.
+        const joined = await cloud.rpc('chat', 'add_group_agent', { p_chat_id: request.birthGroupChatId, p_agent_user_id: agent.agentUserId, p_message: null, p_as_user_id: caller?.agentUserId ?? ownerId, p_as_task: true })
         if (!joined || !['joined', 'pending_approval'].includes(joined.status)) throw new Error('群聊没有确认 Agent 加入或待审批的状态')
         agent.birthGroup = { chatId: request.birthGroupChatId, status: joined.status }
       } catch (error) { agent.birthGroup = { chatId: request.birthGroupChatId, status: 'failed', error: error.message } }

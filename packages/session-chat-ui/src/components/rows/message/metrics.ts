@@ -25,7 +25,7 @@ export type MessageStyleVars = {
 export const USER_MESSAGE_ACTION_GAP = 4;
 
 /** Reserve the action row even while its hover controls are hidden. */
-export function userMessageActionsHeight(vars: MessageVars): number {
+export function userMessageActionsHeight(vars: Pick<MessageVars, 'footerH'>): number {
   return USER_MESSAGE_ACTION_GAP + vars.footerH;
 }
 

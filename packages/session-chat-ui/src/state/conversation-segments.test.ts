@@ -8,12 +8,13 @@ const flattenTier = (...args: Parameters<typeof flattenTierWithViewports>) => fl
 import { conversationOutput } from './conversation-process';
 import { conversationBackgroundOwner } from './conversation-background';
 import { planConversationSegments } from './conversation-segments';
+import { messageQuoteLink, messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
 
 const message = (id: string, role: 'user' | 'assistant', at?: number): ChatMessage => ({ kind: 'message', id, seq: 0, role, text: id, ...(at === undefined ? {} : { at }) });
 const call = (id: string): ChatItem => ({ kind: 'execute-tool-call', id, toolCallId: id, seq: 0, title: id, status: 'done' });
 const notice = (id: string, at: number): ChatItem => ({ kind: 'subagent-done-tool-call', id, toolCallId: id, seq: 0, title: id, status: 'done', name: id, agentId: id, launchToolCallId: id, outcome: 'completed', at });
 const turn = (items: ChatItem[]): TranscriptTurn => ({ id: 't', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 9000, items: items as TranscriptTurn['items'] });
-const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process', 'tool-run', 'execute-tool-call', 'subagent-done-tool-call', 'mcp-tool-call', 'agent-send'].map(kind => [kind, {
+const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process', 'tool-run', 'execute-tool-call', 'subagent-done-tool-call', 'background-command-done-tool-call', 'mcp-tool-call', 'agent-send'].map(kind => [kind, {
   kind, segment: item => [unit(item.kind, item, item, { key: 'self' })],
 } satisfies ItemSegmenter]));
 const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ caches: {}, expanded: () => false, active,
@@ -23,13 +24,15 @@ const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ cach
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
-  it('uses attachment labels in a native response preview without changing the input or its anchor', () => {
+  it('uses attachment labels in an explicit native quote without changing the input or its anchor', () => {
     const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
     const input = { ...message('u', 'user'), text };
-    const record = turn([input, message('answer', 'assistant')]);
+    const target = { kind: 'session' as const, sessionId: 's', itemId: 'u' };
+    const answer = { ...message('answer', 'assistant'), text: messageQuoteText(target, text, 'Peer') + 'answer' };
+    const record = turn([input, answer]);
     const rows = flattenTier([record], context(false), segmenters);
     const reply = rows.find(row => row.itemId === 'answer')!.data as ChatMessage;
-    expect(reply.conversationReply).toMatchObject({ itemId: 'u', text: '看下文件\ntri19-file.txt' });
+    expect(reply.conversationReply).toMatchObject({ itemId: messageQuoteLink(target), text: '看下文件\ntri19-file.txt' });
     expect(input.text).toBe(text);
   });
 
@@ -90,9 +93,9 @@ describe('replay conversation segment boundaries', () => {
     expect(rows.some(row => row.kind === 'background-tasks')).toBe(false);
   });
 
-  it('does not cut a notification into another segment before any speech', () => {
+  it('keeps a notification between the work before it and the following reply', () => {
     const blocks = planConversationSegments(turn([message('u', 'user'), call('one'), notice('done', 3000), message('reply', 'assistant')]), true);
-    expect(blocks.filter(block => block.kind === 'segment')).toHaveLength(1);
+    expect(blocks.map(block => block.kind === 'input' ? block.item.id : block.items.map(item => item.id))).toEqual(['u', ['one'], 'done', ['reply']]);
   });
 
   it('seals a successful projected send and keeps later work in another segment', () => {
@@ -103,6 +106,14 @@ describe('replay conversation segment boundaries', () => {
     expect(conversationOutput(segments[0].items, true).reply?.id).toBe(sent.id);
     expect(segments[0]).toMatchObject({ live: false, endedAt: 4000 });
     expect(segments[1]).toMatchObject({ live: true, startedAt: 4000 });
+  });
+
+  it('keeps an active process after a standalone completion without turning it into a quote', () => {
+    const source = notice('wake', 5000);
+    const rows = flattenTier([turn([source])], context(true), segmenters);
+    expect(rows.map(row => row.itemId)).toEqual(['t:day', 'wake', 't:process@wake']);
+    expect(rows.at(-1)?.data).toMatchObject({ kind: 'turn-process', live: true, placeholder: true, startedAt: 5000 });
+    expect(rows.some(row => (row.data as ChatMessage).conversationReply)).toBe(false);
   });
 
   it('excludes silence and the visible reply without dropping earlier live parts', () => {
@@ -144,27 +155,51 @@ describe('replay conversation segment boundaries', () => {
     expect(old.conversationProcess).not.toHaveProperty('trigger');
   });
 
-  it('quotes a completion source as background even when the notice has no summary property', () => {
+  it('keeps a completion without a summary as its own row, without quoting it', () => {
     const record = turn([message('before', 'assistant', 2000), notice('wake', 5000), message('after', 'assistant', 6000)]);
     const rows = flattenTier([record], context(true), segmenters);
     const head = rows.find(row => row.itemId === 't:process@wake:head')!.data as ChatMessage;
-    expect(head.conversationReply).toMatchObject({ background: true, text: 'subagent finished' });
+    expect(head.conversationReply).toBeUndefined();
+    expect(rows.filter(row => row.itemId === 'wake')).toHaveLength(1);
+    expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id));
     expect(head.conversationProcess).not.toHaveProperty('trigger');
   });
 
   it.each([
-    ['command', 'completed', 'background command finished'], ['command', 'failed', 'background command failed'],
-    ['command', 'stopped', 'background command stopped'], ['subagent', 'completed', 'subagent finished'],
-    ['subagent', 'failed', 'subagent failed'], ['subagent', 'stopped', 'subagent stopped'],
-  ] as const)('uses only the observed %s %s event as the wake-up caption', (kind, outcome, label) => {
+    ['command', 'completed'], ['command', 'failed'], ['command', 'stopped'],
+    ['subagent', 'completed'], ['subagent', 'failed'], ['subagent', 'stopped'],
+  ] as const)('preserves the %s %s event independently of the following reply', (kind, outcome) => {
     const base = { id: 'wake', toolCallId: 'wake', seq: 1, title: 'cd /tmp/raw-command && export PATH=fixture; echo RAW-WAKE-991',
       name: 'RAW-WAKE-991', status: 'done' as const, launchToolCallId: 'launch', outcome, at: 5000 };
     const source: ChatItem = kind === 'command' ? { ...base, kind: 'background-command-done-tool-call' }
       : { ...base, kind: 'subagent-done-tool-call', agentId: 'child' };
-    const rows = flattenTier([turn([source, message('after', 'assistant', 6000)])], context(false), segmenters);
-    const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
-    expect(head.conversationReply).toMatchObject({ itemId: 'wake', text: label, background: true });
-    expect(head.conversationReply!.text).not.toContain('RAW-WAKE-991');
+    for (const active of [false, true]) {
+      const rows = flattenTier([turn([source, message('after', 'assistant', 6000)])], context(active), segmenters);
+      const head = rows.find(row => (row.data as ChatMessage).conversationPart === 'head')!.data as ChatMessage;
+      expect(head.conversationReply).toBeUndefined();
+      expect(rows.find(row => row.itemId === 'wake')?.data).toEqual(source);
+      expect(rows.findIndex(row => row.itemId === 'wake')).toBeLessThan(rows.findIndex(row => row.itemId === head.id));
+    }
+  });
+
+  it.each([false, true])('never infers quotes from inputs, steers, sends or Stop boundaries (active: %s)', active => {
+    const stop: ChatItem = { kind: 'session-notice', id: 'stop', seq: 3, code: 'provider-notice', title: 'Stop says: Check.', detail: 'Stop says: Check.', at: 4000 };
+    const record = turn([message('u', 'user', 1000), message('first', 'assistant', 2000),
+      message('steer', 'user', 3000), message('second', 'assistant', 3500), stop,
+      message('after-stop', 'assistant', 5000), message('send:sent:confirmed', 'assistant', 6000), message('after-send', 'assistant', 7000)]);
+    const heads = flattenTier([record], context(active), segmenters).filter(row => (row.data as ChatMessage).conversationPart === 'head');
+    expect(heads).toHaveLength(4);
+    for (const row of heads) expect((row.data as ChatMessage).conversationReply).toBeUndefined();
+  });
+
+  it.each(['native', 'delivery', 'sent'] as const)('preserves an explicit %s reply anchor through flattening', source => {
+    const original = { ...message('original', 'user'), text: '<gugu_delivery route="chat" msg="msg:remote" from="Peer" from_id="user:peer"><![CDATA[original words]]></gugu_delivery>' };
+    const text = source === 'native' ? messageQuoteText({ kind: 'session', sessionId: 's', itemId: 'original' }, 'original words', 'Peer') + 'reply'
+      : source === 'delivery' ? '<gugu_delivery route="chat" from="Peer" from_id="user:peer"><reply_to msg="msg:remote" from_id="user:peer"><![CDATA[original words]]></reply_to><![CDATA[reply]]></gugu_delivery>' : 'reply';
+    const reply = { ...message('reply', source === 'delivery' ? 'user' : 'assistant'), text, ...(source === 'sent' ? { sentReplyTo: 'remote' } : {}) };
+    const rows = flattenTier([turn([original, reply])], context(false), segmenters);
+    const quote = rows.map(row => (row.data as ChatMessage).conversationReply).find(Boolean);
+    expect(quote).toMatchObject({ itemId: source === 'native' ? messageQuoteLink({ kind: 'session', sessionId: 's', itemId: 'original' }) : 'original', text: 'original words', from: 'Peer' });
   });
 
   it('does not add the generic message margin between process parts or after an action lane', () => {

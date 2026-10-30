@@ -157,7 +157,7 @@ describe('conversation edit control', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     const el = renderCard({ generating: false, commands: { writeClipboardText: writeText } });
-    el.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')!.click();
+    el.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!.click();
     expect(writeText).toHaveBeenCalledWith(MESSAGE.text);
     await vi.waitFor(() => expect(el.querySelector('button[aria-label="Copied"]')).not.toBeNull());
     expect(el.querySelector(selector)).toBeNull();
@@ -171,7 +171,7 @@ describe('conversation edit control', () => {
     expect(el.querySelector(selector)).not.toBeNull();
     setAllowed(false);
     expect(el.querySelector(selector)).toBeNull();
-    expect(el.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(el.querySelector('button[aria-label="Copy"]')).not.toBeNull();
   });
 
   it('does not carry copied feedback or the old target into a reused virtual row', async () => {
@@ -181,11 +181,11 @@ describe('conversation edit control', () => {
     const onEditMessage = vi.fn();
     const el = renderCard({ generating: false, message,
       commands: { canRevertMessage: () => true, onEditMessage, writeClipboardText: writeText } });
-    el.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')!.click();
+    el.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!.click();
     await vi.waitFor(() => expect(el.querySelector('button[aria-label="Copied"]')).not.toBeNull());
     setMessage({ ...MESSAGE, id: 'u2', text: 'A different message' });
     expect(el.querySelector('button[aria-label="Copied"]')).toBeNull();
-    el.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')!.click();
+    el.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!.click();
     expect(writeText).toHaveBeenLastCalledWith('A different message');
     el.querySelector<HTMLButtonElement>(selector)!.click();
     expect(onEditMessage).toHaveBeenLastCalledWith({ itemId: 'u2' });

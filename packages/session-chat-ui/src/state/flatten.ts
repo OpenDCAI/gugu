@@ -1,9 +1,7 @@
 import { conversationOutput } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
-import { conversationQuoteText } from './conversation-quote-text';
 import { withSentReplies } from './sent-replies';
 import { planConversationSegments } from './conversation-segments';
-import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 /**
  * flatten — segment a transcript into a two-tier UnitsView.
  *
@@ -438,12 +436,6 @@ export function flattenTier(
           const reply = { ...output.reply, conversationProcess: process,
             ...(block.fullReply ? { conversationFull: true } : {}),
             conversationCaret: block.live && block.items.at(-1)?.id === output.reply.id };
-          if (!reply.conversationReply && !reply.sentReplyTo && !reply.id.includes(':sent:') && block.input) {
-            const envelope = readDeliveryEnvelope(block.input.text);
-            const facts = envelope?.segments[0]?.facts;
-            reply.conversationReply = { itemId: block.input.id, text: block.inputEvent ? ctx.translate(block.inputEvent) : conversationQuoteText(envelope?.body ?? block.input.text),
-              ...(block.inputEvent ? { background: true } : facts?.from ? { from: facts.from } : {}), ...(facts?.fromId ? { fromId: facts.fromId } : {}) };
-          }
           emitConversationReply(reply, [], steps);
         } else {
           processItem({ kind: 'turn-process', ...process, turnId: turn.id,

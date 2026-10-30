@@ -36,7 +36,7 @@ type Quoted = { item: ChatMessage; text: string; from?: string; fromId?: string;
 
 /**
  * View-only reply anchors; persisted messages and delivery envelopes stay untouched.
- * Only explicit anchors are quoted: a delivery's `reply_to`, or the `reply_to_message_id` the agent passed
+ * Only explicit anchors are quoted: a native quote link, a delivery's `reply_to`, or the `reply_to_message_id` the agent passed
  * to message_send (`sentReplyTo`). ❌ Falling back to "the input before it" — a direct output has no
  * reply target, and a guessed one reads as a reply to someone else (owner 10-28 新管家截图).
  */

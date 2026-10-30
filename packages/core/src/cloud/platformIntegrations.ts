@@ -1,14 +1,14 @@
 /**
  * #921 人自己填的凭据(key / token,高德先上)由平台保管:管家 `/integrations` 接口的客户端。
  * 人在一台设备上填一次,平台加密存着;他的每台设备(含云电脑)都经平台的 MCP 转发口用它,凭据 ❌ 回到任何设备。
- * 地址、鉴权与聊天渠道同一扇门(`cloudComputerBaseUrl`,用户自己的 JWT);这扇门说 503 not_open = 这个环境没开放。
+ * 地址、鉴权与聊天渠道同一扇门(`cloudComputerBaseUrl`,用户自己的 JWT);服务配置故障回 503 unavailable。
  *
  *  · GET    /integrations                        → { providers: [{ provider, accounts: [{ accountId, connected, state, updatedAt, checkedAt, disconnectedAt }] }] }
  *           state:connected · reconnect(存着、但对方不认了 / 换钥后解不开,要重连) · not_connected(没存,时间为空)
  *           disconnectedAt:这个人最近一次断开它的时刻(明确再连一次就清掉),没断开过 = null。state 与 disconnectedAt 每一行都有
  *  · PUT    /integrations/:provider/credential   { fields, connect: "manual" } | { fields, migration: { savedAt } }
  *           → { connected: true, updatedAt, checkedAt }
- *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 not_open
+ *           出错:400 invalid_fields · 404 unknown_provider · 422 auth_failed · 502 upstream_unavailable · 503 unavailable
  *           `connect: "manual"` = 人在连接页填的:只有它覆盖已存着的、清掉断开记录。
  *           `migration` = 设备上 #649 留下的 key 搬上来,只能新建:平台已存着 = 409 already_connected;
  *           断开过、且断开晚于 savedAt(或 savedAt 为空)= 409 disconnected_after。
@@ -21,12 +21,12 @@
  *           对方这会儿用不了(额度、QPS、临时错误):502 upstream_unavailable
  *
  * 只有一种情况凭据留在设备上:这个安装压根没有这项服务(社区自托管,没部署云电脑管家)—— 网关回 404、体里没有
- * 平台的出错码(`isPlatformServiceMissing`)。平台在、但说 503 not_open(没对这个人开放 / 没配好)❌ 是退路:
- * 照实说「还没对你开放」,不在本机存。
+ * 平台的出错码，或入口回 503 not_open 表示未配置管家(`isPlatformServiceMissing`)。平台的 503 unavailable
+ * 是服务故障，保留平台保管方式并报告失败，不改存本机。
  *
  * 不碰 node / electron。
  */
-import { CloudComputerError, cloudComputerErrorFromResponse } from './cloudComputer'
+import { CloudComputerError, cloudComputerErrorFromResponse, isCloudComputerNotOpen } from './cloudComputer'
 
 export type PlatformIntegrationAccount = {
   accountId: string
@@ -134,10 +134,11 @@ export class PlatformCredentialRejectedError extends Error {
 
 /**
  * 这个安装没有这项服务:网关自己回的 404(Supabase「Requested function was not found」、自托管网关「no Route matched」),
- * 体里没有平台的出错码。平台自己回的 404(unknown_provider / not_connected / not_found)、503 not_open、网络不通都 ❌ 算。
+ * 体里没有平台的出错码；或云端入口回 not_open 明确表示未配置可选管家。平台自己回的 404(unknown_provider / not_connected / not_found)、503 unavailable、网络不通都 ❌ 算。
  */
 export function isPlatformServiceMissing(error: unknown): boolean {
-  return error instanceof CloudComputerError && error.status === 404 && error.code === 'http_404'
+  return isCloudComputerNotOpen(error)
+    || error instanceof CloudComputerError && error.status === 404 && error.code === 'http_404'
 }
 
 export type PlatformIntegrationsClient = {
