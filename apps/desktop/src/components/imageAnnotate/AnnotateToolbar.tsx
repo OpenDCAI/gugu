@@ -19,7 +19,7 @@ export function AnnotateToolbar({ editor }: { editor: ReturnType<typeof useAnnot
     <div className="ia-style-tools">
       <div className="ia-colors" role="group" aria-label={t('color')}>
         {(['danger', 'warn', 'live', 'ok', 'white'] as AnnotateColor[]).map(color => <IconButton key={color} aria-label={t(`colors.${color}`)} aria-pressed={editor.color === color}
-          onClick={() => editor.setStyle({ color })}><span className="ia-color" data-color={color} /></IconButton>)}
+          onClick={() => editor.setStyle({ color })}><span className="ia-color" data-swatch={color} /></IconButton>)}
       </div>
       <div className="ia-widths" role="group" aria-label={t('lineWidth')}>
         {[3, 5, 8].map(width => <Button key={width} size="sm" variant="ghost" aria-pressed={editor.lineWidth === width} onClick={() => editor.setStyle({ lineWidth: width })}>{width}</Button>)}
