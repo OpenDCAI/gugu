@@ -326,7 +326,8 @@ export const automations = sqliteTable(
     deletedAt: integer('deleted_at'),
     /**
      * #7221 非空 = agent 给自己排的:到点把 prompt 送回这条会话,不新开会话。
-     * ❌ 外键:会话删了这一格也得留着,到点才说得出「建它的 agent 已不在」。
+     * No FK cascade: true deletion uses the automation service's run cleanup/barrier; list load repairs older orphans.
+     * Archiving retains this identity and its schedule so Restore can show it again.
      */
     agentSessionId: text('agent_session_id'),
   },

@@ -15,8 +15,8 @@ export type Automation = {
    * 缺席 = 人建的那种,到点新开会话。
    */
   agentSessionId?: string;
-  /** 建它的那个 agent,给界面标「谁建的」;只在 `agentSessionId` 有值时有。`gone` = 那条会话已归档或删除。 */
-  agentSession?: { name: string | null; gone: boolean };
+  /** The local task identity: gone means deleted; archived tasks retain their schedules for Restore. */
+  agentSession?: { name: string | null; gone: boolean; archived?: boolean };
 };
 
 /** #7221 一次性、那一刻已过、已经关了:不会再响,开关不再给打开(服务端同样拒:schedule_time_passed)。 */
