@@ -254,6 +254,8 @@ it.each([390, 720])('Gugu credits fit a %s px settings container with a prominen
   expect(parseFloat(getComputedStyle(total).fontSize)).toBeGreaterThan(parseFloat(getComputedStyle(quotas[0].querySelector('strong')!).fontSize));
   expect(total.getBoundingClientRect().bottom).toBeLessThanOrEqual(period.top);
   const recharge = row.querySelector<HTMLElement>('[data-testid="membership-open-web"]')!;
+  expect(recharge.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/#topup');
+  expect(row.querySelector('a')?.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/');
   expect(recharge.getBoundingClientRect().width).toBeLessThan(row.clientWidth * 0.7);
   expect(row.querySelector('[data-testid="subscription-billing-copy"]')).toBeNull();
   if (width === 390) {

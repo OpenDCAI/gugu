@@ -6,7 +6,7 @@ import { ArrowUpRight } from '@/lib/icons';
 import { useAuth } from '@/store/auth';
 import { formatCredits, getMembership, quotaWindowViews, useSpendingPower } from '@/lib/billing';
 import { platform } from '@/platform';
-import { GUGU_BILLING_URL } from '@/lib/appLinks';
+import { GUGU_BILLING_URL, GUGU_TOPUP_URL } from '@/lib/appLinks';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { Button } from '@/components/ui/Button';
 import { queryClient } from '@renderer/lib/query-client';
@@ -120,7 +120,7 @@ export function GuguSubscriptionRow() {
       )}
       <div className="subscription-credit-actions">
         <Button variant="secondary" size="sm" nativeButton={false}
-          render={<a href={GUGU_BILLING_URL} target="_blank" rel="noreferrer" />}
+          render={<a href={GUGU_TOPUP_URL} target="_blank" rel="noreferrer" />}
           data-testid="membership-open-web">
           {t('usage.na.openWebBilling')}
           <ArrowUpRight className="ml-1 size-3" />

@@ -47,6 +47,8 @@ it('手机账户页复用会员行，无需桌面设置的 QueryClientProvider �
     expect(row?.querySelector('[data-testid="subscription-period-credits"]')?.textContent).toBe('176')
     expect(row?.querySelector('[data-testid="subscription-wallet-credits"]')?.textContent).toBe('0')
     expect(row?.querySelector('[data-testid="membership-open-web"]')?.textContent).toContain('去网页充值')
+    expect(row?.querySelector('[data-testid="membership-open-web"]')?.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/#topup')
+    expect(row?.querySelector('a')?.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/')
   } finally { harness.cleanup() }
 })
 
