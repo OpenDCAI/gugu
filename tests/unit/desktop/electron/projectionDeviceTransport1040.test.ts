@@ -16,11 +16,15 @@ describe('projection-owned realtime clients with the actual SDK', () => {
     const input = { auth: async () => ({ userId: 'owner', accessToken: 'fixture' }), createClient(token: () => Promise<string | null>) {
       const client = makeClient(token); clients.push(client); closed.push(vi.spyOn(client.realtime, 'disconnect')); return client;
     } };
-    opening.mockImplementation(async () => ({ send: async () => {}, close() {} }));
+    const channels: unknown[] = [];
+    opening.mockImplementation(async options => {
+      channels.push(options.supabase.channel('same-topic', { config: { private: true, broadcast: { self: false, ack: true } } }));
+      return { send: async () => {}, close() {} };
+    });
     const one = await openProjectionDevicePipe(input, 'device', 'asker1', handlers);
     const two = await openProjectionDevicePipe(input, 'device', 'asker2', handlers);
     try {
-      const a = clients[0]!.channel('same-topic'), b = clients[1]!.channel('same-topic');
+      const [a, b] = channels;
       // Actual SDK behavior that makes sharing one client unsafe for independent pipes.
       expect(clients[0]!.channel('same-topic')).toBe(a); expect(a).not.toBe(b);
       one.close(); one.close(); expect(closed[0]).toHaveBeenCalledTimes(1); expect(closed[1]).not.toHaveBeenCalled();
