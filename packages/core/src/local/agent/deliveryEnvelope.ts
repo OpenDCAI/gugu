@@ -3,6 +3,7 @@ import { encodeTypedId } from '../../shared/typedId.mjs'
 import { findMentionSpans } from '../../shared/mentionToken.mjs'
 import type { ChatKind, ListenMode } from '../../shared/types/chat'
 import { describeReactions } from '../../shared/ui/reactionCatalog'
+import { stripNativePromptNotices } from './nativePromptNotices'
 
 /**
  * 进入任何 agent prompt 的每一条消息，字节都从这里出来（#4280）。
@@ -314,7 +315,7 @@ export type DeliveryReading = { body: string; segments: DeliverySegment[] }
  * 两行头、外框之前的方括号批。认不出 = `null`,调用方把原文当普通文字。
  */
 export function readDeliveryEnvelope(text: string): DeliveryReading | null {
-  const source = text.trim()
+  const source = stripNativePromptNotices(text)
   const segments = DELIVERY_ROOT.test(source)
     ? readXmlSegments(source)
     : source.startsWith('[') ? readRetiredSessionDirect(source) ?? readRetiredBatch(source) : null

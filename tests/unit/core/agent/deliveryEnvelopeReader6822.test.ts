@@ -9,6 +9,7 @@ import {
   mergeDeliveryEnvelopes,
   readDeliveryEnvelope,
   renderDeliveryEnvelope,
+  recoverDeliveryEnvelopes,
   type DeliveryEnvelopeFacts,
   type DeliveryReadFacts,
 } from '../../../../packages/core/src/local/agent/deliveryEnvelope'
@@ -72,6 +73,27 @@ const DM: DeliveryEnvelopeFacts = {
 }
 
 describe('readDeliveryEnvelope — round trip with the producer', () => {
+  it.each([
+    '<resource_changes>飞书 & 日历已连接</resource_changes>',
+    '<gugu_profile_review>Review <profile>data</profile></gugu_profile_review>',
+    '<resource_changes>资源已连接</resource_changes>\n<gugu_profile_review>Review profile</gugu_profile_review>',
+  ])('reads a delivery after complete native prompt notices: %s', (prefix) => {
+    const envelope = renderDeliveryEnvelope(DM)
+    const native = `${prefix}\n${envelope}`
+    expect(readDeliveryEnvelope(native)).toEqual(readDeliveryEnvelope(envelope))
+    expect(recoverDeliveryEnvelopes(envelope, [native])).toBeNull()
+  })
+
+  it.each([
+    'Here is a quoted envelope:\n',
+    '<resource_changes>unclosed\n',
+    '<other_context>not a native notice</other_context>\n',
+    '<resource_changes>valid</resource_changes>\nordinary text\n',
+  ])('does not search arbitrary or malformed prefix text for delivery receipts: %s', (prefix) => {
+    const envelope = renderDeliveryEnvelope(DM)
+    expect(readDeliveryEnvelope(`${prefix}${envelope}`)).toBeNull()
+    expect(recoverDeliveryEnvelopes(envelope, [`${prefix}${envelope}`])).toBe(envelope)
+  })
   it.each([
     ['group @ with reply, rules, thread and message context', GROUP],
     ['dm with an absent sender name and an empty body', DM],

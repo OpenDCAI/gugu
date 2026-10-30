@@ -4,7 +4,7 @@ import { isOk } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
 import { AcpRuntime } from './runtime';
-import { mergeDeliveryEnvelopes, recoverDeliveryEnvelopes } from '../../../../core/src/local/agent/deliveryEnvelope';
+import { mergeDeliveryEnvelopes, readDeliveryEnvelope, recoverDeliveryEnvelopes } from '../../../../core/src/local/agent/deliveryEnvelope';
 
 const DELIVERY = '<gugu_delivery route="chat" from="B" from_id="user:b" chat="test" msg="msg:accepted-1"><![CDATA[accepted ping]]></gugu_delivery>';
 type PromptRequest = { prompt: Array<{ type: string; text?: string }> };
@@ -134,9 +134,12 @@ describe('a stopped native delivery already in provider history', () => {
     h.deps.mergeEnvelopes = mergeDeliveryEnvelopes;
     const rt = new AcpRuntime(h.deps);
     const unsent = DELIVERY.replace('msg:accepted-1', 'msg:unsent-2');
+    const native = `<resource_changes>飞书已连接</resource_changes>\n<gugu_profile_review>Review profile</gugu_profile_review>\n${DELIVERY}`;
+    const received = readDeliveryEnvelope(native)?.segments.flatMap((segment) => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? [];
+    expect(received).toEqual(['msg:accepted-1']);
     expect(isOk(await rt.startSession(makeStartInput({
       providerId: 'hermes', sessionId: 'hermes-partial-recovery', providerSessionId: 'native-old',
-      replayHistory: false, recordedDeliveryIds: ['msg:accepted-1'], turnIndexBase: 7,
+      replayHistory: false, recordedDeliveryIds: received, turnIndexBase: 7,
       initialQueue: [
         { text: DELIVERY, origin: 'communication' },
         { text: unsent, origin: 'communication' },

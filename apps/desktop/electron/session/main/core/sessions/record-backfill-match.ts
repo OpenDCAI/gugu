@@ -1,4 +1,5 @@
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { stripNativePromptNotices } from '@gugu/core/local/agent/nativePromptNotices';
 
 /**
  * 认「库里这一轮 = 记录里那一轮」靠什么,按记录的格式分:
@@ -35,12 +36,12 @@ export function turnIdentityKeys(turn: TranscriptTurn): Set<string> {
   return keys;
 }
 
-const squeeze = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 300);
+const squeeze = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-/** 这一轮人说的那句,压掉空白、取前 300 字。没有提问(agent 自己开的头)= null。 */
+/** 这一轮人说的完整原文,略去原生合并的前置提示并压掉空白。没有提问 = null。 */
 export function turnPrompt(turn: TranscriptTurn): string | null {
   const user = turn.items.find((item) => item.kind === 'message' && item.role === 'user');
-  const text = user && 'text' in user ? squeeze(user.text) : '';
+  const text = user && 'text' in user ? squeeze(stripNativePromptNotices(user.text)) : '';
   return text || null;
 }
 
@@ -50,7 +51,7 @@ export function turnFingerprint(turn: TranscriptTurn): string | null {
   const replies = turn.items.filter((item) => item.kind === 'message' && item.role === 'assistant' && 'text' in item && item.text.trim());
   const reply = replies.at(-1);
   if (!prompt || !reply || !('text' in reply)) return null;
-  return `${prompt}\u0000${squeeze(reply.text)}`;
+  return JSON.stringify([prompt, squeeze(reply.text)]);
 }
 
 type Identity = { keys: Set<string>; fingerprint: string | null; prompt: string | null };
@@ -71,10 +72,52 @@ function sameTurn(a: Identity, b: Identity, mode: RecordIdentity): boolean {
   return a.prompt !== null && a.prompt === b.prompt;
 }
 
+/** 完整内容也会重复:从唯一锚点(或完整库的开头)按已入库回合逐次往后认,不能跳到最后一处。 */
+function contentTail(record: readonly TranscriptTurn[], seen: Identity[], stored: Identity[], hasOlderStoredTurns: boolean): TranscriptTurn[] | null {
+  const locations = new Map<string, number[]>();
+  const prompts = new Map<string, number[]>();
+  const add = (map: Map<string, number[]>, key: string | null, at: number) => {
+    if (key === null) return;
+    const previous = map.get(key);
+    if (previous) previous.push(at);
+    else map.set(key, [at]);
+  };
+  seen.forEach((one, at) => { add(locations, one.fingerprint, at); add(prompts, one.prompt, at); });
+  const chronological = stored.toReversed();
+  let start = -1, at = -1;
+  for (let index = chronological.length - 1; index >= 0; index--) {
+    const key = chronological[index].fingerprint;
+    const matches = key === null ? undefined : locations.get(key);
+    if (matches?.length === 1) { start = index; at = matches[0]; break; }
+  }
+  if (start < 0) {
+    // 只拿到库尾、候选又有重复 ⇒ 让调用者多读旧行,不能把这一页当整份历史。
+    if (hasOlderStoredTurns) return null;
+    for (let index = 0; index < chronological.length; index++) {
+      const key = chronological[index].fingerprint;
+      const matches = key === null ? undefined : locations.get(key);
+      if (matches?.length) { start = index; at = matches[0]; break; }
+    }
+  }
+  if (start < 0) return null;
+  for (const one of chronological.slice(start + 1)) {
+    const matches = one.fingerprint !== null ? locations.get(one.fingerprint) : one.prompt !== null ? prompts.get(one.prompt) : undefined;
+    // 相同问答可能有成千上万轮,按有序位置二分,不反复扫描已认过的前缀。
+    let low = 0, high = matches?.length ?? 0;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (matches![mid] <= at) low = mid + 1;
+      else high = mid;
+    }
+    if (matches && low < matches.length) at = matches[low];
+  }
+  return record.slice(at + 1);
+}
+
 /**
  * 记录里接在库尾之后、库里还没有的那几轮,由旧到新。`storedNewestFirst` 是库尾那几行,由新到旧。
  *
- * 从库尾最新的一行起往旧找,第一行在记录里认得出的就是锚点(取它在记录里最后出现的位置);记录里锚点之后的都要补,
+ * 编号模式从库尾往旧找强身份锚点;内容模式按已有回合顺序对齐,重复问答按出现次数消耗。锚点之后的都要补,
  * 只除掉库里比锚点还新、记录里却没认出来的那几行(失败的、没进记录的)—— 每行只抵一次,重复的「继续」不会被一并吞掉。
  *
  * - 库是空的 ⇒ 整份记录都要补。
@@ -85,11 +128,13 @@ export function recordTurnsAfterStore(
   record: readonly TranscriptTurn[],
   storedNewestFirst: readonly TranscriptTurn[],
   identity: RecordIdentity = 'ids',
+  options: { hasOlderStoredTurns?: boolean } = {},
 ): TranscriptTurn[] | null {
   if (storedNewestFirst.length === 0) return [...record];
   const stored = storedNewestFirst.map(identify);
   const mode: RecordIdentity = identity === 'ids' && stored.every((one) => one.keys.size === 0) ? 'content' : identity;
   const seen = record.map(identify);
+  if (mode === 'content') return contentTail(record, seen, stored, options.hasOlderStoredTurns ?? false);
   for (let newer = 0; newer < stored.length; newer += 1) {
     let at = -1;
     for (let index = seen.length - 1; index >= 0; index -= 1) {
