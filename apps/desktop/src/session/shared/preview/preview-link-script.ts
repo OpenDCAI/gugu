@@ -20,6 +20,30 @@
 import { DOCUMENT_MAX_ZOOM, DOCUMENT_MIN_ZOOM, PINCH_ZOOM_SENSITIVITY } from './pinch-zoom';
 
 export const PREVIEW_LINK_MESSAGE_TYPE = 'gugu-preview-link';
+export const PREVIEW_SCROLL_MESSAGE_TYPE = 'gugu-preview-scroll';
+export const PREVIEW_RESTORE_MESSAGE_TYPE = 'gugu-preview-restore-scroll';
+export const PREVIEW_RESTORED_MESSAGE_TYPE = 'gugu-preview-restored';
+
+const PREVIEW_SCROLL_SCRIPT = `
+  var scrollPending = false;
+  window.addEventListener('scroll', function(){
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(function(){
+      scrollPending = false;
+      parent.postMessage({ type: '${PREVIEW_SCROLL_MESSAGE_TYPE}', x: window.scrollX, y: window.scrollY }, '*');
+    });
+  }, { passive: true });
+  window.addEventListener('message', function(e){
+    var data = e.data;
+    if (e.source !== parent || !data || data.type !== '${PREVIEW_RESTORE_MESSAGE_TYPE}') return;
+    if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+    window.scrollTo({ left: Math.max(0, data.x), top: Math.max(0, data.y), behavior: 'instant' });
+    requestAnimationFrame(function(){
+      parent.postMessage({ type: '${PREVIEW_RESTORED_MESSAGE_TYPE}' }, '*');
+    });
+  });
+`;
 
 const PREVIEW_PINCH_ZOOM = `
   var pinchZoom = 1;
@@ -33,7 +57,7 @@ const PREVIEW_PINCH_ZOOM = `
 `;
 
 export const PREVIEW_LINK_SCRIPT = `
-(function(){${PREVIEW_PINCH_ZOOM}
+(function(){${PREVIEW_PINCH_ZOOM}${PREVIEW_SCROLL_SCRIPT}
   document.addEventListener('click', function(e){
     var a = e.target && e.target.closest && e.target.closest('a[href]');
     if (!a) return;
