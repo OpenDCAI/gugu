@@ -281,11 +281,14 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       },
       // project:typed project: id 解成裸 id;别的都是那台机器上的目录,原样交过去(~ 由那台机器展开)。
       { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b' }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b' } },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', nest: false }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', nest: false } },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', nest: true }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', nest: true } },
       {
         tool: 'session_spawn',
         args: { prompt: 'p', project: '~/Documents/gugu', device: 'device:dev-b' },
         dispatched: { action: 'spawn', prompt: 'p', project_path: '~/Documents/gugu', device: 'dev-b' },
       },
+      { tool: 'session_spawn', args: { prompt: 'p', project: 'project:proj-b', device: 'device:dev-b', nest: false }, dispatched: { action: 'spawn', prompt: 'p', project_id: 'proj-b', device: 'dev-b', nest: false } },
       { tool: 'session_list_models', args: {}, dispatched: { action: 'list_models' } },
       { tool: 'session_spawn', args: { prompt: 'inspect' }, dispatched: { action: 'spawn', prompt: 'inspect' } },
       { tool: 'session_ask_user', args: { questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] }, dispatched: { action: 'ask_user', questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] } },

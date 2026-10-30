@@ -708,6 +708,15 @@ describe('session orchestration', () => {
       expect(result.parent_session_id).toBe('remote-caller');
       expect(configOf(result.session_id).parentRemote).toEqual({ deviceId: 'device-a', sessionId: 'remote-caller' });
       expect(childRows()[0]!.workspace_id).toBe('workspace-p2');
+      const flat = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', project_id: 'project-2', nest: false })) as { session_id: string; parent_session_id: string | null };
+      expect(flat.parent_session_id).toBeNull();
+      expect(configOf(flat.session_id)).not.toHaveProperty('parentRemote');
+      expect(configOf(flat.session_id).spawnedByRemote).toEqual(configOf(result.session_id).spawnedByRemote);
+      expect(fixture.sqlite.prepare('SELECT project_id, workspace_id FROM sessions WHERE id = ?').get(flat.session_id))
+        .toEqual({ project_id: 'project-2', workspace_id: 'workspace-p2' });
+      expect(await runRemoteSessionAction(remoteCaller, { action: 'children' })).toEqual([
+        expect.objectContaining({ session_id: result.session_id, parent_session_id: 'remote-caller', project_id: 'project-2' }),
+      ]);
     });
 
     it('with no project lands in this machine\'s home project through the same step', async () => {
@@ -1708,6 +1717,9 @@ describe('session orchestration', () => {
     expect(flat.parent_session_id).toBeNull();
     expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(flat.session_id))
       .toEqual({ project_id: 'project-2', parent_session_id: null, spawned_by_session_id: 'caller' });
+    expect(await runSessionAction(context, { action: 'children' })).toEqual([
+      expect.objectContaining({ session_id: otherProject.session_id, parent_session_id: 'caller', project_id: 'project-2' }),
+    ]);
   });
 
   function makePtyCaller() {
