@@ -7,7 +7,7 @@ vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn:
 vi.mock('../../../../apps/desktop/src/session/renderer/features/global-search/global-search-flag', () => ({
   globalSearchV3Enabled: () => enabled.value,
 }))
-import { feedChats, feedClearChat, feedCoverage, feedRemoved, feedRows } from '../../../../apps/desktop/src/lib/searchIndexFeed'
+import { feedChats, feedClearChat, feedCoverage, feedRemoved, feedRows, withSearchIndexing } from '../../../../apps/desktop/src/lib/searchIndexFeed'
 
 const desktopSrc = resolve(__dirname, '../../../../apps/desktop/src')
 function sources(dir: string): string[] {
@@ -55,5 +55,38 @@ describe('search index feed', () => {
   it('surfaces a failed write to the caller', async () => {
     apply.mockRejectedValueOnce(new Error('disk full'))
     await expect(feedRemoved(['m'])).rejects.toThrow('disk full')
+  })
+})
+
+describe('the chat service feeding the index', () => {
+  const service = () => withSearchIndexing({
+    getMessages: async (chatId: string) => [{ id: 'm', chat_id: chatId }],
+    getThreadMessages: async (_chatId: string, _rootId: string) => { throw new Error('read failed') },
+    deleteMessage: async (messageId: string) => ({ chatId: 'g', globallyDeleted: messageId === 'all' }),
+    clearMessagesForMe: async (_chatId: string) => {},
+  })
+
+  it('returns what each call returned and feeds the index only after it succeeded', async () => {
+    const chat = service()
+    await expect(chat.getMessages('g')).resolves.toEqual([{ id: 'm', chat_id: 'g' }])
+    await expect(chat.deleteMessage('all')).resolves.toEqual({ chatId: 'g', globallyDeleted: true })
+    await chat.clearMessagesForMe('g')
+    await Promise.resolve()
+    expect(apply.mock.calls.flatMap(([ops]) => ops as unknown[])).toEqual([
+      { kind: 'rows', rows: [{ id: 'm', chat_id: 'g' }] },
+      { kind: 'remove', ids: ['all'] },
+      { kind: 'clearChat', chatId: 'g' },
+    ])
+  })
+
+  it('passes a failed read through unchanged and feeds nothing', async () => {
+    await expect(service().getThreadMessages('g', 'root')).rejects.toThrow('read failed')
+    await Promise.resolve()
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('still answers the read when indexing fails', async () => {
+    apply.mockRejectedValueOnce(new Error('disk full'))
+    await expect(service().getMessages('g')).resolves.toEqual([{ id: 'm', chat_id: 'g' }])
   })
 })

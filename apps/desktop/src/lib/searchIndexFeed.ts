@@ -40,3 +40,39 @@ export const feedCoverage = (coverage: SearchCoverage) => feed({ kind: 'coverage
 export function feedQuietly(write: Promise<void>): void {
   write.catch((error: unknown) => log.error({ error: String(error) }, 'apply failed'))
 }
+
+type ReadMessages = (...args: never[]) => Promise<readonly RawMessageRow[]>
+type IndexedChatReads = {
+  getMessages: ReadMessages
+  getThreadMessages: ReadMessages
+  deleteMessage: (messageId: string) => Promise<unknown>
+  clearMessagesForMe: (chatId: string) => Promise<void>
+}
+
+/**
+ * The chat service's own reads and removals are what the index is fed from: every page it reads (the window and the
+ * backfill alike) and every message this device deletes or clears. Results and errors pass through unchanged; indexing
+ * happens only after a call has succeeded and never fails it.
+ */
+export function withSearchIndexing<T extends IndexedChatReads>(service: T): T {
+  const { getMessages, getThreadMessages, deleteMessage, clearMessagesForMe } = service
+  const read = <F extends ReadMessages>(original: F) => (async (...args: Parameters<F>) => {
+    const rows = await original.call(service, ...args)
+    feedQuietly(feedRows(rows))
+    return rows
+  }) as F
+  return Object.assign(service, {
+    getMessages: read(getMessages),
+    getThreadMessages: read(getThreadMessages),
+    deleteMessage: async (messageId: string) => {
+      const deleted = await deleteMessage.call(service, messageId)
+      // Deleted for everyone or only for me: either way this account can no longer read it.
+      feedQuietly(feedRemoved([messageId]))
+      return deleted
+    },
+    clearMessagesForMe: async (chatId: string) => {
+      await clearMessagesForMe.call(service, chatId)
+      feedQuietly(feedClearChat(chatId))
+    },
+  })
+}
