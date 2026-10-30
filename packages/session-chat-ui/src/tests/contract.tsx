@@ -112,6 +112,7 @@ export async function renderAndMeasureUnit<D, V extends Record<string, number>>(
   // Mirror the native UnitRow path: expanded(id) = isCollapsed(id).
   const measureCtx: MeasureCtx = {
     ...ctx,
+    commands: ctx.commands ?? commands,
     expanded: ctx.isCollapsed,
   };
   const defVars = (def.vars ?? {}) as V;

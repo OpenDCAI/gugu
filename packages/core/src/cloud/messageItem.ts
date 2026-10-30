@@ -65,7 +65,7 @@ export function messageItemFromRow(raw: RawMessageRow, currentUserId: string): M
   const senderUserId: string | null = rawSender === null ? null : text(rawSender)
   let fileMetadata: FileMetadata | null = null
   if (raw.file_metadata != null) {
-    try { fileMetadata = parseFileMetadata(raw.file_metadata) } catch { return null }
+    try { fileMetadata = parseFileMetadata(raw.file_metadata, { message_id: id }) } catch { return null }
   }
   return {
     id,
