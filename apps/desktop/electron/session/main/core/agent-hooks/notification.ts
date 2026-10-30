@@ -8,7 +8,6 @@ import { appSettingsService } from '@main/core/settings/settings-service';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
-import type { AgentEvent } from '@shared/core/agents/agentEvents';
 import { sessionAgentNotificationCopy } from './notification-copy';
 
 const activeNotifications = new Set<Notification>();
@@ -40,13 +39,13 @@ function getNotificationBody(reading: AgentStatusView): string {
   return sessionAgentNotificationCopy()[answering ? 'needsAnswer' : 'needsApproval'];
 }
 
-async function getSessionTitle(sessionId: string): Promise<string | null> {
+async function getSessionLabel(sessionId: string): Promise<{ title: string | null; provider: string | null }> {
   const [row] = await db
-    .select({ title: sessions.title })
+    .select({ title: sessions.title, provider: sessions.provider })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return row?.title || null;
+  return { title: row?.title || null, provider: row?.provider ?? null };
 }
 
 function getProviderName(providerId: string): string {
@@ -55,9 +54,14 @@ function getProviderName(providerId: string): string {
 
 /**
  * 该不该发只看前后两份读数(shouldNotify:停下来等你批准 / 回答才叫人,做完、出错这类纯状态变化不叫),
- * ❌ 不按原始事件类型 —— 被自动批准的 permission_prompt 不是用户要知道的事。
+ * ❌ 不按原始事件类型、❌ 不按读数从哪条路来(终端 hook、ACP、宿主自己的等待都是同一份读数) ——
+ * 被自动批准的 permission_prompt 不会把读数推到 needs_user,也就不叫人。
  */
-export async function maybeShowNotification(event: AgentEvent, previous: AgentStatusView | null, next: AgentStatusView): Promise<void> {
+export async function maybeShowNotification(
+  session: { sessionId: string; projectId: string },
+  previous: AgentStatusView | null,
+  next: AgentStatusView,
+): Promise<void> {
   try {
     const { enabled, osNotifications } = await appSettingsService.get('notifications');
     // @@@5301 ❌ 这里**不看窗口聚焦**(onScreen 恒为 false)。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
@@ -68,9 +72,9 @@ export async function maybeShowNotification(event: AgentEvent, previous: AgentSt
 
     const body = getNotificationBody(next);
 
-    const providerName = event.providerId ? getProviderName(event.providerId) : 'Agent';
-    const sessionTitle = await getSessionTitle(event.sessionId);
-    const title = sessionTitle ? `${providerName} — ${sessionTitle}` : providerName;
+    const label = await getSessionLabel(session.sessionId);
+    const providerName = label.provider ? getProviderName(label.provider) : 'Agent';
+    const title = label.title ? `${providerName} — ${label.title}` : providerName;
 
     const notification = new Notification({ title, body, silent: true });
     activeNotifications.add(notification);
@@ -93,7 +97,7 @@ export async function maybeShowNotification(event: AgentEvent, previous: AgentSt
 
       releaseNotification();
       // The window first (a banner's click comes from outside it), then the one way a session is opened.
-      void import('../extensions/gugu-links').then(({ openLink }) => openLink({ kind: 'session', sessionId: event.sessionId, projectId: event.projectId }));
+      void import('../extensions/gugu-links').then(({ openLink }) => openLink({ kind: 'session', sessionId: session.sessionId, projectId: session.projectId }));
     });
 
     notification.show();
