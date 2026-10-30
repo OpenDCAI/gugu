@@ -14,7 +14,7 @@
  */
 
 import { protocol, type Session } from 'electron';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IFileSystem } from '@gugu/session-core/files';
 import { REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
 import { events } from '@main/lib/events';
@@ -56,6 +56,9 @@ interface PreviewRegistration {
   source: PreviewSource;
   surface: PreviewSurface;
   root: PreviewRoot;
+  /** Only paths actually supplied to this page; reset when its owner updates the document. */
+  assets?: Map<string, string>;
+  generation?: number;
   /** 被打开的那份文档的绝对路径 —— 只有它会被注入链接拦截脚本。浏览器页签没有这一份(整页可以导航到别处)。 */
   documentPath?: string;
   /**
@@ -180,7 +183,13 @@ function newPreviewId(): string {
 /** 编辑器里的正文变了。下一次取这份文档就发新的。 */
 export function setPreviewDocument(previewId: string, documentHtml: string): void {
   const registration = registry.get(previewId);
-  if (registration) registration.documentHtml = documentHtml;
+  if (registration) {
+    registration.documentHtml = documentHtml;
+    if ('root' in registration) {
+      registration.assets = new Map();
+      registration.generation = (registration.generation ?? 0) + 1;
+    }
+  }
 }
 
 /** 关掉一个 tab 时撤掉它的登记 —— 登记留着就等于那份文件一直可被取。 */
@@ -188,6 +197,26 @@ export function releasePreview(previewId: string): void {
   const registration = registry.get(previewId);
   if (registration?.source.kind === 'remote') log.info('Remote preview released', { previewId });
   registry.delete(previewId);
+}
+
+/** Compare served bytes, never a directory guess. Omitted paths means a watcher resync. */
+export async function previewAssetsChanged(previewId: string, changedPaths?: readonly string[]): Promise<boolean> {
+  const registration = registry.get(previewId);
+  if (!registration || !('root' in registration)) return false;
+  const changed = changedPaths && new Set(changedPaths.map((path) => path.replace(/\\/g, '/')));
+  const generation = registration.generation;
+  for (const [path, served] of registration.assets ?? []) {
+    if (changed && !changed.has(path.replace(/\\/g, '/'))) continue;
+    const read = await readPreviewBytes(registration, path);
+    if (registry.get(previewId) !== registration || registration.generation !== generation) return false;
+    const current = read.ok ? assetHash(read.bytes) : `error:${read.response.status}`;
+    if (current !== served) return true;
+  }
+  return false;
+}
+
+function assetHash(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /**
@@ -322,6 +351,7 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
   }
 
   const isDocument = resolved === registration.documentPath;
+  const generation = registration.generation;
 
   // 文档本体优先发编辑器里那一份 —— 用户改了没保存也要看得见(见 documentHtml 的注释)。
   if (isDocument && registration.documentHtml !== undefined) {
@@ -329,6 +359,9 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
   }
 
   const read = await readPreviewBytes(registration, resolved);
+  if (registration.generation === generation && registry.get(url.hostname) === registration) {
+    (registration.assets ??= new Map()).set(resolved, read.ok ? assetHash(read.bytes) : `error:${read.response.status}`);
+  }
   if (!read.ok) return read.response;
 
   const mimeType = mimeTypeFor(resolved);

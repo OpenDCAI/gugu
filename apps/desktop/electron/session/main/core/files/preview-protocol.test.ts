@@ -30,7 +30,7 @@ vi.mock('@main/lib/events', () => ({
 }));
 
 import { remotePreviewReadChannel, remotePreviewReadResultChannel } from '@shared/events/appEvents';
-import { REMOTE_CHUNK_TIMEOUT_MS, createDocumentPreview, createRemotePreview, handlePreviewRequest, releasePreview, setPreviewDocument } from './preview-protocol';
+import { REMOTE_CHUNK_TIMEOUT_MS, createDocumentPreview, createPreview, createRemotePreview, handlePreviewRequest, previewAssetsChanged, releasePreview, setPreviewDocument } from './preview-protocol';
 import { resolveWorkspace } from '../projects/utils';
 import { previewDocumentHtml } from '@shared/preview/preview-link-script';
 
@@ -89,6 +89,59 @@ describe('document-only group HTML transport', () => {
     expect(bus.emitted).toEqual([]);
     releasePreview(preview.previewId);
     expect((await handlePreviewRequest(new Request(preview.url), 'pane')).status).toBe(404);
+  });
+});
+
+describe('loaded preview dependencies (#1117)', () => {
+  it('checks only actually requested in-root assets, with content comparisons for resync', async () => {
+    const files: Record<string, string> = { '/w/site/a.css': 'body{color:red}' };
+    const readBytes = vi.fn(async (path: string) => files[path] === undefined
+      ? { success: false, error: { type: 'not_found' } }
+      : { success: true, data: { bytes: Buffer.from(files[path]!), totalSize: files[path]!.length, truncated: false } });
+    vi.mocked(resolveWorkspace).mockReturnValue({ path: '/w', fileSystem: { readBytes } } as never);
+    const preview = createPreview('p', 'w', '/w/site/index.html', '<link rel="stylesheet" href="a.css">')!;
+    try {
+      await handlePreviewRequest(new Request(preview.url), 'pane');
+      await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+      expect((await handlePreviewRequest(new Request(new URL('/%2e%2e%2foutside.css', preview.url)), 'pane')).status).toBe(403);
+      readBytes.mockClear();
+      expect(await previewAssetsChanged(preview.previewId, ['/w/site/report.md', '/w/site/sub/shot.png'])).toBe(false);
+      expect(readBytes).not.toHaveBeenCalled();
+      expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+      expect(readBytes.mock.calls.map(([path]) => path)).toEqual(['/w/site/a.css']);
+      // A page may fetch its own HTML. That must not erase the already loaded CSS.
+      await handlePreviewRequest(new Request(preview.url), 'pane');
+      files['/w/site/a.css'] = 'body{color:blue}';
+      expect(await previewAssetsChanged(preview.previewId, ['/w/site/a.css'])).toBe(true);
+      expect(await previewAssetsChanged(preview.previewId)).toBe(true);
+      // A new served generation establishes the new baseline and drops removed dependencies.
+      setPreviewDocument(preview.previewId, '<p>no stylesheet now</p>');
+      await handlePreviewRequest(new Request(preview.url), 'pane');
+      expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+      await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+      expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+      delete files['/w/site/a.css'];
+      expect(await previewAssetsChanged(preview.previewId)).toBe(true);
+      setPreviewDocument(preview.previewId, '<link rel="stylesheet" href="a.css">');
+      await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+      expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+      files['/w/site/a.css'] = 'restored';
+      expect(await previewAssetsChanged(preview.previewId)).toBe(true);
+    } finally { releasePreview(preview.previewId); vi.mocked(resolveWorkspace).mockReturnValue(null); }
+    expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+  });
+
+  it('uses the same fetched list for remote bytes instead of reading this computer', async () => {
+    const files = { [`${ROOT}/a.css`]: 'one' };
+    const stop = answerFrom(files);
+    const preview = createRemotePreview({ projectId: 'p', workspaceId: 'w', root: ROOT, surface: 'pane', documentPath: `${ROOT}/index.html`, documentHtml: 'page' })!;
+    try {
+      await handlePreviewRequest(new Request(preview.url!), 'pane');
+      await handlePreviewRequest(new Request(new URL('a.css', preview.url!)), 'pane');
+      expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+      files[`${ROOT}/a.css`] = 'two';
+      expect(await previewAssetsChanged(preview.previewId, [`${ROOT}/a.css`])).toBe(true);
+    } finally { stop(); releasePreview(preview.previewId); }
   });
 });
 
