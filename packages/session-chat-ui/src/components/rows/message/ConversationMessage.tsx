@@ -16,7 +16,8 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, hasConversationActions } from './conversation-body';
+import { CONVERSATION_EXPAND_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
+export { isConversationMessage } from './conversation-body';
 import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
@@ -27,13 +28,10 @@ import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-
 const HEADER_H = CONVERSATION_HEADER_H;
 const TIME_H = CONVERSATION_PROCESS_H;
 
-export function isConversationMessage(item: ChatMessage, ctx: MeasureCtx): boolean {
-  if (!ctx.theme.layout?.agentConversation || item.hookNotice || item.questionAnswer || item.role === 'thought') return false;
-  return !item.guguDelivery || item.guguDelivery.segments.every(segment => segment.facts?.route === 'chat' || segment.facts?.route === 'session-direct');
-}
-
-export function conversationContext(ctx: MeasureCtx): MeasureCtx {
-  return { ...ctx, theme: { ...ctx.theme, layout: { ...ctx.theme.layout, preset: 'double', userGutter: Math.max(32, Math.round(ctx.width * .14)) } } };
+export function conversationContext(ctx: MeasureCtx, item?: ChatMessage): MeasureCtx {
+  return { ...ctx,
+    ...(item ? { expandedId: ctx.latestConversationMessageId === item.id || ctx.expanded(conversationBubbleKey(item)) ? item.id : null } : {}),
+    theme: { ...ctx.theme, layout: { ...ctx.theme.layout, preset: 'double', userGutter: Math.max(32, Math.round(ctx.width * .14)) } } };
 }
 
 export function conversationVars(item: ChatMessage, vars: MessageVars): MessageVars {
@@ -69,11 +67,13 @@ function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): nu
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
   const actions = hasConversationActions(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
-  const bodyCtx = conversationContext(ctx);
+  const bodyCtx = conversationContext(ctx, item);
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
-  const folded = ctx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
-  return header + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
+  const folded = bodyCtx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
+  const canCollapse = ctx.expanded(conversationBubbleKey(item)) && ctx.latestConversationMessageId !== item.id
+    && measureUserMessage(item, { ...bodyCtx, expandedId: null }, bodyVars) < body;
+  return header + body - actions + (folded || canCollapse ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? TIME_H + backgroundHeight(item, ctx) : 0);
 }
 
 /** 后台任务挂在这条过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -122,7 +122,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     // 发送者照抬头的写法:是本人就写本人的名字,❌ 信封里「验收员 (咕咕号 112615)」原样贴上(真机验收 10-28)。
     quote.self ? commands().conversationAgentName?.() ?? null : quoteSender(quote.from ?? null, quote.fromId ?? null) ?? (quote.unloaded ? null : self()?.displayName),
   ].filter((part): part is string => Boolean(part?.trim())).join(' · ');
-  const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!()) };
+  const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
     <Show when={props.data.conversationPart !== 'body'}>
