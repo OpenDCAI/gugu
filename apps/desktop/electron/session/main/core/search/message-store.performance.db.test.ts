@@ -26,7 +26,6 @@ it.skipIf(process.env.GUGU_SEARCH_PERF !== '1')('records 100k-row store query sa
     record({ phase: 'start', sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
       pid: process.pid, cwd: process.cwd(), node: process.version, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       requestedRows: 100_000, warmupsPerQuery: 3, samplesPerQuery: 20 });
-    console.log('Search store performance evidence opened:', output);
     root = mkdtempSync(join(tmpdir(), 'gugu-search-a7-perf-'));
     store = new MessageSearchStore(root, 'performance-account');
     const chats = Array.from({ length: 8 }, (_, i) => ({ id: `chat-${i}`, kind: 'group' as const, sourceChatId: null }));
@@ -71,7 +70,6 @@ it.skipIf(process.env.GUGU_SEARCH_PERF !== '1')('records 100k-row store query sa
       const sorted = [...samplesMs].sort((a, b) => a - b);
       const p95Ms = sorted[Math.ceil(sorted.length * 0.95) - 1];
       record({ phase: 'query-summary', name, query, samplesMs, p95Ms });
-      console.log(JSON.stringify({ name, p95Ms, sampleCount: samplesMs.length }));
     }
     store.close();
     record({ phase: 'complete', actualRows: 100_000, filesAfterClose: files() });
@@ -82,7 +80,6 @@ it.skipIf(process.env.GUGU_SEARCH_PERF !== '1')('records 100k-row store query sa
     try {
       store?.close();
       if (root) {
-        console.log('Removing own performance fixture:', root);
         rmSync(root, { recursive: true, force: true });
         record({ phase: 'cleanup', fixtureRemoved: !existsSync(root) });
       }
