@@ -13,6 +13,19 @@ import '@/components/settings/settings.css';
 import '@/styles/tokens.css';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
+vi.mock('@/lib/deviceProjects', async (original) => ({ ...await original<object>(), listMyDeviceProjects: async () => ({}) }));
+vi.mock('@/lib/fileStorage', async (original) => {
+  const { DEFAULT_FILE_STORAGE } = await import('@gugu/core/shared/fileStorage');
+  return {
+    ...await original<object>(),
+    readFileStorage: async () => ({ ...DEFAULT_FILE_STORAGE }),
+    readFileStorageOverview: async () => ({
+      total_bytes: 0, count: 0, expiring_7d_bytes: 0,
+      classes: { temporary: { bytes: 0, count: 0 }, image: { bytes: 0, count: 0 }, kept: { bytes: 0, count: 0 } },
+      groups: [], expiring: [], machines: [],
+    }),
+  };
+});
 const { SettingsPanel } = await import('@/components/SettingsPanel');
 
 const desktopSections = SETTINGS_SECTIONS.filter((section) => section !== 'apps' && section !== 'phone');
@@ -53,7 +66,7 @@ describe('settings navigation hierarchy and interaction (#7333)', () => {
     const scroll = pane.querySelector<HTMLElement>('.gg-settings-nav-scroll')!;
     const rows = pane.querySelectorAll<HTMLElement>('[data-testid^="settings-nav-"]');
     expect(pane.getBoundingClientRect().width).toBe(216);
-    expect(rows).toHaveLength(15);
+    expect(rows).toHaveLength(16);
     expect(pane.querySelector('[data-testid="settings-nav-resource-monitor"]')?.textContent).toBe('资源监视器');
     expect(scroll.clientHeight).toBeGreaterThan(600);
     expect(scroll.scrollHeight).toBeLessThanOrEqual(scroll.clientHeight + 1);
@@ -90,6 +103,11 @@ describe('settings navigation hierarchy and interaction (#7333)', () => {
     await userEvent.keyboard(' ');
     await until('Space changes the active section', () => usage.getAttribute('aria-current') === 'page');
     expect(account.hasAttribute('aria-current')).toBe(false);
+    await userEvent.tab();
+    const files = harness.container.querySelector<HTMLElement>('[data-testid="settings-nav-files"]')!;
+    expect(document.activeElement).toBe(files);
+    await userEvent.keyboard('{Enter}');
+    await until('Enter opens File storage beside Usage', () => files.getAttribute('aria-current') === 'page');
     await page.getByRole('button', { name: i18n.t('actions.copy'), exact: true }).click();
     expect(copy).toHaveBeenCalledExactlyOnceWith('7333');
   });
@@ -110,6 +128,25 @@ describe('settings navigation hierarchy and interaction (#7333)', () => {
     expect(onSelect).toHaveBeenCalledExactlyOnceWith('general');
     await page.getByRole('button', { name: i18n.t('settings.back', { ns: 'main' }), exact: true }).click();
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['navigation', 'deep-link'] as const)('opens the unchanged file-storage page directly through %s', async (entry) => {
+    await renderWithAppProviders(harness, <SettingsPanel initialSection={entry === 'deep-link' ? 'files' : 'general'} onClose={vi.fn()} />, { auth: user, contacts: {} });
+    const card = document.querySelector<HTMLElement>('[data-settings-modal-card]')!;
+    const files = card.querySelector<HTMLElement>('[data-testid="settings-nav-files"]')!;
+    if (entry === 'navigation') await userEvent.click(files);
+    await until('existing FileStorageSection loaded directly', () => card.querySelector('[data-testid="settings-file-storage"]') !== null);
+    expect(card.dataset.settingsSection).toBe('files');
+    expect(files.getAttribute('aria-current')).toBe('page');
+    const detail = card.querySelector<HTMLElement>('[data-role="detail"]')!;
+    expect(detail.querySelector('[data-slot="pane-header"] h2')?.textContent).toBe(i18n.t('settings.nav.files', { ns: 'main' }));
+    expect(detail.querySelector('#settings-kept-retention')).not.toBeNull();
+    expect(detail.querySelector('[data-slot="pane-header"]')?.textContent).not.toContain(i18n.t('settings.nav.devices', { ns: 'main' }));
+    expect(detail.querySelector(`[aria-label="${i18n.t('settings.back', { ns: 'main' })}"]`)).toBeNull();
+    await userEvent.click(card.querySelector<HTMLElement>('[data-testid="settings-nav-devices"]')!);
+    await until('Devices opens without the old subpage', () => card.dataset.settingsSection === 'devices');
+    expect(card.querySelector('[data-testid="settings-file-storage-entry"]')).toBeNull();
+    expect(card.querySelector('[data-testid="settings-file-storage"]')).toBeNull();
   });
 
   it.each([1200, 900])('the real settings panel aligns every page heading with its reading column at %ipx', async (width) => {
