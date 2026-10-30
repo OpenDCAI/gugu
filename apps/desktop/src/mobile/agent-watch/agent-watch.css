@@ -133,20 +133,6 @@
  * 0.62 vs 0.55,读的人无从知道哪个是现状);状态点换成了 StatusGlyph 的 .gg-aw-glyph。
  */
 
-/* ── 时间线 ────────────────────────────────────────────────────────── */
-/*
- * ❌ 这里原来有 .gg-aw-timeline / -turn / -msg / -msg-row / -thinking / -tool* / -outcome
- * 一整套规则(手机端的气泡、工具卡、思考行、轮结局)。2026-09-22 连同它们唯一的渲染者
- * `TimelineView.tsx` 的 `TimelineView` 导出一起删掉 —— 那个导出全仓无人 import,
- * 手机端的转录早就换成了 assistant-ui 的 `Thread`(见 AgentThread.tsx)。
- *
- * 为什么不是「留着也不碍事」:本轮的 UI 地图就把这套规则当成了「手机端气泡/工具卡的现状」
- * 参与对齐(它记下的 .gg-aw-msg 12px 圆角是四个 user bubble 取值之一)。
- * 走不到的视觉规则不是零成本的,它会被下一个人读成事实。
- *
- * 往前翻的入口(.gg-aw-older)一并删:现在那颗按钮住在页头的 headerActions 里,不带这个类。
- */
-
 /*
  * ❌ 这里原来是「会话选项面板」整套(.gg-aw-options / -head / -title / -group / -label / -choices)。
  * 2026-09-22 删(Refs #6104):零消费者 —— 选项现在住在输入框那一行的胶囊里
@@ -259,11 +245,11 @@
 /* ❌ .gg-aw-action-error-dismiss 已删(2026-09-22,零消费者):这条失败条没有关闭钮,
    它随下一次动作自己消失。 */
 
-/* ── assistant-ui 线程 ─────────────────────────────────────────────────
+/* ── 新建任务的空白输入页 ─────────────────────────────────────────────────
    骨架是 assistant-ui 的原语(无样式),视觉全部落在这里的 token 上。
    ❌ 不引它的预置样式表:那套是 shadcn 词汇,与本仓的 token 体系不是一套。 */
 
-/* Thread owns the composer; message prose and compact controls use the current shared type roles. */
+/* Only CreateSessionPage uses this empty Thread; conversations use AgentConversationView. */
 .gg-aw .gg-aw-thread-host {
   display: flex;
   flex-direction: column;
@@ -291,25 +277,6 @@
   bottom: 0;
   margin-top: auto;
 }
-/* 过程折叠的内容(一轮的消息根)入场同线程的行:挂上时就摊开的(在跑的那一轮默认摊开)是读进来的历史,❌ 再从透明淡入、
-   上滑一遍 —— 进运行中的任务页时那一轮整块闪出来(owner 10-12「进去就颤两下」);之后才来的一轮(消息根自己带入场,
-   见 thread.aui useEntersAnimated)和人点开的那一下照播。
-   只管时间头**自己**那层内容(子代选择器一路写死):跑着的一轮里工具调用照样收成一组(owner 10-16),
-   人点开那一组时它的内容照常入场,❌ 被这条一起静音。 */
-.gg-aw .gg-aw-thread-host [data-slot="turn-process"]:not([data-opened]) > [data-slot="tool-group-root"] > [data-slot="tool-group-content"] > div > :not(.animate-in) {
-  animation: none;
-}
-
-/* 过程折叠(turn-process-message)里没有复制 / 更多 —— 同桌面,那一栏属于回复。 */
-.gg-aw .gg-aw-thread-host [data-slot="turn-process"] [data-slot="aui_assistant-message-footer"] {
-  display: none;
-}
-/* 工具交回来的图(AgentThread 的 ToolWithStatus):app 那套图格收在缩略图那么宽 —— 四张是 2×2、每格约 118px,
-   一张是 4:3;❌ 让一次调用的图把一屏时间线占满。图格自己是 width:100%,宽度只能由外面这一层给。 */
-.gg-aw .gg-aw-tool-images {
-  max-width: 240px;
-  margin: var(--spacing-xs) 0 var(--spacing-sm);
-}
 /* 图还没到手(去机器上取的那一会儿是一块底色;取不到 / 太大写一句话),MediaGrid 的 `pending` 那一格。 */
 .gg-aw .gg-media-grid-pending {
   display: flex;
@@ -329,47 +296,6 @@
   gap: var(--spacing-sm);
   padding-bottom: var(--spacing-sm);
 }
-
-/* 「回到底部」浮钮。官方模板写的是 shadcn 的 `outline`(那一档自带 bg-background),翻译层
-   (assistant-ui/ui/button.tsx)把它映到咕咕的 secondary —— **透明底**的描边钮;官方又只在暗色下补了
-   `dark:bg-background` ⇒ 浅色主题下它就是一圈描边浮在正文上,底下的字透过来
-   (owner 2026-09-27 真机:「像脏东西一样」)。
-   浮在内容上的东西是浮层:实底 + 唯一那一档投影,不再叠描边(design.md「一条边只画一层抬起」,
-   与菜单弹层同一条)。只在本子树覆盖,❌ 不改官方源码与翻译层 —— 翻译层的 outline 还喂着卡片里的
-   「拒绝 / 返回」钮,那几处本来就该是透明底。
-   ⚠️ 底色铺在 background-image 上,❌ 不写 background-color:Button 的按下态是 @layer 里带 `!important`
-   的 background-color(半透明的 --press),未分层的规则压不过它 —— 铺成 background-color 的话一按又透了。
-   悬停/按下的叠色同 .gg-pressable 的画法:在实底上再叠一层。按下写在悬停之后,两者同时成立时按下赢。 */
-.gg-aw .aui-thread-scroll-to-bottom {
-  /* 官方给这颗钮的是 `p-4`:手机上钮是 44px 触控尺寸,扣掉两边 16px 内边距只剩 12px,
-     箭头(24px 的 svg)被横向挤成 10px 宽 —— 一个几乎看不见的小箭头(实测 svg 10×24)。
-     钮是固定尺寸的圆,箭头居中即可,内边距归零、箭头给正常的图标档。 */
-  padding: 0;
-  border-color: transparent;
-  background-image: linear-gradient(var(--popover), var(--popover));
-  box-shadow: var(--shadow-lift);
-}
-.gg-aw .aui-thread-scroll-to-bottom svg {
-  width: var(--icon-lg);
-  height: var(--icon-lg);
-}
-@media (hover: hover) {
-  .gg-aw .aui-thread-scroll-to-bottom:hover {
-    background-image: linear-gradient(var(--hover), var(--hover)), linear-gradient(var(--popover), var(--popover));
-  }
-}
-.gg-aw .aui-thread-scroll-to-bottom:active {
-  background-image: linear-gradient(var(--press), var(--press)), linear-gradient(var(--popover), var(--popover));
-}
-
-/*
- * ❌ 这里原来是**自己画的那套线程骨架 + 输入框**:.gg-aw-thread / -viewport / -spacer / -footer
- * 与 .gg-aw-composer / -input / -send(含 :focus-within 与 :disabled)。
- * 2026-09-22 删(Refs #6104):零消费者 —— 转录与输入框整份换成了 assistant-ui 官方的 `Thread`
- * (AgentThread.tsx),滚动、粘底、发送键都由它出,这里只剩 .gg-aw-thread-host / -extras 两层壳。
- * 留着的成本不是字节:上一轮的 UI 地图就把这套规则当成了「手机端输入框的现状」参与对齐。
- */
-
 
 /* ── 会话 / 机器列表：形制照 orca 手机端 ────────────────────────────────
    要点是「颜色只用来表状态」：一个 8px 的点承担全部状态语义，行里不再出现
@@ -832,90 +758,3 @@
   color: var(--text-secondary);
 }
 .gg-aw .gg-aw-summary svg { flex: none; width: 16px; height: 16px; color: var(--text-muted); }
-
-/* @@@aw-footer 回复下面「复制 / ⋯」那一格(官方 min-h-7.5 的 footer)只留给最后一条(turn-process-message 的 data-last)。
-   官方对不是最后一条的动作栏 autohide,但那一格 30px 照样占着,每条回复下面白一截(实测「READY」到下一张卡 54px,桌面约 20px)。
-   不是最后一条:那一格整个不画。官方会在 hover 时把它亮出来 —— 手机上「hover」就是点一下,亮出来要么把下面整列推下去,
-   要么盖住正文(加载中那一下这条也短暂是最后一条,实测压在正文上);旧消息要复制就长按选字。 */
-.gg-aw [data-slot="assistant-turn"] { position: relative; }
-.gg-aw [data-slot="assistant-turn"]:not([data-last]) [data-slot="aui_assistant-message-footer"] { display: none; }
-/* 还在跑的那一轮的最后一条(data-live,见 LiveTail):动作栏那一格换成一颗「正在回」的点,同官方 indicator(thread.aui @@@live-accent)。
-   那一格在这一层的最底下 30px(根用 -mb-7.5 pb-7.5 把自己的留白还掉了)。 */
-.gg-aw [data-slot="assistant-turn"][data-live] .aui-assistant-action-bar-root { visibility: hidden; }
-.gg-aw .gg-aw-live-tail-dot {
-  position: absolute;
-  left: 0.5rem;
-  bottom: 0;
-  height: 1.875rem;
-  padding-top: 0.375rem;
-  display: flex;
-  align-items: center;
-  color: var(--live);
-  animation: gg-aw-live-pulse 1.4s ease-in-out infinite;
-}
-@keyframes gg-aw-live-pulse { 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .gg-aw .gg-aw-live-tail-dot { animation: none; } }
-
-/* 用户那句的气泡在手机上留够宽:官方模板左边给 minmax(72px,1fr) 的空列,桌面宽屏无感,
-   手机 366px 宽的线程里气泡只剩 246px(实测),长一点的话就被挤成又窄又高的一条。左边只留 2rem 的「这是我说的」缩进。 */
-.gg-aw [data-slot="aui_user-message-root"] { grid-template-columns: minmax(2rem, 1fr) auto; }
-
-/* 后台任务那一句(#638 搬到手机):收着一句、点开就地展开单子。行高、图标、按钮按触控档。 */
-.gg-aw .gg-aw-bg {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.gg-aw .gg-aw-bg-head {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  align-self: flex-start;
-  min-height: 32px;
-  padding: 0 var(--spacing-xs);
-  border: 0;
-  background: transparent;
-  color: var(--muted-fg);
-  font-size: var(--font-caption);
-}
-
-.gg-aw .gg-aw-bg-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs);
-  border-radius: var(--radius-md);
-  background: var(--muted);
-}
-
-.gg-aw .gg-aw-bg-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  min-height: 36px;
-  padding: 0 var(--spacing-xs);
-  font-size: var(--font-caption);
-}
-
-.gg-aw .gg-aw-bg-icon {
-  flex-shrink: 0;
-  color: var(--muted-fg);
-}
-
-.gg-aw .gg-aw-bg-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.gg-aw .gg-aw-bg-meta {
-  flex-shrink: 0;
-  color: var(--muted-fg);
-}
-
-.gg-aw .gg-aw-bg-stop {
-  color: var(--danger-fg);
-}

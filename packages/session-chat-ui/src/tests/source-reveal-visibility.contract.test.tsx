@@ -5,7 +5,7 @@ import { createChatView } from '../chat-view';
 import { buildChatTheme, DEFAULT_CONFIG } from '../core/theme';
 import type { TranscriptTurn } from '../model';
 import { createChatState } from '../state/chat-state';
-import { pinSticky } from '../chat-root.css';
+import { pinFade, pinSticky } from '../chat-root.css';
 import { until, untilStable } from '../../../../tests/support/awaitCondition';
 
 describe('source message visibility below the pinned question', () => {
@@ -47,7 +47,8 @@ describe('source message visibility below the pinned question', () => {
       expect(marker).not.toBeNull();
       const range = document.createRange(); range.setStart(marker!, 0); range.setEnd(marker!, 'SOURCE913-MARKER'.length);
       const firstLine = range.getBoundingClientRect();
-      const fade = question.closest(`.${pinSticky}`)!.querySelector<HTMLElement>(':scope > div[aria-hidden="true"]')!;
+      const fadeSelector = pinFade.split(/\s+/).map(name => `.${name}`).join('');
+      const fade = question.closest(`.${pinSticky}`)!.querySelector<HTMLElement>(`:scope > ${fadeSelector}`)!;
       expect(fade).not.toBeNull();
       // The fade paints only while the question is stuck. Cover both its
       // painted and transparent states using the real scroll-state style.

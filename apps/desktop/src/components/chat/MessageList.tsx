@@ -91,7 +91,6 @@ export interface MessageListRowProps {
   memberReadSeqs: Record<string, number>
   /** My messages an agent has not taken yet (useQueuedMessageIds): 「发送中」 until it reads them. */
   queuedIds: ReadonlySet<string>
-  isAgentChat: boolean
   // 私聊/AI 没有 thread surface；群聊 thread 由右侧 panel 承载。
   isGroupChat: boolean
   threeParty: boolean | undefined
@@ -166,7 +165,6 @@ const MessageListRow = memo(function MessageListRow({
   highlight,
   flashMessageId,
   memberReadSeqs, queuedIds,
-  isAgentChat,
   isGroupChat,
   threeParty,
   memberProfiles, bubbleMemberProfiles,
@@ -246,11 +244,11 @@ const MessageListRow = memo(function MessageListRow({
       msg={msg}
       showReplyQuote={showReplyQuote}
       onReaction={onReaction}
-      sendState={isAgentChat && sendState === 'read' ? 'sent' : sendState}
+      sendState={sendState}
       readReceiptRead={readReceipt?.read}
       readReceiptTotal={readReceipt?.total}
       // #2098 owner 定:已读回执逐条显示(每条本人消息都挂环),非只末条。气泡内已按 is_mine + read>0 门控。
-      showReadReceipt={msg.is_mine && !isAgentChat}
+      showReadReceipt={msg.is_mine}
       groupedWithPrev={groupedWithPrev}
       groupedWithNext={groupedWithNext}
       onShowReadReceipt={onShowReadReceipt}
@@ -260,8 +258,7 @@ const MessageListRow = memo(function MessageListRow({
       onDelete={onDelete}
       isAgent={isAgentMessage}
       isGroup={isGroupChat || threeParty}
-      // 与 agent 的单聊:小鸟统一在头栏正中(AgentChatHero),这里不再每条各挂一个
-      hideAvatar={isAgentChat}
+      // 场所型会话里的 agent 消息保留发送者头像
       memberProfile={memberProfile}
       onOpenMemberProfile={onOpenMemberProfile}
       compactMobile={mobile}
@@ -389,7 +386,7 @@ export function MessageList({
   return (
     <div style={frameStyle}>
       {/* 每换一条线(resetKey)换一个滚动容器:落点、贴底电平、锚定都从这条线自己的第一帧开始。 */}
-      <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-message-avatars={rowProps.isAgentChat ? undefined : 'true'} data-image-gallery="" style={scrollerStyle}>
+      <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-message-avatars="true" data-image-gallery="" style={scrollerStyle}>
         <div ref={contentRef}>
           {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} bubbleMemberProfiles={bubbleMemberProfiles} showReplyQuote={quoteIds.has(row.message.id)} />)}
           {end >= rows.length ? footer : null}

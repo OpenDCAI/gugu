@@ -33,6 +33,23 @@ function turn(id: string, items: TranscriptItem[]): TranscriptTurn {
 }
 
 describe('发给手机那一份的裁剪', () => {
+  it('keeps long root Gugu send messages parseable while trimming other tool payloads', () => {
+    const text = 'Long reply '.repeat(1_000);
+    const rawInput = JSON.stringify({ chat_id: 'dm', text });
+    const send = { kind: 'mcp-tool-call', id: 'send', seq: 1, toolCallId: 'send',
+      title: 'message_send', server: 'gugu', tool: 'message_send', status: 'done', rawInput,
+      outputText: 'x'.repeat(LIMIT + 10) } as ToolNode;
+    const calls = [send, { ...send, tool: 'session_message', server: 'plugin_gugu-dev_gugu' },
+      { ...send, server: 'other' }, { ...send, parentToolCallId: 'parent' },
+      { ...send, status: 'running' }, { ...send, tool: 'message_history' }] as ToolNode[];
+    const [trimmed] = trimTurnsForTransport([turn('t1', calls)], LIMIT);
+    const items = trimmed.items as Array<ToolNode & { rawInput: string; outputText: string }>;
+    expect(JSON.parse(items[0].rawInput).text).toBe(text);
+    expect(JSON.parse(items[1].rawInput).text).toBe(text);
+    expect(items.every(item => item.outputText.length === LIMIT)).toBe(true);
+    expect(items.slice(2).every(item => item.rawInput.length === LIMIT)).toBe(true);
+  });
+
   it('超过上限的工具输出被裁到上限，并如实报出少了多少字', () => {
     const output = 'x'.repeat(LIMIT + 40);
     const [trimmed] = trimTurnsForTransport([turn('t1', [execTool('a', { outputText: output })])], LIMIT);

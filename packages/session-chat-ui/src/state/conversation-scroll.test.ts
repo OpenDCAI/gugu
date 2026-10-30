@@ -12,7 +12,7 @@ const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process
 } satisfies ItemSegmenter]));
 const context = (over: Partial<SegmentCtx> = {}): SegmentCtx => ({ caches: {}, expanded: () => false, active: true,
   foldTurnProcess: true, agentConversation: true, translate: defaultChatTranslator, plan: () => null,
-  pendingToolCallIds: () => new Set(), terminalOutputText: () => null, terminalExitStatus: () => null,
+  pendingToolCallIds: () => new Set(), terminalSnapshot: () => null,
   ...over,
 } as SegmentCtx);
 

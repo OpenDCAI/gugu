@@ -10,6 +10,7 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, sqlite: undefined as Database.Database | undefined }));
 vi.mock('@main/db/client', () => ({ get db() { return mocks.db; }, get sqlite() { return mocks.sqlite; } }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({ agentStatusWriter: { on: () => () => {} } }));
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 import { installActivityCollector, activityJournal } from './collector';
 import { runActivityAction } from './actions';
 import { persistCommittedTurn, readStoredTurns, truncateStoredHistory } from '../sessions/session-turn-store';

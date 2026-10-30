@@ -1,4 +1,5 @@
 import type { TerminalState } from '@gugu/session-core/acp/client';
+import type { DeliveryMessagePresentation } from '../state/delivery-presentation';
 /**
  * Render-unit primitives — the flat virtualization model.
  *
@@ -126,6 +127,7 @@ export type SegmentItem = ChatItem | SyntheticItem;
  * cheap even if called on every tick.
  */
 export type SegmentCtx = {
+  deliveredMessage?: (id: string) => DeliveryMessagePresentation | undefined;
   agentConversation?: boolean;
   caches: ChatCaches;
   expanded: (id: string) => boolean;
