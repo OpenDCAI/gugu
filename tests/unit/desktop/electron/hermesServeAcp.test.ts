@@ -306,6 +306,20 @@ describe('hermes serve bridge', () => {
     expect(bridge.updates.slice(0, 4).map((u) => u.sessionUpdate)).toEqual(['user_message_chunk', 'agent_thought_chunk', 'agent_message_chunk', 'tool_call'])
   })
 
+  it('load without replay restores configuration and still streams the next live turn', async () => {
+    const bridge = startBridge(PLATFORM_ENV)
+    await bridge.request('initialize', { protocolVersion: 1, clientCapabilities: {} })
+    const loaded = await bridge.request('session/load', {
+      sessionId: 'stored-7', cwd: dir, mcpServers: [], _meta: { history: { replay: false } },
+    })
+    expect(loaded.error).toBeUndefined()
+    expect(option(loaded.result, 'model')).toBeDefined()
+    expect(bridge.updates.filter((u) => /message_chunk|thought_chunk|tool_call/.test(String(u.sessionUpdate)))).toEqual([])
+    const response = await bridge.request('session/prompt', { sessionId: 'stored-7', prompt: [{ type: 'text', text: 'next live input' }] })
+    expect(response.result).toEqual({ stopReason: 'end_turn' })
+    expect(bridge.updates.some((u) => u.sessionUpdate === 'agent_message_chunk')).toBe(true)
+  })
+
   it('cancel interrupts the turn and its prompt ends cancelled', async () => {
     const bridge = startBridge(PLATFORM_ENV)
     await newSession(bridge)

@@ -87,4 +87,19 @@ describe('filling the store from the record (#980)', () => {
     const record = [turn('S:turn:0', '继续', { message: 'codex:t:1:8', reply: 'done B' })];
     expect(recordTurnsAfterStore(record, stored, 'content')).toBeNull();
   });
+
+  it.each(['auto:assistant:0', 'hermes-row-12'])('aligns Hermes SQLite rows with stored %s messages by prompt and final reply', (message) => {
+    // Native rows use hermes:<row>#0; live text has no message id, and old ACP replay used hermes-row-<row>.
+    const stored = [turn('S:turn:7', 'continue', { message, reply: 'first reply' })];
+    const record = [
+      turn('S:turn:0', 'continue', { message: 'hermes:12#0', reply: 'first reply' }),
+      turn('S:turn:1', 'continue', { message: 'hermes:14#0', reply: 'second reply' }),
+    ];
+    const identity = recordIdentityFor('hermes');
+    expect(identity).toBe('content');
+    const storedIds = turnIdentityKeys(stored[0]);
+    expect([...turnIdentityKeys(record[0])].filter((id) => storedIds.has(id))).toEqual([]);
+    expect(recordTurnsAfterStore(record, stored, identity!)?.map((one) => one.id)).toEqual(['S:turn:1']);
+    expect(recordTurnsAfterStore(record.slice(1), stored, identity!)).toBeNull();
+  });
 });

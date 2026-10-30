@@ -5,14 +5,15 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
  * - `ids`:Claude 的记录里存的就是 Claude 自己发的编号(消息 id、工具调用 id),与运行时落库的同一套。
  * - `content`:Codex 的记录读取器按行号给条目编号,运行时落库的是 app-server 的条目 id、工具调用也是另一套
  *   (`exec-…` 对 `call_…`)⇒ 编号永远对不上,只能按内容认:人说的那句 + agent 最后回的那句。
+ * - Hermes 的记录用 SQLite 行号(`hermes:<id>#0`),实时文本没消息编号,旧回放又用 `hermes-row-<id>` ⇒ 同样按内容认。
  *
- * 只有这两家接回时不重放、历史以记录为准;其余几家照旧重放,这里给 `null`(不补)。
+ * 只有这三家接回时不重放、历史以记录为准;其余几家照旧重放,这里给 `null`(不补)。
  */
 export type RecordIdentity = 'ids' | 'content';
 
 export function recordIdentityFor(harness: string | null | undefined): RecordIdentity | null {
   if (harness === 'claude') return 'ids';
-  if (harness === 'codex') return 'content';
+  if (harness === 'codex' || harness === 'hermes') return 'content';
   return null;
 }
 

@@ -4,7 +4,7 @@ import { isOk } from '@gugu/session-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
 import { AcpRuntime } from './runtime';
-import { recoverDeliveryEnvelopes } from '../../../../core/src/local/agent/deliveryEnvelope';
+import { mergeDeliveryEnvelopes, recoverDeliveryEnvelopes } from '../../../../core/src/local/agent/deliveryEnvelope';
 
 const DELIVERY = '<gugu_delivery route="chat" from="B" from_id="user:b" chat="test" msg="msg:accepted-1"><![CDATA[accepted ping]]></gugu_delivery>';
 type PromptRequest = { prompt: Array<{ type: string; text?: string }> };
@@ -12,7 +12,7 @@ const requestText = (request: PromptRequest) => request.prompt
   .filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n');
 
 describe('a stopped native delivery already in provider history', () => {
-  it.each(['claude', 'codex'])('%s admits a source once across stop and resume', async (providerId) => {
+  it.each(['claude', 'codex', 'hermes'])('%s admits a source once across stop and resume', async (providerId) => {
     const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     h.agent.initialize.mockResolvedValue({
       protocolVersion: 1, agentCapabilities: { loadSession: true },
@@ -51,7 +51,7 @@ describe('a stopped native delivery already in provider history', () => {
     expect([...steers, ...prompts].filter((text) => text.includes('msg="msg:accepted-1"'))).toHaveLength(1);
   });
 
-  it.each(['claude', 'codex'])('%s sends an unsent delivery behind the owner; an assistant quote is not a receipt', async (providerId) => {
+  it.each(['claude', 'codex', 'hermes'])('%s sends an unsent delivery behind the owner; an assistant quote is not a receipt', async (providerId) => {
     const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     h.agent.prompt.mockImplementationOnce(() => new Promise(() => {}));
     const rt = new AcpRuntime(h.deps);
@@ -99,7 +99,7 @@ describe('a stopped native delivery already in provider history', () => {
     expect(JSON.stringify(rt.getChatHistory('unknown-history'))).toContain('History unknown: history read failed');
   });
 
-  it.each(['claude', 'codex'])('%s resumed without replay drops a delivery the host found in the record (#980)', async (providerId) => {
+  it.each(['claude', 'codex', 'hermes'])('%s resumed without replay drops a delivery the host found in the record (#980)', async (providerId) => {
     const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     const rt = new AcpRuntime(h.deps);
     expect(isOk(await rt.startSession(makeStartInput({
@@ -113,11 +113,11 @@ describe('a stopped native delivery already in provider history', () => {
     expect(h.deps.promptQueueStore?.load('no-replay-received')).toEqual([]);
   });
 
-  it('resumed without replay numbers new turns after the stored ones instead of from zero (#980)', async () => {
-    const h = makeAcpHarness({ providerId: 'claude', recoverDelivery: recoverDeliveryEnvelopes });
+  it.each(['claude', 'codex', 'hermes'])('%s resumed without replay numbers new turns after the stored ones (#980)', async (providerId) => {
+    const h = makeAcpHarness({ providerId, recoverDelivery: recoverDeliveryEnvelopes });
     const rt = new AcpRuntime(h.deps);
     expect(isOk(await rt.startSession(makeStartInput({
-      providerId: 'claude', sessionId: 'no-replay-ids', providerSessionId: 'native-old',
+      providerId, sessionId: 'no-replay-ids', providerSessionId: 'native-old',
       replayHistory: false, recordedDeliveryIds: [], turnIndexBase: 7,
     })))).toBe(true);
     await vi.waitFor(() => expect(rt.getSessionState('no-replay-ids').lifecycle).toBe('ready'));
@@ -127,6 +127,23 @@ describe('a stopped native delivery already in provider history', () => {
     const history = rt.getChatHistory('no-replay-ids');
     const first = history.committed[0] ?? history.active;
     expect(first?.id).toBe('no-replay-ids:turn:7');
+  });
+
+  it('Hermes without replay keeps an unreceived source while removing the received source', async () => {
+    const h = makeAcpHarness({ providerId: 'hermes', recoverDelivery: recoverDeliveryEnvelopes });
+    h.deps.mergeEnvelopes = mergeDeliveryEnvelopes;
+    const rt = new AcpRuntime(h.deps);
+    const unsent = DELIVERY.replace('msg:accepted-1', 'msg:unsent-2');
+    expect(isOk(await rt.startSession(makeStartInput({
+      providerId: 'hermes', sessionId: 'hermes-partial-recovery', providerSessionId: 'native-old',
+      replayHistory: false, recordedDeliveryIds: ['msg:accepted-1'], turnIndexBase: 7,
+      initialQueue: [
+        { text: DELIVERY, origin: 'communication' },
+        { text: unsent, origin: 'communication' },
+      ],
+    })))).toBe(true);
+    await vi.waitFor(() => expect(h.agent.prompt).toHaveBeenCalledTimes(1));
+    expect(requestText(h.agent.prompt.mock.calls[0][0] as PromptRequest)).toBe(unsent);
   });
 
   it('resumed without replay and an unreadable record redelivers marked as possibly received (#980)', async () => {
