@@ -253,6 +253,29 @@ describe('agent-centered conversation bubbles', () => {
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
   });
+  it.each([false, true])('shows no sender for a quote without a known source (clickable: %s)', async clickable => {
+    const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
+      conversationReply: { itemId: 'source', text: 'original words' } }, 600, clickable ? { onConversationReply: () => {} } : {});
+    try {
+      const quote = view.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      expect(quote.textContent).toBe('original words');
+      expect(quote.textContent).not.toContain('刘威');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+  });
+
+  it.each([
+    [{ from: 'Peer' }, 'Peer：original words'],
+    [{ fromId: 'user:owner' }, '刘威：original words'],
+    [{ self: true }, 'Codex 11：original words'],
+  ] as const)('uses known source identity %j for an explicit quote', async (identity, expected) => {
+    const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
+      conversationReply: { itemId: 'source', text: 'original words', ...identity } }, 600, { onConversationReply: () => {} });
+    try {
+      expect(view.host.querySelector('[data-slot="conversation-quote"]')?.textContent).toBe(expected);
+    } finally { view.dispose(); }
+  });
+
   it('clicks the exact quote anchor after a virtual row is reused', async () => {
     const onConversationReply = vi.fn();
     const quoted: ChatMessage = { kind: 'message', id: 'reply', role: 'assistant', text: 'reply', conversationReply: { itemId: 'original-1', text: 'same words' } };

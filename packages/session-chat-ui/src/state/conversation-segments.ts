@@ -4,15 +4,12 @@ import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
 import { processHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
-import type { ChatTranslationKey } from '@session-chat/localization';
 import { turnProcessId } from './turn-fold';
 
 export type ConversationSegment = {
   kind: 'segment';
   id: string;
   items: ChatItem[];
-  input?: ChatMessage;
-  inputEvent?: ChatTranslationKey;
   startedAt?: number;
   endedAt?: number;
   live: boolean;
@@ -45,8 +42,6 @@ function leaves(items: readonly ChatItem[]): ChatItem[] {
 export function planConversationSegments(turn: TranscriptTurn, active: boolean): ConversationBlock[] {
   const blocks: ConversationBlock[] = [];
   let segment: ConversationSegment | undefined;
-  let input: ChatMessage | undefined;
-  let inputEvent: ChatTranslationKey | undefined;
   let startedAt = turn.startedAt;
   let boundary: string | undefined;
   let hadSegment = false;
@@ -56,7 +51,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
   const open = (): ConversationSegment => {
     if (!segment) {
       segment = { kind: 'segment', id: boundary ? `${turnProcessId(turn.id)}@${boundary}` : turnProcessId(turn.id),
-        items: [], live: false, idleMs: 0, ...(input ? { input } : {}), ...(inputEvent ? { inputEvent } : {}), ...(startedAt !== undefined ? { startedAt } : {}) };
+        items: [], live: false, idleMs: 0, ...(startedAt !== undefined ? { startedAt } : {}) };
       blocks.push(segment);
       hadSegment = true;
     }
@@ -114,18 +109,16 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       close(at ?? (!hadSegment ? turn.startedAt : undefined), item.id);
       if (!hadSegment) boundary = undefined;
       blocks.push({ kind: 'input', item });
-      input = item;
-      inputEvent = undefined;
       pendingInput = true;
       continue;
     }
     const notification = item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call';
-    if (notification && segment?.items.some(conversationSpoken)) close(at, item.id);
     if (notification) {
-      input = { kind: 'message', id: item.id, seq: item.seq, role: 'user', text: ('summary' in item ? item.summary : undefined) ?? item.title };
-      const source = item.kind === 'background-command-done-tool-call' ? 'command' : 'subagent';
-      const outcome = item.outcome === 'completed' ? 'Done' : item.outcome === 'failed' ? 'Failed' : 'Stopped';
-      inputEvent = `transcript.${source}${outcome}`;
+      // Completion is its own observed event, never an inferred reply target.
+      close(at, item.id);
+      blocks.push({ kind: 'input', item });
+      pendingInput = false;
+      continue;
     }
     const question = 'toolCallId' in item && isQuestionOrPlanToolName(toolCallName(item));
     // Context and engine boundaries keep their chronological place outside process folds.
@@ -137,7 +130,7 @@ export function planConversationSegments(turn: TranscriptTurn, active: boolean):
       continue;
     }
     const current = open();
-    if ((notification || item.kind === 'session-notice') && at !== undefined && previousAt !== undefined) current.idleMs += Math.max(0, at - previousAt);
+    if (item.kind === 'session-notice' && at !== undefined && previousAt !== undefined) current.idleMs += Math.max(0, at - previousAt);
     current.items.push(item);
     current.endedAt = 'completedAt' in item ? item.completedAt ?? at : at;
     previousAt = at;

@@ -93,7 +93,7 @@ export type ChatMessage = {
    * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
    * `chatId` the group the quoted message was said in (absent for a DM).
    */
-  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean; background?: true };
+  conversationReply?: { itemId: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
   /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
   sentReplyTo?: string;
   /**
