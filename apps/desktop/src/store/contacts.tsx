@@ -70,6 +70,25 @@ export function ContactsProvider({ children, active = true }: { children: React.
   // 提交快照，避免创建 Agent 前发出的旧响应把新 Agent 从成员选择器里冲掉。
   const contactsLoadGenerationRef = useRef(0)
 
+  const publishContactIdentities = useCallback(async (rows: readonly ContactUser[], accept = () => true) => {
+    const repository = await getImRepository()
+    // The transport read precedes the writeChain; choose the name from the current row at commit.
+    const before = imSelectors.identitiesById(repository.snapshot())
+    const names = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id)) ? await findSessionShellPort()?.agentNames() : undefined
+    const pending = new Map(names?.filter((row) => row.pendingManual).map((row) => [row.agentUserId, row.displayName]))
+    await repository.transaction((transaction) => {
+      if (!accept()) return
+      const current = imSelectors.identitiesById(repository.snapshot())
+      for (const identity of rows) {
+        const latest = current[identity.id]
+        const changed = latest && latest.display_name !== before[identity.id]?.display_name
+        const display_name = isMyAssistant(userId, identity.id) ? identity.display_name
+          : changed ? latest.display_name : pending.get(identity.id) ?? identity.display_name
+        transaction.putIdentity({ ...identity, display_name })
+      }
+    })
+  }, [getImRepository, userId])
+
   // ── Load contacts ──────────────────────────────────────────────────────────
   const loadContacts = useCallback(async (options: RevisionRefreshOptions = {}) => {
     if (!userId) return
@@ -80,13 +99,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
     try {
       const data = await contactsService.getContacts(userId)
       if (generation !== contactsLoadGenerationRef.current) return
-      const repository = await getImRepository()
-      if (generation !== contactsLoadGenerationRef.current) return
-      const names = await findSessionShellPort()?.agentNames()
-      if (generation !== contactsLoadGenerationRef.current) return
-      const pending = new Map(names?.filter((row) => row.pendingManual).map((row) => [row.agentUserId, row.displayName]))
-      await repository.putIdentities(data.map((identity) => pending.has(identity.id)
-        ? { ...identity, display_name: pending.get(identity.id)! } : identity))
+      await publishContactIdentities(data, () => generation === contactsLoadGenerationRef.current)
       if (generation !== contactsLoadGenerationRef.current) return
       setContacts(data.map(({ id, alias, agent_type, project_path }) => ({ id, alias, agent_type, project_path })))
       setContactsStatus('ready')
@@ -110,7 +123,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
     } finally {
       if (generation === contactsLoadGenerationRef.current) setLoadingContacts(false)
     }
-  }, [getImRepository, userId])
+  }, [publishContactIdentities, userId])
 
   const loadGroups = useCallback(async (options: RevisionRefreshOptions = {}) => {
     if (!userId) return
@@ -142,7 +155,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
         listGroupInvitations(),
       ])
       if (generation !== requestsGenerationRef.current) return
-      await (await getImRepository()).putIdentities(await readRequiredDisplayIdentities([...new Set([...received, ...sent].flatMap((request) => [request.sender_id, request.receiver_id]))]))
+      await publishContactIdentities(await readRequiredDisplayIdentities([...new Set([...received, ...sent].flatMap((request) => [request.sender_id, request.receiver_id]))]), () => generation === requestsGenerationRef.current)
       if (generation !== requestsGenerationRef.current) return
       setReceivedRequests(received)
       setSentRequests(sent)
@@ -157,7 +170,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
       }
       if (options.throwOnError) throw err
     }
-  }, [getImRepository, userId])
+  }, [publishContactIdentities, userId])
 
   const groupChatsRef = useRef(groupChats)
   groupChatsRef.current = groupChats
@@ -167,7 +180,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
     try {
       const rows = await listManagedGroupJoinRequests(managedGroupChats(groupChatsRef.current))
       if (generation !== groupJoinRequestsGenerationRef.current) return
-      if (rows.length) await (await getImRepository()).putIdentities(await readRequiredDisplayIdentities(joinRequestIdentityIds(rows)))
+      if (rows.length) await publishContactIdentities(await readRequiredDisplayIdentities(joinRequestIdentityIds(rows)), () => generation === groupJoinRequestsGenerationRef.current)
       if (generation !== groupJoinRequestsGenerationRef.current) return
       setGroupJoinRequests(rows)
       setGroupJoinRequestsError(null)
@@ -178,7 +191,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
       }
       if (options.throwOnError) throw err
     }
-  }, [getImRepository, userId])
+  }, [publishContactIdentities, userId])
   // 管理的群集合变了(新建群、被设为管理员、群解散)才重读;同一组群的其它字段变化不触发。
   const managedGroupKey = managedGroupChats(groupChats).map((group) => group.id).sort().join(',')
   useEffect(() => {
@@ -244,8 +257,10 @@ export function ContactsProvider({ children, active = true }: { children: React.
     const handleOwnedAgentRenamed = (event: Event) => {
       const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
       void getImRepository().then(async (repository) => {
-        const identity = imSelectors.identitiesById(repository.snapshot())[agentUserId]
-        if (identity) await repository.putIdentities([{ ...identity, display_name: displayName }])
+        await repository.transaction((transaction) => {
+          const identity = imSelectors.identitiesById(repository.snapshot())[agentUserId]
+          if (identity) transaction.putIdentity({ ...identity, display_name: displayName })
+        })
       }).catch((error: unknown) => {
         rendererLogger('contacts/identity-name').error({ agentUserId, error: String(error) }, 'local identity name publication failed')
       })
@@ -275,7 +290,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
       setIsSearching(true)
       try {
         const results = await contactsService.searchUsers(query, userId)
-        await (await getImRepository()).putIdentities(results)
+        await publishContactIdentities(results)
         setSearchResults(results.map(({ id, alias, agent_type, project_path }) => ({ id, alias, agent_type, project_path })))
       } catch (err) {
         console.error('[ContactsStore] searchUsers error', err)
@@ -285,7 +300,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
         setIsSearching(false)
       }
     },
-    [getImRepository, userId],
+    [publishContactIdentities, userId],
   )
 
   const clearSearch = useCallback(() => {
@@ -371,19 +386,15 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const setAgentPublic = useCallback(async (agentId: string, agentPublic: boolean) => {
     const updated = await contactsService.setAgentPublic(agentId, agentPublic)
-    await (await getImRepository()).putIdentities([updated])
-  }, [getImRepository])
+    await publishContactIdentities([updated])
+  }, [publishContactIdentities])
 
   const setAgentDesiredStatus = useCallback(async (agentId: string, desiredStatus: 'online' | 'offline') => {
     const updated = await contactsService.setAgentDesiredStatus(agentId, desiredStatus)
-    await (await getImRepository()).putIdentities([updated])
-  }, [getImRepository])
+    await publishContactIdentities([updated])
+  }, [publishContactIdentities])
 
-  const applyAgentProfileUpdate = useCallback(async (updated: ContactUser) => {
-    const names = isMyAssistant(userId, updated.id) ? undefined : await findSessionShellPort()?.agentNames()
-    const pending = names?.find((row) => row.agentUserId === updated.id && row.pendingManual)
-    await (await getImRepository()).putIdentities([{ ...updated, ...(pending ? { display_name: pending.displayName } : {}) }])
-  }, [getImRepository, userId])
+  const applyAgentProfileUpdate = useCallback(async (updated: ContactUser) => publishContactIdentities([updated]), [publishContactIdentities])
 
   // An exact host binding uses the same local-first name operation as the task menu.
   const renameLinkedTask = useCallback(async (agentId: string, name: string | undefined) => {

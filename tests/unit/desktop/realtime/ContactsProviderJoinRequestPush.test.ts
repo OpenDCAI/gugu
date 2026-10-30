@@ -11,7 +11,11 @@ import type { ManagedGroupJoinRequest } from '../../../../apps/desktop/src/lib/g
 // callbacks over them, and a new one each render would reload without end.
 const { authUser, authOverride, contactsServiceMock, revisionHandlers, listManagedMock, chatStore } = vi.hoisted(() => {
   const revisionHandlers = new Map<string, () => Promise<void> | void>()
-  const repository = { putIdentities: async () => undefined }
+  const repository = {
+    putIdentities: async () => undefined,
+    snapshot: () => ({ identity: [] }),
+    transaction: async (mutate: (transaction: { putIdentity: () => void }) => void) => mutate({ putIdentity: () => {} }),
+  }
   return {
     authUser: { id: 'user-1', email: 'user@example.test', nickname: 'User One' },
     authOverride: { current: null as null | { id: string; email: string; nickname: string } },

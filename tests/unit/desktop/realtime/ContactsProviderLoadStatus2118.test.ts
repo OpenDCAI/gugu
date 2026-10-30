@@ -15,7 +15,12 @@ const { authUser, contactsServiceMock, identitiesById, putIdentitiesMock, getImR
     authUser: { id: 'user-1', email: 'user@example.test', nickname: 'User One' },
     identitiesById,
     putIdentitiesMock,
-    getImRepositoryMock: vi.fn(async () => ({ putIdentities: putIdentitiesMock })),
+    getImRepositoryMock: vi.fn(async () => ({
+      putIdentities: putIdentitiesMock,
+      snapshot: () => ({ identity: Object.values(identitiesById).map((value) => ({ id: value.id, value })) }),
+      transaction: async (mutate: (transaction: { putIdentity: (identity: ContactUser) => void }) => void) =>
+        mutate({ putIdentity: (identity) => { void putIdentitiesMock([identity]) } }),
+    })),
     contactsServiceMock: {
       getContacts: vi.fn(),
       getContactGroups: vi.fn(),
