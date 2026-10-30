@@ -2,7 +2,7 @@ import { documentToHtml } from '../core/markdown/to-html';
 
 /** Bound parsing work as well as the three painted lines; the original stays behind the source link. */
 export function sourcePreview(text: string): { html: string; truncated: boolean } {
-  const source = text.trim().replace(/\r\n?/g, '\n');
+  const source = text.replace(/\r\n?/g, '\n').replace(/^(?:[ \t]*\n)+/, '').trimEnd();
   const excerpt = Array.from(source.split('\n').slice(0, 8).join('\n')).slice(0, 360).join('');
   return { html: documentToHtml(excerpt, { trust: 'chat', hardBreaks: true }), truncated: excerpt !== source };
 }

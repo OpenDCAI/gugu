@@ -14,6 +14,9 @@ it('bounds long structures before parsing and marks that the original continues'
     expect(preview.html).not.toContain('TAIL_MARKER');
   }
 });
+it('preserves the indentation that makes the opening a Markdown code block', () => {
+  expect(sourcePreview('\n    const value = 1;').html).toContain('<pre');
+});
 it('uses chat trust rather than executing source HTML', () => {
   const preview = sourcePreview('<script>alert(1)</script>');
   const root = document.createElement('div');
