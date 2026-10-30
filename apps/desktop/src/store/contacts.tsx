@@ -72,7 +72,15 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const publishContactIdentities = useCallback(async (rows: readonly ContactUser[], accept = () => true) => {
     const repository = await getImRepository()
-    // The transport read precedes the writeChain; choose the name from the current row at commit.
+    // Admit complete identities before transport so a rename during the read has a row to patch.
+    if (rows.some((row) => !imSelectors.identitiesById(repository.snapshot())[row.id])) {
+      await repository.transaction((transaction) => {
+        if (!accept()) return
+        const current = imSelectors.identitiesById(repository.snapshot())
+        for (const identity of rows) if (!current[identity.id]) transaction.putIdentity(identity)
+      })
+    }
+    // Keep transport outside the writeChain; choose the name from the current row at final commit.
     const before = imSelectors.identitiesById(repository.snapshot())
     const names = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id)) ? await findSessionShellPort()?.agentNames() : undefined
     const pending = new Map(names?.filter((row) => row.pendingManual).map((row) => [row.agentUserId, row.displayName]))

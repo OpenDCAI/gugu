@@ -381,6 +381,113 @@ describe('agent rename canonical publication #6021', () => {
 vi.mock('../../../../apps/desktop/src/lib/groupInvitations', () => ({ listGroupInvitations: vi.fn(async () => []) }))
 
 describe('actual repository identity publication ordering', () => {
+  it.each([true, false])('keeps a rename during first hydration with an existing identity: %s', async (cached) => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id, display_name: 'Earlier local', bio: 'Hydrated metadata' }
+    if (cached) identitiesById[agent.id] = agent
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name, pendingManual: true })
+    const harness = await renderProvider()
+    contactsServiceMock.getContacts.mockResolvedValueOnce([agent])
+    const held = holdNamesResponse()
+    try {
+      const { pending: loading } = await beginUpdate(() => store!.refreshContacts())
+      await held.wait()
+      expect(held.captured()).toMatchObject([{ displayName: 'Earlier local', pendingManual: true }])
+      await act(async () => { await desktopPort.renameAgent({ sessionId: 'task', name: 'Newest local' }); await repository.transaction(() => {}) })
+      expect(identitiesById[agent.id]?.display_name).toBe('Newest local')
+      expect(pendingNames[0].displayName).toBe('Newest local')
+      await act(async () => { held.release(); await loading })
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Newest local', bio: 'Hydrated metadata' })
+      expect(store!.contactsStatus).toBe('ready')
+    } finally { held.release(); held.restore(); harness.cleanup() }
+  })
+
+  it('merges pending intent that predates the first complete identity row', async () => {
+    pendingNames.push({ conversationId: 'task', agentUserId: sharedGroupAgent.id, displayName: 'Newest local', pendingManual: true })
+    const harness = await renderProvider()
+    try {
+      await act(async () => { await desktopPort.renameAgent({ sessionId: 'task', name: 'Newest local' }); await repository.transaction(() => {}) })
+      expect(identitiesById[sharedGroupAgent.id]).toBeUndefined()
+      contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...sharedGroupAgent, bio: 'Hydrated metadata' }])
+      await act(async () => { await store!.refreshContacts() })
+      expect(identitiesById[sharedGroupAgent.id]).toMatchObject({ display_name: 'Newest local', bio: 'Hydrated metadata' })
+      expect(store!.contactsStatus).toBe('ready')
+    } finally { harness.cleanup() }
+  })
+
+  it('keeps a rename after cold admission even when the strict names read fails', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id, display_name: 'Earlier local' }
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name, pendingManual: true })
+    const harness = await renderProvider()
+    contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...agent, bio: 'Hydrated metadata' }])
+    const held = holdNamesResponse()
+    try {
+      const { pending: loading } = await beginUpdate(() => revisionConsumers.get('agent_changed')!())
+      const rejected = expect(loading).rejects.toThrow('identity refresh unavailable')
+      await held.wait()
+      await act(async () => { await desktopPort.renameAgent({ sessionId: 'task', name: 'Newest local' }); await repository.transaction(() => {}) })
+      await act(async () => { held.reject(new Error('identity refresh unavailable')); await rejected })
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Newest local', bio: 'Hydrated metadata' })
+      expect(pendingNames[0].displayName).toBe('Newest local')
+      expect(store!.contactsStatus).toBe('error')
+    } finally { held.release(); held.restore(); harness.cleanup() }
+  })
+
+  it('does not replace an identity hydrated and renamed ahead of its admission transaction', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id, display_name: 'Earlier local' }
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: agent.display_name, pendingManual: true })
+    const harness = await renderProvider()
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const blocking = repository.transaction(async () => { entered(); await new Promise<void>((resolve) => { release = resolve }) })
+    const transaction = vi.spyOn(repository, 'transaction')
+    const held = holdNamesResponse()
+    try {
+      await started
+      const hydrating = repository.putIdentities([{ ...agent, bio: 'Already hydrated' }])
+      await act(async () => { await desktopPort.renameAgent({ sessionId: 'task', name: 'Newest local' }) })
+      const queued = transaction.mock.calls.length
+      contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...agent, bio: 'Incoming metadata' }])
+      const { pending: loading } = await beginUpdate(() => store!.refreshContacts())
+      await vi.waitFor(() => expect(transaction.mock.calls.length).toBeGreaterThan(queued))
+      await act(async () => { release(); await blocking; await hydrating })
+      await held.wait()
+      expect(held.captured()).toMatchObject([{ displayName: 'Newest local', pendingManual: true }])
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Newest local', bio: 'Already hydrated' })
+      await act(async () => { held.release(); await loading })
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Newest local', bio: 'Incoming metadata' })
+    } finally { release?.(); await blocking; held.release(); held.restore(); transaction.mockRestore(); harness.cleanup() }
+  })
+
+  it('does not admit missing identities from a superseded strict refresh', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id }
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: 'Local choice', pendingManual: true })
+    const harness = await renderProvider()
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const blocking = repository.transaction(async () => { entered(); await new Promise<void>((resolve) => { release = resolve }) })
+    const transaction = vi.spyOn(repository, 'transaction')
+    const publications: string[] = []
+    const unsubscribe = repository.subscribe(imSelectors.identitiesById, (rows) => {
+      const bio = rows[agent.id]?.bio
+      if (bio) publications.push(bio)
+    })
+    try {
+      await started
+      contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...agent, bio: 'Superseded metadata' }])
+      const { pending: older } = await beginUpdate(() => revisionConsumers.get('agent_changed')!())
+      await vi.waitFor(() => expect(transaction.mock.calls.length).toBeGreaterThan(0))
+      contactsServiceMock.getContacts.mockResolvedValueOnce([{ ...agent, bio: 'Current metadata' }])
+      const { pending: current } = await beginUpdate(() => store!.refreshContacts())
+      await vi.waitFor(() => expect(transaction.mock.calls.length).toBeGreaterThan(1))
+      await act(async () => { release(); await blocking; await older; await current })
+      expect(publications).not.toContain('Superseded metadata')
+      expect(identitiesById[agent.id]).toMatchObject({ display_name: 'Local choice', bio: 'Current metadata' })
+      expect(store!.contactsStatus).toBe('ready')
+    } finally { release?.(); await blocking; unsubscribe(); transaction.mockRestore(); harness.cleanup() }
+  })
+
   it.each(['public', 'status', 'search'])('keeps current names in the shared %s identity publication path', async (kind) => {
     const agent = pendingAgent()
     const updated = { ...agent, display_name: 'Old cloud', agent_public: true, desired_status: 'offline' as const }
