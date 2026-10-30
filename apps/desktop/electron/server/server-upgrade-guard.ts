@@ -149,12 +149,20 @@ export function readProbe(home: string, marker: UpgradeMarker, watchingSince: nu
   } catch {
     names = []
   }
+  // service install 的 shell 不一定带云标志;以实际守护进程继承的控制器环境为准。
+  const supervisorPid = supervisorLockHolder(home)
+  let followsSupervisor = false
+  try {
+    followsSupervisor = supervisorPid !== null && fs.readFileSync(`/proc/${supervisorPid}/environ`, 'utf8').split('\0').includes('GUGU_CLOUD_COMPUTER=1')
+  } catch {
+    // /proc 不可读(如普通 macOS SSH server)时仍按原来的逐账号 pin 判断。
+  }
   const accounts: Array<Heartbeat | null> = []
   for (const name of names) {
     const data = path.join(accountsDir, name, 'data')
     if (!fs.existsSync(path.join(data, 'server-session.enc'))) continue
     // 受控云电脑的旧 pin 不是例外:账号也必须真的在新包上,不能只看守护进程。
-    if (process.env.GUGU_CLOUD_COMPUTER !== '1' && pinnedVersionToRun(readAccountVersionPin(data), marker.to, (v) => fs.existsSync(versionBinary(path.join(home, 'versions'), v)))) continue
+    if (!followsSupervisor && pinnedVersionToRun(readAccountVersionPin(data), marker.to, (v) => fs.existsSync(versionBinary(path.join(home, 'versions'), v)))) continue
     accounts.push(parseHeartbeat(readJson(path.join(data, 'activity.json'))))
   }
   return {

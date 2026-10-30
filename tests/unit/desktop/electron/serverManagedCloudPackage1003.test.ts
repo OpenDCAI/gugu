@@ -25,6 +25,7 @@ beforeEach(() => {
   signIn(U1)
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllEnvs()
   fs.rmSync(home, { recursive: true, force: true })
 })
@@ -50,10 +51,13 @@ function fixture(supervisor: string, initial: string | undefined, managed = true
   const restarted: string[] = []
   const staged: string[] = []
   let busy = false
+  const states: string[][] = []
+  const warn = vi.fn()
   const options = {
     layout: { home, versions: path.join(home, 'versions'), version: supervisor },
     followSupervisor: managed,
-    log: { info: () => undefined, warn: () => undefined },
+    log: { info: () => undefined, warn },
+    stateWriter: () => ({ set: (state: string, version: string) => { states.push([state, version]) }, clear: () => undefined }),
     running: (id: string) => running.get(id),
     restart: (id: string) => void restarted.push(id),
     now: () => clock,
@@ -61,7 +65,7 @@ function fixture(supervisor: string, initial: string | undefined, managed = true
     stage: async (version: string) => { staged.push(version) },
   }
   const c = createAccountVersionConverger(options)
-  return { c, running, restarted, staged, busy: (value: boolean) => { busy = value }, converge: () => c.converge(listAccounts().filter((a) => a.signedIn)) }
+  return { c, running, restarted, staged, states, warn, busy: (value: boolean) => { busy = value }, converge: () => c.converge(listAccounts().filter((a) => a.signedIn)) }
 }
 
 describe('managed cloud accounts follow the running supervisor package', () => {
@@ -148,6 +152,25 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     next.converge()
     expect(next.c.binaryFor(U1)).toBeNull()
   })
+  it('never downloads a missing supervisor package and reports a throttled failure until it is restored', async () => {
+    pin(A)
+    fs.rmSync(path.join(home, 'versions', B, 'bin', 'gugu-server'))
+    const f = fixture(B, A)
+    for (let i = 0; i < 20; i += 1) {
+      f.converge()
+      await Promise.resolve()
+      clock += 3_000
+    }
+    expect(f.staged).toEqual([])
+    expect(f.states).toContainEqual(['failed', B])
+    expect(f.warn).toHaveBeenCalledTimes(1)
+    expect(f.restarted).toEqual([])
+    f.converge()
+    expect(f.warn).toHaveBeenCalledTimes(2)
+    install(B)
+    f.converge()
+    expect(f.restarted).toEqual([U1])
+  })
   it('ordinary SSH accounts still follow desktop reports instead of the supervisor', () => {
     report(A)
     const f = fixture(B, B, false)
@@ -163,9 +186,22 @@ describe('managed cloud accounts follow the running supervisor package', () => {
   })
 })
 
+function supervisorCloudEnvironment(enabled: boolean) {
+  fs.mkdirSync(path.join(home, 'data'), { recursive: true })
+  fs.writeFileSync(path.join(home, 'data', 'server.lock'), String(process.pid))
+  const original = fs.readFileSync.bind(fs)
+  vi.spyOn(fs, 'readFileSync').mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
+    const file = String(args[0])
+    if (file === `/proc/${process.pid}/environ`) return enabled ? 'GUGU_CLOUD_COMPUTER=1\0' : 'GUGU_CLOUD_COMPUTER=0\0'
+    if (file === `/proc/${process.pid}/cmdline`) return 'node server.js run\0'
+    return original(...args)
+  }) as typeof fs.readFileSync)
+}
+
 describe('managed cloud readiness uses actual account heartbeats', () => {
   it('does not exclude a wrongly pinned account and declare only the supervisor healthy', () => {
-    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '')
+    supervisorCloudEnvironment(true)
     pin(A)
     const now = NOW + STABLE_MS + 30_000
     const heartbeat = { version: A, startedAt: NOW - 3_600_000, at: now - 1_000 }
@@ -176,4 +212,15 @@ describe('managed cloud readiness uses actual account heartbeats', () => {
     expect(probe.accounts).toEqual([heartbeat])
     expect(judgeUpgrade(probe)).toBe('waiting')
   })
+  it('does not turn an ordinary SSH supervisor into managed mode because the guard inherited that flag', () => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    supervisorCloudEnvironment(false)
+    pin(A)
+    const now = NOW + STABLE_MS + 30_000
+    fs.writeFileSync(path.join(data(), 'activity.json'), JSON.stringify({ version: A, startedAt: NOW, at: now }))
+    writeSupervisorHealth(home, { version: B, pid: process.pid, startedAt: NOW }, now)
+    const marker = { from: A, to: B, fromDir: path.join(home, 'versions', A), toDir: path.join(home, 'versions', B), switchedAt: NOW }
+    expect(readProbe(home, marker, NOW, now).accounts).toEqual([])
+  })
+
 })

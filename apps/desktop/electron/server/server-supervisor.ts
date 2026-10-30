@@ -233,6 +233,7 @@ export async function runSupervisor(): Promise<void> {
     version: process.env.GUGU_TASK_HOST_VERSION ?? null,
     accounts: accounts.map((account) => account.email ?? account.userId),
     supervisedBy: process.env.GUGU_SERVER_SUPERVISED || 'none',
+    followSupervisor,
     shell,
   })
   // #6264 升级看门狗读这份「我起来了、还活着」(没有账号登录时它是唯一的健康读数);每 30 秒续写一次。

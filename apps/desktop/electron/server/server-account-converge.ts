@@ -136,6 +136,7 @@ export function createAccountVersionConverger(options: {
   const switches = new Map<string, { version: string; previous: string | null; at: number; quickExits: number }>()
   /** 刚请它换过去、旧进程还在收尾的账号:等它退干净再说,❌ 每一轮都再结束一次。 */
   const pending = new Map<string, string>()
+  let missingSupervisorWarnAt = -Infinity
 
   const installed = (version: string): boolean => !!layout && exists(versionBinary(layout.versions, version))
   /**
@@ -170,7 +171,7 @@ export function createAccountVersionConverger(options: {
     state.set('downloading', version)
     if (staging.has(version)) return
     staging.add(version)
-    log.info('这个账号的桌面是另一版,后台装上那一版', { account: account.userId, version })
+    log.info('目标包尚未安装,后台准备那一版', { account: account.userId, version })
     void stage(version)
       .then(() => {
         if (layout) touchVersion(layout.versions, version)
@@ -218,6 +219,15 @@ export function createAccountVersionConverger(options: {
       for (const account of accounts) {
         const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
         if (!followSupervisor && Object.keys(reports).length === 0) continue
+        // 控制器已经校验并启动了这个包。文件缺失应修复安装,不能按桌面目标反复下载自己的版本。
+        if (followSupervisor && !installed(layout.version)) {
+          stateOf(account).set('failed', layout.version)
+          if (now() - missingSupervisorWarnAt >= 60_000) {
+            missingSupervisorWarnAt = now()
+            log.warn('守护进程的包不完整,账号保持现有版本', { version: layout.version })
+          }
+          continue
+        }
         const current = options.running(account.userId)
         const waiting = pending.get(account.userId)
         if (waiting && current !== undefined && current !== waiting) continue
@@ -231,7 +241,7 @@ export function createAccountVersionConverger(options: {
           now: now(),
           running: effective,
           switchRequested: !followSupervisor && request !== null,
-          switchConfirmed: !followSupervisor && request?.confirmed === true,
+          switchConfirmed: request?.confirmed === true,
           installed,
           busy: current !== undefined && busy(account.dataDir),
           failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
