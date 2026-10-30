@@ -30,6 +30,11 @@ class ModalStore {
     this.activeModalArgs = args;
   }
 
+  /** A modal that has sent the user somewhere else (and set focus there) closes without focus returning to its opener. */
+  closeWithoutFocusReturn() {
+    this.previousFocus = null;
+  }
+
   closeModal(_outcome: 'completed' | 'dismissed' = 'dismissed') {
     this.closeGuardActive = false;
     this.activeModalId = null;

@@ -3,6 +3,8 @@ import { commandRegistry } from '@renderer/lib/commands/registry';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
+import { useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag';
+import { openGlobalSearch } from '@renderer/features/global-search/search-session';
 import { sidebarRowContentInsetX, sidebarRowShortcutClass } from './sidebar-primitives';
 
 /**
@@ -11,12 +13,14 @@ import { sidebarRowContentInsetX, sidebarRowShortcutClass } from './sidebar-prim
  */
 export function SidebarSearchTrigger() {
   const { translate } = useSessionMessages();
+  // globalSearch.v3: the same box opens message search; ⌘O keeps switching and hands its query over (its last row).
+  const globalSearch = useGlobalSearchV3();
   return (
     // The header owns placement; reuse the existing search surface and content inset.
     // 底色和别处的搜索框同一个输入面(--em-surface-input,#132):它长得就是一个搜索框。
     <button
       type="button"
-      onClick={() => commandRegistry.dispatch('app.quickSwitcher')}
+      onClick={() => globalSearch ? openGlobalSearch() : commandRegistry.dispatch('app.quickSwitcher')}
       aria-label={translate('sidebar.searchConversations')}
       data-testid="sidebar-search-trigger"
       className={cn(
@@ -26,7 +30,7 @@ export function SidebarSearchTrigger() {
     >
       <Search className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
       <span className="min-w-0 flex-1 truncate text-left">{translate('sidebar.searchPlaceholder')}</span>
-      <BoundShortcut commandId="app.quickSwitcher" variant="keycaps" className={sidebarRowShortcutClass} />
+      <BoundShortcut commandId={globalSearch ? 'app.globalSearch' : 'app.quickSwitcher'} variant="keycaps" className={sidebarRowShortcutClass} />
     </button>
   );
 }

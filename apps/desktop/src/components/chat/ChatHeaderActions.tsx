@@ -6,6 +6,9 @@ import { useChatFolderName } from './chatFolderName'
 import { Folder, LayoutGrid, MoreHorizontal, Search, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
+import { Hint } from '../ui/Tooltip'
+import { BoundShortcut } from '@renderer/lib/ui/shortcut'
+import { useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag'
 import { Popover } from '../ui/Popover'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
@@ -73,6 +76,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   onCloseHeaderMenu,
 }: ChatHeaderActionsProps) {
   const { t } = useTranslation('messaging')
+  const globalSearch = useGlobalSearchV3()
   const { activeChatId } = useChatStore('activeChatId')
   const folderName = useChatFolderName(activeChatId) // 群文件夹 / 文件夹 (chatFolderName.ts)
   const openFolder = onOpenFolder
@@ -104,7 +108,14 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
             pins / LayoutGrid(群 Apps) / Search / Folder(文件夹) / Users / MoreHorizontal。
           #1102 曾把搜索塞进 ⋯,搜索应是头栏顶层 icon,故恢复为顶层。 */}
       {/* 搜索 — #1323 模块2:顶栏搜索 icon 仅场所型会话保留,DM 的「搜索聊天」放在 ⋯ 下拉里。 */}
-      {isRoomChat && !compactRoom && (
+      {isRoomChat && !compactRoom && (globalSearch ? (
+        // globalSearch.v3: the product tooltip with the find binding, as the other header controls should be.
+        <Hint label={t('header.searchConversation')} side="bottom" shortcut={<BoundShortcut commandId="app.find" variant="keycaps" />}>
+          <IconButton data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} aria-label={t('header.searchConversation')} onClick={onEnterSearchMode}>
+            <Search />
+          </IconButton>
+        </Hint>
+      ) : (
         <IconButton
           data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton}
           on={searchMode || undefined}
@@ -115,7 +126,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
         >
           <Search />
         </IconButton>
-      )}
+      ))}
       {/* 文件夹。群、话题、私聊都有(主人 10-05「私聊也是得有面板的」):
           每个对话都有自己的云端文件和右栏。手机群聊收进 ⋯(见 compactRoom),手机私聊图标少,留在页头。 */}
       {!compactRoom && (

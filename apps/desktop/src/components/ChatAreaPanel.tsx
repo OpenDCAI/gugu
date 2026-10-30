@@ -74,7 +74,7 @@ import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
 import { ChatSearchControls } from './chat/ChatSearch'
-import { useChatSearch } from './chat/useChatSearch'
+import { SearchResultsBar, useChatSearch } from './chat/useChatSearch'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 import { useChatSlotProjectName } from '../lib/shellSlots'
@@ -809,7 +809,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             </motion.div>
           )}
         </AnimatePresence>
-      </PaneHeader>}{!searchMode && (isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null)}
+      </PaneHeader>}<SearchResultsBar chatId={activeChat.id} />{!searchMode && (isGroupChat ? <PinnedTopicTabs chatId={activeChat.id} topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} mobile={mobile} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : mobile && !chrome && !blockHost ? <PhoneChatTabs topics={topicSurface.topics} messages={messages} current={topicSurface.splitTopic?.chatId ?? null} onPick={(topic) => topic ? topicSurface.openSplit({ chatId: topic.chat_id, name: topic.name }) : topicSurface.closeSplit()} /> : null)}
 
       <div
         style={{
@@ -984,7 +984,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           profile={shownMessageProfile.profile}
           // @@@5856 从话题分栏点开的卡片 ❌ 不给悄悄话:这个动作落在**主线**的输入框上,
           // 而用户此刻在看的是话题 —— 发出去会落进源群。要在话题里悄悄话,得先有话题自己的入口。
-          onClose={() => setActiveMessageProfile(null)}
+          onClose={() => setActiveMessageProfile(null)} findMessagesOf={search.findMessagesOf}
           onOpenChat={shownMessageProfile.profile.member.id !== user?.id && onOpenUserChat ? (target) => {
             setActiveMessageProfile(null)
             onOpenUserChat(target)

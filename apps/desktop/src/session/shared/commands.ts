@@ -468,6 +468,29 @@ export const COMMANDS = defineCommands({
     ignoreWhenMonacoFocused: true,
     ignoreWhenBrowserFocused: true,
   },
+  'app.globalSearch': {
+    capture: true,
+    defaultHotkey: 'Mod+Shift+F',
+    label: 'Search Messages',
+    description: 'Search messages in every conversation',
+    category: 'Navigation',
+  },
+  'chat.searchNext': {
+    label: 'Next Search Result',
+    description: 'Go to the next message of the current search',
+    category: 'Navigation',
+    defaultHotkey: 'Mod+G',
+    // Stepping continues while typing in the chat's composer, where a jump lands focus.
+    ignoreInputs: false,
+  },
+  'chat.searchPrevious': {
+    label: 'Previous Search Result',
+    description: 'Go to the previous message of the current search',
+    category: 'Navigation',
+    defaultHotkey: 'Mod+Shift+G',
+    // Stepping continues while typing in the chat's composer, where a jump lands focus.
+    ignoreInputs: false,
+  },
   'app.find': {
     capture: true,
     label: 'Find in Current View',

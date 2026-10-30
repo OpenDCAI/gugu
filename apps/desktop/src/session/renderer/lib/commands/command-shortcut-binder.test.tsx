@@ -133,3 +133,28 @@ describe('global commands before widget key consumption', () => {
     expect(widget).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('search result stepping while typing', () => {
+  it('binds both Mod+G and Shift+Mod+G and runs them from a focused composer', async () => {
+    const next = vi.fn();
+    const previous = vi.fn();
+    const composer = document.createElement('textarea');
+    host.append(composer);
+    let remove!: () => void;
+    await act(async () => {
+      remove = commandRegistry.register({ scopeId: 'app', getCommands: () => [
+        { id: 'chat.searchNext', execute: next }, { id: 'chat.searchPrevious', execute: previous },
+      ] });
+    });
+    await act(async () => composer.focus());
+    const step = (shiftKey: boolean) => act(async () => {
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: shiftKey ? 'G' : 'g', ctrlKey: true, shiftKey, bubbles: true, cancelable: true }));
+    });
+    try {
+      await step(false);
+      await step(false);
+      await step(true);
+      expect([next.mock.calls.length, previous.mock.calls.length]).toEqual([2, 1]);
+    } finally { await act(async () => remove()); composer.remove(); }
+  });
+});

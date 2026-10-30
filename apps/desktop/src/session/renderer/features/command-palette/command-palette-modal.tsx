@@ -23,6 +23,9 @@ import { PaletteChatGroups } from './palette-chats';
 import { PaletteSessionItem } from './palette-session-item';
 import { rankPaletteMatches } from './palette-rank';
 import { followLink } from '@/lib/guguLinks';
+import { Search } from '@/lib/icons';
+import { useGlobalSearchV3 } from '@renderer/features/global-search/global-search-flag';
+import { openGlobalSearch } from '@renderer/features/global-search/search-session';
 
 interface CommandPaletteProps {
   initialQuery?: string;
@@ -43,6 +46,8 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
   const { navigate } = useNavigate();
   const { value: keyboard } = useAppSettingsKey('keyboard');
   const { translate } = useSessionMessages();
+  const globalSearch = useGlobalSearchV3();
+  const searchMessages = () => { onClose(); openGlobalSearch({ text: search }); };
   const { data: results = [] } = useQuery({
     queryKey: ['cmdk-search', debouncedQuery],
     queryFn: () => rpc.search.commandPalette({ query: debouncedQuery }),
@@ -70,7 +75,12 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
   const projects = ranked.filter((item) => item.kind === 'project');
 
   return (
-    <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>
+    <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop
+      onKeyDown={(event) => {
+        if (globalSearch && !commandsMode && search && event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+          event.preventDefault(); searchMessages();
+        }
+      }}>
       <div className="border-b border-foreground/10 bg-[var(--em-surface-input)] px-1">
         <Command.Input value={query} onValueChange={setQuery}
           placeholder={commandsMode ? translate('palette.commandPlaceholder') : translate('palette.switchPlaceholder')}
@@ -117,6 +127,15 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
               </Command.Group>
             ) : <PaletteProjectsGroup currentProjectId={undefined} limit={5} onClose={onClose} navigate={navigate} />}
             <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />
+            {globalSearch && search && (
+              <Command.Group className={GROUP_CLASS}>
+                <Command.Item value="global-search" onSelect={searchMessages} className={PALETTE_ITEM_CLASS}>
+                  <Search size={14} className="shrink-0 text-foreground/40" />
+                  <span className="flex-1 truncate">{translate('palette.searchMessages', { query: search })}</span>
+                  <Shortcut hotkey="Mod+Enter" variant="keycaps" />
+                </Command.Item>
+              </Command.Group>
+            )}
           </>
         )}
       </Command.List>

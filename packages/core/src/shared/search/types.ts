@@ -88,12 +88,27 @@ export interface SearchMessageHit {
   senderId: string | null
   createdAt: string
   text: string
+  /** An attachment hit: text is the file name (and caption). */
+  attachment: 'file' | 'image' | null
   highlights: SearchHighlight[]
   rank: SearchRank
 }
 
+/** Facet counts stop here; a count above it means "more than SEARCH_FACET_CAP". */
+export const SEARCH_FACET_CAP = 1000
+
+/** Counts for the filter row: each ignores the has: filter; otherChats counts matches outside in:. */
+export interface SearchFacets {
+  total: number
+  file: number
+  image: number
+  link: number
+  otherChats: number
+}
+
 export interface SearchResults {
   results: SearchMessageHit[]
+  facets: SearchFacets
   coverage: SearchCoverageReport
   nextCursor: string | null
 }

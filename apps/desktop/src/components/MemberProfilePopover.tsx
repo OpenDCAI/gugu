@@ -20,6 +20,7 @@ export function MemberProfilePopover({
   onClose: _onClose,
   onOpenChat,
   onWhisper,
+  findMessagesOf,
   editControls,
   testId = AUTOMATION_TEST_IDS.groupMemberProfileMenu,
 }: {
@@ -28,6 +29,8 @@ export function MemberProfilePopover({
   onOpenChat?: (target: MemberProfileChatTarget) => void
   // @@@whisper (#820) — 透传给 MemberProfileCard 的悄悄话回调。
   onWhisper?: (target: MemberProfileChatTarget) => void
+  /** globalSearch.v3: search this member's messages in the conversation the card was opened from. */
+  findMessagesOf?: (userId: string) => void
   editControls?: MemberProfileEditControls
   testId?: AutomationTestId
 }) {
@@ -52,7 +55,7 @@ export function MemberProfilePopover({
   const side = profile.preferredSide ?? 'left'
   const mobile = useMobileShell()
   const ariaLabel = t('profile.profileDialog', { name: displayName })
-  const card = <MemberProfileCard member={enrichedMember} onOpenChat={onOpenChat} onWhisper={onWhisper} editControls={editControls} aliasControls={aliasControls} fill={mobile} />
+  const card = <MemberProfileCard member={enrichedMember} onOpenChat={onOpenChat} onWhisper={onWhisper} onFindMessages={findMessagesOf ? () => { _onClose(); findMessagesOf(enrichedMember.id) } : undefined} editControls={editControls} aliasControls={aliasControls} fill={mobile} />
   const memberData = { 'data-profile-member-id': profile.member.id, 'data-profile-member-type': profile.member.type, 'data-profile-member-role': profile.member.role }
 
   // 手机是共用的底部面板(#6836):贴着锚点的 284 宽卡片在整行宽的成员页上左右都放不下,会整张落在屏外。

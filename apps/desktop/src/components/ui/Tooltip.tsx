@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- compound component namespace is intentional. */
 
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
-import type { CSSProperties, ReactElement } from 'react'
+import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { TOOLTIP_CLOSE_DELAY_MS, TOOLTIP_OPEN_DELAY_MS } from '@/styles/motion'
 
@@ -111,6 +111,8 @@ export interface HintProps {
   children: ReactElement
   side?: TooltipPrimitive.Positioner.Props['side']
   sideOffset?: number
+  /** The command's key binding, shown after the label (e.g. a BoundShortcut). */
+  shortcut?: ReactNode
 }
 
 /**
@@ -125,14 +127,14 @@ export interface HintProps {
  * 而 title 是浏览器 chrome 自己画的、照弹不误。所以「按钮变灰了要解释为什么」的场合不能靠 disabled +
  * Hint,得让控件保持可聚焦(`aria-disabled` + 拦住 onClick)。
  */
-export function Hint({ label, children, side = 'right', sideOffset = 8 }: HintProps) {
+export function Hint({ label, children, side = 'right', sideOffset = 8, shortcut }: HintProps) {
   if (!label) return <>{children}</>
   return (
     <Root>
       <Trigger render={children} />
       <Portal>
         <Positioner side={side} sideOffset={sideOffset} collisionPadding={8}>
-          <Popup>{label}</Popup>
+          <Popup>{shortcut ? <span className="flex items-center gap-2">{label}{shortcut}</span> : label}</Popup>
         </Positioner>
       </Portal>
     </Root>
