@@ -26,6 +26,6 @@
   .gg-md a.gg-md-image[data-gg-image='shown'] { display: inline-block; max-width: 100%; padding: 0; background: none; box-shadow: none; }
   .gg-md a.gg-md-image[data-gg-image='shown']::before { content: none; }
   .gg-md img.gg-md-img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
-  .gg-md a.gg-md-image[data-gg-image='loading'] { color: var(--md-muted); }
-  .gg-md a.gg-md-image[data-gg-image='failed'] { color: var(--md-muted); white-space: normal; }
+  .gg-md a.gg-md-image[data-gg-image='loading'] { color: var(--em-foreground-muted); }
+  .gg-md a.gg-md-image[data-gg-image='failed'] { color: var(--em-foreground-muted); white-space: normal; }
 }
