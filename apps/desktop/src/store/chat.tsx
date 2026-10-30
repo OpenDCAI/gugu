@@ -867,8 +867,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   // ── Dock / 托盘角标:与通知同一把尺 —— 群与话题只算叫到你的；列表内仍安静显示全部未读 ──────
   useEffect(() => {
     if (!platform.capabilities.badge) return
-    const total = chats.reduce((sum, c) => sum + unreadAskingYou(c), 0)
-    platform.setBadge(total)
+    platform.setBadge(chats.reduce((sum, c) => sum + unreadAskingYou(c), 0))
   }, [chats])
 
   const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId, viewport = {}) => ({
