@@ -143,9 +143,7 @@ export default {
     },
     "title": "New Agent",
     "unfinishedSweep": {
-      "cancelled": "An Agent from last time was never finished and has been cancelled. Please create it again.",
       "cancelledWithWarning": "An Agent from last time was never finished and has been cancelled, but {{steps}} did not complete cleanly. Please create it again.",
-      "completed": "The unfinished Agent \"{{name}}\" from last time was actually created and is now in your messages.",
       "pending": "An Agent from last time was never finished; cancelling it is not done yet ({{steps}} did not complete cleanly). It will be retried on next launch.",
       "pendingError": "An Agent from last time was never finished and could not be cancelled this time. It will be retried on next launch."
     },

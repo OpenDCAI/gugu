@@ -143,9 +143,7 @@ export default {
     },
     "title": "新建 Agent",
     "unfinishedSweep": {
-      "cancelled": "上次有一个 Agent 没建完，已取消。请重新创建。",
       "cancelledWithWarning": "上次有一个 Agent 没建完，已取消，但{{steps}}没有做干净。请重新创建。",
-      "completed": "上次没建完的 Agent「{{name}}」其实已经建好，已加入消息列表。",
       "pending": "上次有一个 Agent 没建完，取消还没做完（{{steps}}没有做干净），下次启动会再试。",
       "pendingError": "上次有一个 Agent 没建完，这次没能取消，下次启动会再试。"
     },
