@@ -114,7 +114,12 @@ describe('gugu.markdown(): the shared dialect', () => {
     expect(gugu.clipboard.writeText).toHaveBeenCalledWith('pnpm release\n');
     await vi.waitFor(() => expect(copy?.hasAttribute('data-copied')).toBe(true));
     expect(gugu.openLink).not.toHaveBeenCalled();
-    expect(rendered('```mermaid\ngraph TD\n```').querySelector('.gg-md-code'), 'a diagram is drawn, not given a head').toBeNull();
+    // A page without the host's clipboard draws no copy button (there is no other way to the clipboard).
+    const bare = document.createElement('article');
+    document.body.append(bare);
+    renderer({ ...gugu, clipboard: undefined })(bare, '```bash\nx\n```');
+    expect(bare.querySelector('.gg-md-code-head')).not.toBeNull();
+    expect(bare.querySelector('[data-gg-copy]')).toBeNull();
   });
 
   it('code is coloured with the transcript highlighter: one span per token, carrying the dual-theme vars', async () => {

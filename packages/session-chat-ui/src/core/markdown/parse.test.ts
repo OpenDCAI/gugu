@@ -20,6 +20,7 @@ import type { HtmlBlock, MathBlock } from './document';
 import { blockPlainText } from './plain-text';
 import type { MentionProvider } from './mention-provider';
 import { parseMarkdownToBlocks } from './parse';
+import { documentToHtml } from './to-html';
 
 // Stub provider that resolves any token it receives as a 'file' mention so
 // every matched token becomes a pill without needing a registry of known paths.
@@ -317,5 +318,15 @@ describe('LaTeX reaches the document model as math, not as text', () => {
   it('carries the source into the plain-text mirror rather than dropping it', () => {
     const blocks = parseMarkdownToBlocks('t', 'Ratio $\\frac{a}{b}$\n\n$$\nx^2\n$$');
     expect(blocks.map(blockPlainText)).toEqual(['Ratio \\frac{a}{b}', 'x^2']);
+  });
+});
+
+describe('documentToHtml: a whole document\'s code blocks', () => {
+  it('a code block gets a head with its language; a diagram and display math keep none (they are drawn in place)', () => {
+    const html = documentToHtml('```bash\nx\n```\n\n```mermaid\ngraph TD\n```\n\n$$\nx^2\n$$', { trust: 'chat' });
+    const box = document.createElement('div');
+    box.innerHTML = html;
+    expect([...box.querySelectorAll('.gg-md-code-head > span')].map((span) => span.textContent)).toEqual(['bash']);
+    expect(box.querySelector('pre > code.language-mermaid')?.closest('.gg-md-code')).toBeNull();
   });
 });

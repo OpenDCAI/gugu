@@ -25,7 +25,8 @@ type LinkVerbs = {
   openLink(url: string): Promise<unknown>;
   reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
-  /** A code block's copy button goes through the host: a phone's sandboxed page has no clipboard of its own. */
+  /** A code block's copy button goes through the host's clipboard (the platform's one exit; a phone's sandboxed page has
+   *  none of its own). A page without it draws no copy button. */
   clipboard?: { writeText(text: string): Promise<unknown> };
   files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
 };
@@ -162,7 +163,7 @@ function followLink(root: HTMLElement, gugu: LinkVerbs, file: unknown, href: str
 
 // ── render ──
 
-type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions };
+type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions; copies: boolean };
 /** Per element rendered into, and back from its root: weak, so a page that renders into many elements keeps none alive. */
 const byTarget = new WeakMap<Element, Rendered>();
 const byRoot = new WeakMap<Element, Rendered>();
@@ -176,6 +177,10 @@ function paint(entry: Rendered): void {
   root.innerHTML = documentToHtml(text, { trust: options.trust, frontmatter: options.frontmatter, keepImageNodes: true, sourceLines: options.sourceLines });
   const copyLabel = /^zh\b/i.test(document.documentElement.lang) ? '复制' : 'Copy';
   for (const button of root.querySelectorAll('[data-gg-copy]')) {
+    if (!entry.copies) {
+      button.remove();
+      continue;
+    }
     button.setAttribute('aria-label', copyLabel);
     button.setAttribute('title', copyLabel);
   }
@@ -208,12 +213,13 @@ export function renderer(gugu: LinkVerbs) {
     if (!entry) {
       const root = document.createElement('div');
       root.setAttribute(ROOT_MARK, '');
-      const made: Rendered = { target, root, text, options: given };
+      const made: Rendered = { target, root, text, options: given, copies: !!gugu.clipboard };
       root.addEventListener('click', (event) => {
         const copy = (event.target as Element | null)?.closest?.('[data-gg-copy]');
-        if (copy && root.contains(copy)) {
+        const clipboard = gugu.clipboard;
+        if (copy && clipboard && root.contains(copy)) {
           const code = copy.closest('.gg-md-code')?.querySelector('pre')?.textContent ?? '';
-          void (gugu.clipboard ? gugu.clipboard.writeText(code) : navigator.clipboard.writeText(code)).then(
+          void clipboard.writeText(code).then(
             () => {
               copy.setAttribute('data-copied', '');
               setTimeout(() => copy.removeAttribute('data-copied'), 1500);
