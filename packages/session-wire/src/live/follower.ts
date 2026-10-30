@@ -1,6 +1,6 @@
 import { log as ambientLog, type Logger } from '@gugu/session-shared/logger';
 import type { WireInstrumentation, WireResyncReason } from '../observability';
-import type { LiveCursor, LiveSnapshot, LiveUpdate } from './protocol';
+import { compareCursor, type LiveCursor, type LiveSnapshot, type LiveUpdate } from './protocol';
 
 export type LiveFollowerApplyResult =
   | { ok: true }
@@ -25,6 +25,7 @@ export class LiveFollower<T> {
   private sequence = -1;
   private resyncing: Promise<void> | null = null;
   private again = false;
+  private held: LiveUpdate[] = [];
   private resyncDiagnostics: { events: number; reasons: Partial<Record<WireResyncReason, number>> } | null = null;
 
   constructor(
@@ -50,13 +51,19 @@ export class LiveFollower<T> {
     this.generation = snapshot.generation;
     this.sequence = snapshot.sequence;
     this.options.onSeeded?.();
+    const held = this.held;
+    this.held = [];
+    for (const update of held) this.applyUpdate(update);
   }
 
   applyUpdate(update: LiveUpdate): void {
+    // 先 seed 再续:attach 先于快照,在途的那份快照就是重取(#974),期间的更新攒着等 seed 后重放。
     if (!this.isReady()) {
-      this.triggerResync('sequence-gap', { reason: 'update-before-seed' });
+      this.held.push(update);
       return;
     }
+    // 不新于当前游标的更新已经含在状态里:重复投递、快照已含的攒货,都是空操作。
+    if (compareCursor(update, { generation: this.generation, sequence: this.sequence }) <= 0) return;
 
     if (update.generation !== this.generation) {
       this.triggerResync('generation', {

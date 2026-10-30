@@ -5,7 +5,7 @@ import type {
   LiveModelStates,
   LiveModelDef,
 } from '../../api/define';
-import type { LiveCursor, LiveCursorEntry } from '../protocol';
+import { compareCursor, type LiveCursor, type LiveCursorEntry } from '../protocol';
 import type { Mutator } from '../state';
 import { LiveState } from '../state';
 import { stableStringify } from './registry';
@@ -77,9 +77,4 @@ export class LiveModelMutationContext<
       cursor,
     });
   }
-}
-
-function compareCursor(left: LiveCursor, right: LiveCursor): number {
-  if (left.generation !== right.generation) return left.generation - right.generation;
-  return left.sequence - right.sequence;
 }

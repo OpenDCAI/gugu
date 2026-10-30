@@ -38,8 +38,6 @@ export class ReplicaState<T> implements LiveSource {
   private localGeneration = nextGeneration();
   private localSequence = 0;
   private upstreamBase: LiveCursor | undefined;
-  /** Attach precedes the first snapshot, so updates arriving in that window are expected. */
-  private initialUpdates: LiveUpdate[] | null = [];
   private disposed = false;
 
   constructor(
@@ -97,10 +95,6 @@ export class ReplicaState<T> implements LiveSource {
   }
 
   applyUpdate(update: LiveUpdate): void {
-    if (this.initialUpdates) {
-      this.initialUpdates.push(update);
-      return;
-    }
     this.follower.applyUpdate(update);
   }
 
@@ -182,14 +176,6 @@ export class ReplicaState<T> implements LiveSource {
     this.waiters.flushCursorWaiters();
     this.waiters.flushAllMutationWaiters();
     this.localWaiters.flushCursorWaiters();
-    if (this.initialUpdates) {
-      for (const update of this.initialUpdates) {
-        const cursor = this.cursor;
-        if (cursor?.generation === update.generation && update.sequence <= cursor.sequence) continue;
-        this.follower.applyUpdate(update);
-      }
-      this.initialUpdates = null;
-    }
   }
 
   private handleApplied(update: LiveUpdate): void {

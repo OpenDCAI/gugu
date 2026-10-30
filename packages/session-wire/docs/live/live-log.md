@@ -68,8 +68,10 @@ splices from the retained snapshot when the generation still matches, appending
 only missing bytes instead of resetting rendered output. Generation changes or
 evicted gaps still reset the sink from the retained snapshot.
 
-The underlying protocol follower resyncs on update-before-seed, generation
-mismatch, sequence gap, or invalid log delta. Resync events use the same `resync`
+The underlying protocol follower holds updates that arrive before its first
+seed and replays them once it lands. An update not newer than the follower's
+cursor is a no-op; otherwise it resyncs on generation mismatch, sequence gap,
+or invalid log delta. Resync events use the same `resync`
 instrumentation hook as live models.
 
 ## API Layer Usage

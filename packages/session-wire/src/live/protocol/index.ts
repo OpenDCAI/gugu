@@ -11,6 +11,11 @@ export const liveCursorSchema = z.object({
 
 export type LiveCursor = z.infer<typeof liveCursorSchema>;
 
+export function compareCursor(left: LiveCursor, right: LiveCursor): number {
+  if (left.generation !== right.generation) return left.generation - right.generation;
+  return left.sequence - right.sequence;
+}
+
 export const liveCursorEntrySchema = z.object({
   model: z.string(),
   key: z.unknown(),
