@@ -28,6 +28,7 @@ export function groupRunningTokens(input: {
       stateKey: kindToRunningState(latestRecentAction(activity?.actions ?? [], activity?.lastActiveAt ?? null)),
       toolCount: activity?.actions.length ?? 0,
       lastActiveAt: activity?.lastActiveAt ?? null,
+      mine: isOwnAgent(input, agent.id),
     }
   })
 }
@@ -46,11 +47,18 @@ export function selectGroupRunningAgents<T extends { id: string }>(input: {
   /** Each agent's latest message in the timeline on screen (ms). */
   spokeAt?: Readonly<Record<string, number>>
 }): T[] {
-  const isOwn = (id: string) => Boolean(input.currentUserId && input.identities[id]?.owner_user_id === input.currentUserId)
+  const isOwn = (id: string) => isOwnAgent(input, id)
   const spoke = (id: string) => input.spokeAt?.[id] ?? -Infinity
   return input.agents
     .filter((agent) => isTransientAgentConversationStatus(input.statuses[agent.id] ?? 'offline'))
     .sort((a, b) => (spoke(b.id) - spoke(a.id) || 0) || Number(isOwn(b.id)) - Number(isOwn(a.id)))
+}
+
+function isOwnAgent(input: {
+  identities: Readonly<Record<string, Pick<DisplayIdentity, 'owner_user_id'> | undefined>>
+  currentUserId: string | null | undefined
+}, id: string): boolean {
+  return Boolean(input.currentUserId && input.identities[id]?.owner_user_id === input.currentUserId)
 }
 
 /** Each sender's latest message (ms) in a timeline: what the running bar orders by. */
