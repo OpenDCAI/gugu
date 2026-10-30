@@ -12,6 +12,48 @@ afterEach(() => {
 });
 
 describe('session host client: the machine is unreachable', () => {
+  it('keeps a protocol refusal paused across online heartbeats, until manual retry or a new peer version', async () => {
+    vi.useFakeTimers();
+    let version: string | null = '0.2.58-beta.1050.1';
+    let changed: () => void = () => undefined;
+    const open = vi.fn(async () => {
+      if (!version || version.endsWith('1050.1')) throw Object.assign(new Error('update required'), { code: 'server_outdated' });
+      return { send: () => undefined, close: () => undefined };
+    });
+    const warn = vi.fn();
+    const client = createSessionHostClient(open, {
+      isReachable: () => true,
+      peerVersion: () => version,
+      subscribeReachability: listener => { changed = listener; return () => undefined; },
+      warn,
+    });
+    try {
+      await expect(client.api.invoke('any.channel')).rejects.toMatchObject({ code: 'server_outdated' });
+      for (let beat = 0; beat < 10; beat += 1) {
+        changed();
+        await vi.advanceTimersByTimeAsync(10_000);
+      }
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      version = null;
+      changed();
+      await settle();
+      expect(open).toHaveBeenCalledTimes(1);
+      version = '0.2.58-beta.1050.1';
+
+      client.reconnectNow();
+      await settle();
+      expect(open).toHaveBeenCalledTimes(2);
+
+      version = '0.2.58-beta.1061.1';
+      changed();
+      await settle();
+      expect(open).toHaveBeenCalledTimes(3);
+      expect(client.state()).toBe('open');
+    } finally { client.close(); }
+  });
+
   it.each(['client_outdated', 'server_outdated'])('does not retry a rejected protocol window (%s)', async (code) => {
     vi.useFakeTimers();
     const open = vi.fn(async () => { throw Object.assign(new Error('protocol mismatch'), { code }); });
