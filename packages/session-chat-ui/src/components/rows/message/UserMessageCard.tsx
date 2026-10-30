@@ -257,6 +257,11 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       </Show>
     </div>
     </Show>
+    <Show when={!stack() && !props.data.streaming && Boolean(props.data.attachments?.length) && destination()}>{target =>
+      <div data-attachment-destination style={{ display: 'flex', 'justify-content': props.data.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
+        <ConversationDestination text={target().text} width={target().width} />
+      </div>
+    }</Show>
     {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
     <Show when={props.conversation && isOverflowing() && !isExpanded()}>
       <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>

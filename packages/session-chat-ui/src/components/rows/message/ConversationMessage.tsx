@@ -147,8 +147,9 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     onPointerEnter={event => { if (event.pointerType !== 'touch') hover.set(hoverId()); }}
     onPointerLeave={() => { if (hovered()) hover.set(null); }}
     onFocusIn={() => hover.set(hoverId())} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) hover.set(null); }}>
-    <Show when={props.data.conversationPart !== 'body' && head().height > 0}>
-    <div class={conversationHeader} style={{ height: `${head().height}px` }}>
+    <Show when={props.data.conversationPart !== 'body' && (head().height > 0 || messageQuote(props.data))}>
+    <div class={conversationHeader} data-floating-quote={head().height === 0 ? 'true' : undefined}
+      style={{ height: head().height ? `${head().height}px` : undefined }}>
       <Show when={head().name}>{label => <SenderName class={conversationName} name={label().text} target={senderTarget()} style={{ width: `${head().nameWidth}px` }} />}</Show>
       <Show when={subject() && props.data.conversationProcess}>{process =>
         <div class={conversationTime} style={{ width: `${head().processWidth}px`, height: `${processRowHeight(props.data.id, process(), head().processCtx)}px` }}>

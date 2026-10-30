@@ -24,7 +24,8 @@ export function conversationHeaderLayout(item: ChatMessage, ctx: MeasureCtx, sen
   const processWidth = button ? Math.min(processCtx.width, button.width + (background ? background.width + 19 : 0)) : 0;
   const processHeight = process ? processRowHeight(item.id, process, processCtx) : 0;
   const fixedWidth = nameWidth + processWidth + (name && process ? 8 : 0);
+  const inlineQuote = quote && !item.conversationReplyAdjacent;
   return { name, nameWidth, processCtx, processWidth,
     quoteWidth: Math.max(14, Math.min(ctx.width * .55, ctx.width - fixedWidth - (fixedWidth ? 8 : 0))),
-    height: name || process || quote ? Math.max(name?.height ?? 0, processHeight, quote ? 18 : 0) + 6 : 0 };
+    height: name || process || inlineQuote ? Math.max(name?.height ?? 0, processHeight, inlineQuote ? 18 : 0) + 6 : 0 };
 }

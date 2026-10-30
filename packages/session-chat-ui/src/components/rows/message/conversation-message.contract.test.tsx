@@ -512,3 +512,78 @@ it.each([320, 600])('renders an injected original image instead of local-path in
   } finally { view.dispose(); }
 
 });
+
+
+it('reviewer: a collapsed adjacent quote does not leave an empty repeated-speaker header', async () => {
+  const base: ChatMessage = { kind: 'message', id: 'same-speaker', role: 'assistant', text: '继续回复', conversationPreviousSpeaker: '$agent' };
+  const plain = await mount(base, 600);
+  const reply = await mount({ ...base, id: 'same-speaker-reply', conversationReplyAdjacent: true,
+    conversationReply: { itemId: 'preceding-message', text: '正上方那条' } }, 600, { onConversationReply: () => {} });
+  try {
+    const plainRow = plain.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    const replyRow = reply.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    const quote = replyRow.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+    expect(getComputedStyle(quote).display).toBe('none');
+    const geometry = { plainHeight: plainRow.getBoundingClientRect().height, replyHeight: replyRow.getBoundingClientRect().height };
+    console.info('REVIEW1071_COLLAPSED_HEADER', JSON.stringify(geometry));
+    expect(geometry.replyHeight, 'collapsed quote must not create a blank header when neither name nor process is shown').toBe(geometry.plainHeight);
+  } finally { plain.dispose(); reply.dispose(); }
+});
+
+it('reviewer: a sent file without a caption retains exactly one destination', async () => {
+  const view = await mount({ kind: 'message', id: 'file:sent:receipt', role: 'assistant', text: 'proof.txt', conversationPart: 'body',
+    sentAttachment: { messageId: 'receipt', name: 'proof.txt', href: 'gugu-file://proof?v=2' },
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '验收群' } });
+  try {
+    expect(view.host.querySelector('[data-attachment-chip]')).not.toBeNull();
+    const destinations = view.host.querySelectorAll('[data-slot="sent-to"]');
+    console.info('REVIEW1071_ATTACHMENT_DESTINATION', JSON.stringify({ destinations: destinations.length, text: view.item.text, attachments: view.item.attachments?.length }));
+    expect(destinations.length, 'the new destination placement must cover attachment-only sends too').toBe(1);
+  } finally { view.dispose(); }
+});
+
+it.each([220, 600])('reveals a repeated speaker\'s adjacent citation without moving the reply at width %s', async width => {
+  const onConversationReply = vi.fn();
+  const head: ChatMessage = { kind: 'message', id: 'floating:head', role: 'assistant', text: '',
+    conversationPart: 'head', conversationPreviousSpeaker: '$agent', conversationReplyAdjacent: true,
+    conversationReply: { itemId: 'preceding-message', text: '正上方那条' } };
+  const view = await mount(head, width, { onConversationReply }, { kind: 'message', id: 'floating:body', role: 'assistant',
+    text: '继续回复', conversationPart: 'body', conversationHead: head.id, conversationTail: true });
+  try {
+    const rows = view.host.querySelectorAll<HTMLElement>('[data-agent-conversation-message]');
+    const headRow = rows[0]!, body = rows[1]!;
+    const quote = headRow.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
+    const before = body.getBoundingClientRect();
+    expect(headRow.getBoundingClientRect().height).toBe(0);
+    expect(messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!)).toBe(0);
+    expect(getComputedStyle(quote).display).toBe('none');
+    body.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+    expect(getComputedStyle(quote).display).toBe('flex');
+    expect(body.getBoundingClientRect().top).toBe(before.top);
+    expect(body.getBoundingClientRect().height).toBe(before.height);
+    const visible = quote.getBoundingClientRect();
+    expect(visible.height).toBe(18);
+    expect(visible.bottom).toBeLessThanOrEqual(before.top);
+    expect(visible.right).toBeLessThanOrEqual(before.right);
+    quote.click();
+    expect(onConversationReply).toHaveBeenCalledExactlyOnceWith('preceding-message');
+  } finally { view.dispose(); }
+});
+
+it.each([
+  ['file', undefined], ['image', undefined], ['file', '文件说明'], ['image', '图片说明'],
+] as const)('keeps one destination and measured geometry for a sent %s with caption %s', async (kind, caption) => {
+  const view = await mount({ kind: 'message', id: `attachment:sent:${kind}`, role: 'assistant', text: 'proof', conversationPart: 'body',
+    sentAttachment: { messageId: 'receipt', kind, name: kind === 'image' ? 'proof.png' : 'proof.txt', href: 'gugu-file://proof?v=2', caption },
+    sentTo: { kind: 'chat', conversationId: null, threadRootId: null, whisper: false, peer: '很长的目标群名'.repeat(20) } }, 220);
+  try {
+    expect(view.host.querySelectorAll('[data-attachment-chip]')).toHaveLength(1);
+    const destinations = view.host.querySelectorAll<HTMLElement>('[data-slot="sent-to"]');
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]!.getBoundingClientRect().width).toBeLessThanOrEqual(180);
+    expect(destinations[0]!.getBoundingClientRect().height).toBe(18);
+    expect(view.host.querySelectorAll('[data-user-card]')).toHaveLength(caption ? 1 : 0);
+    if (!caption) expect(view.host.querySelector('[data-attachment-destination]')?.contains(destinations[0]!)).toBe(true);
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+  } finally { view.dispose(); }
+});
