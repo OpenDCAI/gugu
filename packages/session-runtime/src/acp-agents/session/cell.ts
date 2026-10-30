@@ -425,7 +425,8 @@ export class SessionCell {
 
   private reconcileReplayedQueue(): void {
     const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
-    const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
+    const hasCanonicalReplay = this.deps.providerId === 'claude'
+      || this.deps.providerId === 'codex' || this.deps.historyRecovery?.canonicalReplay === true;
     const recorded = this.recordedDeliveryIds;
     const historyUnknown = this.replayHistoryUnknown || recorded === null;
     if (!queued.length || (!hasCanonicalReplay && !historyUnknown)) return;
@@ -2058,6 +2059,12 @@ export class SessionCell {
           ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
           : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
       };
+      const promptMeta = this.deps.historyRecovery?.promptMeta?.(promptRequest.prompt);
+      if (promptMeta) {
+        // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
+        submittedMessage._meta = promptMeta;
+        if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
+      }
       this.rawLog.record({
         kind: 'prompt',
         sessionId: this.acpSessionId,

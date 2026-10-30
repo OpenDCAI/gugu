@@ -67,6 +67,9 @@ import { setEmbedView, type EmbedView } from './lib/stores/embed-view';
 import { installSessionStartupFailureBridge } from './features/sessions/stores/session-startup-failures';
 import { installSessionViewRequestBridge } from './features/sessions/stores/session-view-requests';
 import { openChatOnScreen } from './features/chats/open-chat';
+import { showGroupParticipant } from './features/chats/group-participant-actions';
+import { groupParticipantRequests } from './features/chats/group-participant-requests';
+import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
 import { SessionLocalizationProvider } from './localization/localization-provider';
@@ -146,8 +149,13 @@ async function bootstrap() {
   // ⚠️ 必须在下面那个热更新早返回**之前**:热更新会重新求值整条 import 链,账本是新的一份 module 实例,
   //    桥要跟着指向新的那份,否则宿主读的是旧实例里那张永远空着的 Map。装桥本身幂等,每次求值都装无妨。
   installSessionStartupFailureBridge(window);
+  wireGroupParticipantAccount();
   // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)(session-view-requests.ts)。同上,热更新前装。
-  installSessionViewRequestBridge(window, { openChat: openChatOnScreen });
+  installSessionViewRequestBridge(window, {
+    openChat: openChatOnScreen,
+    openGroupChat: (sourceChatId, chatId) => showGroupParticipant(sourceChatId, { kind: 'chat', chatId }),
+    prepareGroupSession: (sourceChatId, target) => groupParticipantRequests.prepare(sourceChatId, target),
+  });
   installRemoteHostSessionpageBridges(window, () => appState.navigation.navigate('new-session'));
   if (hasEntryRoot(container)) {
     renderSessionTree(container, mountEl);

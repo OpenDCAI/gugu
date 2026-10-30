@@ -125,7 +125,7 @@ it('loads the stored quote source through the phone host once and reveals that e
     return conversation({ timeline, onLoadOlder: async () => { if (timeline.hasOlder) await loadOlder(); } });
   }
   await mount(<Host />);
-  const quoteSelector = '[data-slot="conversation-quote"][title="Repeated original words"]';
+  const quoteSelector = '[data-slot="conversation-quote"]';
   await until('phone history has its real scroll container', () => !!harness.container.querySelector('[data-chat-scroll]'));
   const history = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;
   history.scrollTop = history.scrollHeight;
@@ -135,7 +135,15 @@ it('loads the stored quote source through the phone host once and reveals that e
   // Enable pagination after the initial top-edge layout, as a host metadata refresh would.
   await act(async () => publish({ ...latest, hasOlder: true }));
   loadOlder.mockClear();
-  await clickElement(harness.container.querySelector<HTMLElement>(quoteSelector)!);
+  await act(async () => {
+    const arrow = harness.container.querySelector<HTMLElement>(quoteSelector)!;
+    arrow.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+    arrow.click();
+  });
+  await until('phone tap previews the stored quote', () => !!document.querySelector('[data-slot="conversation-quote-preview"]'));
+  expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toContain('Repeated original words');
+  expect(loadOlder, 'previewing alone does not fetch or navigate').not.toHaveBeenCalled();
+  await clickElement(document.querySelector<HTMLElement>('[data-slot="conversation-quote-preview"]')!);
   try {
     await until('quote requests its missing page', () => loadOlder.mock.calls.length > 0);
     const scroll = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;

@@ -44,7 +44,7 @@ export function usePhoneSessionQuotes(input: {
   return {
     composer,
     loadOlder: () => owner.canLoadOlderHistory ? source.loadOlder() : Promise.resolve([]),
-    commands: { onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
+    commands: { onQuoteMessage: menus.onQuoteMessage, onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
       onConversationReply: source.reveal, flashMessageId: source.flashMessageId },
     capture: () => getSessionQuote(owner),
     prompt: (text: string, quote: SessionQuoteDraft | null) => quotedSessionPrompt(text, quote),

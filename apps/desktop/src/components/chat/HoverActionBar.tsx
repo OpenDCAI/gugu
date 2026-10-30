@@ -81,7 +81,7 @@ export function HoverActionBar({ isMine, isRetracted, anchorRef, reactButtonRef,
           anchor={() => anchorRef.current?.closest('[data-message-bubble-row]') ?? null}
           positionMethod="fixed" side="top" align={isMine ? 'start' : 'end'} sideOffset={2}
           collisionBoundary={boundary} collisionPadding={8} sticky
-          collisionAvoidance={{ side: 'shift', align: 'shift', fallbackAxisSide: 'none' }}
+          collisionAvoidance={{ side: anchorRef.current?.querySelector('.gg-chat-reply-jump') ? 'flip' : 'shift', align: 'shift', fallbackAxisSide: 'none' }}
         >
           <PreviewCard.Popup data-slot="popover-popup" className={`box-border outline-none ${popupMotion}`} style={barStyle} data-testid="message-hover-actions">
             {actions.map(([title, Icon, onClick, buttonRef]) => (

@@ -336,12 +336,12 @@ export const MessageBubble = memo(function MessageBubble({
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} onOpenTopic={onOpenTopicAnchor} />
-  const showSender = isGroup && !msg.is_mine && !groupedWithPrev && !card
+  const showSender = isGroup && !msg.is_mine && !groupedWithPrev && !card && !!avatarName
   // 时间在气泡右下角:正文是文字 ⇒ 和最后一行同一行;引用回复、附件、小组件 ⇒ 单独占最后一行。任务卡自己的行尾写着时间。
   const showTime = !hideTime && !card
   const timeInline = isRetracted || (msg.content_type === 'text' && !parseQuotedContent(msg.content ?? '')?.replyText)
   const timeRoom = `"${fmtMsgTime(msg.created_at)}"`
-
+  const replyQuote = msg.reply_to_message_id && showReplyQuote ? (isGroup ? <MessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} /> : <DirectMessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} />) : null
   return (
     <MessageHoverRegion enabled={!streaming && !compactMobile} forceOpen={showMoreMenu || showEmojiPicker}
       style={{
@@ -412,7 +412,6 @@ export const MessageBubble = memo(function MessageBubble({
           replyProcessMessageId={msg.is_mine ? undefined : msg.id} targetingLabels={mentionRender.fallbackLabels} activitySource={msg.is_mine ? { chatId: msg.chat_id, messageId: msg.id } : undefined}
           sentByAgent={msg.sent_by_agent} agentSender={msg.is_mine ? msg.agent_sender : null} forwardedFromMessageId={msg.forwarded_from_message_id ?? null} viaApp={msg.via_app ?? null} viaAppSender={msg.is_mine ? null : avatarName}
         />
-        {!isGroup && showReplyQuote && msg.reply_to_message_id && <DirectMessageQuote msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} />}
         {/* 气泡 + 表情回应这一块。工具条不再锚在这里:这一层是整列宽(70%/78%),锚在它的边上,
             短气泡的工具条会离气泡半屏远(owner 2a)。 */}
         <div style={{ width: '100%', minWidth: 0 }}>
@@ -465,7 +464,7 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
-            style={bubbleStyle} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
+            style={bubbleStyle} data-message-reply-footer={!showSender && !!replyQuote && showReplyQuote || undefined} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
             onPointerDown={e => { if (!nativeTextTarget(e.target)) longPress.onPointerDown(e) }}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
@@ -477,17 +476,16 @@ export const MessageBubble = memo(function MessageBubble({
             }}
           >
             {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
-            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} />}
+            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} replyMark={replyQuote} />}
             {isRetracted ? (
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
               <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
               <div className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
-                {isGroup && showReplyQuote && msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
-                  <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
+                  <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} />
                 ) : card ? (
-                  <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
+                  <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
                 ) : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
@@ -559,7 +557,7 @@ export const MessageBubble = memo(function MessageBubble({
                 })()}</div>}
               </div>
             )}
-            {showTime && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} />}
+            {!card && (showTime || (!showSender && replyQuote)) && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} replyMark={!showSender ? replyQuote : undefined} hideTime={!showTime} />}
           </div>
         </MessageHoverTrigger>
         {textSelection.selection && textSelection.root && <MessageSelectionToolbar root={textSelection.root} actions={textSelection.actions} />}

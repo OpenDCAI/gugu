@@ -79,7 +79,8 @@ import {
   saveTimelineArchive,
 } from './archive-store';
 import { watchSessionState, type SessionStateWatch } from './live-permissions';
-import { locateSessionRecord, type SessionRecordLocation } from './locate';
+import { locateSessionRecord, sessionRecordHarnessForProvider, type SessionRecordLocation } from './locate';
+import { hermesRecordedDeliveryIds } from './hermes-delivery-receipts';
 import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
 import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
@@ -985,6 +986,11 @@ export async function recordHistoryPage(input: {
 export async function recordedDeliveryIds(conversationId: string): Promise<string[] | null> {
   const turns = await recordTurns(conversationId);
   if (!turns) return null;
+  if (sessionRecordHarnessForProvider(readSessionRow(conversationId)?.provider) === 'hermes') {
+    const { withStoredTurns, readStoredTailNow } = await import('../sessions/session-turn-store');
+    const stored = await withStoredTurns(conversationId, () => readStoredTailNow(conversationId, Number.MAX_SAFE_INTEGER));
+    return hermesRecordedDeliveryIds(turns, stored);
+  }
   const ids = new Set<string>();
   for (const turn of turns) {
     for (const item of turn.items) {

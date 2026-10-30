@@ -2286,7 +2286,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     () => ({
       ...outputMenu.commands,
       onConversationReply: sourceMessage.reveal,
-      onMessageTextMount: quotes.onMessageTextMount,
+      onMessageTextMount: quotes.onMessageTextMount, onQuoteMessage: quotes.onQuoteMessage,
       flashMessageId: sourceMessage.flashMessageId,
       conversationAgentName: () => conversationAgentName,
       conversationAgentSession: () => store?.sessionId ?? null,
@@ -2420,7 +2420,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         if (store) dismissSubagent(store.sessionId, entryId);
       },
     }),
-    [store, quotes.onMessageTextMount, quotes.restorePrompt, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, quotes.onQuoteMessage, quotes.onMessageTextMount, quotes.restorePrompt, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching

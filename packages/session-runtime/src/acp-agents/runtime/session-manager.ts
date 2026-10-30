@@ -2210,6 +2210,7 @@ export class SessionManager implements InboundRouter {
       ...(provider?.capabilities.acp.sessionModes
         ? { sessionModes: provider.capabilities.acp.sessionModes }
         : {}),
+      historyRecovery: this.deps.agentHost.resolveAcp(input.providerId)?.behavior.historyRecovery,
       ...(() => {
         const turnFailure = this.deps.agentHost.resolveAcp(input.providerId)?.behavior.turnFailure;
         return turnFailure

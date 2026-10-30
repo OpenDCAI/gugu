@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fileBlob, type FileHandle, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { fileBlob, MissingFileObjectError, type FileHandle, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { fileSha256 } from '@gugu/core/shared/fileCipher'
 import { attachmentFileRef, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
 import { resolveFile, fileReader, fileReadSignal, attachmentCache, attachmentCacheOrigin } from './fileAccess'
@@ -29,10 +29,15 @@ export function sourceKeyOf(source: AttachmentSource): string {
   return source.kind === 'url' ? `url:${source.url}` : source.kind === 'item' ? `item:${source.itemId}@${source.version}` : source.kind === 'message' ? `msg:${source.messageId}` : source.kind === 'attachment' ? `attachment:${source.attachmentId}` : 'gone'
 }
 
-export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' }
+export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' | 'missing' }
 
 /** Thumbnails only display; original blobs are created exclusively from a fully verified file handle. */
 export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: FileRevision) => void): Promise<AttachmentBytes> {
+  try { return await readAttachmentBytes(source, variant, onLink) }
+  catch (error) { if (error instanceof MissingFileObjectError) return { status: 'missing' }; throw error }
+}
+
+async function readAttachmentBytes(source: AttachmentSource, variant: AttachmentVariant, onLink?: (link: FileRevision) => void): Promise<AttachmentBytes> {
   if (variant === 'thumb') {
     const preview = await attachmentPreview(source)
     if (preview.status !== 'ready') return preview
@@ -57,6 +62,7 @@ export type AttachmentView =
   | { status: 'ready'; objectUrl: string; link: FileRevision }
   | { status: 'gone' }
   | { status: 'expired' }
+  | { status: 'missing' }
   | { status: 'failed' }
 
 /** 缩略图在内存里只是一个 blob:记在本次运行里,超过这么久没人再取就丢。 */

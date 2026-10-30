@@ -13,7 +13,7 @@ interface FileAttachmentCardProps {
   details?: string
   /** The folder file's version this message pins, already worded ("第 2 版"): shown before the size. */
   versionLabel?: string
-  onOpen: () => void
+  onOpen?: () => void
   onDownload?: () => void
   downloadLabel?: string
 }
@@ -31,6 +31,7 @@ export function FileAttachmentCard({ file, isMine = false, details, versionLabel
         variant="ghost"
         size="option"
         onClick={onOpen}
+        disabled={!onOpen}
         aria-label={file.fileName}
         className="min-w-0 flex-1 justify-start text-left"
         style={{ minWidth: 0, padding: 0, border: 'none', background: 'none', color: 'inherit' }}

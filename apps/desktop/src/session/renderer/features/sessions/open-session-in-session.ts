@@ -59,13 +59,13 @@ export function openSessionInSessionWhenReady({
         ?.sessions.get(sessionId);
       if (!session) return;
       const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
-      if (onlyIfNoTabs && paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) return;
-
-      paneLayout?.open(
-        sessionTabKind(session.data.runtime),
-        { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
-        { preview }
-      );
+      if (!onlyIfNoTabs || !paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) {
+        paneLayout?.open(
+          sessionTabKind(session.data.runtime),
+          { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
+          { preview }
+        );
+      }
       onReady?.();
     },
     {
