@@ -1,4 +1,4 @@
-import { useState, type ComponentProps } from 'react';
+import { createContext, useContext, useState, type ComponentProps } from 'react';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
 /** The visible tabs, plus at most three recently viewed tabs. Never mount an unvisited restored tab. */
@@ -16,7 +16,15 @@ export function useRetainedTabs(available: readonly string[], shown: readonly st
   return new Set(next);
 }
 
+/** False inside a tab layer kept mounted but hidden (or inside one nested in it); true everywhere else. */
+export const TabLayerShownContext = createContext(true);
+
 /** Keeps layout and state while removing the hidden content from painting, focus, and find. */
-export function RetainedTabContent({ visible, style, ...props }: ComponentProps<'div'> & { visible: boolean }) {
-  return <div {...props} style={visible ? style : { ...RETAINED_SURFACE_HIDDEN_STYLE, ...style }} />;
+export function RetainedTabContent({ visible, style, children, ...props }: ComponentProps<'div'> & { visible: boolean }) {
+  const shown = useContext(TabLayerShownContext) && visible;
+  return (
+    <div {...props} style={visible ? style : { ...RETAINED_SURFACE_HIDDEN_STYLE, ...style }}>
+      <TabLayerShownContext.Provider value={shown}>{children}</TabLayerShownContext.Provider>
+    </div>
+  );
 }
