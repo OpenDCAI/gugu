@@ -26,7 +26,7 @@ export function ChatReplyQuote({ disclosure, onJump, children }: {
       <Popover.Trigger render={mark} />
       <Popover.Portal>
         <Popover.Positioner side="top" align="start" sideOffset={6} collisionPadding={8}>
-          <Popover.Popup className="gg-chat-reply-popup px-2 py-1.5" data-chat-reply-preview-popup>
+          <Popover.Popup className="gg-chat-reply-popup p-2" data-chat-reply-preview-popup>
             {preview}
           </Popover.Popup>
         </Popover.Positioner>
