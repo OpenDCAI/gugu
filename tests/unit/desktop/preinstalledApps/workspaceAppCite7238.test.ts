@@ -11,10 +11,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { json } from '@codemirror/lang-json'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import * as language from '@codemirror/language'
 import * as cmState from '@codemirror/state'
 import { EditorSelection } from '@codemirror/state'
 import * as cmView from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
+import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 // @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
@@ -88,7 +90,7 @@ const gugu = {
     return () => {}
   }),
   dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'g-1' } })),
-  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, json, view: cmView, state: cmState })),
+  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, json, view: cmView, state: cmState, language, lezerHighlight })),
   markdown: vi.fn(async () => md),
   // The file's text in the editor, as the binding puts it there.
   bind: {
