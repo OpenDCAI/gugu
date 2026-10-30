@@ -27,6 +27,7 @@
     "./session-record/tool-image": "./src/session-record/tool-image.ts",
     "./session-record/message-preview": "./src/session-record/message-preview.ts",
     "./session-record/search-documents": "./src/session-record/search-documents.ts",
+    "./session-record/visible-conversation-items": "./src/session-record/visible-conversation-items.ts",
     "./session-record/live-requests": "./src/session-record/live-requests.ts",
     "./session-record/reply-process": "./src/session-record/reply-process.ts",
     "./session-record/sent-attachment": "./src/session-record/sent-attachment.ts",
