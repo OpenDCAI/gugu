@@ -22,7 +22,7 @@ import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
 import { accountDataDir, accountIsBusy, listAccounts, readAccountActivity, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
-import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
+import { addBadVersion, ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountVersionConverger } from './server-account-converge'
 import { managedLayout, startServerUpdater } from './server-updater'
 
@@ -131,12 +131,13 @@ export async function runSupervisor(): Promise<void> {
   let stopping = false
 
   const layout = managedLayout()
-  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
   const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
+  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
   const versions = createAccountVersionConverger({
     layout,
-    followSupervisor,
     lifecycle,
+    followSupervisor,
+    coldStart: userId => !children.has(userId) && !backoff.has(userId),
     log,
     running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
     runningProcess: userId => {
@@ -162,6 +163,7 @@ export async function runSupervisor(): Promise<void> {
   const start = (userId: string): void => {
     // #6264 这个账号该跑哪一版:记着的那一版(装着)就从它的目录起;否则跑守护进程自己这一版。
     const pinned = versions.binaryFor(userId)
+    if (followSupervisor && !pinned && layout && !lifecycle?.ready(layout.version)) return
     const child = pinned
       ? spawn(pinned.binary, ['run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
       : spawn(process.execPath, [serverScript, 'run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
@@ -255,6 +257,13 @@ export async function runSupervisor(): Promise<void> {
     followSupervisor,
     shell,
   })
+  // Managed cold starts retain the controller's package choice, with the same account boot admission as every switch.
+  if (followSupervisor && lifecycle && layout) {
+    try { await lifecycle.stage(layout.version, async () => {}) } catch (error) {
+      addBadVersion(home, layout.version, Date.now())
+      log.warn('守护包未通过账号启动验证,保留原账号版本', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
   // #6264 升级看门狗读这份「我起来了、还活着」(没有账号登录时它是唯一的健康读数);每 30 秒续写一次。
   const health = (): void => writeSupervisorHealth(home, { version: process.env.GUGU_TASK_HOST_VERSION ?? null, pid: process.pid, startedAt })
   health()

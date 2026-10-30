@@ -3,7 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { checkAccountBoot } from '../../../../apps/desktop/electron/server/server-selftest'
+import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
 import { runSupervisor } from '../../../../apps/desktop/electron/server/server-supervisor'
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }))
@@ -22,6 +24,10 @@ vi.mock('../../../../apps/desktop/electron/server/server-upgrade-guard', async (
   ensureUpgradeGuard: () => undefined,
 }))
 
+vi.mock('../../../../apps/desktop/electron/server/server-selftest', () => ({
+  checkAccountBoot: vi.fn(async () => ({ runtimeOwned: true })),
+}))
+
 const U = '11111111-1111-4111-8111-111111111111'
 const A = '0.2.58-fc-staging.aaaaaaaa'
 const B = '0.2.58-fc-staging.bbbbbbbb'
@@ -36,6 +42,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   listeners = new Map(['exit', 'SIGTERM', 'SIGINT', 'SIGUSR2'].map((event) => [event, emitter.listeners(event)]))
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  vi.mocked(checkAccountBoot).mockReset().mockResolvedValue({ runtimeOwned: true })
   mocks.spawn.mockReset().mockImplementation(() => Object.assign(new EventEmitter(), { pid: 999, exitCode: null, signalCode: null, kill: vi.fn() }))
   for (const version of [A, B]) {
     const bin = path.join(home, 'versions', version, 'bin')
@@ -65,6 +72,57 @@ describe('supervisor cold-start package selection', () => {
     expect(mocks.spawn).toHaveBeenCalledTimes(1)
     expect(mocks.spawn.mock.calls[0]!.slice(0, 2)).toEqual([process.execPath, [process.argv[1], 'run-account', U]])
     expect(mocks.spawn.mock.calls[0]![2].env.GUGU_CLOUD_COMPUTER).toBe('1')
+  })
+  it('keeps the host alive and starts the previous pin when the managed package fails account boot admission', async () => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
+    await runSupervisor()
+    expect(checkAccountBoot).toHaveBeenCalledWith(path.join(home, 'versions', B, 'bin', 'gugu-server'))
+    expect(mocks.spawn.mock.calls[0]!.slice(0, 2)).toEqual([path.join(home, 'versions', A, 'bin', 'gugu-server'), ['run-account', U]])
+    expect(readAccountVersionPin(path.join(home, 'accounts', U, 'data'))?.version).toBe(A)
+    expect(readBadVersions(home)[B]).toBe(Date.now())
+  })
+  it.each(['none', 'same', 'missing'] as const)('does not launch a rejected managed package without a usable previous pin (%s)', async fallback => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    const data = path.join(home, 'accounts', U, 'data')
+    if (fallback === 'none') fs.rmSync(path.join(data, 'server-version.json'))
+    if (fallback === 'same') writeAccountVersionPin(data, { version: B, previous: null, at: Date.now() })
+    if (fallback === 'missing') fs.rmSync(path.join(home, 'versions', A, 'bin', 'gugu-server'))
+    vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
+    await runSupervisor()
+    expect(checkAccountBoot).toHaveBeenCalledWith(path.join(home, 'versions', B, 'bin', 'gugu-server'))
+    expect(readBadVersions(home)[B]).toBe(Date.now())
+    expect(mocks.spawn).not.toHaveBeenCalled()
+    expect(JSON.parse(fs.readFileSync(path.join(data, 'server-update.json'), 'utf8'))).toMatchObject({ state: 'failed', version: B })
+    await vi.advanceTimersByTimeAsync(9_000)
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+  it('retains failed admission when an account signs in after the managed host started', async () => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    const data = path.join(home, 'accounts', U, 'data')
+    fs.rmSync(path.join(data, 'server-session.enc'))
+    fs.rmSync(path.join(data, 'server-version.json'))
+    vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
+    await runSupervisor()
+    fs.writeFileSync(path.join(data, 'server-session.enc'), 'fixture')
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(mocks.spawn).not.toHaveBeenCalled()
+    expect(JSON.parse(fs.readFileSync(path.join(data, 'server-update.json'), 'utf8'))).toMatchObject({ state: 'failed', version: B })
+  })
+  it('does not reclassify quick-exit backoff or rollback as initial managed package selection', async () => {
+    vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+    await runSupervisor()
+    for (const delay of [3_000, 6_000, 9_000]) {
+      const child = mocks.spawn.mock.results.at(-1)!.value as EventEmitter
+      child.emit('exit', 1, null)
+      if (delay < 9_000) await vi.advanceTimersByTimeAsync(delay)
+    }
+    const data = path.join(home, 'accounts', U, 'data')
+    expect(readAccountVersionPin(data)?.version).toBe(A)
+    expect(readBadVersions(home)[B]).toBe(Date.now())
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(readAccountVersionPin(data)?.version).toBe(A)
+    expect(mocks.spawn).toHaveBeenCalledTimes(3)
   })
   it('ordinary SSH retains its existing pinned package at cold start', async () => {
     vi.stubEnv('GUGU_CLOUD_COMPUTER', '0')

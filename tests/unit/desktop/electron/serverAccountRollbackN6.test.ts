@@ -43,11 +43,13 @@ afterEach(() => {
 })
 
 describe.runIf(process.platform !== 'win32')('account rollback across supervisor backoff', () => {
-  it('keeps the explicit trial through real quick exits, rolls directly back to the legacy binary, and tells apply without timing out', async () => {
+  it.each([false, true])('keeps the explicit trial through real quick exits and direct rollback (managed=%s)', async followSupervisor => {
     const candidate = binary(target, `if(process.argv[3]===${JSON.stringify(userId)})process.exit(1);const fs=require('node:fs'),p=require('node:path'),d=process.env.GUGU_TASK_HOST_USER_DATA;fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt:Date.now(),at:Date.now(),busy:false,runtimeOwned:true}));setInterval(()=>{},1000)`)
     // The previous package deliberately has no PID readiness. Rollback must not stage or validate it.
     const previousBytes = fs.readFileSync(binary(previous))
-    const lifecycle = createServerVersionLifecycle({ layout: layout() })
+    const policyLayout = { ...layout(), version: followSupervisor ? target : affinity }
+    if (followSupervisor) pointCurrent(home, path.join(home, 'versions', target))
+    const lifecycle = createServerVersionLifecycle({ layout: policyLayout })
     await lifecycle.stage(target, async () => {})
     // Verify the competing desktop package too, so readiness cannot incidentally mask the takeover.
     binary(affinity, fs.readFileSync(candidate, 'utf8').split('\n').slice(1).join('\n'))
@@ -58,7 +60,7 @@ describe.runIf(process.platform !== 'win32')('account rollback across supervisor
     writeAccountVersionPin(data(), { version: previous, previous: null, at: 1 })
     let current: string | undefined = previous
     const stage = vi.fn(async () => { throw new Error('Rollback must use the installed previous package') })
-    const converger = createAccountVersionConverger({ layout: layout(), lifecycle, now: () => clock,
+    const converger = createAccountVersionConverger({ layout: policyLayout, lifecycle, followSupervisor, coldStart: () => false, now: () => clock,
       running: () => current, runningProcess: () => current ? { pid: process.pid, startedAt: 1 } : undefined,
       log: { info: vi.fn(), warn: vi.fn() }, restart: vi.fn(), stage })
     const accounts = listAccounts()
@@ -96,7 +98,7 @@ describe.runIf(process.platform !== 'win32')('account rollback across supervisor
     expect(converger.binaryFor(userId)?.version).toBe(previous)
     expect(fs.readFileSync(path.join(home, 'versions', previous, 'bin', 'gugu-server'))).toEqual(previousBytes)
     expect(stage).not.toHaveBeenCalled()
-    expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${affinity}`)
+    expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${policyLayout.version}`)
   })
 
   it('keeps every stored desktop reference, including lower versions, until that report is removed', () => {

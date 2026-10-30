@@ -1,4 +1,3 @@
-import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,7 +6,10 @@ import { recordDesktopReport, requestConfirmedVersionRestart, requestVersionRetr
 import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { createAccountVersionConverger, VERSION_FAILURE_COOLDOWN_MS } from '../../../../apps/desktop/electron/server/server-account-converge'
 import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
-import { listAccounts } from '../../../../apps/desktop/electron/server/server-layout'
+import { createServerVersionLifecycle, type ServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
+import { runMatchVersion } from '../../../../apps/desktop/electron/server/match-version-cli'
+import { createServerUpdateStateWriter, type ServerUpdateStateWriter } from '../../../../apps/desktop/electron/server/server-updater'
+import { listAccounts, type ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 import { judgeUpgrade, readBadVersions, readProbe, STABLE_MS, writeSupervisorHealth } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
 
 const U1 = '11111111-1111-4111-8111-111111111111'
@@ -17,13 +19,18 @@ const B = '0.2.58-fc-staging.bbbbbbbb'
 const NOW = 1_800_000_000_000
 let home: string
 let clock: number
-beforeEach(() => {
+let lifecycle: ServerVersionLifecycle
+beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-cloud-package-1003-'))
   vi.stubEnv('GUGU_SERVER_HOME', home)
   clock = NOW
   install(A)
   install(B)
   signIn(U1)
+  lifecycle = createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: B },
+    verifyBoot: async () => ({ runtimeOwned: true }) })
+  await lifecycle.stage(A, async () => {})
+  await lifecycle.stage(B, async () => {})
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -57,9 +64,13 @@ function fixture(supervisor: string, initial: string | undefined, managed = true
   const options = {
     layout: { home, versions: path.join(home, 'versions'), version: supervisor },
     followSupervisor: managed,
-    lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: supervisor } }),
+    coldStart: () => initial === undefined,
+    lifecycle,
     log: { info: () => undefined, warn },
-    stateWriter: () => ({ set: (state: string, version: string) => { states.push([state, version]) }, clear: () => undefined }),
+    stateWriter: (account: ServerAccount): ServerUpdateStateWriter => {
+      const writer = createServerUpdateStateWriter(account.dir, () => clock)
+      return { set(state, version, reason) { states.push([state, version]); writer.set(state, version, reason) }, clear: writer.clear }
+    },
     running: (id: string) => running.get(id),
     restart: (id: string) => void restarted.push(id),
     now: () => clock,
@@ -101,7 +112,7 @@ describe('managed cloud accounts follow the running supervisor package', () => {
   it('does not let a desktop-confirmed request interrupt a busy managed account', () => {
     report(A)
     pin(A)
-    requestConfirmedVersionRestart({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, B, true, clock)
+    requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, clock)
     const f = fixture(B, A)
     f.busy(true)
     f.converge()
@@ -111,6 +122,34 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     f.converge()
     expect(f.restarted).toEqual([U1])
     expect(readAccountVersionPin(data())?.version).toBe(B)
+  })
+  it('rejects a confirmed desktop target outside the managed controller package without interrupting work', () => {
+    pin(B)
+    const f = fixture(B, B)
+    f.busy(true)
+    expect(requestConfirmedVersionRestart({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, A, true, clock)).toBe(true)
+    f.converge()
+    expect(readAccountVersionPin(data())?.version).toBe(B)
+    expect(f.restarted).toEqual([])
+    expect(f.staged).toEqual([])
+    expect(f.states).toContainEqual(['failed', A])
+  })
+  it('reports a rejected managed target to apply instead of waiting for its timeout', async () => {
+    pin(B)
+    const f = fixture(B, B)
+    f.busy(true)
+    const error = vi.fn()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      clock += 1
+      const rc = await runMatchVersion(['--account', U1, '--apply', A, '--now'], vi.fn(), error, {
+        home, runningVersion: () => B, supervisorRunning: () => true, now: () => clock,
+        sleep: async () => { clock += 500; f.converge() },
+      })
+      expect(rc).toBe(6)
+    }
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining(A))
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining(B))
+    expect(f.restarted).toEqual([])
   })
   it('restarts only the mismatched account and does not repeatedly kill its draining process', () => {
     signIn(U2)
@@ -139,7 +178,7 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     restartedSupervisor.converge()
     expect(restartedSupervisor.c.binaryFor(U1)).toBeNull()
   })
-  it('desktop protocol reports and idle retry cannot bypass a failed managed package cooldown; a confirmed restart can', () => {
+  it('desktop protocol reports and ordinary Retry do not authorise a managed failure override; target-bound confirmation can', () => {
     pin(A)
     const f = fixture(B, undefined)
     f.converge()

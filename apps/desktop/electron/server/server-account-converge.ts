@@ -64,9 +64,11 @@ export type AccountVersionConverger = {
 
 export function createAccountVersionConverger(options: {
   layout: Layout | null
+  lifecycle: ServerVersionLifecycle | null
   /** 受控云电脑跟随控制器启动的守护包;普通 SSH 仍按桌面报告选包。 */
   followSupervisor?: boolean
-  lifecycle: ServerVersionLifecycle | null
+  /** Initial package selection only; restart/backoff never qualifies. */
+  coldStart?: (userId: string) => boolean
   log: SupervisorLog
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
@@ -85,8 +87,8 @@ export function createAccountVersionConverger(options: {
   exists?: (file: string) => boolean
 }): AccountVersionConverger {
   const { layout, log } = options
-  const followSupervisor = options.followSupervisor === true
   if (layout && !options.lifecycle) throw new Error('Supervisor version lifecycle is required')
+  const followSupervisor = options.followSupervisor === true
   const now = options.now ?? Date.now
   const exists = options.exists ?? ((file: string) => fs.existsSync(file))
   const makeWriter = options.stateWriter ?? ((account: ServerAccount) => createServerUpdateStateWriter(account.dir))
@@ -239,7 +241,7 @@ export function createAccountVersionConverger(options: {
           }
         }
         if (last && now() - last.at > ROLLBACK_WINDOW_MS) switches.delete(account.userId)
-        // 控制器已经校验并启动了这个包。文件缺失应修复安装,不能按桌面目标反复下载自己的版本。
+        // The managed package is already local; a missing binary is an installation failure, not a download request.
         if (followSupervisor && !installed(layout.version)) {
           stateOf(account).set('failed', layout.version)
           if (now() - missingSupervisorWarnAt >= 60_000) {
@@ -255,24 +257,32 @@ export function createAccountVersionConverger(options: {
         if (waiting && current !== undefined && current !== waiting) continue
         pending.delete(account.userId)
         // 没在跑(正在退避重启):它下次起来用的那一版。
-        const effective = current !== undefined ? current : (binaryFor(account.userId)?.version ?? layout.version)
+        const effective = current !== undefined ? current : (binaryFor(account.userId)?.version ?? (followSupervisor ? null : layout.version))
         const state = stateOf(account)
-        const selectedTarget = (request?.confirmed ? request.target : undefined)
-          ?? pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version
+        if (followSupervisor && request?.confirmed && request.target && request.target !== layout.version) {
+          state.clear() // Each rejected command needs a fresh failure timestamp for its waiting CLI.
+          state.set('failed', request.target)
+          log.warn('受控云账号只跟随守护进程的包,不能确认切到其他版本', { account: account.userId, requested: request.target, version: layout.version })
+          fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
+          continue
+        }
+        const selectedTarget = followSupervisor ? layout.version : ((request?.confirmed ? request.target : undefined)
+          ?? pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version)
+        const confirmed = request?.confirmed === true && request.target === selectedTarget
         const targetUnverified = installed(selectedTarget) && options.lifecycle?.ready(selectedTarget) === true
           && !options.lifecycle.runtimeOwned(selectedTarget)
         const plan = planAccountVersion({
           reports,
           now: now(),
           running: effective,
-          switchRequested: !followSupervisor && request !== null,
+          switchRequested: request !== null && (!followSupervisor || confirmed),
           requestedTarget: !followSupervisor && request?.confirmed ? request.target : undefined,
-          switchConfirmed: request?.confirmed === true && request.target === selectedTarget,
+          switchConfirmed: confirmed,
           installed: version => installed(version) && options.lifecycle?.ready(version) === true,
-          // No child is restart/backoff, never positive evidence of idle. Preserve its pin/trial.
-          busy: targetUnverified || current === undefined || (options.busy?.(account.dataDir)
-            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId))),
-          failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
+          // Initial managed package selection is not a restart; missing children in backoff remain busy.
+          busy: targetUnverified || (current === undefined ? !(followSupervisor && options.coldStart?.(account.userId)) : (options.busy?.(account.dataDir)
+            ?? accountIsBusy(account.dataDir, now(), options.runningProcess?.(account.userId)))),
+          failed: (version) => failed(version, followSupervisor && !confirmed ? null : request),
           fallback: layout.version,
           unpublished,
         })
@@ -309,7 +319,7 @@ export function createAccountVersionConverger(options: {
                   // Target / current child can change while the local handshake is in flight.
                   if (options.running(account.userId) !== current
                     || options.runningProcess?.(account.userId)?.pid !== child?.pid
-                    || (pickTargetVersion(readDesktopReports(account.dataDir), now(), undefined, unpublished) ?? layout.version) !== plan.version) return
+                    || (followSupervisor ? layout.version : (pickTargetVersion(readDesktopReports(account.dataDir), now(), undefined, unpublished) ?? layout.version)) !== plan.version) return
                   state.clear()
                   switchTo(account, plan.version, effective, false)
                   switched = true
