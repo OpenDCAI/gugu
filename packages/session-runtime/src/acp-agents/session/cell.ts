@@ -104,6 +104,8 @@ export class SessionCell {
   private lastRunningAgentCount = 0;
   /** #7342 最后一次上下文读数到达那一刻会话自报的模型 —— 读数归它,换了模型就不归了(上限随模型变)。 */
   private usageModelIdAtReport: string | null = null;
+  /** harness 报的这条会话记录的路径(`transcript_path` 事件);还没报 = null。 */
+  private reportedTranscriptPath: string | null = null;
   private lastRunningCommandTaskIds: readonly string[] = [];
   /**
    * 还活着的子智能体会话:**界面可能拿来指认它的每一个 id** → 要投递取消的那个会话号(#5117)。
@@ -336,6 +338,10 @@ export class SessionCell {
     return this.transcript.usage ? this.usageModelIdAtReport : null;
   }
 
+  get transcriptPath(): string | null {
+    return this.reportedTranscriptPath;
+  }
+
   history(): AcpChatHistory {
     return {
       committed: structuredClone([...this.transcript.history]),
@@ -522,6 +528,12 @@ export class SessionCell {
     }
     if (event.kind === 'agent_state') {
       this.onAgentState(event);
+      return;
+    }
+    if (event.kind === 'transcript_path') {
+      if (event.path === this.reportedTranscriptPath) return;
+      this.reportedTranscriptPath = event.path;
+      this.deps.callbacks?.onSessionStateChanged?.();
       return;
     }
     if (event.kind === 'interrupted_for_message') {

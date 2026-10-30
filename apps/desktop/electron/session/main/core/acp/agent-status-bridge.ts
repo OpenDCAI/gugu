@@ -3,6 +3,7 @@ import type { Unsubscribe } from '@gugu/session-shared';
 import { ReplicaState } from '@gugu/session-wire';
 import { z } from 'zod';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
+import { learnHarnessConfigRoot } from '@main/core/agent-hooks/harness-config-roots';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
@@ -132,6 +133,10 @@ class AcpAgentStatusBridge {
       this.activity.observe(previous, summary);
       this.applyActions(this.derive(previous, summary));
       if (summary.title && summary.title !== previous?.title) this.applyTitle(summary);
+      // harness 报来的会话记录路径:与终端腿的 hook 走同一个入口,认出它实际用的配置目录(见 harness-config-roots)。
+      if (summary.transcriptPath && summary.transcriptPath !== previous?.transcriptPath) {
+        learnHarnessConfigRoot({ sessionId: summary.sessionId, providerId: summary.providerId, report: { transcript_path: summary.transcriptPath } });
+      }
       this.applyContextUsage(summary);
       this.summaries.set(summary.sessionId, summary);
     }
