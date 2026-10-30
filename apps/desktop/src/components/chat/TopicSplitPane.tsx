@@ -296,7 +296,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     isFiltering,
     mobile,
     memberReadSeqs, queuedIds,
-    isAgentChat: false,
     // 话题是多人线 ⇒ 与群同口径,收到的气泡上方显发送者名。
     isGroupChat: true,
     memberProfiles,
@@ -314,7 +313,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     // 单层不嵌套:onOpenTopic 给 undefined —— 话题里的消息不给「开话题」入口,也就没有锚点卡
     // (spec「必须有来源」:话题上不再开话题)。MessageBubble 的菜单项只在收到这个 handler 时才画。
     onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
-    // 本地文件链接只有 agent 私聊映射得到(useAgentSessionpagePresentation);搜索、三方、自动调档提示是主线的面。
+    // 本地文件链接只有 agent 私聊映射得到(会话宿主);搜索、三方、自动调档提示是主线的面。
     onOpenLocalFileLink: undefined, highlight: isFiltering ? searchQuery : undefined, threeParty: undefined, agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined,
     // 分栏没有多选态 ⇒ 不给「多选」菜单项(给 noop 就是一个点了没反应的死项)。
     selectMode: false,

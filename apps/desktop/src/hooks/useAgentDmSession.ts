@@ -11,7 +11,7 @@ const log = rendererLogger('chat/agent-dm-session')
 
 /**
  * 和 agent 的私聊画的是它那条会话的记录(任务页同一个 ChatTranscript):这个 agent 在哪台机器的哪条会话。
- * 解析不到也说清楚是哪一种 —— 私聊里直接给这句话和重试(AgentDmUnavailable),❌ 退回老的气泡列表。
+ * 解析不到也说清楚是哪一种 —— 已有 DM 仍由共享转录展示；这个结果只决定是否还能读取会话过程。
  */
 export type AgentDmSession =
   | { state: 'resolving' }
@@ -22,7 +22,7 @@ export type AgentDmSession =
 
 /**
  * 本机的 agent 问本机宿主(会话页的 agent 映射,`useSessionpageAgentProjection`);别的机器上的从会话目录里找
- * (`useAgentSessionRow`,与手机「在任务中打开」同一份)。桌面项目页与手机私聊都用它。
+ * (`useAgentSessionRow`)。桌面项目页与手机私聊都用它。
  */
 export function useAgentDmSession(agentUserId: string | null): { session: AgentDmSession; retry: () => void } {
   const { user } = useAuth()

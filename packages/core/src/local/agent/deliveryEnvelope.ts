@@ -73,7 +73,7 @@ const RETURN_TOOL_BY_ROUTE: Record<Exclude<GuguRoutedKind, 'extension' | 'system
  * ⚠️ 它点了工具名，与「信封只带现场事实、不复述工具」的洁癖冲突 —— 那是 #3802 那一轮自己加的
  * 棘轮，owner 的 A+B 设计明确要求 A 带上「用什么工具回」。实测优先于洁癖。
  */
-export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null = null): string {
+export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null = null, chatKind?: ChatKind | null): string {
   // #7199 咕咕自己交给这条会话去做的一件事(助理开通后的初始化):与通知相反,它**是**要做的事 —— 照做;
   // 没有人可回,结果按任务里写的去处发(与下面 #7221 的「到点」同一种回程)。
   if (route === 'system' && mode === 'task') {
@@ -99,7 +99,8 @@ export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null 
   if (mode === 'notice') {
     return `A 咕咕 system notice, not a request; anything you do post about it goes through ${RETURN_TOOL_BY_ROUTE[route]} — what you print here does not reach the chat.`
   }
-  return `Sent to you through 咕咕; what you print here does not reach the sender — reply with ${RETURN_TOOL_BY_ROUTE[route]}.`
+  const hint = `Sent to you through 咕咕; what you print here does not reach the sender — reply with ${RETURN_TOOL_BY_ROUTE[route]}.`
+  return route === 'chat' && chatKind === 'dm' ? `${hint} After replying through message_send, finish this turn without repeating the answer or adding a separate task summary here.` : hint
 }
 
 /** #6562 没有发送者的系统消息是通知:不是请求。 */
@@ -115,6 +116,8 @@ export type DeliveryMode = 'notice' | 'task'
 type CommonEnvelopeFacts = {
   /** 人读的发信方；`null` = 可展示内容只剩 `fromId` 本身，那一格已经把事实带到了。 */
   from: string | null
+  /** Platform-resolved actor kind; absent when the identity directory did not report it. */
+  fromType?: 'human' | 'agent'
   /** 人读的送达时刻。 */
   at: string
   /** chat 路由的群号锚（服务端认它）；其余渠道缺席。 */
@@ -200,6 +203,7 @@ export function renderDeliveryEnvelope(facts: DeliveryEnvelopeFacts): string {
     attr('route', facts.route),
     attr('from', facts.from),
     attr('from_id', facts.fromId),
+    attr('from_type', facts.fromType),
     attr('via_app', facts.viaApp),
     attr('schedule', facts.schedule),
     attr('post', facts.post),
@@ -243,7 +247,7 @@ export function renderDeliveryEnvelope(facts: DeliveryEnvelopeFacts): string {
   // ⚠️ 批量外框 `renderDeliveryEnvelopes` 的 arrival 位置**不在本次改动内**(归 delivery-routing 治理)。
   lines.push(
     `<![CDATA[${toCdata(facts.content)}]]>`,
-    `  <arrival>${escapeXmlText(arrivalHint(facts.route, facts.mode ?? null))}</arrival>`,
+    `  <arrival>${escapeXmlText(arrivalHint(facts.route, facts.mode ?? null, facts.chatKind))}</arrival>`,
     '</gugu_delivery>',
   )
   return lines.join('\n')
@@ -272,6 +276,7 @@ export function mergeDeliveryEnvelopes(envelopes: readonly string[]): string {
 
 /** 读出来的一条投递的现场事实:名字与 `DeliveryEnvelopeFacts` 一一对应,`null` = 这条信封没带这一格。 */
 export type DeliveryReadFacts = {
+  fromType?: string | null
   sourceLink?: string
   route: string
   from: string | null
@@ -425,6 +430,7 @@ function readSegment(envelope: XmlElement): DeliverySegment | null {
       route: attr('route') ?? 'chat',
       from: attr('from'),
       fromId: attr('from_id'),
+      ...(attr('from_type') ? { fromType: attr('from_type') } : {}),
       chat: attr('chat'),
       chatKind: attr('chat_kind'),
       whisperTo: attr('whisper_to'),
@@ -708,6 +714,8 @@ export function buildAgentDeliveryEnvelope(
     from: systemSender ? '咕咕系统' : identityShown(guguIds, input.senderUserId!),
     // A system event has no addressable identity.users row. Never fabricate user:null.
     fromId: systemSender ? 'system:gugu' : encodeTypedId('user', input.senderUserId!),
+    ...(!systemSender && guguIds.get(input.senderUserId!)?.isAgent !== undefined
+      ? { fromType: guguIds.get(input.senderUserId!)!.isAgent ? 'agent' as const : 'human' as const } : {}),
     messageId: encodeTypedId('msg', input.messageId),
     at: timestamp,
     chat: isSessionDirect ? null : chatAnchor,
@@ -931,4 +939,10 @@ function escapeXmlAttribute(value: string): string {
 
 function toCdata(value: string): string {
   return value.replaceAll(']]>', ']]]]><![CDATA[>')
+}
+
+/** Human DMs use the same manual queue as the project composer; agent communications keep their own admission policy. */
+export function isHumanDmDelivery(text: string): boolean {
+  const parts = readDeliveryEnvelope(text)?.segments
+  return !!parts?.length && parts.every(({ facts }) => facts?.route === 'chat' && facts.fromType === 'human' && (facts.chatKind === 'ai' || facts.chatKind === 'dm'))
 }

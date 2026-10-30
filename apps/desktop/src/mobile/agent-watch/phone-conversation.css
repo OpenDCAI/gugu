@@ -24,34 +24,6 @@
   padding: var(--spacing-lg) var(--spacing-sm) 0;
 }
 
-.gg-aw .gg-aw-thread-host [data-slot='aui_message-group'] {
-  gap: var(--spacing-2xl);
-  margin-bottom: var(--spacing-2xl);
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='aui_assistant-message-content'] {
-  padding-inline: var(--spacing-sm);
-  font-size: var(--font-prose);
-  line-height: var(--lh-prose);
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='aui_user-message-root'] {
-  grid-template-columns: minmax(var(--spacing-xl), 1fr) auto;
-  padding-inline: var(--spacing-sm);
-}
-
-.gg-aw .gg-aw-thread-host .aui-user-message-content {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-bubble);
-  background: var(--muted);
-  font-size: var(--font-prose);
-  line-height: var(--lh-prose);
-  text-align: start;
-  user-select: text;
-}
-
 .gg-aw .gg-aw-thread-host .aui-thread-viewport-footer {
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) 0 max(var(--spacing-sm), env(safe-area-inset-bottom));
@@ -71,46 +43,6 @@
   background: transparent;
   font-size: var(--font-caption);
   font-weight: var(--font-weight-regular);
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='tool-group-trigger'],
-.gg-aw .gg-aw-thread-host [data-slot='tool-fallback-trigger'] {
-  min-height: var(--control-h-touch);
-  padding-block: var(--spacing-sm);
-  touch-action: manipulation;
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='tool-group-root'] {
-  padding-block: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='tool-group-trigger-label'],
-.gg-aw .gg-aw-thread-host [data-slot='tool-fallback-trigger-label'] {
-  font-size: var(--font-body);
-  line-height: var(--lh-body);
-}
-
-.gg-aw .gg-aw-thread-host .aui-thread-scroll-to-bottom {
-  min-width: var(--control-h-touch);
-  min-height: var(--control-h-touch);
-  touch-action: manipulation;
-}
-
-.gg-aw .gg-aw-thread-host .gg-aw-card {
-  border: 0;
-  background: var(--warn-tint);
-}
-
-.gg-aw .gg-aw-thread-host .gg-aw-card[data-state='resolved'],
-.gg-aw .gg-aw-thread-host .gg-aw-card[data-state='cancelled'] {
-  background: var(--muted);
-}
-
-.gg-aw .gg-aw-thread-host .gg-aw-action-error {
-  border-radius: var(--radius-surface);
 }
 
 .gg-aw .gg-aw-create-intro {
