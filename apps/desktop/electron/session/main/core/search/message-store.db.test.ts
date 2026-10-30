@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { RawMessageRow } from '@gugu/core/cloud/messageItem';
+import { MESSAGES_VIEW_SELECT, type RawMessageRow } from '@gugu/core/cloud/messageItem';
 import type { SearchQuery } from '@gugu/core/shared/search/types';
 import { AccountMessageSearch, MessageSearchStore } from './message-store';
 
@@ -18,7 +18,8 @@ const groups = { kind: 'chats' as const, chats: [
   { id: 'other', kind: 'group' as const, sourceChatId: null },
 ] };
 function row(id: string, extra: Record<string, unknown> = {}): RawMessageRow {
-  return { id, chat_id: 'g', sender_user_id: 'peer', to_user_ids: null, seq: 1, content: '發佈計劃', content_type: 'text',
+  return { ...Object.fromEntries(MESSAGES_VIEW_SELECT.split(', ').map((field) => [field, null])),
+    id, chat_id: 'g', sender_user_id: 'peer', to_user_ids: null, seq: 1, content: '發佈計劃', content_type: 'text',
     created_at: at, thread_root_id: null, is_whisper: false, reply_to_message_id: null, ...extra };
 }
 function open(id = account) {
@@ -30,6 +31,19 @@ const ftsRows = (store: MessageSearchStore) => {
   const db = new Database(store.path, { readonly: true });
   try { return (db.prepare('SELECT count(*) AS n FROM msg_fts').get() as { n: number }).n; } finally { db.close(); }
 };
+function storedRows(store: MessageSearchStore, table: 'msg' | 'coverage' | 'chat', chatId?: string): number {
+  const db = new Database(store.path, { readonly: true });
+  try {
+    const column = table === 'chat' ? 'id' : 'chat_id';
+    return (db.prepare(`SELECT count(*) AS n FROM ${table}${chatId ? ` WHERE ${column}=?` : ''}`)
+      .get(...(chatId ? [chatId] : [])) as { n: number }).n;
+  } finally { db.close(); }
+}
+function matchingFtsRows(store: MessageSearchStore, term: string): number {
+  const db = new Database(store.path, { readonly: true });
+  try { return (db.prepare('SELECT count(*) AS n FROM msg_fts WHERE msg_fts MATCH ?').get(term) as { n: number }).n; }
+  finally { db.close(); }
+}
 
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'message-search-')); });
 afterEach(() => {
@@ -45,14 +59,18 @@ describe('account message index on real SQLite FTS5', () => {
     expect(store.global(query('发布')).results.map((hit) => [hit.id, hit.createdAt, hit.highlights]))
       .toEqual([['m', at, [{ start: 0, end: 2 }]]]);
     expect(ftsRows(store)).toBe(1);
+    expect(storedRows(store, 'msg')).toBe(1);
   });
 
   it('removes a deleted message from the table and the full-text index', () => {
     const store = open();
-    store.apply([groups, { kind: 'rows', rows: [row('m'), row('n', { seq: 2 })] }]);
+    store.apply([groups, { kind: 'rows', rows: [row('m', { content: '发布 deletedneedle' }), row('n', { seq: 2, content: '发布 retainedneedle' })] }]);
+    expect(matchingFtsRows(store, 'deletedneedle')).toBe(1);
     store.apply([{ kind: 'remove', ids: ['m'] }]);
     expect(ids(store, '发布')).toEqual(['n']);
     expect(ftsRows(store)).toBe(1);
+    expect(matchingFtsRows(store, 'deletedneedle')).toBe(0);
+    expect(matchingFtsRows(store, 'retainedneedle')).toBe(1);
   });
 
   it('replaces a row re-read as retracted, and drops rows that carry nothing searchable', () => {
@@ -65,11 +83,18 @@ describe('account message index on real SQLite FTS5', () => {
 
   it('purges every row and coverage of a chat that leaves the authoritative list', () => {
     const store = open();
-    store.apply([groups, { kind: 'rows', rows: [row('m'), row('x', { chat_id: 'other' })] },
+    store.apply([groups, { kind: 'rows', rows: [row('m'), row('x', { chat_id: 'other', content: '发布 droppedneedle' })] },
+      { kind: 'coverage', coverage: { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: true } },
       { kind: 'coverage', coverage: { chatId: 'other', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: true } }]);
+    expect(storedRows(store, 'msg', 'other')).toBe(1);
+    expect(matchingFtsRows(store, 'droppedneedle')).toBe(1);
     store.apply([{ kind: 'chats', chats: groups.chats.filter((chat) => chat.id !== 'other') }]);
     expect(ids(store, '发布')).toEqual(['m']);
-    expect(store.coverage()).toEqual([]);
+    expect(store.coverage()).toEqual([{ chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: true }]);
+    expect(storedRows(store, 'msg', 'other')).toBe(0);
+    expect(storedRows(store, 'coverage', 'other')).toBe(0);
+    expect(storedRows(store, 'chat', 'other')).toBe(0);
+    expect(matchingFtsRows(store, 'droppedneedle')).toBe(0);
     // A row of a chat that is not listed is not kept.
     store.apply([{ kind: 'rows', rows: [row('late', { chat_id: 'other' })] }]);
     expect(ids(store, '发布')).toEqual(['m']);
@@ -78,10 +103,16 @@ describe('account message index on real SQLite FTS5', () => {
   it('clears one chat for me without touching another', () => {
     const store = open();
     store.apply([groups, { kind: 'rows', rows: [row('m'), row('x', { chat_id: 'other' })] },
-      { kind: 'coverage', coverage: { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: true } }]);
+      { kind: 'coverage', coverage: { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: true } },
+      { kind: 'coverage', coverage: { chatId: 'other', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: false } }]);
+    expect(storedRows(store, 'msg', 'g')).toBe(1);
+    expect(storedRows(store, 'coverage', 'g')).toBe(1);
     store.apply([{ kind: 'clearChat', chatId: 'g' }]);
     expect(ids(store, '发布')).toEqual(['x']);
-    expect(store.coverage()).toEqual([]);
+    expect(store.coverage()).toEqual([{ chatId: 'other', threadRootId: null, oldestSeq: 1, newestSeq: 1, exhausted: false }]);
+    expect(storedRows(store, 'msg', 'g')).toBe(0);
+    expect(storedRows(store, 'coverage', 'g')).toBe(0);
+    expect(storedRows(store, 'msg', 'other')).toBe(1);
   });
 
   it('applies one list of ops atomically', () => {
@@ -89,6 +120,19 @@ describe('account message index on real SQLite FTS5', () => {
     store.apply([groups]);
     expect(() => store.apply([{ kind: 'rows', rows: [row('m')] }, { kind: 'rows', rows: [row('bad', { created_at: 'yesterday' })] }])).toThrow();
     expect(ids(store, '发布')).toEqual([]);
+  });
+
+  it.each([
+    ['empty', { content: '   ' }],
+    ['malformed', { sender_user_id: undefined }],
+  ])('removes a previously indexed row when re-read as %s', (_name, patch) => {
+    const store = open();
+    store.apply([groups, { kind: 'rows', rows: [row('m', { content: 'oldneedle' }), row('n')] }]);
+    expect(matchingFtsRows(store, 'oldneedle')).toBe(1);
+    store.apply([{ kind: 'rows', rows: [row('m', patch)] }]);
+    expect(matchingFtsRows(store, 'oldneedle')).toBe(0);
+    expect(ids(store, '发布')).toEqual(['n']);
+    expect(storedRows(store, 'msg')).toBe(1);
   });
 
   it('filters by topic inheritance, sender, attachment, mention and whisper', () => {
@@ -117,13 +161,16 @@ describe('account message index on real SQLite FTS5', () => {
 
   it('anchors a date-only query on the first message of that local day', () => {
     const store = open();
+    const start = new Date(2026, 9, 27).getTime();
+    const next = new Date(2026, 9, 28).getTime();
     store.apply([groups, { kind: 'rows', rows: [
-      row('late', { seq: 2, created_at: '2026-10-27T20:00:00+00:00' }),
-      row('first', { seq: 1, created_at: '2026-10-27T01:00:00+00:00' }),
+      row('previous', { seq: 1, created_at: new Date(start - 1).toISOString() }),
+      row('first', { seq: 2, created_at: new Date(start).toISOString() }),
+      row('late', { seq: 3, created_at: new Date(next - 1).toISOString() }),
+      row('next', { seq: 4, created_at: new Date(next).toISOString() }),
     ] }]);
-    const day = new Date('2026-10-27T01:00:00Z');
-    const on = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-    expect(store.dateAnchor({ text: '', filters: { on }, sort: 'recent' })).toBe('first');
+    expect(store.dateAnchor({ text: '', filters: { on: '2026-10-27' }, sort: 'recent' })).toBe('first');
+    expect(ids(store, '', { on: '2026-10-27' })).toEqual(['late', 'first']);
   });
 
   it('reports coverage per stream and completeness per listed chat', () => {
@@ -136,19 +183,39 @@ describe('account message index on real SQLite FTS5', () => {
     expect(store.global(query('x')).coverage.complete).toBe(false);
   });
 
-  it('keeps rows across reopen and rebuilds an index of an older schema version', () => {
+  it('keeps rows across reopen at the same schema version', () => {
     const first = open();
     first.apply([groups, { kind: 'rows', rows: [row('m')] }]);
     first.close();
     expect(ids(open(), '发布')).toEqual(['m']);
-    opened.splice(0).forEach((store) => store.close());
-    const db = new Database(first.path);
-    db.prepare("UPDATE search_meta SET value='3:1' WHERE key='version'").run();
-    db.close();
-    expect(ids(open(), '发布')).toEqual([]);
   });
 
-  it('deletes the previous account index on sign-out and account switch', async () => {
+  it('rebuilds an actual schema-3 file, removes its actor tables, and accepts new schema-4 writes', () => {
+    mkdirSync(join(root, 'search'));
+    const path = join(root, 'search', account + '.sqlite');
+    const legacy = new Database(path);
+    try {
+      legacy.exec(readFileSync(join(__dirname, 'fixtures/message-search-schema3.sql'), 'utf8'));
+      legacy.prepare("INSERT INTO search_meta VALUES ('version', '3:1')").run();
+      legacy.prepare("INSERT INTO chat VALUES ('g', 'Legacy group', 'group', NULL)").run();
+      legacy.prepare(`INSERT INTO msg
+        (id,chat_id,seq,sender_id,created_at,created_at_iso,text,body,is_whisper,to_user_ids,has_file,has_image,has_link)
+        VALUES ('legacy','g',1,'peer',0,'1970-01-01T00:00:00Z','legacyneedle','legacyneedle',0,'[]',0,0,0)`).run();
+      expect((legacy.prepare('SELECT count(*) AS n FROM msg').get() as { n: number }).n).toBe(1);
+    } finally { legacy.close(); }
+    const store = open();
+    const rebuilt = new Database(path, { readonly: true });
+    try {
+      expect(rebuilt.prepare("SELECT value FROM search_meta WHERE key='version'").get()).toEqual({ value: '4:1' });
+      expect(rebuilt.prepare("SELECT name FROM sqlite_master WHERE name IN ('actor_scope','msg_actor')").all()).toEqual([]);
+    } finally { rebuilt.close(); }
+    expect(storedRows(store, 'msg')).toBe(0);
+    expect(matchingFtsRows(store, 'legacyneedle')).toBe(0);
+    store.apply([groups, { kind: 'rows', rows: [row('new')] }]);
+    expect(ids(store, '发布')).toEqual(['new']);
+  });
+
+  it('deletes the previous account index on sign-out', async () => {
     let current: string | null = account;
     const search = new AccountMessageSearch(() => root, async () => current, async () => true);
     search.accountChanged(account);
@@ -164,5 +231,23 @@ describe('account message index on real SQLite FTS5', () => {
     const search = new AccountMessageSearch(() => root, async () => account, async () => false);
     await expect(search.apply([groups])).rejects.toThrow(/not enabled/);
     expect(existsSync(join(root, 'search'))).toBe(false);
+  });
+
+  it('deletes all previous-account files on switch and starts the next account with no old hits', async () => {
+    let current: string | null = account;
+    const search = new AccountMessageSearch(() => root, async () => current, async () => true);
+    const files = (id: string) => ['', '-wal', '-shm'].map((suffix) => join(root, 'search', id + '.sqlite' + suffix));
+    try {
+      await search.apply([groups, { kind: 'rows', rows: [row('old-account-message')] }]);
+      for (const path of files(account)) expect(existsSync(path), path).toBe(true);
+      current = 'account-b';
+      search.accountChanged(current);
+      for (const path of files(account)) expect(existsSync(path), path).toBe(false);
+      await search.apply([groups, { kind: 'rows', rows: [row('new-account-message')] }]);
+      expect((await search.global(query('发布'))).results.map((hit) => hit.id)).toEqual(['new-account-message']);
+      current = null;
+      search.accountChanged(null);
+      for (const path of files('account-b')) expect(existsSync(path), path).toBe(false);
+    } finally { search.accountChanged(null); }
   });
 });
