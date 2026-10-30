@@ -1,3 +1,5 @@
+import type { RawMessageRow } from '../../cloud/messageItem'
+
 /** Portable search data. Storage IDs are bare; tool-boundary IDs use typedId.mjs. */
 export interface SearchQuery {
   text: string
@@ -40,6 +42,8 @@ export interface SearchDocument {
   senderId: string | null
   createdAt: string
   text: string
+  /** Original fetched row for the existing message mapper; absent rows cannot hydrate chat context. */
+  rawMessage?: RawMessageRow
   isWhisper: boolean
   toUserIds: string[]
   deletedAt: string | null

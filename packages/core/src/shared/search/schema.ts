@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 export const EXTRACTOR_VERSION = 1
 
 /** One database per account. Compare UTC epoch microseconds; preserve the original message ISO string. */
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS msg (
   sender_id TEXT,
   created_at INTEGER NOT NULL,
   created_at_iso TEXT NOT NULL,
+  raw_message_json TEXT CHECK (raw_message_json IS NULL OR (json_valid(raw_message_json) AND json_type(raw_message_json) = 'object')),
   text TEXT NOT NULL,
   body TEXT NOT NULL,
   is_whisper INTEGER NOT NULL CHECK (is_whisper IN (0, 1)),

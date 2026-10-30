@@ -1,10 +1,11 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { messageItemFromRow } from '../../cloud/messageItem'
 import { SEARCH_SCHEMA_SQL } from './schema'
 import { segment } from './segment'
 import { buildSearchSql } from './sql'
 import { searchTimestampMicros } from './time'
-import type { SearchQuery } from './types'
+import type { SearchDocument, SearchQuery } from './types'
 
 const open: DatabaseSync[] = []
 afterEach(() => { for (const db of open.splice(0)) db.close() })
@@ -16,12 +17,12 @@ function fixture() {
   db.exec(SEARCH_SCHEMA_SQL)
   db.exec(`INSERT INTO chat VALUES ('g','group','group',NULL),('t','topic','topic','g'),('other','other','group',NULL);
     INSERT INTO actor_scope VALUES ('owner','g',1,NULL),('owner','t',1,NULL),('owner','other',1,NULL),('agent','g',0,NULL);`)
-  function put(id: string, text: string, options: { chat?: string; to?: string[]; whisper?: boolean; seq?: number; at?: string } = {}) {
+  function put(id: string, text: string, options: { chat?: string; to?: string[]; whisper?: boolean; seq?: number; at?: string; rawMessage?: SearchDocument['rawMessage'] } = {}) {
     const seq = options.seq ?? 1
     const at = options.at ?? '2026-10-29T12:00:00Z'
-    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
-      VALUES (?,?,NULL,?,'peer',?,?,?,?, ?,?,NULL,1,0,0)`)
-      .run(id, options.chat ?? 'g', seq, searchTimestampMicros(at), at, text, segment(text), options.whisper ? 1 : 0, JSON.stringify(options.to ?? []))
+    db.prepare(`INSERT INTO msg(id,chat_id,thread_root_id,seq,sender_id,created_at,created_at_iso,raw_message_json,text,body,is_whisper,to_user_ids,deleted_at,has_file,has_image,has_link)
+      VALUES (?,?,NULL,?,'peer',?,?,?,?,?, ?,?,NULL,1,0,0)`)
+      .run(id, options.chat ?? 'g', seq, searchTimestampMicros(at), at, options.rawMessage ? JSON.stringify(options.rawMessage) : null, text, segment(text), options.whisper ? 1 : 0, JSON.stringify(options.to ?? []))
     db.prepare('INSERT INTO msg_actor VALUES (?,?,0,0)').run('owner', id)
   }
   function query(text: string, filters: SearchQuery['filters'] = {}, actorId = 'owner') {
@@ -91,6 +92,28 @@ describe('shared SQL on real SQLite FTS5', () => {
     db.prepare("UPDATE actor_scope SET floor_at=? WHERE actor_id='owner' AND chat_id='g'")
       .run(searchTimestampMicros('2026-10-20T12:00:00.000500Z'))
     expect(rows()).toEqual(expected.slice(0, 2))
+  })
+
+  it.each(['attachment', 'card'])('preserves the original %s row for the existing context mapper', (contentType) => {
+    const { db, put } = fixture()
+    const at = '2026-10-20T12:00:00.000100Z'
+    const original = {
+      id: 'message', chat_id: 'g', sender_user_id: 'peer', seq: 1, created_at: at,
+      content: '{"title":"original payload","file_name":"example.pdf"}', content_type: contentType,
+      reply_to_message_id: 'parent', reply_to_sender_user_id: 'other', reply_to_content: 'original reply',
+      file_item_id: 'file', file_version: 2, file_blob_id: null, via_app: 'example',
+    }
+    put(original.id, 'needle', { at, rawMessage: original })
+    const query = buildSearchSql({ text: 'needle', filters: {}, sort: 'recent' }, { accountId: 'owner', actorId: 'owner' })
+    const row = db.prepare(query.sql).get(...query.params)
+    expect(row?.raw_message_json).toBe(JSON.stringify(original))
+    const restored = JSON.parse(String(row?.raw_message_json))
+    expect(restored).toEqual(original)
+    expect(messageItemFromRow(restored, 'owner')).toMatchObject(original)
+    put('without-raw', 'needle')
+    expect(db.prepare("SELECT raw_message_json FROM msg WHERE id='without-raw'").get()?.raw_message_json).toBeNull()
+    db.prepare("UPDATE msg_actor SET hidden_for_actor=1 WHERE message_id='message'").run()
+    expect(db.prepare(query.sql).all(...query.params).map((item) => item.id)).toEqual(['without-raw'])
   })
 
   it('binds filters, inherits included topics and never turns origin into an implicit filter', () => {
