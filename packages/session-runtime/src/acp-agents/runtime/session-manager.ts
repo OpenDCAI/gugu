@@ -1828,6 +1828,16 @@ export class SessionManager implements InboundRouter {
     return this.cells.get(sessionId)?.live ?? null;
   }
 
+  onTerminalsChanged(sessionId: string): void {
+    const record = this.cells.get(sessionId);
+    if (!record) return;
+    // Replayed exits arrive in a burst. Keep every update in the registry, but publish
+    // snapshots on the existing display tick instead of rebuilding all terminals per exit.
+    // Live exits still flush immediately, including any pending output tail.
+    if (record.replaying) this.publishOnTick(record);
+    else this.syncTerminals(sessionId);
+  }
+
   syncTerminals(sessionId: string): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
@@ -2480,11 +2490,11 @@ export class SessionManager implements InboundRouter {
   }
 
   /** Push new turns and in-place revisions to the single durable history writer. */
-  private emitCommittedTurns(record: SessionRecord, terminals = this.getTerminals(record.input.sessionId)): void {
+  private emitCommittedTurns(record: SessionRecord, terminals?: TerminalState[]): void {
     // Later replayed child records can revise an earlier parent turn. Publish the complete
     // replay at endReplay; intermediate replay turns cannot safely revise existing storage.
     if (record.replaying && record.cell.sessionState.lifecycle === 'replaying') return;
-    record.cell.push({ kind: 'terminal_snapshots', terminals });
+    record.cell.push({ kind: 'terminal_snapshots', terminals: terminals ?? this.getTerminals(record.input.sessionId) });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
     // 运行时视图(侧边对话,由运行时分叉实现)不落盘。它的 `conversationId` 是个**视图 id**,
