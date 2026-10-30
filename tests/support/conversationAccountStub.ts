@@ -32,6 +32,7 @@ export async function renderWithConversations(harness: ReturnType<typeof createR
   state.subscribe = subscribe
   projection.reset()
   projection.rows = options.chat?.chats ?? []
+  projection.identityRows = Object.values(options.chat?.identitiesById ?? {})
   const { ChatProvider } = await import('../../apps/desktop/src/store/chat')
   return renderWithAppProviders(harness, createElement(ChatProvider, null, children), options)
 }

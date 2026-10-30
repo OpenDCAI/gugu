@@ -120,10 +120,13 @@ export async function ensureAcpSessionLive(sessionId: string): Promise<void> {
  */
 export async function deliverSessionText(
   target: SessionWriteTarget,
-  text: string
+  text: string,
+  clientMessageId?: string,
+  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
 ): Promise<{ accepted: 'started' | 'queued' }> {
+  if (attachments?.length && target.runtime !== 'acp') throw new SessionWriteError('unsupported_runtime', '此会话不支持图片输入');
   const body = text.trim();
-  if (!body) throw new SessionWriteError('empty_text', '消息是空的');
+  if (!body && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
 
 
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
@@ -140,9 +143,10 @@ export async function deliverSessionText(
     const params = {
       projectId: target.projectId,
       sessionId: target.id,
-      clientMessageId: `mobile-${target.id}-${Date.now()}`,
+      clientMessageId: clientMessageId ?? crypto.randomUUID(),
       text: body,
       kind: 'session-direct' as const,
+      ...(target.runtime === 'acp' ? { delivery: { queue: true as const, origin: 'manual' as const, ...(attachments?.length ? { attachments } : {}) } } : {}),
     };
     // 冷着的终端腿(app 重启后没起、被停过)由 session-direct 的路由自己唤醒再投(#6546),
     // 这里 ❌ 再拉一遍 —— owner 2026-09-06 真机撞的那格(codex 终端腿)现在走的是同一条恢复。

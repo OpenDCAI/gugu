@@ -7,7 +7,7 @@
 //   ③ 答完卡一直钉在末尾,后面的消息都画在它上面;④ 刷新后卡没了,只剩那条回答消息。
 //   根子:工具行的 id 是 `${turnId}:tool:${toolCallId}`,结算按裸 toolCallId 记,卡永远挂不上那一行。
 //   ⇒ 下面的轮照真形状造(item id ≠ toolCallId);从前的夹具把两者写成同一个值,所以一直是绿的。
-import { act } from 'react'
+import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type {
@@ -16,6 +16,7 @@ import type {
   TimelineSnapshot,
 } from '@gugu/session-core/session-record/contract'
 import { createNode, createReactHarness } from '../../support/testHarness'
+import { stubVisibleIntersection } from '../../support/visibleIntersection'
 
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class SessionpageRpcError extends Error {},
@@ -24,7 +25,11 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   sessionAttachmentRpc: vi.fn(() => ({})),
 }))
 
-const { AgentThread } = await import('../../../apps/desktop/src/mobile/agent-watch/AgentThread')
+vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({
+  SessionTranscriptView: ({ composerContent }: { composerContent: import('react').ReactNode }) => createElement('div', { 'data-shared-transcript': '' }, composerContent),
+}))
+
+const { SessionConversation } = await import('../../../apps/desktop/src/mobile/agent-watch/SessionConversation')
 const { emptyAgentWatchTimeline } = await import('../../../apps/desktop/src/mobile/agent-watch/agent-watch-store')
 const { useTimelineSession } = await import('../../../apps/desktop/src/mobile/agent-watch/use-timeline-session')
 const { clearTimelineCache, forgetInMemoryTimelines } = await import('../../../apps/desktop/src/mobile/agent-watch/timeline-cache')
@@ -64,6 +69,7 @@ const LATER = { id: 't2', seq: 2, initiator: 'user', outcome: { kind: 'done' }, 
 let harness: ReturnType<typeof createReactHarness>
 const scrollTo = Element.prototype.scrollTo
 beforeEach(async () => {
+  stubVisibleIntersection()
   Element.prototype.scrollTo = () => undefined
   await clearTimelineCache()
   harness = createReactHarness()
@@ -72,17 +78,19 @@ afterEach(() => {
   harness.cleanup()
   Element.prototype.scrollTo = scrollTo
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 function thread(turns: TranscriptTurn[], question: Settlement) {
   return (
-    <AgentThread
+    <SessionConversation
+      agentName="Test agent"
       timeline={{ ...emptyAgentWatchTimeline(), cursor: { epoch: 'e1', seq: 3 }, turns, settlements: { 'ask-1': question } }}
       deviceId="device-1"
       sessionId="conversation-1"
       sessionRuntime="pty"
       respondingItemId={null}
-      onRespond={() => undefined}
+      onRespond={async () => ({ accepted: true, settlement: { ...question, state: 'resolved' as const } })}
       onSend={async () => undefined}
       pendingSends={[]}
       sending={false}
@@ -94,44 +102,30 @@ function thread(turns: TranscriptTurn[], question: Settlement) {
   )
 }
 const settle = async () => { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) }) }
-const cardsNow = () => [...harness.container.querySelectorAll('[data-testid="agent-watch-settlement"]')]
+const cardsNow = () => [...harness.container.querySelectorAll('[data-testid="agent-question-card"]')]
 
-describe('提问卡画在问出它的那一行,❌ 钉在末尾(也 ❌ 钉进贴底的输入框带)', () => {
-  it('等答:卡在消息流里、问它的那一轮里;末尾那一组与输入框带里都没有它', async () => {
+describe('questions use the project conversation controls', () => {
+  it('keeps a multi-question form bounded and shows one step at a time', async () => {
     await harness.render(thread(TURNS, QUESTION))
     await settle()
-    const cards = cardsNow()
-    expect(cards.map((card) => card.getAttribute('data-item-id'))).toEqual(['ask-1'])
-    const card = cards[0]!
-    expect(card.closest('.aui-thread-viewport-footer'), 'inside the sticky composer band').toBeNull()
-    expect(card.closest('[data-testid="agent-watch-pinned-settlements"]'), 'pinned at the tail').toBeNull()
-    expect(card.closest('[data-message-id]'), 'inside a message of the flow').not.toBeNull()
-    expect(card.querySelector('[data-testid="agent-watch-settlement-submit"]'), 'answerable').not.toBeNull()
+    expect(cardsNow()).toHaveLength(1)
+    const band = harness.container.querySelector<HTMLElement>('[data-conversation-settlements]')!
+    expect(band.style.maxHeight).toBe('45dvh')
+    expect(band.style.overflowY).toBe('auto')
+    expect(cardsNow()[0]!.textContent).toContain(QUESTION.questions![0]!.question)
+    expect(cardsNow()[0]!.textContent).not.toContain(QUESTION.questions![1]!.question)
   })
 
-  it('答完、后面又来了一轮:卡留在原处,新的一轮排在它下面;刷新(重新挂载)后同一个样子', async () => {
-    const answered: Settlement = { ...QUESTION, state: 'resolved', resolvedBy: 'mobile', resolvedAt: 2, resultRecorded: true }
-    await harness.render(thread([...TURNS, LATER], answered))
+  it('removes stale answer controls after another surface answers, including after remount', async () => {
+    await harness.render(thread(TURNS, QUESTION))
     await settle()
-    const read = () => {
-      const card = cardsNow()[0]!
-      const later = harness.container.querySelector('[data-message-id="u2"]')!
-      return {
-        count: cardsNow().length,
-        pinned: card.closest('[data-testid="agent-watch-pinned-settlements"]') !== null,
-        laterBelow: (card.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
-        answered: card.querySelector('[data-testid="agent-watch-settlement-answered"]') !== null,
-        text: card.textContent,
-      }
-    }
-    const live = read()
-    expect(live).toMatchObject({ count: 1, pinned: false, laterBelow: true, answered: true })
-
-    harness.cleanup()
-    harness = createReactHarness()
+    expect(cardsNow()).toHaveLength(1)
+    const answered: Settlement = { ...QUESTION, state: 'resolved', resolvedBy: 'desktop', resolvedAt: 9 }
     await harness.render(thread([...TURNS, LATER], answered))
-    await settle()
-    expect(read(), 'same after a refresh').toEqual(live)
+    expect(cardsNow()).toHaveLength(0)
+    harness.cleanup(); harness = createReactHarness()
+    await harness.render(thread([...TURNS, LATER], answered))
+    expect(cardsNow()).toHaveLength(0)
   })
 })
 

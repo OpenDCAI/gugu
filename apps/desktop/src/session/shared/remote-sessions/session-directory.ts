@@ -8,6 +8,7 @@ import type {
 } from '@gugu/session-core/session-record/contract'
 import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { useContactsStore } from '@/store/contactsContext'
+import { useChatStore } from '@/store/chatContext'
 import { sessionListFromDigest } from './session-list-sync'
 
 /**
@@ -180,7 +181,7 @@ export function directoryRows(devices: readonly Device[], liveSessions: Readonly
  * 记录状态(新宿主,spec session-always-openable)。离线机器的行来自心跳摘要,两样都没有 ⇒ 点不开。
  */
 export function rowOpens(session: SessionpageSessionSummary): boolean {
-  return session.supported || session.recordState !== undefined
+  return session.supported || session.recordState !== undefined || session.nativeInputVersion === 1
 }
 
 /**
@@ -208,7 +209,11 @@ export function listedSession(
  */
 export function useAgentNames(): ReadonlyMap<string, string> {
   const { contacts } = useContactsStore()
-  return useMemo(() => new Map(contacts.map((contact) => [contact.id, contact.display_name])), [contacts])
+  const { identitiesById } = useChatStore('identitiesById')
+  return useMemo(() => new Map([
+    ...Object.values(identitiesById).filter(identity => identity.type === 'agent' && identity.display_name).map(identity => [identity.id, identity.display_name] as const),
+    ...contacts.map(contact => [contact.id, contact.display_name] as const),
+  ]), [contacts, identitiesById])
 }
 
 /** 这条会话背后的 agent(有身份、通讯录里有它);否则不给。 */

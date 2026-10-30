@@ -58,6 +58,8 @@ import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
+import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
+import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
 import { NeedsYouHost } from '../components/needsYou/NeedsYouHost'
 import { NeedsYouSlot } from '../components/needsYou/NeedsYouSlot'
 import { AgentSharePopover } from '../components/sessionpage/AgentSharePopover'
@@ -293,9 +295,10 @@ function InnerLayout({
     composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
-  /** focus:人从这个入口进来就该接着打字(与聊天页那一支同一个 reason);不给 = 不抢焦点。 */
-  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): string | null => {
+  const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string): string | null => {
     if (openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
+    if (openOwnedAgent(chatId, peerId, draft)) { setActiveTab('tasks'); return 'tasks' }
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -304,7 +307,7 @@ function InnerLayout({
     sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
     return chatSlotKey(chatId)
-  }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, t])
+  }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, openOwnedAgent, t])
   const chatsRef = useRef(chats)
   chatsRef.current = chats
   const openChatTarget = useCallback((chatId: string): string => {
@@ -729,6 +732,10 @@ function InnerLayout({
     const onCompose = (event: Event) => {
       const detail = (event as CustomEvent<AppComposeDetail>).detail
       if (!detail) return
+      if (openOwnedAgent(detail.chatId, undefined, {
+        text: [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'),
+        files: detail.images?.map(image => new File([image.bytes], image.name, { type: image.type })), append: true,
+      })) return
       const placed = (chatId: string) => {
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
         if (text) writeDraft(chatId, { at: 'end', text })
@@ -773,7 +780,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
@@ -900,7 +907,7 @@ function InnerLayout({
     ))
     if (existing) {
       if (draft) writeDraft(existing.id, draft)
-      if (openChatBlock(existing.id, 'profile-chat')) {
+      if (openChatBlock(existing.id, 'profile-chat', target.id, draft)) {
         void refreshChats()
         return
       }
@@ -929,7 +936,7 @@ function InnerLayout({
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
       if (draft) writeDraft(chatId, draft)
-      if (openChatBlock(chatId, 'profile-chat')) {
+      if (openChatBlock(chatId, 'profile-chat', target.id, draft)) {
         void refreshChats()
         return
       }
@@ -961,17 +968,6 @@ function InnerLayout({
       type: target.type,
       alias: contact?.alias ?? null,
     })
-  }
-
-  // 手机会话页模式按钮的「聊天」(#7197):会话行上只带 agent 的 id,按 id 在通讯录里找到它,走「发消息」同一条。
-  const handleOpenAgentChat = (agentUserId: string, draft?: string) => {
-    const contact = contacts.find((item) => item.id === agentUserId)
-    if (!contact) {
-      openChatLog.error({ targetId: agentUserId }, 'agent chat: agent not in contacts')
-      toast(t('shell.toast.openChatFailed'), 'error')
-      return
-    }
-    void handleSwitchToChat(contact, draft)
   }
 
   // 手机上从群成员里建好 agent:回到那个群(与桌面 openAgentChat 的落点同一条规则)。
@@ -1365,7 +1361,6 @@ function InnerLayout({
                   createRequest={watchCreateRequest}
                   createInGroup={watchCreateGroup}
                   openRequest={watchOpenRequest}
-                  onOpenAgentChat={handleOpenAgentChat}
                   onOpenGroupChat={handleReturnToGroup}
                 />
               </div>
@@ -1406,7 +1401,7 @@ function InnerLayout({
           </div>
         )}
 
-        {mobile && <AgentWatchRoot />}
+        {effectsActive && <SessionInputOutboxHost accountId={user.id} />}{mobile && <AgentWatchRoot />}
         {mobile && platform.kind === 'capacitor' && <PhoneDeviceRoot />}
 
         {/* The mobile navigation is shell chrome, not state owned by a retained tab subtree. */}

@@ -5,6 +5,7 @@ import {
   buildSessionDirectEnvelope,
   buildSystemNoticeEnvelope,
   isDeliveryEnvelope,
+  isHumanDmDelivery,
   mergeDeliveryEnvelopes,
   readDeliveryEnvelope,
   renderDeliveryEnvelope,
@@ -232,5 +233,17 @@ describe('session-direct then / in_reply_to (owner 10-17)', () => {
     expect(envelope).toBe(buildSessionDirectEnvelope({ ...base, then: undefined, inReplyTo: undefined }))
     expect(envelope).not.toContain('then=')
     expect(envelope).not.toContain('in_reply_to=')
+  })
+})
+
+describe('human DM queue provenance', () => {
+  it('trusts the platform actor kind, never names or user-shaped addresses', () => {
+    const human = renderDeliveryEnvelope({ ...DM, fromType: 'human' })
+    expect(readDeliveryEnvelope(human)?.segments[0]?.facts?.fromType).toBe('human')
+    expect(isHumanDmDelivery(human)).toBe(true)
+    expect(isHumanDmDelivery(renderDeliveryEnvelope({ ...DM, fromType: 'agent' }))).toBe(false)
+    expect(isHumanDmDelivery(renderDeliveryEnvelope(DM))).toBe(false)
+    expect(isHumanDmDelivery(renderDeliveryEnvelope({ ...GROUP, fromType: 'human' }))).toBe(false)
+    expect(isHumanDmDelivery(mergeDeliveryEnvelopes([human, renderDeliveryEnvelope({ ...DM, fromType: 'agent' })]))).toBe(false)
   })
 })

@@ -20,6 +20,10 @@ const device = (id: string, extra: Partial<Device> = {}): Device => ({
 } as unknown as Device)
 
 describe('visibleMachines', () => {
+  it('retains both profile directories on one physical machine', () => {
+    const profiles = [device('first-profile', { machine_id: 'same-mac' }), device('second-profile', { machine_id: 'same-mac' })]
+    expect(directoryMachines(profiles, () => false).map(profile => profile.device_id)).toEqual(['first-profile', 'second-profile'])
+  })
   const mac = device('mac')
   const home = device('home', { cloud_computer: 'asleep' })
   const homeAwake = device('home-awake', { capabilities: { assistant_home: true } as Device['capabilities'] })

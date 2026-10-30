@@ -27,7 +27,7 @@ function replySourceText(text: string, batchOwnerId?: string, options: { include
   return facts?.route === 'chat' && facts.messageId && facts.chat && (options.includeThreads || !facts.thread) && !facts.whisperTo ? facts : null;
 }
 
-function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
+export function sourceChatMatches(facts: DeliveryReadFacts, chatId: unknown): boolean {
   if (chatId === facts.chat) return true;
   const source = facts.sourceLink ? parseConversationLink(facts.sourceLink) : null;
   return source?.messageId !== undefined && source.messageId === facts.messageId?.replace(/^msg:/, '').toLowerCase()

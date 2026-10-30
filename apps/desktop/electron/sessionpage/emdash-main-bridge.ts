@@ -10,6 +10,7 @@ export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collec
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export {
   bootEmdashModule,
+  startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,
   readCurrentActivityInput,
