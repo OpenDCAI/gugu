@@ -15,8 +15,13 @@ export type ProjectionSignalCommand =
   | { type: 'open'; sourceId: string; requestId: string }
   | { type: 'answer'; id: string; sdp: { type: 'answer'; sdp: string } }
   | { type: 'close'; id: string }
+export type ProjectionDiagnostic = Readonly<{
+  id: string; sourceId: string; context: ProjectionSignalContext; phase: string; error: Error
+}>
 export class ProjectionSignals {
   constructor(deps: {
+    /** Background failures converge here; omitted sinks write bounded diagnostics to stderr. */
+    onError?(event: ProjectionDiagnostic): void
     /** Honor cancellation while resolving host authority; a closed page must not keep waiting. */
     authorize(context: ProjectionSignalContext, sourceId: string, signal: AbortSignal): Promise<ProjectionSignalLease>
     openMedia(lease: ProjectionSignalLease, signal: AbortSignal, onControl: (data: string) => void): Promise<MediaProcess>

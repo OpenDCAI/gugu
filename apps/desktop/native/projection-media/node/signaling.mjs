@@ -17,6 +17,10 @@ const parse = raw => {
   return structuredClone(raw)
 }
 const errorOf = value => value instanceof Error ? value : new Error(String(value))
+const writeDiagnostic = event => process.stderr.write(JSON.stringify({ component: 'projection-signaling',
+  id: event.id, sourceId: event.sourceId, phase: event.phase, error: event.error.message.slice(0, 4096),
+  ...(event.reporterError ? { reporterError: event.reporterError.message.slice(0, 1000) } : {}),
+}) + '\n')
 const same = (a, b) => a.ownerId === b.ownerId && a.deviceId === b.deviceId && a.appId === b.appId
   && a.sessionId === b.sessionId && a.pageId === b.pageId && a.epoch === b.epoch
 const validContext = context => context && ['ownerId', 'deviceId', 'appId', 'sessionId', 'pageId', 'epoch'].every(key => text(context[key]))
@@ -31,7 +35,24 @@ export class ProjectionSignals {
   #entries = new Map()
   #requests = new Map()
   #disposed = false
-  constructor({ authorize, openMedia }) { this.authorize = authorize; this.openMedia = openMedia }
+  constructor({ authorize, openMedia, onError = writeDiagnostic }) {
+    this.authorize = authorize; this.openMedia = openMedia; this.onError = onError
+  }
+
+  #report(entry, reason, phase) {
+    if ((entry.abort.signal.aborted && reason === entry.abort.signal.reason) || (entry.lease?.signal.aborted && reason === entry.lease.signal.reason)
+      || entry.reported.has(reason)) return
+    entry.reported.add(reason)
+    const event = Object.freeze({ id: entry.id, sourceId: entry.sourceId, context: entry.context, phase, error: errorOf(reason) })
+    try { this.onError(event) }
+    catch (error) { writeDiagnostic({ ...event, reporterError: errorOf(error) }) }
+  }
+
+  #backgroundClose(entry, reason, phase) {
+    if (phase !== undefined) this.#report(entry, reason, phase)
+    // #close installs the shared failure sink before returning its promise.
+    void this.#close(entry)
+  }
 
   async receive(context, raw) {
     if (this.#disposed || !validContext(context)) throw new Error('Projection signaling context is closed')
@@ -54,7 +75,7 @@ export class ProjectionSignals {
       clearTimeout(entry.timer)
       entry.connected = true
       return { id: entry.id }
-    } catch (error) { await this.#close(entry).catch(() => undefined); throw error }
+    } catch (error) { await this.#close(entry).catch(cleanup => this.#report(entry, cleanup, 'answer-cleanup')); throw error }
   }
 
   async #open(context, command) {
@@ -70,25 +91,25 @@ export class ProjectionSignals {
     const own = [...this.#entries.values()].filter(entry => same(context, entry.context)).length
     if (this.#entries.size >= MAX_CONNECTIONS || own >= MAX_PER_PAGE) throw new Error('Too many direct projection connections')
     const entry = { id: randomUUID(), key, context, sourceId: command.sourceId, abort: new AbortController(),
-      connected: false, answering: false, queue: Promise.resolve(), queued: 0 }
+      connected: false, answering: false, queue: Promise.resolve(), queued: 0, reported: new Set() }
     this.#entries.set(entry.id, entry)
     this.#requests.set(key, entry)
     // A handshake is bounded. A connected projection has the task/grant's life,
     // never an idle-viewer timer.
-    entry.timer = setTimeout(() => { void this.#close(entry).catch(() => undefined) }, 30000)
+    entry.timer = setTimeout(() => this.#backgroundClose(entry, new Error('Projection media handshake timed out'), 'handshake'), 30000)
     entry.timer.unref()
     entry.opened = (async () => {
       const lease = await this.authorize(context, command.sourceId, entry.abort.signal)
       entry.lease = lease
       if (!same(context, lease.context) || lease.sourceId !== command.sourceId) throw new Error('Projection authority does not match its host binding')
-      const abort = () => { void this.#close(entry).catch(() => undefined) }
+      const abort = () => this.#backgroundClose(entry)
       entry.off = () => lease.signal.removeEventListener('abort', abort)
       lease.signal.addEventListener('abort', abort, { once: true })
       if (lease.signal.aborted) abort()
       await lease.assertCurrent()
       entry.abort.signal.throwIfAborted()
       entry.media = await this.openMedia(lease, entry.abort.signal, data => this.#control(entry, data))
-      void entry.media.closed.then(abort, abort)
+      void entry.media.closed.then(abort, error => this.#backgroundClose(entry, error, 'media-exit'))
       entry.abort.signal.throwIfAborted()
       await lease.assertCurrent()
     })()
@@ -96,7 +117,7 @@ export class ProjectionSignals {
       await entry.opened
       return { id: entry.id, offer: entry.media.offer }
     } catch (error) {
-      await this.#close(entry).catch(() => undefined)
+      await this.#close(entry).catch(cleanup => this.#report(entry, cleanup, 'open-cleanup'))
       throw error
     }
   }
@@ -105,7 +126,7 @@ export class ProjectionSignals {
     if (entry.abort.signal.aborted) return
     // The helper may deliver control immediately before its ready receipt. Its
     // answer is already being checked; queued work rechecks the lease at use.
-    if (!entry.answering || entry.queued >= 64) { void this.#close(entry).catch(() => undefined); return }
+    if (!entry.answering || entry.queued >= 64) { this.#backgroundClose(entry, new Error('Projection control arrived before readiness or exceeded its queue'), 'control-admission'); return }
     entry.queued++
     const work = entry.queue.then(async () => {
       entry.abort.signal.throwIfAborted()
@@ -117,28 +138,29 @@ export class ProjectionSignals {
       await entry.lease.assertCurrent()
       if (result !== undefined) await entry.media.sendControl(result)
     }).finally(() => { entry.queued-- })
-    entry.queue = work.catch(() => { void this.#close(entry).catch(() => undefined) })
+    entry.queue = work.catch(error => { this.#backgroundClose(entry, error, 'control') })
   }
 
   #close(entry) {
     if (entry.closing) return entry.closing
     let resolve, reject
     entry.closing = new Promise((yes, no) => { resolve = yes; reject = no })
-    void entry.closing.catch(() => undefined)
+    void entry.closing.catch(error => this.#report(entry, error, 'cleanup'))
     entry.abort.abort(new Error('Projection signaling binding closed'))
     clearTimeout(entry.timer)
     void (async () => {
-      await entry.opened.catch(() => undefined)
+      try { await entry.opened }
+      catch { /* The opening error returns to its caller; cleanup must still run. */ }
       entry.off?.()
       // The media helper owns no input driver. Drain/cancel the owning App's
       // input and disconnect it before releasing that App resource lease.
       const results = await Promise.allSettled([entry.queue])
       try { await entry.lease?.disconnect() }
-      catch (reason) { results.push({ status: 'rejected', reason }) }
+      catch (reason) { this.#report(entry, reason, 'disconnect'); results.push({ status: 'rejected', reason }) }
       try { await entry.media?.close() }
-      catch (reason) { if (reason !== entry.abort.signal.reason) results.push({ status: 'rejected', reason }) }
+      catch (reason) { if (reason !== entry.abort.signal.reason) { this.#report(entry, reason, 'media-close'); results.push({ status: 'rejected', reason }) } }
       try { entry.lease?.release() }
-      catch (reason) { results.push({ status: 'rejected', reason }) }
+      catch (reason) { this.#report(entry, reason, 'release'); results.push({ status: 'rejected', reason }) }
       const rejected = results.find(result => result.status === 'rejected')
       if (rejected) throw errorOf(rejected.reason)
     })().finally(() => {

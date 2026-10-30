@@ -223,10 +223,16 @@ export async function openMediaProcess(options) {
       close() {
         if (closing) return closing
         closing = (async () => {
-          try { if (!failure && !physicalExit) await request('close', 'closed') }
-          catch (error) { stop(error) }
+          let exitTimer
+          try {
+            if (!failure && !physicalExit) {
+              await request('close', 'closed')
+              if (!physicalExit) exitTimer = setTimeout(() => stop(new Error('Media helper did not exit within 2000 ms after close receipt')), 2000)
+            }
+          } catch (error) { stop(error) }
           finally { child.stdin.end() }
-          await exited.promise
+          try { await exited.promise }
+          finally { clearTimeout(exitTimer) }
         })()
         void closing.catch(() => undefined)
         return closing

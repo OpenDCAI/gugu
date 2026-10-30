@@ -15,7 +15,7 @@ type Decoder = (frame: Readonly<ProjectionFrame>, signal: AbortSignal) => Promis
 type CreateMedia = (size: { width: number; height: number }, signal: AbortSignal,
   onControl: (data: string) => void) => Promise<MediaProcess>;
 
-/** The bitmap stays inside this process. Only the encoder's H264 track and metadata leave it. */
+/** Raw pixels use only the local host/helper pipe; the network carries H264 and frame metadata. */
 export function projectionVideoFeed(resources: ExtensionProjections, authority: Authority,
   context: ProjectionSignalContext, decode: Decoder, createMedia: CreateMedia) {
   authority.assertCurrent();
