@@ -219,7 +219,7 @@ describe('account message index on real SQLite FTS5', () => {
     let current: string | null = account;
     const search = new AccountMessageSearch(() => root, async () => current, async () => true);
     search.accountChanged(account);
-    await search.apply([groups, { kind: 'rows', rows: [row('m')] }]);
+    await search.write([groups, { kind: 'rows', rows: [row('m')] }]);
     expect(readdirSync(join(root, 'search')).some((name) => name.startsWith(account))).toBe(true);
     current = null;
     search.accountChanged(null);
@@ -227,10 +227,39 @@ describe('account message index on real SQLite FTS5', () => {
     await expect(search.global(query('发布'))).rejects.toThrow(/not signed in/);
   });
 
-  it('opens nothing while global search is disabled', async () => {
+  it('drops writes and opens nothing while global search is disabled', async () => {
     const search = new AccountMessageSearch(() => root, async () => account, async () => false);
-    await expect(search.apply([groups])).rejects.toThrow(/not enabled/);
+    await expect(search.write([groups])).resolves.toBe(false);
+    await expect(search.global(query('发布'))).rejects.toThrow(/not enabled/);
     expect(existsSync(join(root, 'search'))).toBe(false);
+  });
+
+  it('does not report a chat complete until the backfill has reported on it since the store opened', async () => {
+    const exhausted = { kind: 'coverage' as const, coverage: { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 9, exhausted: true } };
+    const scoped = query('x', { in: [{ kind: 'chat', id: 'g', includeTopics: false }] });
+    const first = open();
+    first.apply([groups, exhausted]);
+    expect(first.global(scoped).coverage.complete).toBe(true);
+    first.close();
+    // Restart: the stored progress remains, but nothing has caught up since.
+    const reopened = open();
+    expect(reopened.coverage()).toEqual([exhausted.coverage]);
+    expect(reopened.global(scoped).coverage.complete).toBe(false);
+    reopened.apply([exhausted]);
+    expect(reopened.global(scoped).coverage.complete).toBe(true);
+  });
+
+  it('makes completeness be earned again after a write was dropped while disabled', async () => {
+    let enabled = true;
+    const search = new AccountMessageSearch(() => root, async () => account, async () => enabled);
+    const scoped = query('x', { in: [{ kind: 'chat', id: 'g', includeTopics: false }] });
+    await search.write([groups, { kind: 'coverage', coverage: { chatId: 'g', threadRootId: null, oldestSeq: 1, newestSeq: 9, exhausted: true } }]);
+    expect((await search.global(scoped)).coverage.complete).toBe(true);
+    enabled = false;
+    await expect(search.write([{ kind: 'remove', ids: ['missed'] }])).resolves.toBe(false);
+    enabled = true;
+    expect((await search.global(scoped)).coverage.complete).toBe(false);
+    search.accountChanged(null);
   });
 
   it('deletes all previous-account files on switch and starts the next account with no old hits', async () => {
@@ -238,12 +267,12 @@ describe('account message index on real SQLite FTS5', () => {
     const search = new AccountMessageSearch(() => root, async () => current, async () => true);
     const files = (id: string) => ['', '-wal', '-shm'].map((suffix) => join(root, 'search', id + '.sqlite' + suffix));
     try {
-      await search.apply([groups, { kind: 'rows', rows: [row('old-account-message')] }]);
+      await search.write([groups, { kind: 'rows', rows: [row('old-account-message')] }]);
       for (const path of files(account)) expect(existsSync(path), path).toBe(true);
       current = 'account-b';
       search.accountChanged(current);
       for (const path of files(account)) expect(existsSync(path), path).toBe(false);
-      await search.apply([groups, { kind: 'rows', rows: [row('new-account-message')] }]);
+      await search.write([groups, { kind: 'rows', rows: [row('new-account-message')] }]);
       expect((await search.global(query('发布'))).results.map((hit) => hit.id)).toEqual(['new-account-message']);
       current = null;
       search.accountChanged(null);

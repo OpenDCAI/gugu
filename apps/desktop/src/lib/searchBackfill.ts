@@ -60,7 +60,11 @@ export function startSearchBackfill(source: SearchBackfillSource, host: SearchBa
       await host.sleep(PAGE_INTERVAL_MS)
       if (page.length < PAGE) break
     }
-    if (threadRootId === null) caughtUp.add(chatId)
+    if (threadRootId === null && !caughtUp.has(chatId) && !stopped) {
+      caughtUp.add(chatId)
+      // Reported even when nothing was newer: the index counts a chat as read through only after this run said so.
+      if (coverage.newestSeq !== null) await record(coverage)
+    }
     // Then older history, until a page comes back empty.
     while (!coverage.exhausted && await readable()) {
       const before = coverage.oldestSeq ?? undefined

@@ -1,7 +1,8 @@
 // Global search (globalSearch.v3): the ONLY writer of the account's local message index.
 // The index holds exactly what this account's own message reads returned — the server already applied
 // visibility (membership, history floor, topics, whispers, deletion) — so this module only forwards facts
-// and never decides who may see a row. Every call is a no-op while the flag is off.
+// and never decides who may see a row. With globalSearch.v3 off (or no desktop search host) nothing is sent; the main
+// process still decides whether search.write writes (off: it opens nothing and drops the ops).
 import type { RawMessageRow } from '@gugu/core/cloud/messageItem'
 import type { SearchChat, SearchCoverage, SearchIndexOp } from '@gugu/core/shared/search/types'
 import { globalSearchV3Enabled } from '../session/renderer/features/global-search/global-search-flag'
@@ -20,7 +21,7 @@ function feed(op: SearchIndexOp): Promise<void> {
     flush = null
     // The index belongs to this computer's account session, never to a machine a row id happens to resemble.
     return rpcOn(null).search.write(ops)
-  })
+  }).then(() => undefined)
   return flush
 }
 

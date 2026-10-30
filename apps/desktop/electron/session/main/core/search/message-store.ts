@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { EXTRACTOR_VERSION, SCHEMA_VERSION, SEARCH_SCHEMA_DROP_SQL, SEARCH_SCHEMA_SQL } from '@gugu/core/shared/search/schema';
 import type { SearchIndexOp, SearchQuery } from '@gugu/core/shared/search/types';
 import type { MessageSearchRequest } from '@shared/core/message-search';
-import { readCoverage, readDateAnchor, readMessages } from './message-store-read';
+import { coverageKey, readCoverage, readDateAnchor, readMessages } from './message-store-read';
 import { applyOps } from './message-store-write';
 
 function accountPath(userData: string, accountId: string): string {
@@ -21,6 +21,12 @@ export function removeMessageSearchAccountFiles(userData: string, accountId: str
 export class MessageSearchStore {
   private readonly db: Database.Database;
   readonly path: string;
+  /**
+   * Streams the backfill has reported on since this store was opened. Stored progress alone does not make a chat
+   * complete: rows that arrived or left while nothing was feeding the index (app closed, flag off) are only caught
+   * up by the backfill's next pass, so completeness has to be earned again in every store lifetime.
+   */
+  private readonly current = new Set<string>();
 
   constructor(userData: string, readonly accountId: string) {
     this.path = accountPath(userData, accountId);
@@ -40,7 +46,7 @@ export class MessageSearchStore {
   }
 
   global(request: MessageSearchRequest, now = Date.now()) {
-    return this.db.transaction(() => readMessages(this.db, this.accountId, request, now))();
+    return this.db.transaction(() => readMessages(this.db, this.accountId, request, now, this.current))();
   }
 
   dateAnchor(query: SearchQuery) {
@@ -53,6 +59,7 @@ export class MessageSearchStore {
 
   apply(ops: readonly SearchIndexOp[]): void {
     this.db.transaction(() => applyOps(this.db, this.accountId, ops))();
+    for (const op of ops) if (op.kind === 'coverage') this.current.add(coverageKey(op.coverage.chatId, op.coverage.threadRootId));
   }
 
   close(): void {
@@ -81,6 +88,10 @@ export class AccountMessageSearch {
 
   private async open(): Promise<MessageSearchStore> {
     if (!(await this.enabled())) throw new Error('Global search is not enabled');
+    return this.openEnabled();
+  }
+
+  private async openEnabled(): Promise<MessageSearchStore> {
     const accountId = await this.currentAccount();
     if (!accountId) throw new Error('Search is not signed in');
     this.accountChanged(accountId);
@@ -91,5 +102,17 @@ export class AccountMessageSearch {
   async global(request: MessageSearchRequest) { return (await this.open()).global(request); }
   async dateAnchor(query: SearchQuery) { return (await this.open()).dateAnchor(query); }
   async coverage() { return (await this.open()).coverage(); }
-  async apply(ops: readonly SearchIndexOp[]) { (await this.open()).apply(ops); }
+  /**
+   * The only write, and the one place that decides whether the index is written. Off: nothing is opened and the ops
+   * are dropped (false). A dropped write also closes an open store, so its completeness has to be earned again.
+   */
+  async write(ops: readonly SearchIndexOp[]): Promise<boolean> {
+    if (!(await this.enabled())) {
+      this.store?.close();
+      this.store = null;
+      return false;
+    }
+    (await this.openEnabled()).apply(ops);
+    return true;
+  }
 }
