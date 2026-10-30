@@ -64,8 +64,10 @@ describe('project-slot lifecycle', () => {
   let finishRefresh: () => void
   let refreshChats: ReturnType<typeof vi.fn<() => Promise<void>>>
   let getImRepository: () => Promise<AccountImRepository>
+  let accountId: string
   function SlotProbe() { useMarkProjectTopicsReadOnOpen(entries, groups); return null }
   const render = (chats: ChatItem[], chatsRead = true) => renderWithAppProviders(harness, <SlotProbe />, {
+    auth: { id: accountId },
     chat: { chats, chatsRead, refreshChats, getImRepository },
   })
   const intersect = (isIntersecting: boolean) => act(async () => callback([
@@ -79,6 +81,7 @@ describe('project-slot lifecycle', () => {
   beforeEach(async () => {
     harness = createReactHarness()
     write.mockClear()
+    accountId = 'user-1'
     host.listener = null
     host.subscribeAppActive = undefined
     repository = await openImRepository('user-1', { adapter: createMemoryLocalSyncDb() })
@@ -161,6 +164,37 @@ describe('project-slot lifecycle', () => {
     await visible('visible')
     expect(write).toHaveBeenCalledTimes(1)
     expect(write.mock.calls[0][0].chats[0].next_message_seq).toBe(31)
+  })
+
+  it('does not treat a refreshed action callback as another opening', async () => {
+    await render(CHATS)
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(write).toHaveBeenCalledTimes(1)
+    await act(async () => { await replaceChatRows(repository, [topic('topic-17', 50, 40)]) })
+    // Notification preferences can change the store's refresh callback without closing the slot.
+    refreshChats = vi.fn(async () => {})
+    await render([topic('topic-17', 50, 40)])
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards the previous account’s late result when the account changes in an open slot', async () => {
+    await render(CHATS)
+    await intersect(true)
+    const finishPrevious = finishRefresh
+    const nextRepository = await openImRepository('user-2', { adapter: createMemoryLocalSyncDb() })
+    let finishNext!: () => void
+    const nextPending = new Promise<void>((resolve) => { finishNext = resolve })
+    accountId = 'user-2'
+    getImRepository = async () => nextRepository
+    refreshChats = vi.fn(() => nextPending)
+    await render([])
+    await act(async () => { await replaceChatRows(repository, CHATS); finishPrevious() })
+    expect(write).not.toHaveBeenCalled()
+    await act(async () => { await replaceChatRows(nextRepository, [topic('other-account-topic', 2, 2)]); finishNext() })
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[0][0].chats.map(c => c.id)).toEqual(['other-account-topic'])
+    nextRepository.close()
   })
 
   it('does not consume a closed slot when its authoritative refresh finishes late', async () => {

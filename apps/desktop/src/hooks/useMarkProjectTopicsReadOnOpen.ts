@@ -7,6 +7,7 @@ import { rendererLogger } from '../lib/log'
 import { useChatStore } from '../store/chatContext'
 import { readChatRows } from '../lib/imRepository'
 import { isAppActive, useAppActive } from '../lib/onScreenChat'
+import { useAuth } from '../store/auth'
 
 const log = rendererLogger('chat/project-topics-read')
 
@@ -19,40 +20,43 @@ export function topicsReadOnOpen(chats: readonly ChatItem[], groupId: string): C
   return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && unreadForYou(chat) > 0)
 }
 
-type Opening = { chats?: ChatItem[]; handled: boolean }
+type Opening = { accountId: string; chats?: ChatItem[]; handled: boolean }
 
 /** 每次打开取一次权威快照,后台到达的结果留到前台。快照以后的消息不进入本次水位。 */
 function useReadTopicsOnOpening(
   shown: ReadonlySet<string>,
   active: boolean,
+  accountId: string | null,
   readChats: () => Promise<ChatItem[]>,
   markRead: (topics: ChatItem[]) => void,
 ): void {
   const openings = useRef(new Map<string, Opening>())
   const shownRef = useRef(shown)
   shownRef.current = shown
+  const accountRef = useRef(accountId)
+  accountRef.current = accountId
   const flush = useCallback((id: string, opening: Opening) => {
-    if (openings.current.get(id) !== opening || opening.handled || !opening.chats || !shownRef.current.has(id) || !isAppActive()) return
+    if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || opening.handled || !opening.chats || !shownRef.current.has(id) || !isAppActive()) return
     opening.handled = true
     const topics = topicsReadOnOpen(opening.chats, id)
     if (topics.length > 0) markRead(topics)
   }, [markRead])
-  // 换号(读端换身份)或卸载后,旧请求的结果没有资格写已读。
-  useEffect(() => () => openings.current.clear(), [readChats])
+  // 只按账号换属主;通知偏好也会重建 refresh 回调,不代表群重新打开了。
+  useEffect(() => () => openings.current.clear(), [accountId])
   useEffect(() => {
     for (const id of openings.current.keys()) if (!shown.has(id)) openings.current.delete(id)
-    if (!active) return
+    if (!active || !accountId) return
     for (const id of shown) {
       const pending = openings.current.get(id)
       if (pending) { flush(id, pending); continue }
-      const opening: Opening = { handled: false }
+      const opening: Opening = { accountId, handled: false }
       openings.current.set(id, opening)
       void readChats().then((chats) => { opening.chats = chats; flush(id, opening) }).catch((error: unknown) => {
         opening.handled = true // 失败留到下次打开重试,不因列表更新反复触发。
         log.error({ error: String(error), groupId: id }, 'refresh project topics on open failed')
       })
     }
-  }, [shown, active, readChats, flush])
+  }, [shown, active, accountId, readChats, flush])
 }
 
 /** 壳画进会话页的那些格子里,哪几个项目群此刻在视口里(块藏在背后、页签没选中都不算)。 */
@@ -80,6 +84,7 @@ function useShownProjectGroups(entries: ReadonlyMap<string, HTMLElement>, projec
 
 /** 会话页里的项目群(ChatSlotHost 画的那些格子):打开时把它开出去、叫到你的话题一起标已读。失败只记日志 —— 下次打开再读。 */
 export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTMLElement>, projectGroupChats: ReadonlySet<string>): void {
+  const { user } = useAuth()
   const { refreshChats, getImRepository } = useChatStore('refreshChats', 'getImRepository')
   const shown = useShownProjectGroups(entries, projectGroupChats)
   const active = useAppActive()
@@ -107,5 +112,5 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
       })
       .catch((error: unknown) => log.error({ error: String(error) }, 'mark project topics read failed'))
   }, [refreshChats])
-  useReadTopicsOnOpening(shown, active, readChats, markRead)
+  useReadTopicsOnOpening(shown, active, user?.id ?? null, readChats, markRead)
 }
