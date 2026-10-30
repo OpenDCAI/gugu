@@ -60,7 +60,7 @@ describe('project-slot lifecycle', () => {
   let target: HTMLDivElement
   let entries: ReadonlyMap<string, HTMLElement>
   let callback: IntersectionObserverCallback
-  const groups = new Set([GROUP])
+  let groups: ReadonlySet<string>
   let finishRefresh: () => void
   let refreshChats: ReturnType<typeof vi.fn<() => Promise<void>>>
   let getImRepository: () => Promise<AccountImRepository>
@@ -70,8 +70,8 @@ describe('project-slot lifecycle', () => {
     auth: { id: accountId },
     chat: { chats, chatsRead, refreshChats, getImRepository },
   })
-  const intersect = (isIntersecting: boolean) => act(async () => callback([
-    { target, isIntersecting, intersectionRatio: isIntersecting ? 1 : 0, time: 0,
+  const intersect = (isIntersecting: boolean, element = target) => act(async () => callback([
+    { target: element, isIntersecting, intersectionRatio: isIntersecting ? 1 : 0, time: 0,
       boundingClientRect: new DOMRect(0, 0, 300, 300), intersectionRect: new DOMRect(0, 0, 300, 300), rootBounds: null },
   ], {} as IntersectionObserver))
   const visible = (value: 'visible' | 'hidden') => act(async () => {
@@ -91,6 +91,7 @@ describe('project-slot lifecycle', () => {
     target = document.createElement('div')
     document.body.append(target)
     entries = new Map([[`chat:${GROUP}`, target]])
+    groups = new Set([GROUP])
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     vi.stubGlobal('IntersectionObserver', class {
       constructor(cb: IntersectionObserverCallback) { callback = cb }
@@ -254,6 +255,35 @@ describe('project-slot lifecycle', () => {
     expect(write).not.toHaveBeenCalled()
     await intersect(true)
     expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['entries', 'project groups'])('drops a removed slot before the replacement observer answers when %s change', async (changed) => {
+    const other = document.createElement('div')
+    entries = new Map([[`chat:${GROUP}`, target], ['chat:group-2', other]])
+    groups = new Set([GROUP, 'group-2'])
+    await render(CHATS)
+    await intersect(true)
+    if (changed === 'entries') entries = new Map([['chat:group-2', other]])
+    else groups = new Set(['group-2'])
+    await render(CHATS)
+    // No callback from the new observer yet; only g2 is still registered as a project slot.
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    expect(write).not.toHaveBeenCalled()
+    await intersect(true, other)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[0][0].chats.map(c => c.id)).toEqual(['topic-other-group'])
+  })
+
+  it('revokes a pending writer when its slot is unregistered while another project remains', async () => {
+    await render(CHATS)
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    const pendingWrite = write.mock.calls[0][0]
+    expect(pendingWrite.canMarkRead?.('topic-17')).toBe(true)
+    entries = new Map([['chat:group-2', document.createElement('div')]])
+    groups = new Set([GROUP, 'group-2'])
+    await render(CHATS)
+    expect(pendingWrite.canMarkRead?.('topic-17')).toBe(false)
   })
 
   it('consumes an authoritative empty result without swallowing a later new topic', async () => {

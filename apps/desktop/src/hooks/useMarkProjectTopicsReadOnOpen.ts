@@ -30,6 +30,7 @@ function useReadTopicsOnOpening(
   accountId: string | null,
   readChats: () => Promise<TopicsSnapshot>,
   markRead: (topics: ChatItem[], canMarkRead: (chatId: string) => boolean) => void,
+  isRegistered: (groupId: string) => boolean,
 ): void {
   const openings = useRef(new Map<string, Opening>())
   const shownRef = useRef(shown)
@@ -37,14 +38,14 @@ function useReadTopicsOnOpening(
   const accountRef = useRef(accountId)
   accountRef.current = accountId
   const flush = useCallback((id: string, opening: Opening) => {
-    if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || opening.handled || !opening.snapshot || !shownRef.current.has(id) || !isAppActive()) return
+    if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || opening.handled || !opening.snapshot || !shownRef.current.has(id) || !isRegistered(id) || !isAppActive()) return
     opening.handled = true
     const { chats, repository } = opening.snapshot
     // 水位冻结,人工意图不冻结:后台等待期间同步进来的手动未读/新读状态不能被旧请求盖掉。
     // repository 不持久化 read_state_version,用保留的成员更新时间和已读水位核对同一份读意图。
     const candidates = new Map(topicsReadOnOpen(chats, id).map(chat => [chat.id, chat]))
     const canMarkRead = (chatId: string) => {
-      if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || !shownRef.current.has(id) || !isAppActive()) return false
+      if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || !shownRef.current.has(id) || !isRegistered(id) || !isAppActive()) return false
       const captured = candidates.get(chatId)
       const current = readChatRows(repository).find(chat => chat.id === chatId)
       return !!captured && !!current && !current.is_marked_unread
@@ -52,7 +53,7 @@ function useReadTopicsOnOpening(
     }
     const topics = [...candidates.values()].filter(chat => canMarkRead(chat.id))
     if (topics.length > 0) markRead(topics, canMarkRead)
-  }, [markRead])
+  }, [markRead, isRegistered])
   // 只按账号换属主;通知偏好也会重建 refresh 回调,不代表群重新打开了。
   useEffect(() => () => openings.current.clear(), [accountId])
   useEffect(() => {
@@ -76,6 +77,10 @@ function useShownProjectGroups(entries: ReadonlyMap<string, HTMLElement>, projec
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     const slots = [...entries].filter(([key]) => key.startsWith(CHAT_SLOT_PREFIX) && projectGroupChats.has(key.slice(CHAT_SLOT_PREFIX.length)))
+    setShown((current) => {
+      const next = new Set([...current].filter(id => projectGroupChats.has(id) && entries.has(`${CHAT_SLOT_PREFIX}${id}`)))
+      return next.size === current.size ? current : next
+    })
     if (slots.length === 0) { setShown((current) => (current.size ? new Set() : current)); return }
     const idOf = new Map(slots.map(([key, element]) => [element, key.slice(CHAT_SLOT_PREFIX.length)]))
     const visible = new Set<string>()
@@ -91,7 +96,8 @@ function useShownProjectGroups(entries: ReadonlyMap<string, HTMLElement>, projec
     for (const element of idOf.keys()) observer.observe(element)
     return () => observer.disconnect()
   }, [entries, projectGroupChats])
-  return shown
+  // The old observer's last answer is not evidence for a slot that has already been removed.
+  return useMemo(() => new Set([...shown].filter(id => projectGroupChats.has(id) && entries.has(`${CHAT_SLOT_PREFIX}${id}`))), [shown, entries, projectGroupChats])
 }
 
 /** 会话页里的项目群(ChatSlotHost 画的那些格子):打开时把它开出去、叫到你的话题一起标已读。失败只记日志 —— 下次打开再读。 */
@@ -99,6 +105,9 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
   const { user } = useAuth()
   const { refreshChats, getImRepository } = useChatStore('refreshChats', 'getImRepository')
   const shown = useShownProjectGroups(entries, projectGroupChats)
+  const registration = useRef({ entries, projectGroupChats })
+  registration.current = { entries, projectGroupChats }
+  const isRegistered = useCallback((id: string) => registration.current.projectGroupChats.has(id) && registration.current.entries.has(`${CHAT_SLOT_PREFIX}${id}`), [])
   const active = useAppActive()
   const readChats = useMemo(() => {
     let inFlight: Promise<TopicsSnapshot> | null = null
@@ -124,5 +133,5 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
       })
       .catch((error: unknown) => log.error({ error: String(error) }, 'mark project topics read failed'))
   }, [refreshChats])
-  useReadTopicsOnOpening(shown, active, user?.id ?? null, readChats, markRead)
+  useReadTopicsOnOpening(shown, active, user?.id ?? null, readChats, markRead, isRegistered)
 }
