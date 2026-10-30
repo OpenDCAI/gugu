@@ -30,12 +30,12 @@ export function useFileHost(itemId: string | null): FileHost | null {
 
 /**
  * After a read failed: whether it is because the machine that keeps this version is offline right now, read afresh from
- * the resolver (never a state remembered from earlier). Its name when it is (`''` when it has none); null otherwise.
+ * the resolver (never a state remembered from earlier). That machine — its name (`''` when it has none) — or null.
  */
-export async function offlineHolder(itemId: string, version?: number): Promise<string | null> {
+export async function offlineHolder(itemId: string, version?: number): Promise<{ machine: string; deviceId: string } | null> {
   const file = await fileMetadata(itemId, version).catch(() => null)
-  if (file?.status !== 'ready' || file.revision.source !== 'local' || file.revision.host_online !== false) return null
-  return file.revision.host_label?.trim() ?? ''
+  if (file?.status !== 'ready' || file.revision.source !== 'local' || file.revision.host_online !== false || !file.revision.host_device_id) return null
+  return { machine: file.revision.host_label?.trim() ?? '', deviceId: file.revision.host_device_id }
 }
 
 export const openFileStorageSettings = () => window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'files' } }))

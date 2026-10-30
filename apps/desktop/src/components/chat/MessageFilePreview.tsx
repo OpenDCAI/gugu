@@ -9,6 +9,8 @@ import { downloadBlob } from '../../lib/download'
 import { attachmentBytes, attachmentPreview, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
 import { offlineHolder } from '../../lib/fileHost'
+import { useDevicesStore } from '../../store/devicesContext'
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels'
 import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
@@ -77,6 +79,17 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source identity retains the menu snapshot across unrelated renders
   }, [key, file.fileName, message?.id, kind, mobile, toast])
   const [read, setRead] = useState<PreviewRead | null>(null)
+  // The machine a failed read waits for: when the device list sees it go from off to on, the file is read again by itself.
+  const [waitingFor, setWaitingFor] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const { devices } = useDevicesStore()
+  const seenOff = useRef(false)
+  useEffect(() => {
+    if (!waitingFor) { seenOff.current = false; return }
+    const online = devices.some((device) => device.device_id === waitingFor && isDeviceOnline(device.status))
+    if (!online) { seenOff.current = true; return }
+    if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setAttempt((n) => n + 1) }
+  }, [devices, waitingFor])
   useEffect(() => {
     let live = true, release: PreviewRead['release']
     setRead(null)
@@ -87,13 +100,14 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       async (error) => {
         // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
         const offline = source.kind === 'item' ? await offlineHolder(source.itemId, source.version) : null
-        if (live) setRead({ content: null, error: offline !== null ? t('attachmentView.holderOffline', { machine: offline || t('attachmentView.holderMachine') })
+        if (live) setWaitingFor(offline?.deviceId ?? null)
+        if (live) setRead({ content: null, error: offline !== null ? t('attachmentView.holderOffline', { machine: offline.machine || t('attachmentView.holderMachine') })
           : t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') })
       },
     )
     return () => { live = false; void release?.() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes
-  }, [key, kind, file.document, t])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes; attempt reads them again
+  }, [key, kind, file.document, t, attempt])
   const renewVideo = async (video: HTMLVideoElement) => {
     const current = read
     if (video.dataset.renewing) return

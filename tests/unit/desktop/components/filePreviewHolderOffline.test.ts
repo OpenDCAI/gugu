@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { FilePreviewHost } from '../../../../apps/desktop/src/components/chat/filePreviewHost'
 
-const { readBytes, metadata } = vi.hoisted(() => ({
-  readBytes: vi.fn(async () => { throw new Error('File device is unavailable or its transfer timed out') }),
+const { readBytes, metadata, devices } = vi.hoisted(() => ({
+  readBytes: vi.fn(async (): Promise<unknown> => { throw new Error('File device is unavailable or its transfer timed out') }),
   metadata: vi.fn(),
+  devices: { rows: [] as { device_id: string; status: string }[] },
 }))
 vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: vi.fn() }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
@@ -16,6 +17,7 @@ vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: readBytes, sourceKeyOf: () => 'notes', attachmentPreview: vi.fn(), openAttachmentInSystemApp: vi.fn(),
 }))
 vi.mock('@/lib/fileAccess', () => ({ fileMetadata: metadata }))
+vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: devices.rows }) }))
 vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
   MessageFilePreviewPanel: ({ error }: { error?: string }) => createElement('aside', null, error ?? ''),
 }))
@@ -28,15 +30,17 @@ function Conversation() {
     createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'notes.md', mimeType: 'text/markdown', sizeBytes: 28, source: { kind: 'item', itemId: 'notes', version: 2 } }) }, 'open'),
     preview.panel)
 }
-const kept = (online: boolean, label: string | null) => ({ status: 'ready', revision: { source: 'local', host_online: online, host_label: label } })
+const kept = (online: boolean, label: string | null) => ({ status: 'ready', revision: { source: 'local', host_online: online, host_label: label, host_device_id: 'mac' } })
 
 describe('a project file whose machine is off', () => {
   let harness: ReturnType<typeof createReactHarness>
   let pane: HTMLElement
   beforeEach(() => { harness = createReactHarness(); pane = document.createElement('section'); document.body.append(pane) })
-  afterEach(() => { harness.cleanup(); pane.remove(); vi.clearAllMocks() })
+  afterEach(() => { harness.cleanup(); pane.remove(); vi.clearAllMocks(); devices.rows = [] })
+  const draw = () => harness.render(createElement(FilePreviewHost.Provider, { value: { target: pane, onOpenChange: () => undefined } }, createElement(Conversation)))
+  const settle = () => act(async () => { await new Promise((done) => setTimeout(done, 0)) })
   const open = async () => {
-    await harness.render(createElement(FilePreviewHost.Provider, { value: { target: pane, onOpenChange: () => undefined } }, createElement(Conversation)))
+    await draw()
     await act(async () => { harness.container.querySelector('button')!.click() })
     await act(async () => { await new Promise((done) => setTimeout(done, 0)) })
   }
@@ -54,5 +58,19 @@ describe('a project file whose machine is off', () => {
       expect(pane.textContent).toBe('文件暂时打不开')
       harness.cleanup(); harness = createReactHarness(); pane.replaceChildren()
     }
+  })
+  // The tab that said so does not keep saying it: when the device list sees that machine go from off to on, it reads again.
+  it('reads again by itself when that machine comes back, and not before', async () => {
+    metadata.mockResolvedValue(kept(false, 'Studio Mac'))
+    devices.rows = [{ device_id: 'mac', status: 'offline' }]
+    await open()
+    expect(pane.textContent).toBe('Studio Mac 离线，上线后才能打开这个文件。')
+    expect(readBytes).toHaveBeenCalledTimes(1)
+    await draw(); await settle()
+    expect(readBytes).toHaveBeenCalledTimes(1)
+    readBytes.mockResolvedValueOnce({ status: 'ready', blob: { text: async () => '# back', arrayBuffer: async () => new ArrayBuffer(0) } })
+    devices.rows = [{ device_id: 'mac', status: 'online' }]
+    await draw(); await settle()
+    expect(readBytes).toHaveBeenCalledTimes(2)
   })
 })
