@@ -108,7 +108,10 @@ function rehypeChips(mentions: readonly MdastMention[]) {
         if (child.tagName === 'img') return imageChip(child);
         visit(child);
         if (child.tagName !== 'table') return child;
-        return { type: 'element', tagName: 'div', properties: { className: ['gg-md-table-scroll'] }, children: [child] };
+        // A table's lines (`sourceLines`) go to its scroll box: the box is the block a page meets at the top.
+        const { dataLine, ...table } = child.properties;
+        const line = dataLine === undefined ? {} : { dataLine };
+        return { type: 'element', tagName: 'div', properties: { className: ['gg-md-table-scroll'], ...line }, children: [{ ...child, properties: table }] };
       });
     };
     visit(tree);

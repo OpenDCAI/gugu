@@ -251,7 +251,9 @@ describe('gugu.markdown(): sourceLines — each block says the lines of the give
     expect(lines(box.querySelector('ul'))).toBe('8-9');
     // The blocks a line is picked in, inside a block: each list item, each table row.
     expect([...box.querySelectorAll('li')].map(lines)).toEqual(['8-8', '9-9']);
-    expect(lines(box.querySelector('table'))).toBe('11-13');
+    // A table's lines are on its scroll box, the block a page meets at the top (its ⋯ in the folder App).
+    expect(lines(box.querySelector('.gg-md > .gg-md-table-scroll'))).toBe('11-13');
+    expect(box.querySelector('table')?.hasAttribute('data-line')).toBe(false);
     expect([...box.querySelectorAll('tr')].map(lines)).toEqual(['11-11', '13-13']);
     expect(lines([...box.querySelectorAll('p')].at(-1))).toBe('15-15');
     // Control: without the option no block says its lines.
