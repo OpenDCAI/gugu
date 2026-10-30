@@ -148,7 +148,7 @@ describe('project file publication runs before document conversion or cloud uplo
     expect(publication.p_path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/file\.bin$/)
     expect(publication).not.toHaveProperty('p_expected')
     expect(Object.values(publication)).not.toContain(root)
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toMatchObject({ workspace: { path: row.path, created_at: row.created_at, created_by: row.created_by }, sha256: publication.p_sha })
+    expect(await readProjectFile({ item_id: 'item', version: 1 }, 'owner', 'device', env)).toMatchObject({ workspace: { path: row.path, created_at: row.created_at, created_by: row.created_by }, sha256: publication.p_sha })
   })
   it('reuses the one ordinary uploader only when proactive upload was explicitly enabled', async () => {
     const f = fixture(true)
@@ -225,7 +225,7 @@ describe('every device keeps what it sends into a project chat', () => {
     const publication = f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')![1]
     expect(publication).toMatchObject({ p_chat: 'elsewhere', p_device: 'laptop', p_project: 'device-store' })
     expect(await readFile(join(store, String(publication.p_path)))).toEqual(Buffer.from(data))
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'laptop', env)).toMatchObject({ host_device_id: 'laptop', host_project_id: 'device-store', chat_id: 'group' })
+    expect(await readProjectFile({ item_id: 'item', version: 1 }, 'owner', 'laptop', env)).toMatchObject({ host_device_id: 'laptop', host_project_id: 'device-store', chat_id: 'group' })
   })
   it('a bound device names its project; a next version is kept by whichever device writes it', async () => {
     const f = fixture()

@@ -50,9 +50,9 @@ describe('account/project revision index', () => {
   })
   it('serializes concurrent index writes with group writes, and forget invalidates', async () => {
     await Promise.all(Array.from({ length: 4 }, (_, n) => rememberProjectFile({ ...revision, item_id: `item-${n}` }, 'owner', env)))
-    for (let n = 0; n < 4; n++) expect(await readProjectFile({ item_id: `item-${n}` }, 'owner', 'host-device', env)).not.toBeNull()
+    for (let n = 0; n < 4; n++) expect(await readProjectFile({ item_id: `item-${n}`, version: 1 }, 'owner', 'host-device', env)).not.toBeNull()
     await forgetProjectFile('item-0', 'owner', env)
-    expect(await readProjectFile({ item_id: 'item-0' }, 'owner', 'host-device', env)).toBeNull()
+    expect(await readProjectFile({ item_id: 'item-0', version: 1 }, 'owner', 'host-device', env)).toBeNull()
     await forgetProjectGroupId('project', 'owner', env)
     expect(await readProjectFile(ref, 'owner', 'host-device', env)).toBeNull()
   })
@@ -74,14 +74,16 @@ describe('account/project revision index', () => {
 describe('a later version the database made from the same bytes (#719: a rename or move)', () => {
   // The index still holds version 1; the database's record of version 2 names the same bytes under a new name.
   const renamed = () => ({ ...revision, version: 2, file_name: 'renamed.bin' })
-  it('reads version 2 as the same bytes, under its new name, and keeps reading version 1 without asking', async () => {
+  it('reads version 2 as the same bytes, under its new name, and keeps reading the named version 1 without asking', async () => {
     const later = vi.fn(async () => renamed())
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, later)).toEqual({ ...revision, version: 2, file_name: 'renamed.bin' })
     expect(later).toHaveBeenCalledWith({ item_id: 'item', version: 2 })
     later.mockClear()
     expect(await readProjectFile(ref, 'owner', 'host-device', env, later)).toEqual(revision)
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, later)).toEqual(revision)
     expect(later).not.toHaveBeenCalled()
+    // No version named: the current one, which the database says is version 2, the same bytes here.
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, later)).toEqual({ ...revision, version: 2, file_name: 'renamed.bin' })
+    expect(later).toHaveBeenCalledWith({ item_id: 'item' })
     const provider = localProjectFileProvider({ identity, read: createProjectFileReader({ identity, root: async () => root, env, later }), tempRoot, env, later })
     const file = await createFileResolver({ local: provider, metadata: later as never, managed: later as never, ssh: later as never, temporary: later as never })({ ...ref, version: 2 }, actor)
     if (file.status !== 'ready') throw Error('ready expected')
@@ -110,6 +112,16 @@ describe('a later version the database made from the same bytes (#719: a rename 
   ] as const)('refuses when the database names %s', async (_, change) => {
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => ({ ...renamed(), ...change }) as FileRevision)).toBeNull()
   })
+  // A project chat has no host: another member's device may write the next version, which it then keeps. The device that
+  // kept version 1 must not answer for the file's current version with its own old bytes (native #107 cell 4).
+  it('answers no version named only while this device keeps the current version; a named older version stays local', async () => {
+    const elsewhere = vi.fn(async () => ({ ...revision, version: 2, host_device_id: 'other-device', relative_path: 'item/file.bin', sha256: 'cd'.repeat(32), size_bytes: 74 }) as FileRevision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, elsewhere)).toBeNull()
+    expect(elsewhere).toHaveBeenCalledWith({ item_id: 'item' })
+    expect(await readProjectFile(ref, 'owner', 'host-device', env, elsewhere)).toEqual(revision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env, async () => revision)).toEqual(revision)
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'host-device', env)).toBeNull()
+  })
   it('refuses a version the database does not have, and never asks about one older than the index', async () => {
     expect(await readProjectFile({ ...ref, version: 2 }, 'owner', 'host-device', env, async () => null)).toBeNull()
     await rememberProjectFile({ ...revision, version: 3 }, 'owner', env)
@@ -120,12 +132,17 @@ describe('a later version the database made from the same bytes (#719: a rename 
 })
 
 describe('local read fence and verified snapshot', () => {
-  it('the production composition root opens by item or folder path without cloud, auth refresh or an SSH dial', async () => {
+  it('the production composition root opens by item or folder path asking only which version is current, without bytes from the cloud, auth refresh or an SSH dial', async () => {
     await writeDeviceIdCache(deviceFile(env, 'owner'), 'host-device')
     await rememberProjectFile({ ...revision, workspace: { path: 'file.bin', parent_id: null, created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [] } }, 'owner', env)
+    // The one metadata question a current-version read asks: the database names this device's version 1 as current.
+    const current = vi.fn(async (input: string | URL | Request) => {
+      if (!/\/functions\/v1\/attachments\/file-resolve$/.test(String(input))) throw new Error('Unexpected network request')
+      return Response.json({ ...revision, status: 'ready' })
+    })
     const network = vi.fn(async () => { throw new Error('Unexpected network request') })
     const links = vi.fn(() => null)
-    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: network, rpc: network, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: current as typeof fetch, rpc: network, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
     expect(access.handlers('realtime')).toEqual({})
     expect(Object.keys(access.handlers('ssh'))).toEqual(['file.read'])
     for (const named of [{ id: 'item' }, { chat: 'group', name: 'file.bin' }]) {
