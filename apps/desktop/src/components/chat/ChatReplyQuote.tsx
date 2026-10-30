@@ -21,7 +21,7 @@ export function ChatReplyQuote({ disclosure, onJump, children }: {
     <Reply aria-hidden />
   </IconButton>
   const preview = <div className="gg-chat-reply-preview">{children}</div>
-  return <div className="gg-chat-reply-quote" data-chat-reply-quote data-marker="true" data-mobile={disclosure.mobile}>
+  return <span className="gg-chat-reply-quote" data-chat-reply-quote data-marker="true" data-mobile={disclosure.mobile}>
     {disclosure.mobile ? <Popover.Root modal={false}>
       <Popover.Trigger render={mark} />
       <Popover.Portal>
@@ -39,5 +39,5 @@ export function ChatReplyQuote({ disclosure, onJump, children }: {
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>}
-  </div>
+  </span>
 }

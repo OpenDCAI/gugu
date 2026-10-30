@@ -287,7 +287,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.body.textContent).not.toContain('复制')
   })
   it('uses the compact mobile message type without changing sender metadata size', async () => {
-    await renderMessage()
+    await renderMessage(undefined, true, vi.fn(), { memberProfile: agentProfile() })
     const bubble = messageBubble()
     const sender = harness.container.querySelector('[data-message-sender-name="true"]') as HTMLElement | null
     const bubbleColumn = bubble.closest('[data-message-bubble-column="true"]') as HTMLElement | null

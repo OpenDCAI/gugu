@@ -29,6 +29,9 @@
 
 /* 时间:标注字号的灰字,钉在气泡右下角。 */
 .msg-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--font-caption);
   line-height: var(--lh-caption);
   color: var(--faint-fg);
@@ -37,7 +40,8 @@
 }
 .msg-time[data-mine] { color: var(--text-on-bubble-muted); }
 .msg-time[data-inline] { position: absolute; right: 12px; bottom: 5px; }
-.msg-time:not([data-inline]) { display: block; align-self: flex-end; margin-top: 2px; }
+.msg-time:not([data-inline]) { display: flex; align-self: flex-end; margin-top: 2px; }
+[data-message-reply-footer] { --msg-reply-room: calc(var(--lh-caption) + 4px); }
 
 /* 给内嵌时间留位:正文最后一行末尾放一段看不见的、和时间一样宽的文字。末行放得下 ⇒ 时间和它同一行;放不下 ⇒ 这段自己折到
    下一行,时间落在那一行。内容由气泡写进 --msg-time-room(时间文本本身,所以宽度永远对得上)。 */
@@ -49,7 +53,7 @@
   content: var(--msg-time-room);
   display: inline-block;
   visibility: hidden;
-  padding-left: 10px;
+  padding-left: calc(10px + var(--msg-reply-room, 0px));
   font-size: var(--font-caption);
   line-height: 1;
   white-space: nowrap;
