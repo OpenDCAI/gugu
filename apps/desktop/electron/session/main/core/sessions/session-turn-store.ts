@@ -4,6 +4,7 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
 import { randomUUID } from 'node:crypto';
+import { sessionEvents } from './session-events';
 import { activitySignal } from '../activity/signals';
 import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
 import { nativeConversationActivity } from './session-conversation-activity';
@@ -119,6 +120,7 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
       tx.update(sessionTurns).set({ data: JSON.stringify(revised) }).where(eq(sessionTurns.id, row.id)).run();
       return noteNativeConversationReplies(input.sessionId, revised, input.turn, tx);
     });
+    sessionEvents._emit('session:history-changed', { sessionId: input.sessionId, seq: row.seq });
     publish?.();
     return;
   }
@@ -149,6 +151,7 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
       ? queueNativeConversationInbox(input.sessionId, tx) : false;
     return { rows: result, publish, inbox };
   });
+  if (inserted.rows.length) sessionEvents._emit('session:history-changed', { sessionId: input.sessionId, seq: next });
   inserted.publish?.();
   if (inserted.inbox) publishNativeConversationInbox();
   if (input.source === 'replay' && inserted.rows.length) didFillReplay(input.sessionId, input.turn.seq);
@@ -203,6 +206,7 @@ export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTur
       data: JSON.stringify(renumberStoredTurn(turn, sessionId, next)),
     })
     .onConflictDoNothing();
+  sessionEvents._emit('session:history-changed', { sessionId, seq: next });
 }
 
 /**
@@ -373,6 +377,7 @@ export async function truncateStoredHistory(sessionId: string, fromSeq: number |
     const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
     return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
   });
+  sessionEvents._emit('session:history-changed', { sessionId, fromSeq });
   removed.publish?.();
   // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
   if (removed.rows.length > 0) {

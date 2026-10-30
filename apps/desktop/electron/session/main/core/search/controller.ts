@@ -11,7 +11,13 @@ export const searchController = createRPCController({
     searchService.searchFiles(q.workspaceId, q.query, q.limit),
   global: (request: MessageSearchRequest) => accountMessageSearch.global(request),
   dateAnchor: (query: SearchQuery) => accountMessageSearch.dateAnchor(query),
+  tasks: () => accountMessageSearch.tasks(),
   coverage: () => accountMessageSearch.coverage(),
-  // The only write. Its one renderer caller is apps/desktop/src/lib/searchIndexFeed.ts.
-  write: (ops: SearchIndexOp[]) => accountMessageSearch.write(ops),
+  // The renderer feeds authorized chat reads; task projections have one main-process source.
+  write: (ops: SearchIndexOp[]) => {
+    if (ops.some(op => !['rows', 'remove', 'chats', 'clearChat', 'coverage'].includes(op.kind))) {
+      throw new Error('Task search writes belong to the stored-turn feed');
+    }
+    return accountMessageSearch.write(ops);
+  },
 });

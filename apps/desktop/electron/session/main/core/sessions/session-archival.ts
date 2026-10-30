@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '@main/db/client'
+import { sessionEvents } from './session-events'
 import { kv, sessions } from '@main/db/schema'
 import { archiveTimestamp, sessionArchiveRefusesMessage, type SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
@@ -39,7 +40,7 @@ export function sessionArchivalState(sessionId: string): SessionArchivalState | 
 /** The row and its refusal interval commit together, before runtime teardown. */
 export function setSessionArchival(sessionId: string, archived: boolean, at = new Date().toISOString()): string | null {
   archiveTimestamp(at)
-  return db.transaction((tx) => {
+  const archivedAt = db.transaction((tx) => {
     const row = tx.select({ archivedAt: sessions.archivedAt }).from(sessions).where(eq(sessions.id, sessionId)).get()
     if (!row) throw new Error(`Session not found: ${sessionId}`)
     if (Boolean(row.archivedAt) === archived) return row.archivedAt
@@ -61,6 +62,8 @@ export function setSessionArchival(sessionId: string, archived: boolean, at = ne
     tx.update(sessions).set({ archivedAt, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(sessions.id, sessionId)).run()
     return archivedAt
   })
+  sessionEvents._emit('session:visibility-changed', sessionId)
+  return archivedAt
 }
 
 /** Give pre-upgrade archives a stable interval before the host starts delivery. */

@@ -2,17 +2,24 @@ import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { SearchTaskDocument } from '@gugu/core/shared/search/types';
 import { messageReferenceId } from '../acp/models/turns/message-reference';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
+import { visibleConversationItems } from './visible-conversation-items';
 import { agentSendOf, replyItems, successfulMessageSend } from './reply-process';
 
 /** Visible conversation bodies only. Canonical IM messages are indexed by their own account read. */
 export function taskSearchDocuments(taskId: string, turn: TranscriptTurn, storedAt: string): SearchTaskDocument[] {
-  return replyItems(turn).flatMap(item => {
+  return replyItems({ ...turn, items: visibleConversationItems(turn) }).flatMap(item => {
     let text: string;
     let role: 'user' | 'assistant';
+    let senderId: string | null | undefined;
     if (item.kind === 'message') {
       role = item.role;
       const envelope = role === 'user' ? readDeliveryEnvelope(item.text) : null;
-      text = envelope ? envelope.segments.filter(segment => !segment.facts?.messageId).map(segment => segment.body).join('\n\n') : item.text;
+      const segments = envelope?.segments.filter(segment => !segment.facts?.messageId);
+      text = segments ? segments.map(segment => segment.body).join('\n\n') : item.text;
+      if (segments) {
+        const senders = new Set(segments.map(segment => segment.facts?.fromId?.replace(/^user:/, '') ?? null));
+        senderId = senders.size === 1 ? [...senders][0] : null;
+      }
     } else {
       if (!('toolCallId' in item) || item.status !== 'done' || successfulMessageSend(item)) return [];
       const send = agentSendOf(item, turn);
@@ -23,7 +30,7 @@ export function taskSearchDocuments(taskId: string, turn: TranscriptTurn, stored
     if (!text.trim()) return [];
     const reference = messageReferenceId(turn, item.id) ?? item.id;
     const at = item.kind === 'message' ? item.at ?? turn.startedAt : turn.startedAt;
-    return [{ id: `task:${taskId}:${reference}`, taskId, reference, seq: turn.seq, role, text,
+    return [{ id: `task:${taskId}:${reference}`, taskId, reference, seq: turn.seq, role, text, ...(senderId !== undefined ? { senderId } : {}),
       createdAt: at === undefined ? (/^\d{4}-\d{2}-\d{2} /.test(storedAt) ? storedAt.replace(' ', 'T') + 'Z' : storedAt) : new Date(at).toISOString() }];
   });
 }

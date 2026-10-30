@@ -11,7 +11,7 @@ type MessageRow = {
   id: string; chat_id: string | null; task_id: string | null; task_title: string | null; project_id: string | null; message_ref: string | null; role: 'user' | 'assistant' | null; thread_root_id: string | null; seq: number; sender_id: string | null;
   created_at_iso: string; text: string; to_user_ids: string; text_rank: number; has_file: number; has_image: number;
 };
-type CoverageRow = { chat_id: string | null; task_id: string | null; task_title: string | null; project_id: string | null; message_ref: string | null; role: 'user' | 'assistant' | null; stream: string; oldest_seq: number | null; newest_seq: number | null; exhausted: number };
+type CoverageRow = { chat_id: string; stream: string; oldest_seq: number | null; newest_seq: number | null; exhausted: number };
 
 /** Read progress of every stream (main timelines and threads). */
 export function readCoverage(db: Database.Database): SearchCoverage[] {

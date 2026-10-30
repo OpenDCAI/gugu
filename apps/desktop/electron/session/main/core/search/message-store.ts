@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { EXTRACTOR_VERSION, SCHEMA_VERSION, SEARCH_SCHEMA_DROP_SQL, SEARCH_SCHEMA_SQL } from '@gugu/core/shared/search/schema';
-import type { SearchIndexOp, SearchQuery } from '@gugu/core/shared/search/types';
+import type { SearchIndexOp, SearchQuery, SearchTask } from '@gugu/core/shared/search/types';
 import type { MessageSearchRequest } from '@shared/core/message-search';
 import { coverageKey, taskCoverageKey, readTaskCoverage, readCoverage, readDateAnchor, readMessages } from './message-store-read';
 import { applyOps } from './message-store-write';
@@ -55,6 +55,11 @@ export class MessageSearchStore {
 
   coverage() {
     return readCoverage(this.db);
+  }
+
+  tasks(): SearchTask[] {
+    return (this.db.prepare('SELECT id,title,project_id,agent_user_id FROM task').all() as { id: string; title: string; project_id: string; agent_user_id: string | null }[])
+      .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id }));
   }
 
   taskCoverage() { return readTaskCoverage(this.db); }
@@ -126,6 +131,7 @@ export class AccountMessageSearch {
 
   async global(request: MessageSearchRequest) { return (await this.open()).global(request); }
   async dateAnchor(query: SearchQuery) { return (await this.open()).dateAnchor(query); }
+  async tasks() { return (await this.open()).tasks(); }
   async coverage() { return (await this.open()).coverage(); }
   /**
    * The only write, and the one place that decides whether the index is written. Off: nothing is opened and the ops
@@ -135,7 +141,7 @@ export class AccountMessageSearch {
     if (!(await this.enabled())) { this.close(); return false; }
     if (expected && this.store !== expected) return false;
     const store = await this.openEnabled();
-    if (expected && store !== expected) return false;
+    if (this.store !== store || (expected && store !== expected)) return false;
     store.apply(read(store));
     return true;
   }

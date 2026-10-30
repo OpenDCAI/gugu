@@ -58,7 +58,7 @@ export function buildSearchSql(
   }
   if (query.filters.kind) where.push(query.filters.kind === 'task' ? 'm.task_id IS NOT NULL' : 'm.chat_id IS NOT NULL')
   if (query.filters.from?.length) {
-    where.push(`m.sender_id IN (${query.filters.from.map(() => '?').join(', ')})`)
+    where.push(`(CASE WHEN m.role = 'assistant' THEN task.agent_user_id ELSE m.sender_id END) IN (${query.filters.from.map(() => '?').join(', ')})`)
     params.push(...query.filters.from)
   }
   const hasColumns = { file: 'has_file', image: 'has_image', link: 'has_link' } as const
@@ -80,7 +80,7 @@ export function buildSearchSql(
     where.push('m.created_at >= ? AND m.created_at < ?')
     params.push(midnight(query.filters.on), midnight(query.filters.on, true))
   }
-  let sql = `SELECT m.*, task.title AS task_title, task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
+  let sql = `SELECT m.*, CASE WHEN m.role = 'assistant' THEN task.agent_user_id ELSE m.sender_id END AS sender_id, task.title AS task_title, task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
     FROM msg m
     LEFT JOIN chat ON chat.id = m.chat_id
     LEFT JOIN task ON task.id = m.task_id

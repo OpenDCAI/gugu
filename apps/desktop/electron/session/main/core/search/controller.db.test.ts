@@ -10,6 +10,7 @@ vi.mock('@main/core/extensions/account-token', () => ({
   currentAccountAccessToken: async () => `x.${Buffer.from(JSON.stringify({ sub: 'account-a' })).toString('base64url')}.y`,
 }));
 vi.mock('@main/core/settings/settings-service', () => ({ appSettingsService: { get: async () => ({ v3: true }) } }));
+vi.mock('./task-search-feed', () => ({ startTaskSearch: vi.fn() }));
 vi.mock('./search-service', () => ({ searchService: {} }));
 state.userData = mkdtempSync(join(tmpdir(), 'search-rpc-'));
 const { searchController } = await import('./controller');
@@ -33,6 +34,7 @@ describe('search RPC through the real client and registered router', () => {
       { kind: 'chats', chats: [{ id: 'g', kind: 'group', sourceChatId: null }] },
       { kind: 'rows', rows: [{ id: 'm', chat_id: 'g', sender_user_id: 'peer', seq: 1, content: '发布计划', content_type: 'text', created_at: '2026-10-30T06:00:00Z' }] },
     ]);
+    await expect(rpc.search.write([{ kind: 'removeTask', taskId: 'forged' }])).rejects.toThrow(/stored-turn feed/);
     const found = await rpc.search.global({ query: { text: '发布', filters: {}, sort: 'recent' } });
     expect(found.results.map((hit) => hit.id)).toEqual(['m']);
   });

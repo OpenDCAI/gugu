@@ -55,9 +55,10 @@ describe('account message index on real SQLite FTS5', () => {
   it('shares contentless FTS across origins while chat/task inventories purge independently', () => {
     const store = open();
     const document = { id: 'task:s:ref', taskId: 's', reference: 'ref', role: 'assistant' as const, seq: 0, text: 'taskneedle', createdAt: at };
-    store.apply([groups, { kind: 'task', task: { id: 's', title: 'Original', projectId: 'p' } },
+    store.apply([groups, { kind: 'task', task: { id: 's', title: 'Original', projectId: 'p', agentUserId: 'task-agent' } },
       { kind: 'taskTurn', taskId: 's', seq: 0, documents: [document] }, { kind: 'rows', rows: [row('m', { content: 'chatneedle' })] }]);
     expect(store.global(query('taskneedle')).results[0]).toMatchObject({ kind: 'task', reference: 'ref', title: 'Original' });
+    expect(ids(store, 'taskneedle', { from: ['task-agent'] })).toEqual([document.id]);
     expect(ids(store, 'taskneedle', { has: ['file'] })).toEqual([]);
     expect(ids(store, 'taskneedle', { in: [{ kind: 'session', id: 's' }] })).toEqual([document.id]);
     store.apply([{ kind: 'chats', chats: [] }, { kind: 'task', task: { id: 's', title: 'Renamed', projectId: 'p' } }]);
