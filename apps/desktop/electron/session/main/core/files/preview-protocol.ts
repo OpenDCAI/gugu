@@ -48,6 +48,11 @@ type PreviewSource =
  */
 export type PreviewSurface = 'pane' | 'browser';
 
+interface PreviewAsset {
+  fingerprint?: string;
+  request?: object;
+}
+
 /**
  * 一次预览的登记。**id 就是这个页面的 origin**(`gugu-preview://<id>/`),所以两份预览之间
  * 天然互不同源:一份页面存的 localStorage、发的同源请求,都到不了另一份。
@@ -57,7 +62,7 @@ interface PreviewRegistration {
   surface: PreviewSurface;
   root: PreviewRoot;
   /** Only paths actually supplied to this page; reset when its owner updates the document. */
-  assets?: Map<string, { fingerprint?: string }>;
+  assets?: Map<string, PreviewAsset>;
   generation?: number;
   /** 被打开的那份文档的绝对路径 —— 只有它会被注入链接拦截脚本。浏览器页签没有这一份(整页可以导航到别处)。 */
   documentPath?: string;
@@ -215,17 +220,18 @@ async function comparePreviewAssets(previewId: string, changedPaths: readonly st
   const generation = registration.generation;
   for (const [path, served] of [...(registration.assets ?? [])]) {
     if (signal.aborted) return false;
-    if (served.fingerprint === undefined) continue; // The initial response has not finished yet.
+    const fingerprint = served.fingerprint;
+    if (fingerprint === undefined) continue; // The initial response has not finished yet.
     if (changed && !changed.has(path.replace(/\\/g, '/'))) continue;
-    const read = await readPreviewBytes(registration, path);
+    const read = await readPreviewBytes(registration, path, signal);
     if (signal.aborted || registry.get(previewId) !== registration || registration.generation !== generation) return false;
-    if (registration.assets?.get(path) !== served) continue;
+    if (registration.assets?.get(path) !== served || served.fingerprint !== fingerprint) continue;
     if (!read.ok && read.response.status === 403) {
       registration.assets.delete(path);
       continue;
     }
     const current = read.ok ? assetHash(read.bytes) : `error:${read.response.status}`;
-    if (current !== served.fingerprint) return true;
+    if (current !== fingerprint) return true;
   }
   return false;
 }
@@ -376,17 +382,21 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
     return htmlResponse(registration.documentHtml, registration);
   }
 
-  const asset: { fingerprint?: string } = {};
   const assets = (registration.assets ??= new Map());
+  // A new request owns its eventual response, but does not erase bytes already supplied.
+  const asset: PreviewAsset = assets.get(resolved) ?? {};
+  const request = {};
+  asset.request = request;
   assets.set(resolved, asset);
-  const read = await withDeadline(readPreviewBytes(registration, resolved), PREVIEW_REQUEST_DEADLINE_MS, () => ({
-    ok: false as const,
-    response: failurePage(registration.failureCopy, 'unavailable', 504, 'timeout'),
-  })).catch((error: unknown) => {
+  const operation = new AbortController();
+  const read = await withDeadline(readPreviewBytes(registration, resolved, operation.signal), PREVIEW_REQUEST_DEADLINE_MS, () => {
+    operation.abort();
+    return { ok: false as const, response: failurePage(registration.failureCopy, 'unavailable', 504, 'timeout') };
+  }).catch((error: unknown) => {
     log.error('Preview resource read failed', { path: resolved, error: String(error) });
     return { ok: false as const, response: failurePage(registration.failureCopy, 'unavailable', 500, 'error') };
   });
-  if (registration.generation === generation && registry.get(url.hostname) === registration && assets.get(resolved) === asset) {
+  if (registration.generation === generation && registry.get(url.hostname) === registration && assets.get(resolved) === asset && asset.request === request) {
     if (!read.ok && read.response.status === 403) assets.delete(resolved);
     else asset.fingerprint = read.ok ? assetHash(read.bytes) : `error:${read.response.status}`;
   }
@@ -413,14 +423,16 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
 /** 取一份资源的字节:本机读盘,别的机器经渲染层按块取。失败时直接给出该答的那个响应。 */
 async function readPreviewBytes(
   registration: PreviewRegistration,
-  resolved: string
+  resolved: string,
+  signal?: AbortSignal
 ): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; response: Response }> {
   const source = registration.source;
   if (source.kind === 'remote') {
     const result = await readRemotePreviewBytes(
-      (chunk) => readRemoteChunk(source.projectId, source.workspaceId, chunk),
+      (chunk) => readRemoteChunk(source.projectId, source.workspaceId, chunk, signal),
       resolved,
-      REMOTE_PREVIEW_MAX_BYTES
+      REMOTE_PREVIEW_MAX_BYTES,
+      signal
     );
     if (result.ok) return result;
     log.warn('Remote preview resource unavailable', { reason: result.reason, code: result.code });
@@ -467,22 +479,33 @@ export const REMOTE_CHUNK_TIMEOUT_MS = 20_000;
 function readRemoteChunk(
   projectId: string,
   workspaceId: string,
-  chunk: { path: string; offset: number; length: number }
+  chunk: { path: string; offset: number; length: number },
+  signal?: AbortSignal
 ): Promise<RemoteChunk> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   const requestId = randomUUID();
   return new Promise<RemoteChunk>((resolve, reject) => {
-    const off = events.on(remotePreviewReadResultChannel, (result) => {
-      if (result.requestId !== requestId) return;
+    const cleanup = () => {
       clearTimeout(timer);
       off();
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => {
+      cleanup();
+      reject(signal?.reason);
+    };
+    const off = events.on(remotePreviewReadResultChannel, (result) => {
+      if (result.requestId !== requestId) return;
+      cleanup();
       if (result.chunk) resolve(result.chunk);
       else reject(Object.assign(new Error('remote read failed'), { code: result.errorCode ?? 'unreadable' }));
     });
     const timer = setTimeout(() => {
-      off();
+      cleanup();
       reject(Object.assign(new Error('remote read timed out'), { code: 'timeout' }));
     }, REMOTE_CHUNK_TIMEOUT_MS);
     timer.unref?.();
+    signal?.addEventListener('abort', abort, { once: true });
     events.emit(remotePreviewReadChannel, { requestId, projectId, workspaceId, ...chunk });
   });
 }

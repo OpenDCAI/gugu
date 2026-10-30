@@ -343,3 +343,132 @@ it('keeps an unexpected failed read observable when storage recovers', async () 
     expect(await previewAssetsChanged(preview.previewId)).toBe(true);
   } finally { releasePreview(preview.previewId); vi.mocked(resolveWorkspace).mockReturnValue(null); }
 });
+
+it('review r2: an in-flight refetch cannot erase the last bytes supplied to the page', async () => {
+  const old = { success: true, data: { bytes: Buffer.from('old'), totalSize: 3, truncated: false } };
+  const next = { success: true, data: { bytes: Buffer.from('new'), totalSize: 3, truncated: false } };
+  const readBytes = vi.fn().mockResolvedValue(old);
+  vi.mocked(resolveWorkspace).mockReturnValue({ path: '/w', fileSystem: { readBytes } } as never);
+  const preview = createPreview('p', 'w', '/w/index.html', 'page')!;
+  let finish!: (value: typeof old) => void;
+  let refetch: Promise<Response> | undefined;
+  try {
+    expect((await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane')).status).toBe(200);
+    readBytes.mockImplementationOnce(() => new Promise<typeof old>(resolve => { finish = resolve; })).mockResolvedValue(next);
+    refetch = handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    expect(await previewAssetsChanged(preview.previewId, ['/w/a.css']), 'the page already received old; a pending request cannot hide the disk change').toBe(true);
+  } finally {
+    releasePreview(preview.previewId); finish?.(next); await refetch; vi.mocked(resolveWorkspace).mockReturnValue(null);
+  }
+});
+
+it('review r2: an expired main-process scan does not start more remote chunks after its pending reply', async () => {
+  vi.useFakeTimers();
+  const path = ROOT + '/a.css';
+  const preview = createRemotePreview({ projectId: 'p', workspaceId: 'w', root: ROOT, surface: 'pane', documentPath: ROOT + '/index.html', documentHtml: 'page' })!;
+  const stop = answerFrom({ [path]: 'old' });
+  const reply = (request: {requestId:string;length:number}, error = false) => {
+    const result = error ? { requestId: request.requestId, errorCode: 'not_found' } : {
+      requestId: request.requestId, chunk: { size: request.length * 10, etag: 'slow', data: Buffer.alloc(request.length, 'n').toString('base64') },
+    };
+    for (const cb of bus.listeners.get(remotePreviewReadResultChannel.name) ?? []) cb(result);
+  };
+  const take = () => {
+    const item = bus.emitted.shift()!; expect(item?.name).toBe(remotePreviewReadChannel.name);
+    return item.data as {requestId:string;length:number;offset:number};
+  };
+  try {
+    const initial = handlePreviewRequest(new Request(new URL('a.css', preview.url!)), 'pane');
+    await vi.advanceTimersByTimeAsync(10); expect((await initial).status).toBe(200); stop();
+    const scan = previewAssetsChanged(preview.previewId).catch(error => error as Error);
+    for(let i=0;i<4;i++) {
+      const request=take(); await vi.advanceTimersByTimeAsync(19_000); reply(request); await vi.advanceTimersByTimeAsync(0);
+    }
+    const pending=take();
+    await vi.advanceTimersByTimeAsync(14_001);
+    expect(String(await scan)).toContain('timed out');
+    reply(pending); await vi.advanceTimersByTimeAsync(0);
+    expect(bus.emitted.map(x => (x.data as {offset:number}).offset), 'an expired scan must not issue the next remote readChunk').toEqual([]);
+  } finally {
+    stop(); releasePreview(preview.previewId);
+    while(bus.emitted.length)reply(take(),true);
+    await vi.advanceTimersByTimeAsync(0);
+  }
+});
+
+it('keeps a served baseline when another request begins during a dependency check', async () => {
+  const old = { success: true, data: { bytes: Buffer.from('old'), totalSize: 3, truncated: false } };
+  const next = { ...old, data: { ...old.data, bytes: Buffer.from('new') } };
+  const readBytes = vi.fn().mockResolvedValue(old);
+  vi.mocked(resolveWorkspace).mockReturnValue({ path: '/w', fileSystem: { readBytes } } as never);
+  const preview = createPreview('p', 'w', '/w/index.html', 'page')!;
+  let finishScan!: (value: typeof old) => void;
+  let finishRefetch!: (value: typeof old) => void;
+  let refetch: Promise<Response> | undefined;
+  try {
+    await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    readBytes.mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishScan = resolve; }))
+      .mockImplementationOnce(() => new Promise<typeof old>(resolve => { finishRefetch = resolve; }));
+    const scan = previewAssetsChanged(preview.previewId);
+    refetch = handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    finishScan(next);
+    expect(await scan).toBe(true);
+    finishRefetch(next);
+    expect((await refetch).status).toBe(200);
+    readBytes.mockResolvedValue(next);
+    expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+  } finally {
+    finishScan?.(next); finishRefetch?.(next); await refetch;
+    releasePreview(preview.previewId); vi.mocked(resolveWorkspace).mockReturnValue(null);
+  }
+});
+
+it('does not compare an old disk read against a newly supplied response', async () => {
+  const old = { success: true, data: { bytes: Buffer.from('old'), totalSize: 3, truncated: false } };
+  const next = { ...old, data: { ...old.data, bytes: Buffer.from('new') } };
+  const readBytes = vi.fn().mockResolvedValue(old);
+  vi.mocked(resolveWorkspace).mockReturnValue({ path: '/w', fileSystem: { readBytes } } as never);
+  const preview = createPreview('p', 'w', '/w/index.html', 'page')!;
+  let finish!: (value: typeof old) => void;
+  try {
+    await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    readBytes.mockImplementationOnce(() => new Promise<typeof old>(resolve => { finish = resolve; })).mockResolvedValue(next);
+    const scan = previewAssetsChanged(preview.previewId);
+    await handlePreviewRequest(new Request(new URL('a.css', preview.url)), 'pane');
+    finish(old);
+    expect(await scan).toBe(false);
+    expect(await previewAssetsChanged(preview.previewId)).toBe(false);
+  } finally { finish?.(old); releasePreview(preview.previewId); vi.mocked(resolveWorkspace).mockReturnValue(null); }
+});
+
+it('cancels a timed-out served remote stream and removes its pending reply listener', async () => {
+  vi.useFakeTimers();
+  const preview = createRemotePreview({ projectId: 'p', workspaceId: 'w', root: ROOT, surface: 'pane', documentPath: ROOT + '/index.html', documentHtml: 'page' })!;
+  const reply = (request: { requestId: string; length: number }) => {
+    for (const cb of bus.listeners.get(remotePreviewReadResultChannel.name) ?? []) cb({
+      requestId: request.requestId,
+      chunk: { size: request.length * 10, etag: 'slow', data: Buffer.alloc(request.length, 'x').toString('base64') },
+    });
+  };
+  const take = () => bus.emitted.shift()!.data as { requestId: string; length: number };
+  try {
+    const response = handlePreviewRequest(new Request(new URL('a.css', preview.url!)), 'pane');
+    for (let i = 0; i < 4; i++) {
+      const request = take();
+      await vi.advanceTimersByTimeAsync(19_000);
+      reply(request); await vi.advanceTimersByTimeAsync(0);
+    }
+    const pending = take();
+    await vi.advanceTimersByTimeAsync(14_001);
+    expect((await response).status).toBe(504);
+    expect(bus.listeners.get(remotePreviewReadResultChannel.name)?.size).toBe(0);
+    reply(pending); await vi.advanceTimersByTimeAsync(0);
+    expect(bus.emitted).toEqual([]);
+    const stop = answerFrom({ [ROOT + '/a.css']: 'recovered' });
+    try {
+      const scan = previewAssetsChanged(preview.previewId);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(await scan).toBe(true);
+    } finally { stop(); }
+  } finally { releasePreview(preview.previewId); }
+});
