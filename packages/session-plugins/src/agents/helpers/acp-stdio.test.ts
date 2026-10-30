@@ -81,10 +81,10 @@ describe('nodeReadableToWeb', () => {
     let seenByOtherTask: number | undefined;
     const otherTask = new Promise<void>(resolve => setImmediate(() => { seenByOtherTask = received.length; resolve(); }));
     try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
+      let chunk = await reader.read();
+      while (!chunk.done) {
         received.push(Buffer.from(chunk.value).toString());
+        chunk = await reader.read();
       }
       await otherTask;
       expect(seenByOtherTask).toBeLessThan(chunks.length);
