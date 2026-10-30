@@ -366,6 +366,8 @@ export default {
     "usageUnavailable": "File storage usage is unavailable right now.",
 
     "fileUnavailable": "File unavailable right now",
+    "holderOffline": "{{machine}} is offline. This file opens when it is back online.",
+    "holderMachine": "The computer that keeps it",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"

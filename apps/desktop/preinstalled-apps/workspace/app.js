@@ -153,7 +153,6 @@ const STRINGS = {
     noCopy: '没有云端副本',
     machineOnline: '在线',
     machineOffline: '离线',
-    hostOffline: '{machine} 离线，上线后才能打开这个文件。',
     pick: '选择',
     pickAll: '全选',
     pickDone: '完成',
@@ -308,7 +307,6 @@ const STRINGS = {
     noCopy: 'No cloud copy',
     machineOnline: 'online',
     machineOffline: 'offline',
-    hostOffline: '{machine} is offline: this file opens once it is back.',
     pick: 'Select',
     pickAll: 'Select all',
     pickDone: 'Done',
@@ -1127,9 +1125,10 @@ function storedOnMark(storedOn) {
 // machine is back.
 const offline = (entry) => entry.storedOn?.online === false && !entry.keep
 
-// A press on a file: the host picks the App that opens it — or, its machine off, the list says why it cannot now.
+// A press on a file: the host picks the App that opens it and says why if it cannot now. Whether the machine that keeps
+// it is on is read afresh then, never from the list as it was loaded: the list is read again to show it.
 function openFile(entry) {
-  if (offline(entry)) return void showBanner(fmt(state.t.hostOffline, { machine: machineOf(entry.storedOn) }), 'info')
+  if (entry.storedOn) void refreshList()
   return openInHost(entry)
 }
 

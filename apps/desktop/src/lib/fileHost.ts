@@ -28,4 +28,14 @@ export function useFileHost(itemId: string | null): FileHost | null {
   return host
 }
 
+/**
+ * After a read failed: whether it is because the machine that keeps this version is offline right now, read afresh from
+ * the resolver (never a state remembered from earlier). Its name when it is (`''` when it has none); null otherwise.
+ */
+export async function offlineHolder(itemId: string, version?: number): Promise<string | null> {
+  const file = await fileMetadata(itemId, version).catch(() => null)
+  if (file?.status !== 'ready' || file.revision.source !== 'local' || file.revision.host_online !== false) return null
+  return file.revision.host_label?.trim() ?? ''
+}
+
 export const openFileStorageSettings = () => window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'files' } }))
