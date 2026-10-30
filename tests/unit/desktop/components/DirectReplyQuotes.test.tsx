@@ -1,98 +1,71 @@
 // @vitest-environment jsdom
-import { beforeEach,afterEach,expect,it,vi } from 'vitest'
-import { createReactHarness,message,renderWithAppProviders,clickElement } from '../../../support/testHarness'
+import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { createReactHarness, message, renderWithAppProviders, clickElement } from '../../../support/testHarness'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
-import { MessageList,type MessageListRowProps } from '../../../../apps/desktop/src/components/chat/MessageList'
+import { MessageList, type MessageListRowProps } from '../../../../apps/desktop/src/components/chat/MessageList'
+import { MessageQuote, DirectMessageQuote } from '../../../../apps/desktop/src/components/chat/MessageQuote'
 import { quoteSummary } from '../../../../apps/desktop/src/components/chat/quoteSummary'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity',()=>({useAgentHarnessIdentity:()=> 'codex'}))
-let h:ReturnType<typeof createReactHarness>
-const noop=()=>{}
-const profile=(id:string,type:'human'|'agent'):MemberProfileCardModel=>({id,displayName:type==='human'?'测试用户':'咕咕',avatar:null,email:null,bio:null,type,role:'member',profileScope:'group'})
-const msg=(id:string,sender:string,seq:number,reply?:string)=>message({id,chat_id:'dm',sender_user_id:sender,seq,is_mine:sender==='user-1',content:`正文 ${id}`,reply_to_message_id:reply??null,reply_to_sender_user_id:reply?'user-1':null,reply_to_content:reply?'原消息':null})
-const quoted=(id:string)=>h.container.querySelector<HTMLElement>(`[data-msg-id="${id}"] [title="跳到被引用的消息"]`)
-const inBubble=(id:string)=>!!quoted(id)?.closest('[data-testid="message-bubble-action-target"]')
-beforeEach(()=>{h=createReactHarness();vi.stubGlobal('IntersectionObserver',class{observe(){}unobserve(){}disconnect(){}})})
-afterEach(()=>{h.cleanup();vi.unstubAllGlobals()})
-async function render(messages:MessageItem[],mobile=false,group=false,onShowMessage=vi.fn()){
- const rows=messages.map(message=>({type:'message' as const,message}))
- const rowProps:MessageListRowProps={rows,messages,isFiltering:false,mobile,isGroupChat:group,memberReadSeqs:{},queuedIds:new Set(),memberProfiles:{'user-1':profile('user-1','human'),'agent':profile('agent','agent')},onReaction:noop,onQuote:noop,onForward:noop,onDelete:noop,onVisible:noop,onShowMessage,onShowReadReceipt:undefined,highlight:undefined,flashMessageId:undefined,threeParty:undefined,onOpenMemberProfile:undefined,onOpenTopic:undefined,topicAnchors:undefined,onOpenTopicAnchor:undefined,agentFloodNoticeMessageId:undefined,onAgentFloodUndone:undefined,onOpenFile:undefined,onOpenLocalFileLink:undefined,onMentionMember:undefined,selectMode:false,selectedIds:new Set(),onToggleSelect:noop,onEnterSelectMode:undefined}
- await renderWithAppProviders(h,<MessageList rows={rows} rowProps={rowProps}/>)
- return {onShowMessage}
+vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
+let h: ReturnType<typeof createReactHarness>
+const noop = () => {}
+const profiles = Object.fromEntries(['user-1', 'agent'].map(id => [id, { id, displayName: id === 'user-1' ? '测试用户' : '咕咕', avatar: null, email: null, type: id === 'user-1' ? 'human' : 'agent', role: 'member', profileScope: 'group' }])) as Record<string, MemberProfileCardModel>
+const msg = (id: string, sender: string, seq: number, reply?: string) => message({ id, chat_id: 'dm', sender_user_id: sender, seq, is_mine: sender === 'user-1', content: `正文 ${id}`, reply_to_message_id: reply ?? null, reply_to_sender_user_id: reply ? 'user-1' : null, reply_to_content: reply ? '原消息' : null })
+const marker = (id: string) => h.container.querySelector(`[data-msg-id="${id}"] .gg-chat-reply-jump`)
+beforeEach(() => { h = createReactHarness(); vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} }) })
+afterEach(() => { h.cleanup(); vi.unstubAllGlobals() })
+async function render(messages: MessageItem[], mobile = false, group = false) {
+  const rows = messages.map(message => ({ type: 'message' as const, message }))
+  const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile, isGroupChat: group, memberReadSeqs: {}, queuedIds: new Set(), memberProfiles: profiles, onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onShowMessage: vi.fn(), onShowReadReceipt: undefined, highlight: undefined, flashMessageId: undefined, threeParty: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined, agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined, onMentionMember: undefined, selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: undefined }
+  await renderWithAppProviders(h, <MessageList rows={rows} rowProps={rowProps} />)
 }
-it.each([false,true])('hides routine direct replies without changing their reply metadata (mobile=%s)',async mobile=>{
- const messages=[msg('question','user-1',1),msg('answer-1','agent',2,'question'),msg('answer-2','agent',3,'question')]
- const original=JSON.stringify(messages)
- await render(messages,mobile)
- expect(quoted('answer-1')).toBeNull();expect(quoted('answer-2')).toBeNull()
- expect(h.container.textContent).toContain('正文 answer-2')
- expect(JSON.stringify(messages)).toBe(original)
+for (const group of [false, true]) it.each([false, true])(`retains all explicit reply marks with no visible quote text at rest (group=${group}, mobile=%s)`, async mobile => {
+  const messages = [msg('question', 'user-1', 1), msg('answer-1', 'agent', 2, 'question'), msg('answer-2', 'agent', 3, 'question')]
+  const original = JSON.stringify(messages)
+  await render(messages, mobile, group)
+  expect(marker('answer-1')).not.toBeNull(); expect(marker('answer-2')).not.toBeNull()
+  expect(h.container.querySelector('.gg-chat-reply-preview')).toBeNull()
+  expect(h.container.textContent).not.toContain('原消息')
+  expect(h.container.textContent).toContain('正文 answer-2')
+  expect(JSON.stringify(messages)).toBe(original)
 })
-it.each([false,true])('shows the first older-target quote and preserves its jump (mobile=%s)',async mobile=>{
- const messages=[msg('old','user-1',1),msg('new','user-1',2),msg('answer-1','agent',3,'old'),msg('answer-2','agent',4,'old')]
- const {onShowMessage}=await render(messages,mobile)
- expect(quoted('answer-1')).not.toBeNull();expect(quoted('answer-2')).toBeNull()
- await clickElement(quoted('answer-1')!)
- expect(onShowMessage).toHaveBeenCalledWith('old')
+it('does not create a reply marker from an author or neighbouring message', async () => {
+  await render([msg('question', 'user-1', 1), msg('answer', 'agent', 2)])
+  expect(marker('answer')).toBeNull()
 })
-it('keeps repeated quote headers in a group or topic',async()=>{
- await render([msg('question','user-1',1),msg('answer-1','agent',2,'question'),msg('answer-2','agent',3,'question')],false,true)
- expect(quoted('answer-1')).not.toBeNull();expect(quoted('answer-2')).not.toBeNull()
+it('the direct quote summary preserves its 24-character limit and grapheme boundaries', () => {
+  expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四')
+  expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四五')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四…')
+  expect(quoteSummary('  第一行\n\n 第二行 ')).toBe('第一行 第二行')
+  expect(quoteSummary(`${'一'.repeat(23)}👨‍👩‍👧尾巴`)).toBe(`${'一'.repeat(23)}👨‍👩‍👧…`)
 })
-it.each([false,true])('a shown direct quote is one line above the bubble: sender · summary (mobile=%s)',async mobile=>{
- await render([msg('old','user-1',1),msg('new','user-1',2),msg('answer','agent',3,'old')],mobile)
- expect(quoted('answer')?.dataset.testid).toBe('direct-message-quote')
- expect([...quoted('answer')!.querySelectorAll(':scope > span')].map(span=>span.textContent)).toEqual(['测试用户 ·','原消息'])
- expect(inBubble('answer')).toBe(false)
+for (const group of [false, true]) {
+  const Quote = group ? MessageQuote : DirectMessageQuote
+  it(`preserves the disclosed excerpt, source author and jump callback (group=${group})`, async () => {
+    const onShowMessage = vi.fn()
+    await renderWithAppProviders(h, <Quote msg={{ ...msg('answer', 'agent', 3, 'old'), content: '> [测试用户]: Beta chosen.\nPlease explain.', reply_to_content: 'Alpha original paragraph. Beta chosen.' }} quoterIsAgent memberProfiles={profiles} onShowMessage={onShowMessage} />)
+    const quote = h.container.querySelector<HTMLElement>('[title="跳到被引用的消息"]')!
+    expect(quote.textContent).toContain('测试用户')
+    expect(quote.textContent).toContain('Beta chosen.')
+    expect(quote.textContent).not.toContain('Alpha original')
+    await clickElement(quote)
+    expect(onShowMessage).toHaveBeenCalledWith('old')
+  })
+  it(`keeps the task-card head and source text in the disclosed preview (group=${group})`, async () => {
+    const content = serializeComposerCard({ v: 1, type: 'task', text: 'Original task', agentUserId: 'agent', agentName: 'Ada', sessionId: 's', projectId: 'p', deviceId: 'd', machineLabel: 'Mac' })
+    await renderWithAppProviders(h, <Quote msg={{ ...msg('answer', 'agent', 3, 'old'), reply_to_content: content }} quoterIsAgent memberProfiles={profiles} />)
+    expect(h.container.textContent).toContain('新任务')
+    expect(h.container.textContent).toContain('Original task')
+  })
+}
+it('keeps an authored inline quote and its answer when there is no structural reply ID', async () => {
+  await render([{ ...msg('legacy', 'user-1', 1), content: '> [Ada]: Legacy quoted text\nLegacy answer.' }])
+  expect(h.container.textContent).toContain('Legacy quoted text')
+  expect(h.container.textContent).toContain('Legacy answer.')
+  expect(marker('legacy')).toBeNull()
 })
-it('the group quote keeps its in-bubble two-line style',async()=>{
- await render([msg('question','user-1',1),msg('answer','agent',2,'question')],false,true)
- expect(quoted('answer')?.dataset.testid).toBeUndefined()
- expect(inBubble('answer')).toBe(true)
-})
-it('the direct quote summary is cut to 24 characters on one line',()=>{
- expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四')
- expect(quoteSummary('一二三四五六七八九十一二三四五六七八九十一二三四五')).toBe('一二三四五六七八九十一二三四五六七八九十一二三四…')
- expect(quoteSummary('  第一行\n\n 第二行 ')).toBe('第一行 第二行')
- expect(quoteSummary(`${'一'.repeat(23)}👨‍👩‍👧尾巴`)).toBe(`${'一'.repeat(23)}👨‍👩‍👧…`)
-})
-for(const group of [false,true]) it.each([false,true])(`shows an incoming selected excerpt exactly once and retains its source jump (group=${group}, mobile=%s)`,async mobile=>{
- const source={...msg('old','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
- const reply={...msg('answer','agent',3,'old'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
- const {onShowMessage}=await render([source,msg('new','user-1',2),reply],mobile,group)
- expect(inBubble('answer')).toBe(group)
- expect(quoted('answer')?.textContent).toContain('Beta chosen.')
- expect(quoted('answer')?.textContent).not.toContain('Alpha original')
- const row=h.container.querySelector('[data-msg-id="answer"]')!
- expect(row.textContent?.match(/Beta chosen\./g)).toHaveLength(1)
- await clickElement(quoted('answer')!)
- expect(onShowMessage).toHaveBeenCalledWith('old')
-})
-it.each([false,true])('keeps a partial quote visible even when it replies to the latest direct message (mobile=%s)',async mobile=>{
- const source={...msg('latest','user-1',1),content:'Alpha original paragraph. Beta chosen.'}
- const reply={...msg('answer','agent',2,'latest'),content:'> [测试用户]: Beta chosen.\nPlease explain.',reply_to_content:source.content}
- await render([source,reply],mobile)
- expect(quoted('answer')?.textContent).toContain('Beta chosen.')
-})
-it('retains old inline quotes without a structural reply ID',async()=>{
- await render([{...msg('legacy','user-1',1),content:'> [Ada]: Legacy quoted text\nLegacy answer.'}])
- expect(h.container.textContent).toContain('Legacy quoted text')
- expect(h.container.textContent).toContain('Legacy answer.')
- expect(quoted('legacy')).toBeNull()
-})
-it.each([false,true])('keeps reply text visible for an ambiguous older quote beginning with > (mobile=%s)',async mobile=>{
- const reply={...msg('answer','agent',3,'old'),content:'> [测试用户]: Beta\n> Answer',reply_to_content:'Alpha Beta'}
- await render([msg('old','user-1',1),msg('new','user-1',2),reply],mobile)
- const body=h.container.querySelector('[data-msg-id="answer"] [data-testid="message-bubble-action-target"] .gg-md')
- expect(body?.textContent).toContain('Answer')
-})
-for(const group of [false,true]) it.each([false,true])(`keeps the task-card quote header for an ordinary card reply (group=${group}, mobile=%s)`,async mobile=>{
- const content=serializeComposerCard({v:1,type:'task',text:'Original task',agentUserId:'agent',agentName:'Ada',sessionId:'s',projectId:'p',deviceId:'d',machineLabel:'Mac'})
- const source={...msg('old','user-1',1),content_type:'card' as const,content}
- const reply={...msg('answer','agent',3,'old'),content:'看看',reply_to_content:content}
- await render([source,msg('new','user-1',2),reply],mobile,group)
- expect(inBubble('answer')).toBe(group)
- expect(quoted('answer')?.textContent).toContain('新任务')
- expect(quoted('answer')?.textContent).toContain('Original task')
+it.each([false, true])('keeps an ambiguous answer beginning with > readable (mobile=%s)', async mobile => {
+  await render([msg('old', 'user-1', 1), { ...msg('answer', 'agent', 3, 'old'), content: '> [测试用户]: Beta\n> Answer', reply_to_content: 'Alpha Beta' }], mobile)
+  expect(h.container.querySelector('[data-msg-id="answer"] .gg-md')?.textContent).toContain('Answer')
 })

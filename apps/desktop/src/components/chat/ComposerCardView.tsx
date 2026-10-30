@@ -50,7 +50,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   /** 这个群现在的成员(随 chat_members_changed 更新):接手的 agent 坐进来了,卡上就没有「等待」。 */
   memberProfiles?: Record<string, MemberProfileCardModel>
   /** 发出的时刻(卡头右上;群里自己发的那条没有名字时刻那一行)。 */
-  time: string
+  time: ReactNode
   /**
    * 手机:点任务卡 = 切到它那枚页签(它开在这张卡上的话题;owner 10-26「任务那枚页签 = 话题,从任务卡开」)。
    * 谁的卡都能点 —— 话题跟着群,群里的人都看得见;过程在派它的那台电脑上,话题里是它每一轮说的话。
@@ -100,7 +100,7 @@ export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, t
   cardType: ComposerCard['type']
   mark: ReactNode
   title: string
-  time: string
+  time: ReactNode
   text: string
   /** 给了 = 整张卡可点(打开它的会话、话题或详情)。 */
   onOpen?: () => void
@@ -109,23 +109,28 @@ export function ComposerCardFrame({ cardType, mark, title, time, text, onOpen, t
   children?: ReactNode
 }) {
   const { t } = useTranslation('messaging')
-  const Root = onOpen ? 'button' : 'div'
+  const interactiveTime = typeof time !== 'string'
+  const Root = onOpen && !interactiveTime ? 'button' : 'div'
   return (
     <Root
       type={onOpen ? 'button' : undefined}
+      role={onOpen && interactiveTime ? 'button' : undefined}
+      tabIndex={onOpen && interactiveTime ? 0 : undefined}
+      onKeyDown={onOpen && interactiveTime ? event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } } : undefined}
+      data-openable={!!onOpen || undefined}
       data-testid="composer-card"
       data-card-type={cardType}
       data-tour={tour}
       title={onOpen ? t('message.taskCard.open') : undefined}
       onClick={onOpen}
-      className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left enabled:cursor-pointer enabled:hover:border-[var(--border-strong)]"
+      className="box-border flex w-[300px] max-w-full flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-left data-[openable]:cursor-pointer data-[openable]:hover:border-[var(--border-strong)]"
     >
       <span className="flex h-6 items-center gap-2">
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-document)] border border-[var(--border)]">
           {mark}
         </span>
         <span className="min-w-0 truncate text-[var(--font-body)] font-semibold">{title}</span>
-        <span className="ml-auto shrink-0 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[var(--font-caption)] text-[var(--muted-fg)]">{time}</span>
       </span>
       <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{text}</span>
       {children}
