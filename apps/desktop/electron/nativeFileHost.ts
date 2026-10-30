@@ -70,7 +70,7 @@ export function createNativeFileHost(deps: {
         if (!owner) throw new Error('File reader is not signed in')
         requireFileRange(revision.size_bytes, 0, 0)
         if (revision.size_bytes > (deps.maxBytes ?? Infinity)) throw new Error('File exceeds the byte limit')
-        if (!/^[0-9a-f]{64}$/.test(revision.sha256)) throw new Error('Invalid file commitment')
+        if (typeof revision.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(revision.sha256)) throw new Error('Invalid file commitment')
         const name = sanitizeRemoteFileName(command.name), sink = await createFileSink(deps.root, revision.size_bytes)
         try { await check(scope, owner, epoch) } catch (error) { await sink.abort(); throw error }
         const id = randomUUID(); entries.set(id, { scope, epoch, owner, name, sink, sha: revision.sha256, size: revision.size_bytes, written: 0, hash: createHash('sha256') }); return { id }

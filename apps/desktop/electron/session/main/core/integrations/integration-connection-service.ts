@@ -540,7 +540,7 @@ export class IntegrationConnectionService {
     );
   }
 
-  async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string }> {
+  async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string; errorType?: IntegrationError['type'] }> {
     // #921 平台上删(一个人一份):所有设备一起断。
     if (platformCredentials.custody(integrationId) === 'platform') return platformCredentials.disconnect(integrationId);
     if (accountId) {

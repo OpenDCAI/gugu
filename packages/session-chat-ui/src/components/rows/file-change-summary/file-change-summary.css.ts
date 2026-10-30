@@ -32,9 +32,8 @@ export const title = style({
   lineHeight: '20px'
 })
 export const ellipsis = style({
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap'
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal'
 })
 export const stats = style({
   display: 'flex',
@@ -71,7 +70,8 @@ export const row = style({
   gap: 12,
   padding: '0 12px',
   boxSizing: 'border-box',
-  fontSize: vars.typeChromeFontSize
+  fontSize: vars.typeChromeFontSize,
+  lineHeight: '20px'
 })
 export const path = style([
   ellipsis,
