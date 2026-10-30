@@ -1,6 +1,8 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { act } from 'react';
+import { getLocaleSnapshot, setLocalePreference, type LocalePreference } from '@/i18n';
+import { translateSessionMessage } from '../../localization/locale-store';
 import { SessionTimelineRail } from '../../features/sessions/view/session-timeline-rail';
 import { ConversationSourcePopover } from '../../lib/chat/conversation-source-popover';
 import { createReactHarness, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
@@ -8,15 +10,24 @@ import '@/styles/tokens.css';
 import '@renderer/index.css';
 
 let harness: ReturnType<typeof createReactHarness>;
-afterEach(() => harness?.cleanup());
-it('keeps every source-arrow hit point outside the timeline navigation lane', async () => {
+let previousLocale: LocalePreference;
+beforeEach(() => { previousLocale = getLocaleSnapshot().preference; });
+afterEach(async () => {
+  harness?.cleanup();
+  await act(async () => setLocalePreference(previousLocale));
+});
+it.each(['en-US', 'zh-CN'] as const)('keeps every source-arrow hit point outside the timeline navigation lane (%s)', async locale => {
+  await act(async () => setLocalePreference(locale));
   const reveal = vi.fn(), jump = vi.fn(); harness = createReactHarness();
+  const prompt = 'Earlier background command';
   await renderWithAppProviders(harness, <div style={{ position: 'relative', width: 220, height: 300 }}>
-    <SessionTimelineRail turns={[{ id: 'turn', anchorItemId: 'input', itemIds: ['input'], prompt: 'Earlier background command', reply: 'Finished' }]} currentTurnId="turn" onJump={jump} />
+    <SessionTimelineRail turns={[{ id: 'turn', anchorItemId: 'input', itemIds: ['input'], prompt, reply: 'Finished' }]} currentTurnId="turn" onJump={jump} />
     <div data-content style={{ position: 'absolute', left: 40, top: 141 }}>
       <ConversationSourcePopover label="Show original message" text="Peer：the exact source" onOpenOriginal={reveal} />
     </div>
   </div>, { contacts: {} });
+  const navigation = page.getByRole('button', { name: translateSessionMessage('task.jumpToTurn', { prompt }), exact: true });
+  await expect.element(navigation).toBeVisible();
   const arrow = harness.container.querySelector<HTMLButtonElement>('[data-slot="conversation-quote"]')!;
   const box = arrow.getBoundingClientRect();
   expect(box.width).toBe(18);
@@ -27,6 +38,10 @@ it('keeps every source-arrow hit point outside the timeline navigation lane', as
   await expect.element(page.getByText('Peer：the exact source', { exact: true })).toBeVisible();
   await act(async () => page.getByRole('button', { name: 'Show original message', exact: true }).click());
   expect(reveal).toHaveBeenCalledOnce(); expect(jump).not.toHaveBeenCalled();
-  await act(async () => page.getByRole('button', { name: /Jump to turn:/ }).click());
+  const rail = harness.container.querySelector<HTMLElement>('[data-region="session-timeline"]')!;
+  const ticks = rail.querySelectorAll<HTMLButtonElement>('button');
+  expect(ticks).toHaveLength(1);
+  await expect.element(navigation).toBeVisible();
+  await act(async () => navigation.click());
   expect(jump).toHaveBeenCalledExactlyOnceWith('input');
 });
