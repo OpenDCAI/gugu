@@ -1,4 +1,5 @@
 import { PassThrough, Readable } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import { describe, expect, it, vi } from 'vitest';
 
 import { connectStdioAcp, nodeReadableToWeb } from './acp-stdio';
@@ -71,6 +72,26 @@ it('decodes permission tool facts before they cross the v1 transport boundary', 
 });
 
 describe('nodeReadableToWeb', () => {
+  it('lets a waiting event-loop task run during a buffered stdout burst without reordering bytes', async () => {
+    let elapsed = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 10);
+    const chunks = Array.from({ length: 100 }, (_, i) => Buffer.from(`frame-${i}\n`));
+    const reader = nodeReadableToWeb(Readable.from(chunks)).getReader();
+    const received: string[] = [];
+    let seenByOtherTask: number | undefined;
+    const otherTask = new Promise<void>(resolve => setImmediate(() => { seenByOtherTask = received.length; resolve(); }));
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        received.push(Buffer.from(chunk.value).toString());
+      }
+      await otherTask;
+      expect(seenByOtherTask).toBeLessThan(chunks.length);
+      expect(received).toEqual(chunks.map(chunk => chunk.toString()));
+    } finally { clock.mockRestore(); await reader.cancel(); }
+  });
+
   it('drives delayed Node stdout without relying on Readable.toWeb flowing mode', async () => {
     const source = new PassThrough();
     const toWeb = vi.spyOn(Readable, 'toWeb').mockImplementation(() => {

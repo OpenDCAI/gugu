@@ -8,6 +8,7 @@ import type {
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import type { AcpAgentApi, AcpClientFactory, AcpProcessIo } from '@gugu/session-core/agents/plugins';
 import { nodeReadableToWeb } from './acp-stdio';
+import { cooperativeAcpMessages } from './acp-work-slice';
 import { decodePermissionRequest, decodeV2SessionUpdate, decodeConfigOptions, type NormalizedEvent } from '@gugu/session-core/acp';
 
 /**
@@ -43,7 +44,7 @@ export function connectStdioAcpV2(
     .onRequest(v2.methods.client.session.requestPermission, async ({ params }) =>
       client.requestPermission(decodePermissionRequest(params)),
     );
-  const connection = app.connect(stream);
+  const connection = app.connect({ ...stream, readable: cooperativeAcpMessages(stream.readable) });
   const agent = connection.agent;
 
   const api: AcpAgentApi = {
