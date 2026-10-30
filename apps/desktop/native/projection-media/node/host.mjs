@@ -153,12 +153,24 @@ export async function openMediaProcess(options) {
   })
   const write = (kind, payload) => {
     if (failure || physicalExit) return Promise.reject(failure ?? new Error('Media helper exited'))
+    const pieces = Array.isArray(payload) ? payload : [payload]
     const header = Buffer.alloc(5)
-    header.writeUInt32BE(payload.length + 1, 0)
+    header.writeUInt32BE(pieces.reduce((size, piece) => size + piece.byteLength, 1), 0)
     header[4] = kind
     const next = writing.then(() => new Promise((resolve, reject) => {
       if (failure || physicalExit) { reject(failure ?? new Error('Media helper exited')); return }
-      child.stdin.write(Buffer.concat([header, payload]), error => { if (error) reject(error); else resolve() })
+      const chunks = [header, ...pieces]
+      let remaining = chunks.length, failed
+      const complete = error => {
+        failed ??= error
+        if (--remaining === 0) { if (failed) reject(failed); else resolve() }
+      }
+      // One ordered writev batch borrows the pixel view until all callbacks
+      // finish. Neither a large payload buffer nor a concatenated copy is made.
+      child.stdin.cork()
+      try { for (const chunk of chunks) child.stdin.write(chunk, complete) }
+      catch (error) { reject(error) }
+      finally { child.stdin.uncork() }
     }))
     writing = next.catch(error => { stop(error) })
     return next
@@ -195,11 +207,11 @@ export async function openMediaProcess(options) {
         const result = deferred()
         frame = { ...result, sequence }
         lastFrame = sequence
-        const data = Buffer.alloc(8 + bgra.length)
-        data.writeBigUInt64BE(BigInt(sequence))
-        data.set(bgra, 8)
+        const sequenceBytes = Buffer.alloc(8)
+        sequenceBytes.writeBigUInt64BE(BigInt(sequence))
+        const pixels = Buffer.from(bgra.buffer, bgra.byteOffset, bgra.byteLength)
         const timer = setTimeout(() => stop(new Error('Media frame encoding timed out')), 10000)
-        try { await write(2, data); return await result.promise }
+        try { await write(2, [sequenceBytes, pixels]); return await result.promise }
         finally { clearTimeout(timer) }
       },
       async sendControl(data) {

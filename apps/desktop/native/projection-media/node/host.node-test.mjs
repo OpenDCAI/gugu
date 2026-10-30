@@ -119,3 +119,30 @@ test('parent cancellation actually exits the helper, does not leave a pending of
   await assert.rejects(media.closed, error => error.message === 'App grant withdrawn')
   await assert.rejects(media.publish(1, Buffer.alloc(128 * 96 * 4)), /App grant withdrawn/)
 })
+
+
+test('publishes a borrowed BGRA view without another full-frame allocation or concat', { timeout: 10000 }, async t => {
+  const options = await fakeMedia(t, `
+    if(command.type==='answer') emit({type:'ready',id:command.id});
+    if(command.type==='frame') {
+      if(body.length!==8+128*96*4 || body[8]!==33 || body[body.length-1]!==255) emit({type:'error',error:'borrowed pixel view was corrupted'});
+      else setTimeout(()=>emit({type:'encoded',frame:{sequence:command.sequence,width:128,height:96,rtpTimestamp:9000}}),30);
+    }
+    if(command.type==='close') {emit({type:'closed',id:command.id}); process.exit(0);}
+  `)
+  const media = await openMediaProcess(options)
+  try {
+    await media.answer({type:'answer',sdp:'test'})
+    const length=128*96*4
+    const backing=new Uint8Array(length+16)
+    const pixels=backing.subarray(8,8+length)
+    pixels.fill(33); pixels[pixels.length-1]=255
+    const alloc=Buffer.alloc, concat=Buffer.concat
+    const copies=[]
+    Buffer.alloc=function(size,...rest){if(size>=length) copies.push(['alloc',size]); return alloc(size,...rest)}
+    Buffer.concat=function(chunks,...rest){const total=chunks.reduce((sum,chunk)=>sum+chunk.length,0); if(total>=length)copies.push(['concat',total]); return concat(chunks,...rest)}
+    try {assert.equal((await media.publish(41,pixels)).sequence,41)}
+    finally {Buffer.alloc=alloc; Buffer.concat=concat}
+    assert.deepEqual(copies,[], 'native IPC copied an entire borrowed BGRA picture')
+  } finally {await media.close()}
+})

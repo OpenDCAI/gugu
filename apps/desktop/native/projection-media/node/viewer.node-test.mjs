@@ -134,3 +134,32 @@ test('viewer invalidates the picture on disconnect and rejects missing decoder m
     assert.throws(() => media.sendControl('stale'), /connection closed|omitted frame/)
   })
 })
+
+
+test('recovery receipts match a new decoded timestamp for the same source without accepting stale pictures', async t => {
+  const view=fixture(t)
+  const media=await view.starting
+  view.message(frame(1,100))
+  view.message({type:'frame',frame:{...frame(1,200).frame,recovery:true}})
+  assert.notEqual(view.peer().closed,true,'a valid same-source recovery closed the viewer')
+  view.paint(100)
+  assert.equal(view.frames.at(-1),null)
+  view.paint(200)
+  assert.deepEqual(view.frames.at(-1),{...frame(1,200).frame,recovery:true})
+  view.message({type:'frame',frame:{...frame(1,300).frame,recovery:true}})
+  view.paint(300)
+  assert.deepEqual(view.frames.at(-1),{...frame(1,300).frame,recovery:true})
+  view.message(frame(2,400)); view.paint(400)
+  assert.equal(view.frames.at(-1).sequence,2)
+  media.close(); await media.closed
+})
+
+test('recovery cannot reuse its RTP timestamp or change source geometry', async t => {
+  for(const kind of ['same-timestamp','geometry'])await t.test(kind,async t=>{
+    const view=fixture(t),media=await view.starting
+    view.message(frame(1,100))
+    view.message({type:'frame',frame:{...frame(1,kind==='same-timestamp'?100:200).frame,recovery:true,...(kind==='geometry'?{width:126}:{})}})
+    assert.equal(view.peer().closed,true,'invalid recovery did not close its viewer')
+    await assert.rejects(media.closed,/Invalid projection frame receipt/)
+  })
+})

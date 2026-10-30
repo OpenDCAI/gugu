@@ -10,7 +10,7 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
   const peer = new RTCPeerConnection({ iceServers: [] }) // viewer also configures no TURN
   const receipts = new Map()
   const tracks = new Set()
-  let channel, visible, callback, lastSequence = 0, lastPainted = 0, closing = false
+  let channel, visible, callback, lastSequence = 0, lastPainted = 0, lastPaintedStamp, lastReceipt, closing = false
   let resolveReady, rejectReady, resolveClosed, rejectClosed, failure
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
   const closed = new Promise((resolve, reject) => { resolveClosed = resolve; rejectClosed = reject })
@@ -46,9 +46,10 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
   const matched = () => {
     if (!visible || closing) return
     const frame = receipts.get(visible.rtpTimestamp)
-    if (!frame || frame.sequence <= lastPainted) return
+    if (!frame || frame.sequence < lastPainted || (frame.sequence === lastPainted && frame.rtpTimestamp === lastPaintedStamp)) return
     if (frame.width !== visible.width || frame.height !== visible.height) throw new Error('Projection decoded geometry does not match its receipt')
     lastPainted = frame.sequence
+    lastPaintedStamp = frame.rtpTimestamp
     receipts.delete(frame.rtpTimestamp)
     onFrame?.(frame, sendControl)
   }
@@ -94,11 +95,19 @@ export async function openProjectionVideo({ video, offer, answer, onFrame, onCon
       try { value = JSON.parse(event.data) } catch { /* App control bytes need not be JSON. */ }
       if (value?.type !== 'frame') { onControl?.(event.data, sendControl); return }
       const frame = value.frame
-      if (!positive(frame?.sequence) || frame.sequence <= lastSequence || !positive(frame.width) || !positive(frame.height)
+      const repeat = frame?.recovery === true && frame.sequence === lastSequence
+      const delta = lastReceipt && ((frame?.rtpTimestamp - lastReceipt.rtpTimestamp) >>> 0)
+      if (!positive(frame?.sequence) || frame.sequence < lastSequence || (frame.sequence === lastSequence && !repeat)
+        || (repeat && (!delta || delta >= 0x80000000 || frame.width !== lastReceipt.width || frame.height !== lastReceipt.height))
+        || !positive(frame.width) || !positive(frame.height)
         || frame.width > 2560 || frame.height > 2560 || !Number.isInteger(frame.rtpTimestamp)
         || frame.rtpTimestamp < 0 || frame.rtpTimestamp > 0xffffffff) throw new Error('Invalid projection frame receipt')
       lastSequence = frame.sequence
-      receipts.set(frame.rtpTimestamp, Object.freeze({ sequence: frame.sequence, rtpTimestamp: frame.rtpTimestamp, width: frame.width, height: frame.height }))
+      lastReceipt = frame
+      // Old timestamps of a recovered source never acknowledge the new paint.
+      for (const [stamp, prior] of receipts) if (prior.sequence <= frame.sequence) receipts.delete(stamp)
+      receipts.set(frame.rtpTimestamp, Object.freeze({ sequence: frame.sequence, rtpTimestamp: frame.rtpTimestamp, width: frame.width, height: frame.height,
+        ...(repeat ? { recovery: true } : {}) }))
       if (receipts.size > 64) receipts.delete(receipts.keys().next().value)
       matched()
     })

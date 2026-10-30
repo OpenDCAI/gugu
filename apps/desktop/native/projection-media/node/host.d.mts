@@ -10,6 +10,7 @@ export type MediaProcess = Readonly<{
   offer: MediaDescription
   closed: Promise<void>
   answer(sdp: MediaDescription): Promise<void>
+  /** Borrows immutable BGRA storage until the returned promise settles. */
   publish(sequence: number, bgra: Uint8Array): Promise<EncodedMediaFrame>
   /** Resolves when handed to SCTP, never when a native action was applied. */
   sendControl(data: string): Promise<void>

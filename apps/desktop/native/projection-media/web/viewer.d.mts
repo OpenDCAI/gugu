@@ -1,4 +1,4 @@
-export type DecodedProjectionFrame = Readonly<{ sequence: number; rtpTimestamp: number; width: number; height: number }>
+export type DecodedProjectionFrame = Readonly<{ sequence: number; rtpTimestamp: number; width: number; height: number; recovery?: true }>
 /** Transport only; the calling host still binds authorization, decoded ACKs and execution results. */
 export function openProjectionVideo(options: {
   video: HTMLVideoElement
