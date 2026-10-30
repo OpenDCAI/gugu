@@ -75,7 +75,7 @@ it('removes every streaming cursor and running label after a turn finishes while
   cleanup.push(disconnect);
   const visibleCarets = () => [...host.querySelectorAll('[data-conversation-caret="true"] p:last-child')]
     .filter(element => getComputedStyle(element, '::after').content.includes('▍') && getComputedStyle(element, '::after').animationName !== 'none');
-  await until('both running paragraphs render their real animated carets', () => visibleCarets().length === 2);
+  await until('the running reply renders its one animated caret', () => visibleCarets().length === 1);
   expect(host.querySelector('[data-conversation-process]')?.textContent).toContain('Thinking and working');
   expect(state.session.state.generating).toBe(true);
 
@@ -85,7 +85,7 @@ it('removes every streaming cursor and running label after a turn finishes while
   data.activeTurn = null;
   // Electron MessagePort emits close; standard browser ports need that platform event supplied by this bridge fixture.
   port!.dispatchEvent(new Event('close'));
-  await vi.waitFor(() => expect(visibleCarets(), 'finished text must not retain either animated cursor').toHaveLength(0));
+  await vi.waitFor(() => expect(visibleCarets(), 'finished text must not retain the animated cursor').toHaveLength(0));
   await until('completed history replaces the retained live frame', () => state.transcript.state.committedTurns.length === 1);
   await until('all streaming carets and the running header disappear', () => host.querySelectorAll('[data-conversation-caret="true"]').length === 0
     && !host.querySelector('[data-conversation-process]')?.textContent?.includes('Thinking and working'));
