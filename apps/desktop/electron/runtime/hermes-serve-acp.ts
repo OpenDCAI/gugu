@@ -3,6 +3,7 @@
 // Gugu is a Hermes desktop client: sessions, per-session model / reasoning / approvals, steering, slash commands
 // and history are Hermes' own, through the same calls its desktop makes. Design: builds/hermes/SERVE-BRIDGE-DESIGN.md.
 import { createInterface } from 'node:readline';
+import { hermesPromptText as promptText } from '../../../../packages/session-core/src/acp/hermes-prompt.ts';
 import { platformModelFacts } from './codex-model-catalog.mjs';
 import { connectGateway, GatewayError, type Gateway, type GatewayEvent } from './hermes-serve/gateway.ts';
 import {
@@ -304,21 +305,6 @@ function settle(prompt: PendingPrompt, result: Json | null, error?: Json) {
   const index = prompts.indexOf(prompt);
   if (index >= 0) prompts.splice(index, 1);
   for (const acpId of [prompt.acpId, ...prompt.joined]) respond(acpId, result, error);
-}
-
-function promptText(blocks: unknown): { text: string; images: { data: string; mimeType: string }[] } {
-  const list = Array.isArray(blocks) ? (blocks as Json[]) : [];
-  const texts: string[] = [];
-  const images: { data: string; mimeType: string }[] = [];
-  for (const block of list) {
-    if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text);
-    else if (block.type === 'image' && typeof block.data === 'string') images.push({ data: block.data, mimeType: String(block.mimeType ?? 'image/png') });
-    else if (block.type === 'resource_link' && typeof block.uri === 'string') texts.push(block.uri);
-    else if (block.type === 'resource' && typeof (block.resource as Json | undefined)?.text === 'string') {
-      texts.push(String((block.resource as Json).text));
-    }
-  }
-  return { text: texts.join('\n'), images };
 }
 
 async function handlePrompt(id: unknown, params: Json) {

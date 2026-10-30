@@ -52,6 +52,7 @@ import {
 import type { Result } from '@gugu/session-shared';
 import { ok, toSerializedError } from '@gugu/session-shared';
 import { invokesCommand } from '@gugu/session-core/acp/commands';
+import { hermesPromptMeta } from '@gugu/session-core/acp/hermes-prompt';
 import { classifyTurnFailure, refusedTurnOutcome } from './turn-failure';
 import {
   type Command,
@@ -425,7 +426,8 @@ export class SessionCell {
 
   private reconcileReplayedQueue(): void {
     const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
-    const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
+    const hasCanonicalReplay = this.deps.providerId === 'claude'
+      || this.deps.providerId === 'codex' || this.deps.providerId === 'hermes';
     const recorded = this.recordedDeliveryIds;
     const historyUnknown = this.replayHistoryUnknown || recorded === null;
     if (!queued.length || (!hasCanonicalReplay && !historyUnknown)) return;
@@ -2055,6 +2057,11 @@ export class SessionCell {
           ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
           : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
       };
+      if (this.deps.providerId === 'hermes') {
+        // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
+        submittedMessage._meta = hermesPromptMeta(promptRequest.prompt);
+        if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
+      }
       this.rawLog.record({
         kind: 'prompt',
         sessionId: this.acpSessionId,
