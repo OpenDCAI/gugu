@@ -916,7 +916,7 @@ export default {
     "checking": "Checking which sessions it started…",
     "deleteStarted_one": "Also delete the session it started ({{count}})",
     "deleteStarted_other": "Also delete the sessions it started ({{count}})",
-    "keepStartedNote": "Leave this unticked to keep them; they open as usual.",
+    "keepStartedNote": "Leave this unticked to archive them. You can restore them from task history.",
     "unreadable": "Couldn't read which sessions it started, so it can't be closed right now. Try again later.",
     "confirm": "Close and clear",
     "closing": "Closing…",

@@ -79,13 +79,13 @@ export class RunIntervalRecorder {
     }
   }
 
-  /** 会话删了 = 它不再在干活。区间留着(那段时长仍是那天的事实),只收口。 */
-  observeDeleted(sessionId: string): void {
+  /** 任务归档后不再运行;保留历史用量区间,只结束当前区间。 */
+  observeArchived(sessionId: string): void {
     this.scheduledOnly.delete(sessionId);
     try {
       this.close(sessionId, this.now());
     } catch (error) {
-      log.warn('usage: failed to close run interval of a deleted session', {
+      log.warn('usage: failed to close run interval of an archived task', {
         sessionId,
         error: String(error),
       });
@@ -282,7 +282,7 @@ export function installRunIntervalRecorder(sources: {
     recorder.observeStatus(sessionId, reading.status, { running: reading.running, background: reading.background })
   );
   sources.sessionEvents.on('session:archived', (sessionId) =>
-    recorder.observeDeleted(sessionId)
+    recorder.observeArchived(sessionId)
   );
   recorder.reconcile();
   const timer = setInterval(() => recorder.reconcile(), sources.heartbeatMs ?? RUN_INTERVAL_HEARTBEAT_MS);

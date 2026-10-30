@@ -113,14 +113,14 @@ describe('run-interval-recorder', () => {
     ]);
   });
 
-  it('error 也收口;会话删了收口但区间留着', () => {
+  it('error 也收口;任务归档后结束区间并保留用量历史', () => {
     recorder.observeStatus('c1', 'working');
     recorder.observeStatus('c2', 'working');
     clock += MIN;
     recorder.observeStatus('c1', 'error');
-    fixture.sqlite.exec(`DELETE FROM sessions WHERE id = 'c2'`);
+    fixture.sqlite.exec(`UPDATE sessions SET archived_at = '2026-09-28 23:11:00' WHERE id = 'c2'`);
     clock += MIN;
-    recorder.observeDeleted('c2');
+    recorder.observeArchived('c2');
     expect(intervals().map((row) => [row.session_id, row.ended_at])).toEqual([
       ['c1', at(23, 10, 1)],
       ['c2', at(23, 10, 2)],

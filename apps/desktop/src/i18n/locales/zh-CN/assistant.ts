@@ -933,7 +933,7 @@ export default {
     "checking": "正在看它开过哪些会话…",
     "deleteStarted_one": "一起删掉它开过的会话（{{count}} 个）",
     "deleteStarted_other": "一起删掉它开过的会话（{{count}} 个）",
-    "keepStartedNote": "不勾就留着，照常能打开。",
+    "keepStartedNote": "不勾选会归档这些任务，可以从任务历史恢复。",
     "unreadable": "读不到它开过哪些会话，现在关不了，稍后再试。",
     "confirm": "关闭并清除",
     "closing": "正在关闭…",

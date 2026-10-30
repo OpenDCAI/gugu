@@ -49,7 +49,7 @@ export interface ReleasedAgentLocalFootprint {
 }
 
 /**
- * 释放一个已被删除的 agent 在这台机器上的全部足迹。幂等:重复调用收敛到同一终态,不制造第二份真相。
+ * 释放本机运行态和投递足迹;确认删除才摘名册并立碑,自动清理则归档并保留绑定。
  *
  * Fail-loud:任何一步抛出都原样上抛。本机足迹没释放干净却回报成功,正是这张票里
  * 「UI 说 Agent deleted、东西还在」的那个形状。

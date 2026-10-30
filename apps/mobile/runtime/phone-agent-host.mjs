@@ -245,6 +245,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     await store.save(); publish(); await report(agent)
     return { cancelled }
   }
+  // History stays in the phone store; this host does not yet expose a Restore UI or RPC.
   const archive = async (agent) => {
     await cancel(agent)
     await draining
@@ -574,6 +575,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       }
       throw Object.assign(new Error(`手机宿主尚不支持 ${channel}`), { code: 'unknown_method' })
     }
+    // Phone archive is supported here; sessions.restoreSession is not yet implemented.
     if (channel === 'sessions.archiveSession') {
       const agent = findSession(args[1])
       await archive(agent)
