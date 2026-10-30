@@ -52,7 +52,7 @@ describe('platform integrations client (#921)', () => {
   })
 
   it('brings the platform’s error codes back as they are', async () => {
-    for (const [status, code] of [[400, 'invalid_fields'], [404, 'unknown_provider'], [422, 'auth_failed'], [502, 'upstream_unavailable'], [503, 'not_open']] as const) {
+    for (const [status, code] of [[400, 'invalid_fields'], [404, 'unknown_provider'], [422, 'auth_failed'], [502, 'upstream_unavailable'], [503, 'unavailable']] as const) {
       const { c } = client(() => json({ error: code, message: 'nope' }, status))
       await expect(c.saveCredential('amap', { apiKey: 'k' }, { connect: 'manual' })).rejects.toMatchObject({ status, code })
     }
@@ -103,8 +103,10 @@ describe('platform integrations client (#921)', () => {
       const error = await client(() => json(body, 404)).c.list().catch((e: unknown) => e)
       expect(isPlatformServiceMissing(error)).toBe(true)
     }
+    const unconfigured = await client(() => json({ error: 'not_open', message: '此环境未配置云电脑管家' }, 503)).c.list().catch((e: unknown) => e)
+    expect(isPlatformServiceMissing(unconfigured)).toBe(true)
     // The service is there and answered: not a reason to keep anything on the device.
-    for (const [status, code] of [[503, 'not_open'], [404, 'unknown_provider'], [404, 'not_found'], [401, 'unauthorized']] as const) {
+    for (const [status, code] of [[503, 'unavailable'], [404, 'unknown_provider'], [404, 'not_found'], [401, 'unauthorized']] as const) {
       const error = await client(() => json({ error: code, message: 'no' }, status)).c.saveCredential('amap', { apiKey: 'k' }, { connect: 'manual' }).catch((e: unknown) => e)
       expect(isPlatformServiceMissing(error), code).toBe(false)
     }
