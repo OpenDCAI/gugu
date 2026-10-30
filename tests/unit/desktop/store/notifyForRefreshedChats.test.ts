@@ -4,7 +4,7 @@ import type { ChatItem, ChatKind } from '@gugu/core/shared/types/chat'
 import { notifyForRefreshedChats } from '../../../../apps/desktop/src/store/chatListProjection'
 import { chat } from '../../../support/testHarness'
 
-const showNotification = vi.hoisted(() => vi.fn(async () => ({ success: true, displayed: true })))
+const showNotification = vi.hoisted(() => vi.fn(async (_payload: { chatId: string | null }) => ({ success: true, displayed: true })))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { capabilities: { notifications: true }, showNotification },
 }))
@@ -20,10 +20,10 @@ beforeEach(() => { showNotification.mockClear() })
 describe('the chat notification call site, shared by phone and desktop', () => {
   it('banners a direct message and a group message addressed to you, and nothing else', () => {
     notifyForRefreshedChats(
-      [row('dm', 0, 0), row('group-at', 0, 0), row('group-chatter', 0, 0)],
-      [row('dm', 1, 0), row('group-at', 2, 1), row('group-chatter', 3, 0)],
+      [row('dm', 'dm', 0, 0), row('group-at', 'group', 0, 0), row('group-chatter', 'group', 0, 0)],
+      [row('dm', 'dm', 1, 0), row('group-at', 'group', 2, 1), row('group-chatter', 'group', 3, 0)],
       context,
     )
-    expect(showNotification.mock.calls.map(([payload]) => (payload as { chatId: string }).chatId)).toEqual(['dm', 'group-at'])
+    expect(showNotification.mock.calls.map(([payload]) => payload.chatId)).toEqual(['dm', 'group-at'])
   })
 })
