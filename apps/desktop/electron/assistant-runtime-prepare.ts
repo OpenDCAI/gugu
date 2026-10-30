@@ -40,24 +40,35 @@ export async function prepareAssistantRuntime(id: string, signal: AbortSignal): 
       async commit() {
         if (!prepared.length) return
         await mkdir(managedMiseBinDir(), { recursive: true })
-        for (const { dependency, launcher } of prepared) {
-          // Another installer may have completed while we prepared. Re-probe
-          // before publication; never replace an already usable runtime.
-          await manager.probe(dependency)
-          if (manager.get(dependency)?.status === 'available') continue
-          // Atomic, exclusive publication preserves a concurrent install.
-          try { await link(path.join(launcherDir, launcher), path.join(managedMiseBinDir(), launcher)) }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        // Launchers this commit links are its own until every runtime probes
+        // available; a failed commit withdraws them so a retry can publish (#935).
+        const linked: string[] = []
+        try {
+          for (const { dependency, launcher } of prepared) {
+            // Another installer may have completed while we prepared. Re-probe
+            // before publication; never replace an already usable runtime.
             await manager.probe(dependency)
             if (manager.get(dependency)?.status === 'available') continue
-            throw error
+            // Atomic, exclusive publication preserves a concurrent install.
+            const entry = path.join(managedMiseBinDir(), launcher)
+            try { await link(path.join(launcherDir, launcher), entry) }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+              await manager.probe(dependency)
+              if (manager.get(dependency)?.status === 'available') continue
+              throw error
+            }
+            linked.push(entry)
+            published = true
           }
-          published = true
-        }
-        for (const { dependency } of prepared) {
-          await manager.probe(dependency)
-          if (manager.get(dependency)?.status !== 'available') throw new Error('The prepared assistant runtime could not be started')
+          for (const { dependency } of prepared) {
+            await manager.probe(dependency)
+            if (manager.get(dependency)?.status !== 'available') throw new Error('The prepared assistant runtime could not be started')
+          }
+        } catch (error) {
+          for (const entry of linked) await rm(entry, { force: true })
+          published = false
+          throw error
         }
       },
       async dispose() {

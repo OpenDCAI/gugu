@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -22,7 +22,7 @@ beforeEach(async () => {
   f.root = await mkdtemp(path.join(os.tmpdir(), 'assistant-runtime-'))
   f.install.mockImplementation(async (_operation, paths) => {
     await mkdir(paths.launcherDir, { recursive: true })
-    await writeFile(path.join(paths.launcherDir, path.basename(launcher())), 'prepared')
+    await writeFile(path.join(paths.launcherDir, path.basename(launcher())), 'prepared ' + paths.root)
     return { success: true }
   })
 })
@@ -38,4 +38,19 @@ it.each([true, false])('handles concurrent publication only when its runtime pro
   else await expect(prepared.commit()).rejects.toMatchObject({ code: 'EEXIST' })
   expect(await readFile(launcher(), 'utf8')).toBe(valid ? 'usable concurrent runtime' : 'broken launcher')
   await prepared.dispose()
+})
+
+it('withdraws its own launcher when the published runtime does not probe available, so a retry succeeds', async () => {
+  const first = await prepareAssistantRuntime('one', new AbortController().signal)
+  await expect(first.commit()).rejects.toThrow('could not be started')
+  await first.dispose()
+  await expect(access(launcher())).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(access(path.join(f.root, 'prepared', 'one'))).rejects.toMatchObject({ code: 'ENOENT' })
+
+  // Retry: missing before preparation and publication, available once its own launcher is published.
+  f.probe.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockImplementation(async () => { f.available = true })
+  const retry = await prepareAssistantRuntime('two', new AbortController().signal)
+  await expect(retry.commit()).resolves.toBeUndefined()
+  await retry.dispose()
+  expect(await readFile(launcher(), 'utf8')).toBe('prepared ' + path.join(f.root, 'prepared', 'two', 'runtime'))
 })

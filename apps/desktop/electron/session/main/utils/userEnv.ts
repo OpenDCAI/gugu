@@ -28,7 +28,9 @@ function pathEntryExists(entry: string): boolean {
 /**
  * 让 PATH 满足咕咕的解析优先级。
  *
- * `candidates[0]` 是**咕咕自己的**安装目录，它被**移到最前**——已经在 PATH 里也移动。
+ * `candidates[0]` 是**咕咕自己的**安装目录，它被**移到最前**——已经在 PATH 里也移动；
+ * 目录还不存在也照样放（#935）：第一次发布启动器的那一刻才建出来，解析不能等到下一次
+ * 有人再调这里（干净 profile 上本机助理装完探测不到、残留的启动器让每次重试都 EEXIST）。
  * 其余候选是用户自己的目录，只在缺失时补上、已存在则原地不动：它们之间的先后是用户的
  * 偏好，咕咕不去重排。
  *
@@ -49,8 +51,7 @@ export function ensureUserBinDirsInPath(
   const entries = currentPath.split(path.delimiter).filter(Boolean);
 
   const [managed, ...userOwned] = candidates;
-  const managedUsable = managed !== undefined && pathEntryExists(managed);
-  const rest = managedUsable ? entries.filter((entry) => entry !== managed) : entries;
+  const rest = managed !== undefined ? entries.filter((entry) => entry !== managed) : entries;
   const existing = new Set(rest);
   const additions = userOwned.filter(
     (candidate) => pathEntryExists(candidate) && !existing.has(candidate)
@@ -65,7 +66,7 @@ export function ensureUserBinDirsInPath(
     return true;
   });
 
-  const nextPath = [...(managedUsable ? [managed] : []), ...additions, ...rest, ...appended].join(
+  const nextPath = [...(managed !== undefined ? [managed] : []), ...additions, ...rest, ...appended].join(
     path.delimiter
   );
   if (nextPath === currentPath) {
@@ -73,7 +74,7 @@ export function ensureUserBinDirsInPath(
   }
 
   process.env.PATH = nextPath;
-  const managedWasAbsent = managedUsable && !entries.includes(managed);
+  const managedWasAbsent = managed !== undefined && !entries.includes(managed);
   return managedWasAbsent
     ? [managed, ...additions, ...appended]
     : [...additions, ...appended];

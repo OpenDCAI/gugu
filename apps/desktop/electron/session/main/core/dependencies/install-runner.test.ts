@@ -4,13 +4,9 @@ import { createLocalInstallCommandRunner } from './install-runner';
 
 const mocks = vi.hoisted(() => ({
   runMiseOperation: vi.fn(),
-  ensureUserBinDirsInPath: vi.fn(),
 }));
 
 vi.mock('./mise-installer', () => ({ runMiseOperation: mocks.runMiseOperation }));
-vi.mock('@main/utils/userEnv', () => ({
-  ensureUserBinDirsInPath: mocks.ensureUserBinDirsInPath,
-}));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -32,16 +28,13 @@ const miseContext = {
 };
 
 describe('createLocalInstallCommandRunner', () => {
-  it('routes a managed install to the bundled installer and re-primes PATH', async () => {
+  it('routes a managed install to the bundled installer', async () => {
     mocks.runMiseOperation.mockResolvedValueOnce(ok(undefined));
 
     const result = await createLocalInstallCommandRunner()('mise install http:gugu-codex', miseContext);
 
     expect(result.success).toBe(true);
     expect(mocks.runMiseOperation).toHaveBeenCalledWith(miseContext);
-    // 咕咕自己的 bin 目录不在用户登录 shell 的 PATH 里 —— 装完必须当场顶回去,
-    // 否则刚装好的那一份要等下一次探测才「忽然被找到」。
-    expect(mocks.ensureUserBinDirsInPath).toHaveBeenCalled();
   });
 
   it('装法只剩托管安装 —— 递一条 shell 命令过来,响亮地说这儿没有这条通道', async () => {

@@ -1,6 +1,5 @@
 import type { InstallCommandContext, InstallCommandError } from '@gugu/session-core/deps/runtime';
 import { err, type Result } from '@gugu/session-shared';
-import { ensureUserBinDirsInPath } from '@main/utils/userEnv';
 import { runMiseOperation } from './mise-installer';
 
 export type InstallCommandRunner<TData = void, TError = InstallCommandError> = (
@@ -25,8 +24,6 @@ export function createLocalInstallCommandRunner(): InstallCommandRunner {
         message: 'Gugu only installs agents through its bundled installer.',
       });
     }
-    const result = await runMiseOperation(context);
-    ensureUserBinDirsInPath();
-    return result;
+    return runMiseOperation(context);
   };
 }
