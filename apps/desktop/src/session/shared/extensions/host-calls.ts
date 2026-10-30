@@ -109,6 +109,7 @@ export const HOST_CALLS = {
   },
   'appFiles.openWith': { verb: 'filesOpenWith' },
   'appFiles.download': { verb: 'filesDownload' },
+  'appFiles.forward': { verb: 'filesForward' },
 } satisfies Record<string, HostCall>;
 
 type Event<T extends ExtensionHostEvent['type']> = Extract<ExtensionHostEvent, { type: T }>;

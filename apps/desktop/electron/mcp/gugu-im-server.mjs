@@ -20,7 +20,7 @@ import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../..
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
 import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
-import { AttachmentsError, commitAttachment, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
+import { AttachmentsError, commitAttachment, sendFileAsOwner, shareAttachment, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
@@ -2267,13 +2267,12 @@ async function handleFile(args, deps) {
     let message
     let fileName
     if (folderFile && !args.file_path) {
-      // 按引用发:消息钉住群文件夹里那个文件的那一版,不传字节(gugu-supabase attachment_share)。
-      const [row] = await deps.restRpc('attachment_share', {
-        p_item_id: folderFile.itemId, p_version: folderFile.version ?? null, p_message_id: messageId, p_chat_id: chatId,
-        p_sender_user_id: deps.context.agentId, p_to_user_ids: toUserIds ?? [], p_thread_root_id: thread.thread_root_id,
+      // 按引用发(attachments/share):消息钉住群文件夹里那个文件的那一版,不传字节;文本文件钉住它此刻的正文。
+      message = await shareAttachment(await deps.attachmentsEndpoint(), {
+        item_id: folderFile.itemId, version: folderFile.version ?? null, message_id: messageId, chat_id: chatId,
+        sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread,
       })
-      message = row
-      fileName = attachmentNameOf(row ?? {})
+      fileName = attachmentNameOf(message)
     } else if ((message = await publishOnHost(args, deps, chatId, { message_id: messageId, chat_id: chatId,
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {

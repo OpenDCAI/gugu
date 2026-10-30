@@ -166,5 +166,23 @@ export async function forwardAttachment(endpoint: AttachmentsEndpoint, args: For
   return answer.message
 }
 
+export interface ShareArgs {
+  item_id: string
+  /** A stored file's version (none = its current one); a text document is always sent as its text is now. */
+  version?: number | null
+  message_id: string
+  chat_id: string
+  sender_user_id: string
+  to_user_ids?: string[]
+  thread_root_id?: string | null
+}
+
+/** Sends a file of a chat's folder by reference — no bytes from here; the one way a folder file becomes a file card: the new message row. */
+export async function shareAttachment(endpoint: AttachmentsEndpoint, args: ShareArgs): Promise<Record<string, unknown>> {
+  const answer = await call(endpoint, 'share', { ...args }) as { message: Record<string, unknown> | null }
+  if (!answer.message) throw new AttachmentsError('share', 500, 'failed', `no message came back for ${args.item_id}`)
+  return answer.message
+}
+
 /** Shared authenticated transport for additional private attachment scopes. */
 export { call as attachmentRequest }

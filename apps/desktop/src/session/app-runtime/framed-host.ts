@@ -46,7 +46,7 @@ const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'readData', 'writeData', 'listData',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create', 'appFiles.viewPreferences',
   'appFiles.keep', 'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
-  'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload', 'appFiles.openWith', 'appFiles.download',
+  'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload', 'appFiles.openWith', 'appFiles.download', 'appFiles.forward',
 ]);
 const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 'onProgramNotification']);
 /** What main answers an App's MCP program (F16): its files and messages, an agent's word — no page, no data folder of a page. */
