@@ -26,8 +26,10 @@ vi.mock('electron', () => ({
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: () => 'workspace', isExtensionSessionConfigured: () => true }));
 vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgroundWebContentsId: () => null }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
-  extensionsService: () => ({ grantedCapabilities: () => ['files:read'], hasCapability: () => true, get: () => ({ manifest: { name: 'Workspace' } }) }),
+  extensionsService: () => ({ grantedCapabilities: () => ['files:read'], hasCapability: () => true,
+    isEnabled: () => true, get: () => ({ manifest: { name: 'Workspace', version: '1.0.0' } }) }),
 }));
+vi.mock('@main/core/extensions/app-programs-elsewhere', () => ({ knownSessionMachine: () => ({ deviceId: 'actual-task-host' }), sessionMachine: async () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // A page in a group hears its context only with its chat (「在本群打开」): the chat is read before the first push.
 vi.mock('@main/core/extensions/app-files', () => ({
@@ -55,6 +57,27 @@ beforeEach(async () => {
 });
 
 describe('a resident page moved to another file (摩擦单 F115)', () => {
+  it('captures the real bound App/task and revokes remote signing before asynchronous retarget', async () => {
+    const { captureSessionpageProjectionViewer, extensionSurfaceBindingForTests, unbindExtensionSurface } = await import('./extension-bridge');
+    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-1',
+      sessionId: 'task-a', chatId: CHAT, operator: { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' } });
+    expect(extensionSurfaceBindingForTests(PAGE)?.sessionId).toBe('task-a');
+    const captured = await captureSessionpageProjectionViewer(PAGE);
+    expect(captured).toMatchObject({ appId: 'workspace', version: '1.0.0', sessionId: 'task-a', deviceId: 'actual-task-host', id: String(PAGE) });
+    resourceChat.mockClear();
+    const lookup = Promise.withResolvers<void>();
+    resourceChat.mockImplementationOnce(async id => { await lookup.promise; return id; });
+    const moving = retargetExtensionSurface({ webContentsId: PAGE, tabId: 'slot-2', sessionId: 'task-b', chatId: CHAT });
+    try {
+      expect(captured.signal.aborted).toBe(true); expect(() => captured.assertCurrent()).toThrow(/page changed/);
+      await vi.waitFor(() => expect(resourceChat).toHaveBeenCalledOnce());
+    } finally { lookup.resolve(); await moving; captured.release(); }
+    const next = await captureSessionpageProjectionViewer(PAGE);
+    expect(next.epoch).toBeGreaterThan(captured.epoch); expect(next.sessionId).toBe('task-b');
+    unbindExtensionSurface(PAGE); expect(next.signal.aborted).toBe(true);
+    await expect(captureSessionpageProjectionViewer(PAGE)).rejects.toThrow(/unavailable/);
+  });
+
   it('restores the old task when resolving the target file fails, including the rebind path', async () => {
     const { extensionSurfaceBindingForTests } = await import('./extension-bridge');
     const binding = extensionSurfaceBindingForTests(PAGE)!; binding.sessionId = 'task-a';

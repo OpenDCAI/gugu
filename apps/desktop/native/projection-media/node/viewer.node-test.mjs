@@ -68,6 +68,41 @@ test('viewer admits direct Unicode control with a bounded byte queue and never l
   assert.deepEqual(view.controls, ['{"result":"unknown"}'])
 })
 
+test('viewer signs in order and never sends an unsigned or late control after page cancellation', async t => {
+  let release, calls = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const controller = new AbortController()
+  const view = fixture(t, { signal: controller.signal, prepareControl: async (raw, signal) => {
+    calls++; if (calls === 1) await gate
+    signal.throwIfAborted(); return `signed:${raw}`
+  } })
+  const media = await view.starting
+  const first = media.sendControl('ack'), second = media.sendControl('中文')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls, 1); assert.deepEqual(view.channel.sent, [])
+  release(); await Promise.all([first, second])
+  assert.deepEqual(view.channel.sent, ['signed:ack', 'signed:中文'])
+  controller.abort(new Error('Page retargeted'))
+  assert.throws(() => media.sendControl('late'), /retargeted/)
+})
+
+test('viewer aborts an in-flight signer and bounds pending signing work', async t => {
+  let signing
+  const controller = new AbortController()
+  const view = fixture(t, { signal: controller.signal, prepareControl: (_raw, signal) => {
+    signing = signal; return new Promise(() => {})
+  } })
+  const media = await view.starting
+  const pending = Array.from({ length: 64 }, () => media.sendControl('ack').catch(error => error))
+  assert.throws(() => media.sendControl('overflow'), /queue is full/)
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort(new Error('Page left'))
+  assert.equal(signing.aborted, true)
+  const errors = await Promise.all(pending)
+  assert.ok(errors.every(error => /Page left/.test(error.message)))
+  assert.deepEqual(view.channel.sent, [])
+})
+
 test('viewer rejects unreliable channels, binary controls, oversized text and unassociated receipts', async t => {
   for (const kind of ['unordered', 'limited-retry', 'wrong-label', 'binary', 'oversized', 'old-sequence', 'wrong-geometry']) {
     await t.test(kind, async t => {
