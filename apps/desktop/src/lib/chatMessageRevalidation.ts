@@ -7,6 +7,7 @@ import type {
   ReactionGroup,
 } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
+import { feedQuietly, feedRemoved, feedRows } from './searchIndexFeed'
 
 export interface MessageOverlay {
   reactions: ReactionGroup[]
@@ -188,9 +189,15 @@ async function loadWindowBodyMutations(
       for (const id of chunk) presentIds.add(id)
       continue
     }
+    const rows = (data ?? []) as RawMessageRow[]
+    // The same re-read keeps the search index current: edited/retracted rows replace what was indexed and
+    // ids this account can no longer read leave it.
+    const returned = new Set(rows.map((raw) => raw.id))
+    feedQuietly(feedRows(rows))
+    feedQuietly(feedRemoved(chunk.filter((id) => !returned.has(id))))
     // Reuse the canonical row mapper, then keep only the mutable body fields (content / content_type /
     // retracted_at). Ids that map to null (missing id/chat/sender) are simply skipped.
-    for (const raw of (data ?? []) as RawMessageRow[]) {
+    for (const raw of rows) {
       const item = messageItemFromRow(raw, userId)
       if (!item) continue
       presentIds.add(item.id)
