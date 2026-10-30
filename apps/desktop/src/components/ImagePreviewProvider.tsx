@@ -14,7 +14,7 @@ import { IconButton } from './ui/IconButton'
 import { bindFileViewerMenu } from './preview/file-viewer-menu'
 import { quoteChatFile } from './preview/quote-preview-file'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { fetchBlob, downloadRemoteFile } from '../lib/download'
+import { fetchBlob, downloadBlob } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
@@ -269,7 +269,8 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
 
   const handleDownload = useCallback(async () => {
     try {
-      await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
+      const blob = await fetchBlob(current.full ? await current.full() : current.url)
+      await downloadBlob(blob, downloadNameFor(current, blob.type))
     } catch (error) {
       rendererLogger('chat/file-open').error({ error }, 'image download failed')
       toast(t('shell.imagePreview.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))

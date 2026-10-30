@@ -212,7 +212,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId, onQuote, readFileCh
   const closed = () => {
     const blob = blobUrlRef.current
     const image = blob?.image
-    if (blob && image) openImageViewer([{ url: blob.url, alt: image.name, quote: () => onQuote(workspaceFileQuote(image.path, null)) }])
+    if (blob && image) openImageViewer([{ url: blob.url, alt: image.name, file: { name: image.name }, quote: () => onQuote(workspaceFileQuote(image.path, null)) }])
     else releaseBlobUrl()
   }
   const sheet = (

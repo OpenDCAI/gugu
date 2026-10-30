@@ -114,12 +114,12 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 }
 
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */
-export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
+export async function openAttachmentImage(source: AttachmentSource, fileName: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
   const bytes = await attachmentBytes(source)
   if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
-  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
+  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt: fileName, file: { name: fileName, contentType: bytes.link.content_type }, quote, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */
