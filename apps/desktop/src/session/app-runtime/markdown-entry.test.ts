@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // gugu.markdown() (markdown-entry.ts): the host's markdown rendering on an App page. Judged here: it is the shared
 // dialect (structure, math, tables, tasks, footnotes, heading anchors); others' words never become markup; links go
-// out only the ways an App page has; a re-render keeps its root. The stylesheet and the browser's layout are judged
-// on the product (mac1 A/B), not here.
+// out only the ways an App page has; a re-render keeps its root; an image naming a file is read once through the page's
+// own gugu.files and drawn in its chip. The stylesheet and the browser's layout are judged on the product (mac1 A/B), not here.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { renderer } from './markdown-entry';
 
@@ -10,7 +10,12 @@ const gugu = {
   openLink: vi.fn(async (_url: string) => undefined),
   reportError: vi.fn(async (_message: string) => undefined),
   openBrowserTab: vi.fn(async (_url: string) => undefined),
-  files: { openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined) },
+  files: {
+    openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined),
+    open: vi.fn(async (_file: unknown): Promise<unknown> => undefined),
+    readVersion: vi.fn(async (_file: unknown, _n: number): Promise<unknown> => undefined),
+    onChanged: vi.fn((_place: unknown, _handler: (change: { kind: string; entries?: { id: string; version?: number | null }[]; gone?: string[] }) => void) => () => undefined),
+  },
 };
 const render = renderer(gugu);
 
@@ -137,7 +142,8 @@ describe('gugu.markdown(): others\' words never become markup', () => {
 });
 
 describe('gugu.markdown(): links, the ways an App page has out', () => {
-  const file = { chat: 'chat-1', id: 'i-1', name: 'notes/plan.md' };
+  // A chat file as the host hands it: `name` its name alone, `path` from the top of the folder.
+  const file = { chat: 'chat-1', id: 'i-1', name: 'plan.md', path: 'notes/plan.md' };
   const box = () =>
     rendered(
       [
@@ -214,6 +220,95 @@ describe('gugu.markdown(): links, the ways an App page has out', () => {
     const root = rendered('[旁边](./todo.md)');
     click(root.querySelector('a'));
     expect(gugu.files.openWith).not.toHaveBeenCalled();
+  });
+});
+
+describe('gugu.markdown(): an image naming a file is drawn in its chip, read through gugu.files', () => {
+  const PICTURE = '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f61';
+  const doc = (chat: string) => ({ chat, id: 'd-1', name: 'readme.md', path: 'docs/readme.md' });
+  const stored = (id: string, chat: string, version = 1, contentType = 'image/png') => ({
+    type: 'binary', entry: { id, chat, version, contentType }, blob: async () => new Blob(['png'], { type: contentType }), close: vi.fn(),
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let made = 0;
+
+  beforeAll(() => {
+    URL.createObjectURL = vi.fn(() => `blob:page/${++made}`);
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  it('beside the document (from its folder) or by its link: read once however often it renders, a link to it opens the same file', async () => {
+    const picture = async (ref: unknown) => stored((ref as { id?: string }).id ?? 'p-1', 'chat-a');
+    gugu.files.open.mockImplementationOnce(picture).mockImplementationOnce(picture);
+    const box = document.createElement('article');
+    document.body.append(box);
+    const render = renderer(gugu);
+    const text = `![图](p.png) ![链](gugu-file://${PICTURE})\n\n[文](p.png)`;
+    render(box, text, { file: doc('chat-a') });
+    expect([...box.querySelectorAll('a.gg-md-image')].map((a) => a.getAttribute('data-gg-image'))).toEqual(['loading', 'loading']);
+    await settle();
+    render(box, `${text} `, { file: doc('chat-a') });
+    render(box, text, { file: doc('chat-a') });
+    expect(gugu.files.open.mock.calls).toEqual([[{ chat: 'chat-a', name: 'docs/p.png' }], [{ id: PICTURE }]]);
+    expect([...box.querySelectorAll('a.gg-md-image > img.gg-md-img')].map((img) => img.getAttribute('alt'))).toEqual(['图', '链']);
+    click([...box.querySelectorAll('a')].find((a) => a.textContent === '文')!);
+    expect(gugu.files.openWith).toHaveBeenCalledExactlyOnceWith({ chat: 'chat-a', name: 'docs/p.png' });
+  });
+
+  it("one it cannot read says the host's reason in its chip, no broken picture; the reading again comes with another document", async () => {
+    gugu.files.open.mockRejectedValueOnce(new Error('Studio is offline. This file opens when it is back online.'));
+    const box = document.createElement('article');
+    document.body.append(box);
+    const render = renderer(gugu);
+    render(box, '![diagram](offline.png)', { file: doc('chat-b') });
+    await settle();
+    const chip = box.querySelector('a.gg-md-image')!;
+    expect([chip.getAttribute('data-gg-image'), chip.textContent]).toEqual(['failed', 'diagram — Studio is offline. This file opens when it is back online.']);
+    expect(box.querySelector('img')).toBeNull();
+    render(box, '![diagram](offline.png) ', { file: doc('chat-b') });
+    expect(gugu.files.open).toHaveBeenCalledOnce();
+    gugu.files.open.mockResolvedValueOnce(stored('o-1', 'chat-b'));
+    render(box, '![diagram](offline.png)', { file: { ...doc('chat-b'), id: 'd-2' } });
+    await settle();
+    expect(gugu.files.open).toHaveBeenCalledTimes(2);
+    expect(box.querySelector('img.gg-md-img')).not.toBeNull();
+  });
+
+  it('a web picture, a path above the folder and a file that is no picture stay the chips they were, nothing read for the first two', async () => {
+    const text = stored('t-1', 'chat-c', 1, 'text/markdown');
+    gugu.files.open.mockResolvedValueOnce(text);
+    const box = rendered('![w](https://example.com/w.png) ![up](../../x.png) ![t](notes.md)', { file: doc('chat-c') });
+    await settle();
+    expect(gugu.files.open.mock.calls).toEqual([[{ chat: 'chat-c', name: 'docs/notes.md' }]]);
+    expect(text.close).toHaveBeenCalledOnce();
+    expect(box.querySelectorAll('img')).toHaveLength(0);
+    expect([...box.querySelectorAll('a.gg-md-image')].map((a) => a.hasAttribute('data-gg-image'))).toEqual([false, false, false]);
+  });
+
+  it('a kept version (?v=) is read as that version', async () => {
+    gugu.files.readVersion.mockResolvedValueOnce(new Blob(['png'], { type: 'image/png' }));
+    const box = rendered(`![v3](gugu-file://${PICTURE}?v=3)`, { file: doc('chat-d') });
+    await settle();
+    expect(gugu.files.readVersion).toHaveBeenCalledExactlyOnceWith({ id: PICTURE }, 3);
+    expect(gugu.files.open).not.toHaveBeenCalled();
+    expect(box.querySelector('img.gg-md-img')).not.toBeNull();
+  });
+
+  it("a new version of the picture's file, heard from its chat, is drawn where the document is open", async () => {
+    gugu.files.open.mockResolvedValueOnce(stored('n-1', 'chat-e', 1)).mockResolvedValueOnce(stored('n-1', 'chat-e', 2));
+    const box = rendered('![n](live.png)', { file: doc('chat-e') });
+    await settle();
+    const first = box.querySelector('img')!.getAttribute('src');
+    expect(gugu.files.onChanged).toHaveBeenCalledOnce();
+    const [place, hear] = gugu.files.onChanged.mock.calls[0]!;
+    expect(place).toEqual({ chat: 'chat-e' });
+    hear({ kind: 'entries', entries: [{ id: 'other', version: 9 }, { id: 'n-1', version: 1 }], gone: [] });
+    expect(gugu.files.open).toHaveBeenCalledOnce();
+    hear({ kind: 'entries', entries: [{ id: 'n-1', version: 2 }], gone: [] });
+    await settle();
+    expect(gugu.files.open).toHaveBeenCalledTimes(2);
+    expect(box.querySelector('img')!.getAttribute('src')).not.toBe(first);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(first);
   });
 });
 
