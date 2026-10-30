@@ -75,6 +75,7 @@ function host(deviceId: string): SessionHostClient {
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
       isReachable: () => reachable(deviceId),
+      peerVersion: () => readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.app_version ?? null,
       subscribeReachability: (listener) => {
         const stopCloud = subscribeCloudComputerState(listener)
         const stopDevices = subscribeCachedDevices(listener)
@@ -109,7 +110,7 @@ function host(deviceId: string): SessionHostClient {
  */
 if (typeof window !== 'undefined') {
   const reopenClosed = () => {
-    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow()
+    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow({ automatic: true })
   }
   window.addEventListener('online', reopenClosed)
   document.addEventListener('visibilitychange', () => {

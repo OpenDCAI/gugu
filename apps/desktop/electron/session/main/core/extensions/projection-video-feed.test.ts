@@ -41,7 +41,7 @@ function setup(options: { input?: () => Promise<void>; disconnect?: () => Promis
     offer: { type: 'offer' as const, sdp: 'fixture' }, closed: closed.promise,
     answer: async () => {}, publish, sendControl, close: async () => { closed.resolve(); },
   }));
-  const feed = projectionVideoFeed(resources, access, context, decode, create);
+  const feed = projectionVideoFeed(resources, access, context, () => decode, create);
   const finish = async () => { await feed.lease.disconnect(); feed.lease.release(); await source.close(); };
   const packet = (generation: string, type: 'input' | 'ack' = 'ack', sequence = 1, frame = 1) => JSON.stringify({ type, generation,
     frame, ...(type === 'input' ? { sequence, input: { kind: 'text', text: '一次中文' } } : {}) });
