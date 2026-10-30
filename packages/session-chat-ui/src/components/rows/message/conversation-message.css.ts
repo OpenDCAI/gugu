@@ -14,7 +14,7 @@ const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 }
 globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
 export const conversationReference = style({ position: 'relative', display: 'inline-flex', width: 18, height: 18, flexShrink: 0, color: vars.fgMuted });
 export const conversationQuote = style({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, flexShrink: 0, color: 'inherit', background: 'transparent', border: 0, padding: 0, cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
-export const conversationQuotePreview = style({ position: 'absolute', top: '100%', left: 0, zIndex: 10, width: 320, maxWidth: 'calc(100vw - 16px)', maxHeight: 224, overflow: 'auto', padding: 8, borderRadius: 8, border: `1px solid ${vars.border}`, background: vars.bg, color: vars.fg, fontSize: vars.typeChromeTinyFontSize, whiteSpace: 'pre-wrap' });
+export const conversationQuotePreview = style({ position: 'absolute', top: '100%', left: 0, zIndex: 10, width: 320, maxWidth: 'calc(100vw - 16px)', overflow: 'hidden', padding: 8, borderRadius: 8, border: `1px solid ${vars.border}`, background: vars.bg, color: vars.fg, fontSize: vars.typeChromeTinyFontSize });
 export const conversationReferenceSeparator = style({ width: 4, flexShrink: 0, color: vars.fgMuted, textAlign: 'center' });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });
 export const conversationTime = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', alignContent: 'start', columnGap: 9, rowGap: 0, color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
@@ -53,14 +53,16 @@ for (const label of [collapseHeader, toolName, summaryChip]) {
 // 那一行本身常亮(原气泡的 hover 规则会把整行藏起来),藏的是里面的时间、复制、编辑;「发到」常驻(管家 10-28)。
 globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 1, pointerEvents: 'auto' });
 // Exempt persistent controls without making the hidden state outrank hover/focus.
-globalStyle(`${conversationRoot} [data-user-message-actions] > :where(:not([data-slot="sent-to"]):not([data-slot="conversation-reference"]))`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
+globalStyle(`${conversationRoot} [data-user-message-actions] > :where(:not([data-slot="sent-to"]):not([data-slot="conversation-reference"]):not([data-collapse-id]))`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
 globalStyle(`${conversationRoot} [data-conversation-reference-footer] time`, { order: 2 });
-globalStyle(`${conversationRoot} [data-conversation-reference-footer] ${conversationReference}`, { order: 3, height: CONVERSATION_FOOTER_H });
+globalStyle(`${conversationRoot} [data-conversation-reference-footer] ${conversationReference}`, { order: 1, height: CONVERSATION_FOOTER_H });
+globalStyle(`${conversationRoot} [data-user-message-actions] [data-slot="message-copy"]`, { order: 3 });
+globalStyle(`${conversationRoot} [data-user-message-actions] [data-slot="message-edit"]`, { order: 4 });
 globalStyle(`${conversationRoot} [data-conversation-reference-footer] [data-slot="conversation-quote"]`, { height: CONVERSATION_FOOTER_H });
 globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conversationRoot} [data-user-message-actions]:focus-within > *`, { opacity: 1, pointerEvents: 'auto' });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] ${userMessageExpandRow}`, { justifyContent: 'flex-start' });
-globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });
+globalStyle(`${conversationRoot} [data-user-message-actions] time`, { order: 2, marginLeft: 0, marginRight: 0 });
 // 折着的长消息淡出成气泡自己的底色(浅色),❌ 淡成原用户气泡的深色 —— 那就是一条黑带。
 globalStyle(`${conversationRoot} ${cardFadeOverlay}`, {
   // 0 号图里淡出要拖过两三行,32px 那条太短,像被裁掉。

@@ -269,16 +269,10 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           data-conversation-bubble-key={conversationBubbleKey(props.data)}>{translate('transcript.showFullText')}</button>
       </div>
     </Show>
-    <Show when={canCollapse()}>
-      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
-        <button type="button" class={userMessageExpand} data-collapse-id={conversationBubbleKey(props.data)}
-          data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
-      </div>
-    </Show>
-    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference}>
+    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference || canCollapse()}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
       reference={props.footerReference}
-      onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage && commands().canQuoteMessage?.(props.data) !== false ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
+      collapse={canCollapse() ? { bubbleKey: conversationBubbleKey(props.data), anchorId: props.data.id } : undefined}
       generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
     </>}>
