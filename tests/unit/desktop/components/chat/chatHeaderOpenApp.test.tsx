@@ -15,7 +15,7 @@ const app = (id: string, name: string, tab: Record<string, unknown>) =>
   parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
 
 vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
-vi.mock('@/lib/chatTopicPins', () => ({ readChatTopicPins: async () => [], setChatTopicPin: async () => [], watchChatTopicPins: () => () => {} }))
+vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
