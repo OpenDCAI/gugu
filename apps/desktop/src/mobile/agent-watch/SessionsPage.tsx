@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -12,6 +13,7 @@ import { Field } from '@/components/ui/Field'
 import { formatRelativeTime } from '@/i18n/format'
 import { SessionAvatar } from './StatusGlyph'
 import { ScheduleMetaPart } from './schedule-meta'
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer'
 import { sessionPresentation } from './watch-status'
 import { cancelPhoneSessionTurn, updateSession } from './sessionpage-rpc'
 import { rowOpens } from '@/session/shared/remote-sessions/session-directory'
@@ -124,7 +126,7 @@ export function SessionActions({
  * 状态词与会话页、聊天同一张表(common:agentStatus.*:运行中 / 后台运行中 / 等你批准… / 出错了 / 做完了 / 空闲);
  * 宿主报上来的是词表里的英文(working / needs_user …),❌ 不许把它原样印到中文界面上。
  */
-export function SessionRow({
+export const SessionRow = observer(function SessionRow({
   session,
   agentName,
   tags,
@@ -159,7 +161,8 @@ export function SessionRow({
 }) {
   const { t } = useTranslation('main')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
-  const presentation = sessionPresentation(session, statusAvailable ?? session.supported)
+  const shownStatus = useShownAgentStatus()
+  const presentation = shownStatus.presentation(session.agent?.userId, sessionPresentation(session, statusAvailable ?? session.supported))
   const wrapRef = useRef<HTMLDivElement>(null)
   const longPress = useLongPress(() => { if (wrapRef.current) onMenu?.(session, wrapRef.current) })
   const when = formatRelativeTime(session.lastInteractedAt)
@@ -258,4 +261,4 @@ export function SessionRow({
     ) : null}
     </div>
   )
-}
+})

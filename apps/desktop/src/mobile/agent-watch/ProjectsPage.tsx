@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { nameTwinIds } from '@/session/renderer/features/projects/name-twins'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -84,7 +85,7 @@ function MachineNote({ device, error }: { device: Device; error?: string | null 
  * 个人助理的云端宿主不列(它的项目名 / 机器名都不出现),它派出的会话是一组、组名就是它;它自己那条也不列。
  * 机器离线时**不发 RPC**:离线机器的行读心跳摘要(deviceSessionsOf),打不开的行灰着,分区页头下说一句为什么。
  */
-export function ProjectsPage({
+export const ProjectsPage = observer(function ProjectsPage({
   onOpenSession,
   onCreate,
   reveal,
@@ -140,10 +141,8 @@ export function ProjectsPage({
   /** 正在看管理动作的那条会话(行尾「…」打开的抽屉);null = 关着。 */
   const [menuFor, setMenuFor] = useState<{ deviceId: string; session: SessionpageSessionSummary; anchor: Element } | null>(null)
 
-  const sections = useMemo(
-    () => sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: moreOpen, online }),
-    [sectionMachines, rows, assistantId, homeIds, moreOpen, online],
-  )
+  // Read during every observer render: React's useMemo cannot track MobX presence dependencies.
+  const sections = sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: moreOpen, online })
 
   // ── 点名定位:展开它所在的分区与父会话,再滚到它 ───────────────────────
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -381,4 +380,4 @@ export function ProjectsPage({
         />
     </AgentWatchScreen>
   )
-}
+})
