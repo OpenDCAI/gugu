@@ -217,7 +217,6 @@ import {
 } from './sessionpage/emdash-agent-registry'
 import {
   resolveSessionpageSenderBinding,
-  resolveSessionpageSessionPeers,
 } from './sessionpage/session-addressing'
 import { kickInboxWhenAuthed } from './sessionpage/agent-inbox-kick'
 import { droidDaemonSessionDelivery } from './sessionpage/droid-daemon-session-delivery'
@@ -272,9 +271,7 @@ import {
   createHostLocalSessionSource,
   type HostLocalSessionSource,
 } from './sessionpage/local-session-source'
-import { resolveSessionpageAgentCard } from './sessionpage/sessionpage-agent-card'
-import { loadSessionpageCanonicalAgentIdentities } from './sessionpage/sessionpage-agent-identity'
-import { SESSION_SHELL_CHANNELS, agentNamesFromPeers, type SessionShellAgentName } from '../src/session/shared/lib/ipc/shell-port'
+import { SESSION_SHELL_CHANNELS, type SessionShellAgentName, type SessionShellAgentCard } from '../src/session/shared/lib/ipc/shell-port'
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
 import type { EventDefinition } from '../src/session/shared/lib/ipc/events'
 import { MAIN_UI_EVENTS } from '../src/lib/mainUiEvents'
@@ -3403,17 +3400,12 @@ type EmdashBridgeModule = typeof import('./sessionpage/emdash-main-bridge')
 let sessionpageLocalSessionSource: HostLocalSessionSource | null = null
 
 async function localSessionPeers(
-  emdash: EmdashBridgeModule,
-  auth: RuntimeAuth,
+  _emdash: EmdashBridgeModule,
+  _auth: RuntimeAuth,
   sessionId?: string,
 ): Promise<LocalSessionPeer[]> {
-  return resolveSessionpageSessionPeers({
-    listRoster: () => listAgents(process.env, { includeGuests: true }),
-    ownerUserId: auth.userId,
-    sessionId,
-    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
-    listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
-  })
+  if (!sessionpageIdentityHost) throw new Error('Task identity host is not ready')
+  return sessionpageIdentityHost.sessionPeers(sessionId)
 }
 // #5048 信封的 `from` 一格是 producer 的义务(spec delivery-envelope):拿得到 owner token 就解析发信人的
 // 昵称/咕咕号再拼壳。这里曾有三处传空 map(聊天页首轮、roster 直投、agent.create 首句),owner 自己的
@@ -3856,21 +3848,16 @@ handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async (_event, sessionId
 handleShellChannel(SESSION_SHELL_CHANNELS.agentCard, async (_event, sessionId: unknown) => {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken || !auth.userId) return null
-  return resolveSessionpageAgentCard(
-    String(sessionId ?? ''),
-    process.env,
-    auth.userId,
-    (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
-  )
+  if (!sessionpageIdentityHost) throw new Error('Task identity host is not ready')
+  return sessionpageIdentityHost.agentCard(String(sessionId ?? ''))
 })
 // 侧栏逐行 hover 要说「这一行是谁」(#5818):就是本机名册(session_peers)那一份的投影,名字同样取自
 // identity.users.display_name。
 handleShellChannel(SESSION_SHELL_CHANNELS.agentNames, async () => {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken || !auth.userId) return []
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('任务页运行时不可用')
-  return agentNamesFromPeers(await localSessionPeers(emdash, auth))
+  if (!sessionpageIdentityHost) throw new Error('Task identity host is not ready')
+  return sessionpageIdentityHost.agentNames()
 })
 ipcMain.handle(SESSION_SHELL_CHANNELS.shareAgent, async (_event, sessionId: unknown, remoteCard?: unknown) => {
   const auth = await authProvider?.getAuth()
@@ -3879,12 +3866,9 @@ ipcMain.handle(SESSION_SHELL_CHANNELS.shareAgent, async (_event, sessionId: unkn
     return false
   }
   // #6264 会话在别的机器上:名片由那台机器答过了(绑定记在那台机器上),这里只负责画;null = 那台机器说它还没有身份。
-  const card = remoteCard !== undefined ? (remoteCard as Awaited<ReturnType<typeof resolveSessionpageAgentCard>>) : await resolveSessionpageAgentCard(
-    String(sessionId ?? ''),
-    process.env,
-    auth.userId,
-    (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
-  )
+  if (!sessionpageIdentityHost) throw new Error('Task identity host is not ready')
+  const card = remoteCard !== undefined ? remoteCard as SessionShellAgentCard | null
+    : await sessionpageIdentityHost.agentCard(String(sessionId ?? ''))
   if (!card) {
     // 点了必须有反应:说明为什么不能分享,而不是一个点下去毫无动静的入口(实机反馈「点击没反应」)。
     sendUiEvent(MAIN_UI_EVENTS.sessionpageShareAgentUnavailable, '这个任务还没有可分享的 agent 身份')

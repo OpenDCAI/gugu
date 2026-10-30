@@ -77,6 +77,11 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
 import { createSessionpageIdentityHost, reconcileSessionpageOwnerNames } from '../../../../apps/desktop/electron/sessionpage/sessionpage-identity-host'
 import { createWebSessionShellAnswers } from '../../../../apps/desktop/src/lib/session-shell-web-answers'
 import { createSessionShellPort, SESSION_SHELL_CHANNELS } from '../../../../apps/desktop/src/session/shared/lib/ipc/shell-port'
+import { desktopIdentityEntries } from '../../../support/desktopIdentityEntries'
+import { resolveSessionpageSessionPeers } from '../../../../apps/desktop/electron/sessionpage/session-addressing'
+import { loadSessionpageCanonicalAgentIdentities } from '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-identity'
+import { resolveSessionpageAgentCard } from '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-card'
+import { agentNamesFromPeers } from '../../../../apps/desktop/src/session/shared/lib/ipc/shell-port'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { createSupabaseAccountRevisionSource } from '../../../../apps/desktop/src/lib/supabaseAccountRevisionSource'
 
@@ -106,6 +111,23 @@ function setup(options: { title?: string; managed?: boolean; source?: 'manual' |
     onRenamed: notices,
   })
   return { host, renameTask: (...args: Parameters<typeof renameTask>) => renameTask(...args), title: () => title, mirror, notices, taskStates }
+}
+
+function desktop(app: ReturnType<typeof setup>) {
+  const auth = { userId: 'owner', accessToken: 'token', refreshToken: '' }
+  const emdash = { emdashSessionpageSessionFacts: async () => [{ sessionId: 'task', title: app.title(), projectName: 'Project', status: null, isPinned: false, lastInteractedAt: null }] }
+  const sendUiEvent = vi.fn()
+  const entries = desktopIdentityEntries({
+    sessionpageIdentityHost: app.host,
+    authProvider: { getAuth: async () => state.signedOut ? null : auth },
+    loadEmdashBridge: () => emdash,
+    emdash, auth, record: { action: 'peers' },
+    // Keep real legacy resolvers available for the source-route mutation control too.
+    resolveSessionpageSessionPeers, loadSessionpageCanonicalAgentIdentities, resolveSessionpageAgentCard, agentNamesFromPeers,
+    listAgents: async () => state.roster,
+    sendUiEvent, MAIN_UI_EVENTS: { sessionpageShareAgent: 'share', sessionpageShareAgentUnavailable: 'unavailable' },
+  })
+  return { ...entries, sendUiEvent, port: createSessionShellPort(entries.invoke) }
 }
 
 beforeEach(() => {
@@ -283,7 +305,7 @@ describe('task and identity shared rename operation', () => {
       return app.host.agentNames()
     })
     expect(await port.agentNames()).toEqual([{ conversationId: 'task', agentUserId: AGENT, displayName: 'Local choice', pendingManual: true }])
-    expect((await app.host.sessionPeers())[0].identity.users.display_name).toBe('Local choice')
+    expect((await app.host.sessionPeers())[0]).toMatchObject({ title: 'Local choice', identity: { users: { display_name: 'Local choice' } } })
     expect(await app.host.agentCard('task')).toMatchObject({ agentUserId: AGENT, displayName: 'Local choice' })
     expect(state.rows[0].display_name).toBe('Claude 1')
     expect(state.lock).not.toHaveBeenCalled()
@@ -297,5 +319,44 @@ describe('task and identity shared rename operation', () => {
     expect(reap).toHaveBeenCalledTimes(1)
     await Promise.resolve()
     expect(report).toHaveBeenCalledWith(failure)
+  })
+})
+
+
+describe('actual desktop identity registrations', () => {
+  it('publishes a confirmed profile rename through the real local-footprint handler', async () => {
+    const app = setup()
+    state.rows[0].display_name = 'Profile choice' // The profile cloud mutation already succeeded.
+    const entry = desktop(app)
+    expect(await entry.invoke('owned-agent:rename-local-footprint', { agentUserId: AGENT, name: 'Profile choice' })).toBe(true)
+    expect([app.title(), state.roster[0].name, state.rows[0].display_name]).toEqual(['Profile choice', 'Profile choice', 'Profile choice'])
+    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Profile choice' })
+  })
+
+  it('keeps an unbound persistent agent footprint without applying the task name limit or emitting task events', async () => {
+    const app = setup()
+    delete state.roster[0].cache.emdash_session_id
+    const name = 'x'.repeat(50)
+    state.rows[0].display_name = name
+    expect(await desktop(app).invoke('owned-agent:rename-local-footprint', { agentUserId: AGENT, name })).toBe(true)
+    expect(state.roster[0].name).toBe(name)
+    expect(app.mirror).not.toHaveBeenCalled()
+    expect(app.notices).not.toHaveBeenCalled()
+  })
+
+  it('projects pending intent through the actual desktop parsed names, card, peer, share and MCP entries', async () => {
+    const app = setup()
+    state.error = 'offline'
+    await app.renameTask('task', 'Local choice', 'manual')
+    state.error = null
+    const entry = desktop(app)
+    expect(await entry.port.agentNames()).toEqual([{ conversationId: 'task', agentUserId: AGENT, displayName: 'Local choice', pendingManual: true }])
+    expect(await entry.port.agentCard('task')).toMatchObject({ agentUserId: AGENT, displayName: 'Local choice' })
+    for (const peers of [await entry.port.sessionPeers(), await entry.mcpPeers(), await entry.remotePeers()]) {
+      expect(peers).toMatchObject([{ title: 'Local choice', identity: { users: { id: AGENT, display_name: 'Local choice' } } }])
+    }
+    expect(await entry.invoke(SESSION_SHELL_CHANNELS.shareAgent, 'task')).toBe(true)
+    expect(entry.sendUiEvent).toHaveBeenLastCalledWith('share', expect.objectContaining({ sessionId: 'task', displayName: 'Local choice' }))
+    expect(state.rows[0].display_name).toBe('Claude 1')
   })
 })

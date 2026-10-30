@@ -14,7 +14,6 @@ import type {
   SessionShellAgentCard,
   SessionShellAgentName,
   SessionShellRenameAgentInput,
-  SessionShellPeer,
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { listAgents, provisionSessionpageAgentOneTrip } from '@gugu/core'
@@ -93,10 +92,10 @@ export interface SessionpageIdentityHost {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
-  sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
+  sessionPeers(sessionId?: string): ReturnType<typeof resolveSessionpageSessionPeers>
   /** A durable local manual edit succeeds immediately; the existing identity sync publishes it later if offline. */
   renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
-  adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null>
+  adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<boolean>
   synchronizeNames(): Promise<void>
   /** 「这条会话的地址是什么」—— 与桌面版 `sessionpage:ensure-agent-address` 同一条逻辑,逐字搬来。 */
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>
@@ -139,7 +138,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     })
     return peers.map((peer) => {
       const name = pendingName(peer.sessionId)
-      return name ? { ...peer, identity: { users: { ...peer.identity.users, display_name: name } } } : peer
+      return name ? { ...peer, title: name, identity: { users: { ...peer.identity.users, display_name: name } } } : peer
     })
   }
   const provisionDeps: SessionpageProvisionDeps = {
@@ -172,9 +171,9 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
   }
   async function publishRecordName(agent: LocalAgentRecord, name: string, notify = false): Promise<SessionShellAgentName | null> {
     const sessionId = agent.cache?.[SESSION_CACHE_KEY]
-    if (typeof sessionId !== 'string' || !sessionId) return null
-    const renamed = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
-    if (notify || agent.name !== name) deps.onRenamed?.(renamed)
+    const renamed = typeof sessionId === 'string' && sessionId
+      ? { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name } : null
+    if (renamed && (notify || agent.name !== name)) deps.onRenamed?.(renamed)
     if (agent.name !== name) {
       await updateAgent({ guguUserId: agent.gugu_user_id }, { name }, env)
     }
@@ -187,22 +186,21 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     return publishRecordName(agent, name)
   }
 
-  async function adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
+  async function adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated', expectedTaskName?: string): Promise<boolean> {
     const auth = await deps.getAuth()
     if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
     const agent = (await listAgents(env, { includeGuests: true }))
       .find((row) => row.gugu_user_id === agentUserId && agentMayBelongTo(row, auth.userId))
-    if (!agent) return null
+    if (!agent) return false
     const sessionId = agent.cache?.[SESSION_CACHE_KEY]
     if (source && typeof sessionId === 'string') {
       const state = deps.taskNames?.state(sessionId)
       // Check after auth/roster awaits, immediately before the synchronous task mirror.
-      if (source === 'manual' && state?.title && state.title !== name) {
-        return { conversationId: sessionId, agentUserId, displayName: state.title }
-      }
-      if (source === 'generated' && !state?.fallback) return null
+      if (expectedTaskName !== undefined && state?.title && state.title !== expectedTaskName) return true
+      if (source === 'generated' && !state?.fallback) return false
     }
-    return adoptRecordName(agent, name, source)
+    await adoptRecordName(agent, name, source)
+    return true
   }
 
   async function renameBoundAgent(sessionId: string, value: string, source: 'manual' | 'generated'): Promise<SessionShellAgentName | false | null> {
@@ -233,7 +231,8 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
           if (source === 'generated') return false
           throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
         }
-        return (await adoptAgentName(agent.gugu_user_id, name, source)) ?? (source === 'manual' ? current() : false)
+        const adopted = await adoptAgentName(agent.gugu_user_id, name, source, source === 'manual' ? name : undefined)
+        return adopted || source === 'manual' ? current() : false
       })
     } catch (error) {
       if (source !== 'manual') throw error

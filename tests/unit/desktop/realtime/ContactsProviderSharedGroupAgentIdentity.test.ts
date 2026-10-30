@@ -52,7 +52,7 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({ contactsService: contactsServiceMock }))
 
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/shell-port', () => ({
-  findSessionShellPort: () => createSessionShellPort(async () => pendingNames),
+  findSessionShellPort: () => desktopPort,
   onSessionpageIdentityEvent: () => () => {},
   isSessionShellUnsupported: () => false,
 }))
@@ -61,12 +61,20 @@ const { renameLocal } = vi.hoisted(() => ({ renameLocal: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal } }))
 
 import { ContactsProvider } from '../../../../apps/desktop/src/store/contacts'
+import { desktopIdentityEntries } from '../../../support/desktopIdentityEntries'
 import { createSessionShellPort } from '../../../../apps/desktop/src/session/shared/lib/ipc/shell-port'
 import { SessionAgentNames } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-agent-names'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import type { IdentityDirectorySnapshot } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
 import { useContactsStore, type ContactsContextValue } from '../../../../apps/desktop/src/store/contactsContext'
+
+// Contacts uses the actual registered desktop callback and the real parser, not an invoke shortcut.
+const desktopPort = createSessionShellPort(desktopIdentityEntries({
+  sessionpageIdentityHost: { agentNames: async () => pendingNames },
+  authProvider: { getAuth: async () => ({ userId: authUser.id, accessToken: 'token' }) },
+  loadEmdashBridge: () => ({}),
+}).invoke)
 
 let store: ContactsContextValue | null = null
 function Capture() {
