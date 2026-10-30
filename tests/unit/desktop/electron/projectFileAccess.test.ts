@@ -96,7 +96,7 @@ describe('a later version the database made from the same bytes (#719: a rename 
       expect(JSON.parse(String(init?.body))).toEqual({ ref: { item_id: 'item', version: 2 }, as: 'owner' })
       return Response.json({ ...renamed(), status: 'ready' })
     })
-    const access = createDesktopFileAccess({ auth: async () => ({ userId: 'owner', accessToken: 'memory-only-token' }), root: async () => root, links: () => null, tempRoot, downloads: join(home, 'downloads'), fetch: network as typeof fetch, rpc: network as never, env })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: 'owner', accessToken: 'memory-only-token' }), root: async () => root, links: () => null, tempRoot, downloads: join(home, 'downloads'), fetch: network as typeof fetch, rpc: network as never, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
     const file = await access.resolveAccount({ id: 'item' }, null, { version: 2, localOnly: true })
     if (file?.status !== 'ready') throw Error('ready expected')
     expect(file.revision.file_name).toBe('renamed.bin')
@@ -125,7 +125,7 @@ describe('local read fence and verified snapshot', () => {
     await rememberProjectFile({ ...revision, workspace: { path: 'file.bin', parent_id: null, created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [] } }, 'owner', env)
     const network = vi.fn(async () => { throw new Error('Unexpected network request') })
     const links = vi.fn(() => null)
-    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: network, rpc: network, env })
+    const access = createDesktopFileAccess({ auth: async () => ({ userId: accountId, accessToken: 'memory-only-token' }), root: async () => root, links, tempRoot, downloads: join(home, 'downloads'), fetch: network, rpc: network, env, deviceStore: join(home, 'project-files'), identityDb: network as never })
     expect(access.handlers('realtime')).toEqual({})
     expect(Object.keys(access.handlers('ssh'))).toEqual(['file.read'])
     for (const named of [{ id: 'item' }, { chat: 'group', name: 'file.bin' }]) {

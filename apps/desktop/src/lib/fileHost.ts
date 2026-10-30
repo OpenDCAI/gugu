@@ -8,7 +8,8 @@ const log = rendererLogger('file-host')
 export type FileHost = { device: string; account: string }
 
 /**
- * A project chat's file kept on its host machine (uploaded only when someone opens it): which machine and whose account.
+ * A project chat's file kept on the machine that sent this version (uploaded only when someone opens it): which machine
+ * and whose account.
  * Null for every other file, and while unknown: it only says where the file is, so a failed read draws nothing.
  */
 export function useFileHost(itemId: string | null): FileHost | null {

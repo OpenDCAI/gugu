@@ -2101,8 +2101,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
-      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles() },
+      onSubscribed: () => { drainProjectFiles() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2351,9 +2351,9 @@ const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider()
   rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
+  deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
-function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),

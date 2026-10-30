@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWriteText, resolveGuguHome } from '@gugu/core/local/state/paths'
-import { fileRefKey, requireFileRevision, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { DEVICE_STORE, fileRefKey, requireFileRevision, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { createLogger } from '../lib/logger'
 
 const FILE_NAME = 'taskpage-project-groups.json'
@@ -185,13 +185,18 @@ function invalidateProjectFiles(mapping: Mapping, ownerId: string, projectId: st
   }
 }
 
+/** A revision this device keeps for its chat: under a project still bound to that chat, or in its device store (no binding). */
+function keptFor(mapping: Mapping, ownerId: string, revision: FileRevision): boolean {
+  return revision.host_project_id === DEVICE_STORE || mapping.owners[ownerId]?.[revision.host_project_id!] === revision.chat_id
+}
+
 /** Published local revisions share the account/project mapping and its sole atomic write queue. */
 export async function rememberProjectFile(revision: FileRevision, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   requireFileRevision(revision)
   if (revision.source !== 'local' || revision.host_account_id !== ownerId || !revision.chat_id) throw new Error('File owner or group mismatch')
   await enqueue(async () => {
     const mapping = await readMapping(env)
-    if (mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) throw new Error('Project binding changed')
+    if (!keptFor(mapping, ownerId, revision)) throw new Error('Project binding changed')
     // Roots are resolved from the project registry at read time, never copied into this index.
     const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, workspace } = revision
     mapping.files ??= {}
@@ -230,7 +235,7 @@ export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: s
   if (!revision) return null
   requireFileRevision(revision)
   if (!revision.chat_id || revision.host_account_id !== ownerId || revision.host_device_id !== deviceId || revision.item_id !== ref.item_id ||
-    mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) return null
+    !keptFor(mapping, ownerId, revision)) return null
   if (ref.version === undefined || ref.version === revision.version) return revision
   if (!later || ref.version < revision.version!) return null
   const found = await later({ item_id: ref.item_id, version: ref.version })

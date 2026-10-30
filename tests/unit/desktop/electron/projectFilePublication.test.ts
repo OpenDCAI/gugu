@@ -4,13 +4,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createProjectFilePublisher } from '../../../../apps/desktop/electron/projectFilePublication'
+import { DEFAULT_FILE_STORAGE } from '@gugu/core/shared/fileStorage'
 import { readProjectFile, rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
 const copyFault = vi.hoisted(() => ({ mode: '' }))
-const handoff = vi.hoisted(() => ({ outcome: {} as Record<string, unknown>, calls: [] as unknown[][] }))
-vi.mock('@gugu/core/cloud/fileVersionHandoff', async original => ({
-  ...await original<typeof import('@gugu/core/cloud/fileVersionHandoff')>(),
-  handOffNextVersion: async (...args: unknown[]) => { handoff.calls.push(args); return handoff.outcome },
-}))
 vi.mock('node:fs/promises', async original => {
   const fs = await original<typeof import('node:fs/promises')>()
   return { ...fs, copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
@@ -20,14 +16,14 @@ vi.mock('node:fs/promises', async original => {
   } }
 })
 
-let home: string, root: string, env: NodeJS.ProcessEnv
+let home: string, root: string, store: string, env: NodeJS.ProcessEnv
 const data = new Uint8Array([0, 255, 3]), file = { name: 'file.bin', bytes: data.buffer, contentType: 'application/octet-stream' }
 const row = { id: 'item', chat_id: 'group', filename: 'file.bin', version: 1, content_type: file.contentType, size_bytes: 3, path: 'file.bin', parent_id: null,
   created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [], kind: 'file', pointer: null, epoch: 0, system_role: null }
 beforeEach(async () => {
   copyFault.mode = ''
-  home = await mkdtemp(join(tmpdir(), 'gugu-file-publication-153-')); root = join(home, 'project'); env = { GUGU_HOME: home }
-  await mkdir(root); await writeFile(join(root, file.name), data)
+  home = await mkdtemp(join(tmpdir(), 'gugu-file-publication-153-')); root = join(home, 'project'); store = join(home, 'project-files'); env = { GUGU_HOME: home }
+  await mkdir(root); await mkdir(store); await writeFile(join(root, file.name), data)
   await rememberProjectGroupId('project', 'group', 'owner', env)
 })
 
@@ -118,7 +114,7 @@ describe('external selections become durable project-owned copies through the sa
   })
   it('retains its complete local copy when publication fails, without inventing an indexed reference', async () => {
     const f = fixture(); await writeFile(selected().path, data)
-    f.rpc.mockResolvedValueOnce({ host_device_id: 'device', host_project_id: 'project', proactive_upload: false }).mockRejectedValueOnce(new Error('publication outcome unknown'))
+    f.rpc.mockRejectedValueOnce(new Error('publication outcome unknown'))
     await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow('publication outcome unknown')
     const directories = await readdir(join(root, '.gugu/attachments'))
     expect(directories).toHaveLength(1)
@@ -128,20 +124,19 @@ describe('external selections become durable project-owned copies through the sa
 })
 const publishedPaths = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish').map(([, args]) => args.p_path as string)
 afterEach(async () => { expect(home.startsWith(join(tmpdir(), 'gugu-file-publication-153-'))).toBe(true); await rm(home, { recursive: true, force: true }) })
-let handoffAnswer: Record<string, unknown> = {}
-function fixture(proactive = false, host = { host_device_id: 'device', host_project_id: 'project' } as Record<string, unknown> | null) {
-  let accountId = 'owner'
+/** `projectChat`: whether a device of this account binds the chat (here, any chat but 'ordinary'). */
+function fixture(proactive = false, identity = { accountId: 'owner', deviceId: 'device' }) {
+  let accountId = identity.accountId
   const rpc = vi.fn(async (name: string, _args: Record<string, unknown>): Promise<unknown> => {
-    if (name === 'file_project_policy_for') return host && { ...host, proactive_upload: proactive }
     if (name === 'file_device_publish') return { item_id: 'item', ...(_args.p_message ? { message: { id: 'message', file_item_id: 'item', file_version: 1 } } : {}) }
-    if (name === 'file_version_handoff_publish') return handoffAnswer
     if (name === 'workspace_get_as') return [row]
     throw new Error(`Unexpected RPC ${name}`)
   })
-  const store = vi.fn(async () => row)
-  const publish = createProjectFilePublisher({ identity: async () => ({ accountId, deviceId: 'device' }), root: async () => root, rpc, env,
-    endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
-  return { publish, rpc, store, account: (value: string) => { accountId = value } }
+  const cloud = vi.fn(async () => row)
+  const publish = createProjectFilePublisher({ identity: async () => ({ accountId, deviceId: identity.deviceId }),
+    root: async id => id === 'project' ? root : id === 'device-store' ? store : null, rpc, env,
+    storage: async () => ({ ...DEFAULT_FILE_STORAGE, proactive_upload: proactive }), projectChat: async chat => chat !== 'ordinary' })
+  return { publish, rpc, store: cloud, account: (value: string) => { accountId = value } }
 }
 describe('project file publication runs before document conversion or cloud upload', () => {
   it('publishes only metadata by default and stores authentic workspace fields in the existing local index', async () => {
@@ -159,13 +154,15 @@ describe('project file publication runs before document conversion or cloud uplo
     const f = fixture(true)
     expect(await f.publish('group', file, null, 'owner', f.store)).toEqual(row)
     expect(f.store).toHaveBeenCalledOnce()
-    expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).not.toBeNull()
+    expect(f.rpc).not.toHaveBeenCalled()
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
   })
   it('plans without publishing and commits a message in the same existing publication RPC', async () => {
     const f = fixture(), message = { message_id: 'message', chat_id: 'group', sender_user_id: 'owner', file_name: file.name, to_user_ids: ['member'], caption: 'caption' }
-    await expect(f.publish.local('group', 'owner')).resolves.toBe(true)
-    expect(f.rpc.mock.calls.map(([name]) => name)).toEqual(['file_project_policy_for'])
+    await expect(f.publish.local('group')).resolves.toBe(true)
+    await expect(fixture(true).publish.local('group')).resolves.toBe(false)
+    await expect(f.publish.local('ordinary')).resolves.toBe(false)
+    expect(f.rpc).not.toHaveBeenCalled()
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
     await expect(f.publish('group', { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }, null, 'owner', undefined, { message }))
       .resolves.toMatchObject({ ...row, message: { id: 'message', file_item_id: 'item', file_version: 1 } })
@@ -179,13 +176,13 @@ describe('project file publication runs before document conversion or cloud uplo
     for (const path of [join(home, 'secret'), '', 'relative/file.bin']) {
       await expect(f.publish('group', { ...selected, path }, null, 'owner')).rejects.toThrow()
     }
-    await expect(f.publish('group', { ...selected, size: 4 }, null, 'owner')).rejects.toThrow('original file')
+    await expect(f.publish('group', { ...selected, size: 4 }, null, 'owner')).rejects.toThrow('Selected file changed')
   })
   it('returns the ordinary provider decision before opening a native selection when cloud upload is enabled', async () => {
     const f = fixture(true)
     expect(await f.publish('group', { name: file.name, path: '', size: data.length, contentType: file.contentType }, null, 'owner')).toBeNull()
     expect(f.store).not.toHaveBeenCalled()
-    expect(f.rpc.mock.calls.map(([name]) => name)).toEqual(['file_project_policy_for'])
+    expect(f.rpc).not.toHaveBeenCalled()
   })
   it('leaves non-project uploads with their existing uploader', async () => {
     const f = fixture()
@@ -205,86 +202,42 @@ describe('project file publication runs before document conversion or cloud uplo
     if (kind.includes('other bytes')) expect(await readFile(join(root, file.name))).toEqual(Buffer.from([9, 9, 9]))
     await expect(readFile(join(home, 'secret'))).rejects.toThrow()
   })
-  // #719: an agent on the host stores a folder file's next version — the same item, from the version it read.
+  // #719: an agent stores a folder file's next version — the same item, from the version it read.
   it('publishes the next version of an existing file from the version named', async () => {
     const f = fixture()
     expect(await f.publish('group', file, null, 'owner', undefined, { next: { itemId: 'existing', expectedVersion: 3 } })).toEqual(row)
     expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_item: 'existing', p_expected: 3 })
   })
-  it('rejects another host before publishing or uploading bytes', async () => {
-    const f = fixture()
-    f.rpc.mockResolvedValueOnce({ host_device_id: 'remote', host_project_id: 'project' })
-    await expect(f.publish('group', file, null, 'owner', f.store)).rejects.toThrow('Only the bound file host')
-    expect(f.store).not.toHaveBeenCalled()
-    expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
-    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
-  })
-  it('does not invent local metadata when the cloud store or final account check fails', async () => {
-    const f = fixture(true)
-    f.store.mockImplementation(async () => { f.account('other'); return row })
-    await expect(f.publish('group', file, null, 'owner', f.store)).rejects.toThrow('account changed')
+  it('does not invent local metadata when the account changes during publication', async () => {
+    const f = fixture(), original = f.rpc.getMockImplementation()!
+    f.rpc.mockImplementation(async (name, args) => { if (name === 'workspace_get_as') f.account('other'); return original(name, args) })
+    await expect(f.publish('group', file, null, 'owner')).rejects.toThrow('account changed')
     const mapping = await readFile(join(home, 'taskpage-project-groups.json'), 'utf8')
     expect(mapping).not.toContain('"sha256"')
   })
 })
 
-// #791: a member's copy handed to this host is kept in the project like any upload and written as their next version.
-describe('a handed-over next version', () => {
-  it('keeps the bytes in the project and writes them through the handoff, with its message, even when uploads are proactive', async () => {
-    handoffAnswer = { status: 'published', item_id: 'item', version: 2, message: { id: 'm2', sender_user_id: 'agent-b', file_item_id: 'item', file_version: 2 } }
-    for (const proactive of [false, true]) {
-      const f = fixture(proactive)
-      expect(await f.publish('group', file, null, 'owner', undefined, { handoff: 'h1' })).toEqual({ ...row, message: handoffAnswer.message })
-      const call = f.rpc.mock.calls.find(([name]) => name === 'file_version_handoff_publish')![1]
-      expect(call).toEqual({ p_id: 'h1', p_path: expect.stringMatching(/^\.gugu\/attachments\/[0-9a-f-]{36}\/file\.bin$/), p_sha: createHash('sha256').update(data).digest('hex'), p_size: 3 })
-      expect(await readFile(join(root, String(call.p_path)))).toEqual(Buffer.from(data))
-      expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
-      expect(f.store).not.toHaveBeenCalled()
-    }
+// A project chat has no host: a device keeps what it sends — under a project it binds to the chat, or in its device store.
+describe('every device keeps what it sends into a project chat', () => {
+  it('a device with no project bound to the chat keeps the file in its device store and names it', async () => {
+    const f = fixture(false, { accountId: 'owner', deviceId: 'laptop' })
+    expect(await f.publish('elsewhere', file, null, 'owner')).toEqual(row)
+    const publication = f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')![1]
+    expect(publication).toMatchObject({ p_chat: 'elsewhere', p_device: 'laptop', p_project: 'device-store' })
+    expect(await readFile(join(store, String(publication.p_path)))).toEqual(Buffer.from(data))
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'laptop', env)).toMatchObject({ host_device_id: 'laptop', host_project_id: 'device-store', chat_id: 'group' })
   })
-  it('a handoff settled without a version (withdrawn, or the file moved on) is not reported as written', async () => {
-    for (const status of ['conflict', 'cancelled', 'expired']) {
-      handoffAnswer = { status, item_id: 'item', current_version: 3 }
-      await expect(fixture().publish('group', file, null, 'owner', undefined, { handoff: 'h1' })).rejects.toThrow(`Next version handoff ${status}`)
-    }
+  it('a bound device names its project; a next version is kept by whichever device writes it', async () => {
+    const f = fixture()
+    await f.publish('group', file, null, 'owner', undefined, { next: { itemId: 'item', expectedVersion: 1 } })
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')![1]).toMatchObject({ p_project: 'project', p_device: 'device', p_expected: 1 })
+    const other = fixture(false, { accountId: 'member', deviceId: 'laptop' })
+    await other.publish('elsewhere', file, null, 'member', undefined, { next: { itemId: 'item', expectedVersion: 2 } })
+    expect(other.rpc.mock.calls.find(([name]) => name === 'file_device_publish')![1]).toMatchObject({ p_project: 'device-store', p_device: 'laptop', p_expected: 2 })
   })
-})
-
-// #791: on a machine that does not keep the project chat's files, a next version is handed to the one that does.
-describe('a next version from another machine', () => {
-  const next = { itemId: 'item', expectedVersion: 1 }, elsewhere = { host_device_id: 'other-machine', host_project_id: 'project' }
-  const message = { message_id: 'm2', chat_id: 'group', sender_user_id: 'agent', to_user_ids: ['u1'], thread_root_id: null, file_name: 'file.bin', content_type: file.contentType }
-  beforeEach(() => { handoff.calls = []; handoff.outcome = { status: 'published', version: 2, message_id: 'm2' } })
-  it('not bound here: the bytes are handed over as the actor\'s next version, and the new version and message come back', async () => {
-    const f = fixture(false, elsewhere)
-    const unbound = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null, rpc: f.rpc, env,
-      endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
-    expect(await unbound('group', file, null, 'agent', undefined, { message, next })).toEqual({ ...row, message: { id: 'm2', chat_id: 'group', file_item_id: 'item', file_version: 2 } })
-    const [, request] = handoff.calls[0] as [unknown, Record<string, unknown>]
-    expect(request).toMatchObject({ itemId: 'item', expectedVersion: 1, fileName: 'file.bin', contentType: file.contentType, as: 'agent',
-      message: { message_id: 'm2', to_user_ids: ['u1'], thread_root_id: null } })
-    expect(Buffer.from(request.bytes as Uint8Array)).toEqual(Buffer.from(data))
-    expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
-  })
-  it('bound here but another machine keeps the files: handed over too', async () => {
-    const f = fixture(false, elsewhere)
-    expect(await f.publish('group', file, null, 'agent', undefined, { next })).toMatchObject({ message: { file_version: 2 } })
-    expect(handoff.calls).toHaveLength(1)
-  })
-  it('a chat that keeps no files on a host, or a new file: not handed over (the ordinary upload decides)', async () => {
-    const plain = createProjectFilePublisher({ identity: async () => ({ accountId: 'member', deviceId: 'laptop' }), root: async () => null,
-      rpc: fixture(false, null).rpc, env: { GUGU_HOME: join(home, 'elsewhere') }, endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' }) })
-    expect(await plain('group', file, null, 'agent', undefined, { next })).toBeNull()
-    await expect(fixture(false, elsewhere).publish('group', file, null, 'agent')).rejects.toThrow('Only the bound file host')
-    expect(handoff.calls).toEqual([])
-  })
-  it('a copy of an older version is the ordinary conflict; the host offline or not in time is said as such', async () => {
-    handoff.outcome = { status: 'conflict', current_version: 3 }
-    await expect(fixture(false, elsewhere).publish('group', file, null, 'agent', undefined, { next })).rejects.toThrow('File revision conflict')
-    for (const status of ['host_offline', 'timeout']) {
-      handoff.outcome = { status, host_label: 'Studio Mac', host_account_id: 'owner' }
-      const refused = await fixture(false, elsewhere).publish('group', file, null, 'agent', undefined, { next }).catch((e: Error) => e)
-      expect(refused).toMatchObject({ name: 'NextVersionHandoffRefused', outcome: handoff.outcome })
-    }
+  it('a conflict from an older version is the ordinary one', async () => {
+    const f = fixture()
+    f.rpc.mockRejectedValueOnce(new Error('File revision conflict'))
+    await expect(f.publish('group', file, null, 'owner', undefined, { next: { itemId: 'item', expectedVersion: 1 } })).rejects.toThrow('File revision conflict')
   })
 })

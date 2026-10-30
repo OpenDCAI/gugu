@@ -84,9 +84,11 @@ export function cloudFileProviders(deps: {
       const waiting = { ...context, signal: context.signal ? AbortSignal.any([context.signal, timeout]) : timeout }, requestId = crypto.randomUUID()
       for (;;) {
         waiting.signal.throwIfAborted()
-        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string }
+        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string; host_label?: string | null; host_online?: boolean }
         if (state.status !== 'ready' || state.transfer_status === 'retired') throw new Error('File transfer is no longer available')
         if (state.transfer_status === 'ready') break
+        // Only the device that keeps this version can send it: say so instead of waiting while it is offline.
+        if (state.host_online === false) throw new Error(`${state.host_label?.trim() || 'The computer that keeps this file'} is offline. This file opens when it is back online.`)
         await new Promise(resolve => setTimeout(resolve, 700))
       }
     })
