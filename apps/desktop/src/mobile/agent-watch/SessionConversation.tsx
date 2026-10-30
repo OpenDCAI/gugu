@@ -60,7 +60,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const [dismissals, setDismissals] = useState(0)
   const [backgroundError, setBackgroundError] = useState<string | null>(null)
   const editor = useRef<PromptEditorRef | null>(null)
-  const inFlight = useRef(false)
+  const inFlight = useRef<{ attachments: ReadonlySet<string>; waiting: boolean } | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const composerDraft = useChatDraft(`session:${deviceId}/${sessionId}`)
   const { text: draftText, setText: setDraftText } = composerDraft
@@ -101,6 +101,16 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       })
     }
   }
+  const changeAttachments = (next: ComposerAttachment[]) => {
+    const kept = new Set(next.map(file => file.id))
+    const submission = inFlight.current
+    if (submission?.waiting && [...submission.attachments].some(id => !kept.has(id))) {
+      inFlight.current = null
+      setAttachmentWaiting(false)
+    }
+    uploads.keepOnly(kept)
+    setAttachments(next)
+  }
   const handoff = useRef({ addFiles, setDraftText, draftText })
   handoff.current = { addFiles, setDraftText, draftText }
   useEffect(() => {
@@ -114,11 +124,13 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }, [sessionId, visibility.shown])
   const submit = async (value: string) => {
     if (sending || stopping || inFlight.current) return
-    inFlight.current = true
+    const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled() }
+    inFlight.current = submission
     const sentQuote = quotes.capture()
     try {
-      setAttachmentWaiting(uploads.unsettled())
-      if (!await uploads.waitForUploads()) return
+      setAttachmentWaiting(submission.waiting)
+      if (!await uploads.waitForUploads() || inFlight.current !== submission) return
+      submission.waiting = false
       setAttachmentWaiting(false)
       const sentAttachments = attachments
       const images: PromptAttachment[] = sentAttachments.flatMap(file => {
@@ -142,7 +154,9 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
         composerDraft.setText(restored); editor.current?.setText(restored)
         setAttachments(current => [...sentAttachments.filter(file => !current.some(kept => kept.id === file.id)), ...current])
       }
-    } finally { setAttachmentWaiting(false); inFlight.current = false }
+    } finally {
+      if (inFlight.current === submission) { setAttachmentWaiting(false); inFlight.current = null }
+    }
   }
   const recoveryState = useRef({ text: composerDraft.text, attachments })
   recoveryState.current = { text: composerDraft.text, attachments }
@@ -198,7 +212,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       queuedPromptEdit={quotes.composer.queuedPromptEdit} onChangeQueuedPromptEdit={quotes.composer.changeQueuedPromptEdit} onFinishQueuedPromptEdit={quotes.composer.finishQueuedPromptEdit} renderQueuedPromptText={quotes.composer.renderQueuedPromptText}
       onInputChange={composerDraft.setText} onSubmit={value => { void submit(value) }} onSubmitWhileWorking={value => { void submit(value) }}
       attachmentStatus={attachmentWaiting ? translateSessionMessage('composer.attachmentWaiting') : undefined}
-      attachments={attachments} onAttachmentsChange={next => { uploads.keepOnly(new Set(next.map(file => file.id))); setAttachments(next) }}
+      attachments={attachments} onAttachmentsChange={changeAttachments}
       onRetryAttachment={uploads.retry} onFilesDropped={addFiles} onImageFilesDropped={addFiles}
       toolbarExtra={<><ComposerAttachButton disabled={sending} mobile onPickFile={() => input.current?.click()} /></>} />
   </>
