@@ -4,6 +4,7 @@ import { taskSearchDocuments } from '@gugu/session-core/session-record/search-do
 import type { SearchIndexOp, SearchTask } from '@gugu/core/shared/search/types';
 import { sqlite } from '@main/db/client';
 import { log } from '@main/lib/logger';
+import { projectEvents } from '../projects/project-events';
 import { sessionEvents } from '../sessions/session-events';
 import type { MessageSearchStore } from './message-store';
 
@@ -136,6 +137,11 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
     });
   };
   const off = [
+    projectEvents.on('project:deleted', projectId => {
+      if (signal.aborted) return;
+      return write(current => current.tasks().filter(row => row.projectId === projectId && !task(row.id, row.agentUserId ?? null))
+        .map(row => ({ kind: 'removeTask' as const, taskId: row.id }))).then(() => {});
+    }),
     sessionEvents.on('session:history-changed', changed),
     sessionEvents.on('session:created', row => reconcile(row.id)),
     sessionEvents.on('session:renamed', id => reconcile(id, false)),

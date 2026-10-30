@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MessageSearchStore } from './message-store';
+import { projectEvents } from '../projects/project-events';
 import { sessionEvents } from '../sessions/session-events';
 import { startTaskSearch } from './task-search-feed';
 
 const state = vi.hoisted(() => ({ source: null as Database.Database | null }));
 vi.mock('@main/db/client', () => ({ get sqlite() { return state.source; } }));
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { error: vi.fn() } }));
 let root: string;
 let store: MessageSearchStore;
@@ -69,6 +71,14 @@ it('reprojects a truncated sequence from current storage when a later commit has
   put(1, 'replacement');
   sessionEvents._emit('session:history-changed', { sessionId: 's', seq: 1 });
   await vi.waitFor(() => expect(store.global(request).results.map(hit => hit.text)).toEqual(['replacement', 'retained']));
+});
+
+it('purges tasks deleted by a project cascade even without individual session deletion events', async () => {
+  put(0, 'cascade'); start();
+  await vi.waitFor(() => expect(store.global(request).results).toHaveLength(1));
+  state.source!.prepare("DELETE FROM sessions WHERE project_id='p'").run();
+  projectEvents._emit('project:deleted', 'p');
+  await vi.waitFor(() => expect(store.global(request).results).toEqual([]));
 });
 
 it('detaches the old lifetime before any later source commit can write it', async () => {
