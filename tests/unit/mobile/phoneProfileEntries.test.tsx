@@ -5,7 +5,7 @@ import type { PhonePageProps } from '../../../apps/desktop/src/mobile/assistant/
 import { clickElement, createReactHarness, typeInto } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ updateAgentProfile: vi.fn() }) }))
-vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ status: 'not_open', list: null }) }))
+vi.mock('../../../apps/desktop/src/components/settings/channels/useChatChannels', () => ({ useChatChannels: () => ({ status: 'absent', list: null }) }))
 const rename = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: [{ device_id: 'offline-mac', label: '离线 Mac' }], phones: [], loading: false, error: null, rename }) }))
 vi.mock('../../../apps/desktop/src/components/devices/AssistantDevicesPage', () => ({ AssistantDevicesPage: () => <div data-testid="device-content" /> }))
@@ -13,7 +13,7 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneToday', () => ({ use
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneProfileData', async original => ({
   ...await original<object>(),
   usePhonePersona: () => ({ persona: { preset: null, rest: '' }, loading: false, error: null, reload: vi.fn() }),
-  usePhoneIntegrations: () => ({ data: { items: [], configured: { feishu: true }, statuses: null }, loading: false, error: null, retry: vi.fn() }),
+  usePhoneIntegrations: () => ({ data: { items: [{ id: 'amap', name: '高德地图', description: '' }], configured: { amap: true }, statuses: { amap: { connected: true } } }, loading: false, error: null, retry: vi.fn() }),
 }))
 vi.mock('../../../apps/desktop/src/components/assistant/AssistantLibraryVolume', () => ({
   AssistantLibraryCard: ({ kind, onOpen }: { kind: string; onOpen: () => void }) => <button data-testid={`assistant-library-${kind}`} onClick={onOpen}>{kind === 'workspace' ? '项目 3 条记录' : '能力'}</button>,
@@ -37,6 +37,7 @@ it('shows projects, devices, capabilities and apps in owner order, without expan
   ])
   expect(entries.textContent).toContain('项目 3 条记录')
   expect(entries.textContent).toContain('连接应用')
+  expect(h.container.querySelector('[data-testid="assistant-open-connectors"]')?.textContent).toContain('已连接 1 个')
   expect(entries.textContent).toContain('设备')
   expect(entries.textContent).toContain('能力')
   expect(h.container.querySelector('[data-testid="assistant-diaries"]')).toBeNull()

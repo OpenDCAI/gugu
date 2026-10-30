@@ -7,33 +7,31 @@
  * 展开不会长高这一行 —— flatten 在它下面重新发出原始行。
  */
 import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics';
-import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
 import { defineUnit } from '@session-chat/core/units';
 import type { ToolRunItem } from '@session-chat/model';
-import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
-import { useChatTranslator } from '@session-chat/localization';
 import { toolRunNowLabel } from '@session-chat/state/tool-run';
-import { Show } from 'solid-js';
-import {
-  turnProcessHeaderSlot,
-  turnProcessLine,
-  turnProcessRow,
-} from '@session-chat/components/rows/turn-process/turn-process.css';
+import { readableLabel, rowTranslator } from '../readable-label';
+import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from '../turn-process/turn-process.css';
+
+function summaryLayout(data: ToolRunItem, ctx: import('@session-chat/core/define').MeasureCtx) {
+  const now = data.now ? ` · ${toolRunNowLabel(data.now, rowTranslator(ctx))}` : '';
+  const command = data.now?.kind === 'command' ? ` ${data.now.command}` : '';
+  const label = readableLabel(data.label + now + command, ctx, ctx.width - 20,
+    ctx.theme.layout.agentConversation ? 12 : ctx.theme.config.roles.body.size);
+  return { ...label, rowHeight: Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8) };
+}
 
 export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
   kind: 'tool-run',
   margin: { top: 2, bottom: 2 },
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
-  measure(_data, ctx, vars_) {
-    return ctx.theme.fonts.body.lineHeight + vars_.extraH;
-  },
+  measure(data, ctx) { return summaryLayout(data, ctx).rowHeight; },
 
   Render(props) {
-    const theme = useTheme();
-    const translate = useChatTranslator();
-    const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
+    const layout = () => summaryLayout(props.data, props.ctx.measureCtx!());
+    const height = () => layout().rowHeight;
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means expanded (see view-state.ts).
     const expanded = () => props.ctx.viewState.isCollapsed(props.data.id);
@@ -55,19 +53,9 @@ export const toolRunUnitDef = defineUnit<ToolRunItem, { extraH: number }>({
               expanded={expanded()}
               active={props.data.live}
               height={height()}
-              // 命令片走 trailing、与执行行同一枚片(同一种截断):塞进标签会跟着它换行,而这一行是固定高度、会裁。
-              trailing={
-                <Show when={props.data.now?.kind === 'command' ? props.data.now.command : null}>
-                  {(command) => (
-                    <span class={summaryChip} data-slot="tool-run-now-command" title={command()}>
-                      {command()}
-                    </span>
-                  )}
-                </Show>
-              }
+              wrap labelSize={layout().size} labelLineHeight={layout().lineHeight}
             >
-              {props.data.label}
-              {props.data.now ? ` · ${toolRunNowLabel(props.data.now, translate)}` : ''}
+              {layout().text}
             </CollapseHeader>
           </div>
         </div>

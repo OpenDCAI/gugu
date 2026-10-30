@@ -24,6 +24,21 @@ function fixture() {
   return { file, providers, resolve: createFileResolver(providers) }
 }
 describe('the canonical read-only file resolver', () => {
+  it('stages an authorized historical snapshot with a local checksum while keeping its server digest absent', async () => {
+    const f = fixture(), historical: FileRevision = { source: 'managed-object', file_name: 'old.bin', content_type: 'application/octet-stream', size_bytes: 16, sha256: null,
+      legacy_object: { bucket_id: 'chat-media', object_name: 'old/object', message_id: 'old-message' } }
+    f.providers.metadata.mockResolvedValue({ status: 'ready', revision: historical })
+    const file = await f.resolve({ message_id: 'old-message' }, actor)
+    if (file.status !== 'ready') throw Error('Expected ready')
+    const send = vi.fn(async (command: { op: string }) => command.op === 'begin' ? { id: 'stage' } : undefined)
+    expect(await stageFileHandle(file, 'old.bin', send)).toBe('stage')
+    const begin = send.mock.calls[0]![0] as { revision?: { sha256: string } }
+    expect(begin.revision?.sha256).toBe('374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb')
+    expect(file.revision.sha256).toBeNull()
+    expect(f.providers.managed).toHaveBeenCalledTimes(1)
+    expect(f.file.dispose).toHaveBeenCalledTimes(1)
+  })
+
   it('a preview is a distinct, lazy display capability, never a full-file capability', async () => {
     type Preview = Extract<ResolvedPreview, { status: 'ready' }>
     expectTypeOf<Preview>().not.toExtend<FileHandle>()

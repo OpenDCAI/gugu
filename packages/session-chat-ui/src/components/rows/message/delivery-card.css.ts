@@ -49,6 +49,7 @@ export const deliveryHeader = style({
   marginLeft: 'auto',
   justifyContent: 'flex-end',
   color: vars.fgMuted,
+  fontFamily: vars.fontSans,
   fontSize: vars.typeChromeTinyFontSize,
   lineHeight: deliveryVars.lineH,
 });
@@ -79,21 +80,19 @@ export const deliveryAvatarImage = style({
 export const deliverySender = style({
   color: vars.fgMuted,
   fontWeight: 400,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   // The sender is the one fact the header exists for: it may ellipsize but
   // never vanish — it does not shrink, it is capped instead; the route gives
   // way. ❌ a `min-width: 8ch` floor: a short name (「Claude 2」) is narrower
   // than 8ch and the floor shows up as a blank gap before the route.
   flexShrink: 0,
-  maxWidth: '60%',
+  maxWidth: '100%',
 });
 
 export const deliveryRoute = style({
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   minWidth: 0,
   flexShrink: 3,
   color: vars.fgMuted,
@@ -106,6 +105,8 @@ export const deliveryRoute = style({
  */
 export const deliveryFactsToggle = style({
   display: 'inline-flex',
+  flexWrap: 'wrap',
+  width: '100%', rowGap: 0,
   alignItems: 'center',
   gap: '8px',
   minWidth: 0,
@@ -121,6 +122,7 @@ export const deliveryFactsToggle = style({
   selectors: {
     '&:hover, &:focus-visible, &[aria-expanded="true"]': { color: vars.fg },
     '&:not(button)': { cursor: 'default' },
+    '&:is(button)': { width: 12, flexWrap: 'nowrap' },
   },
 });
 
@@ -141,9 +143,8 @@ export const deliveryReply = style({
   boxSizing: 'border-box',
   color: vars.fgMuted,
   fontSize: vars.typeChromeTinyFontSize,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   borderLeft: `2px solid ${vars.border}`,
   paddingLeft: '8px',
 });
@@ -167,6 +168,7 @@ export const deliveryFacts = style({
   overflow: 'hidden',
   borderRadius: vars.radiusSm,
   background: vars.bg2,
+  fontFamily: vars.fontSans,
   fontSize: vars.typeMentionFontSize,
   lineHeight: deliveryVars.lineH,
 });
@@ -178,8 +180,7 @@ export const deliveryFactLabel = style({
 
 export const deliveryFactValue = style({
   color: vars.fgMuted,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   minWidth: 0,
 });

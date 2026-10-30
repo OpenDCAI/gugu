@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { rowTranslator } from '../readable-label';
 import { ConversationMessage, conversationMessageHeight, isConversationMessage } from './ConversationMessage';
 import { StreamContext, type StreamAnimation } from '@session-chat/components/contexts/StreamContext';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
@@ -117,7 +118,7 @@ export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: Mes
   // (子智能体跑完的通知已经不走消息这条路了 —— 它是一行工具调用，见 item-fold 的
   //  `subagent_done` 分支。)
   if (item.hookNotice) {
-    return measureHookNotice(item, ctx, HOOK_NOTICE_VARS);
+    return measureHookNotice(item, ctx, HOOK_NOTICE_VARS, { label: rowTranslator(ctx)('transcript.hookNoticeFrom', { hook: item.hookNotice.hookName }) });
   }
 
   if (item.role === 'user') return measureUserMessage(item, ctx, baseVars);
@@ -213,7 +214,7 @@ function AssistantRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Messa
       </StreamContext.Provider>
       <Show when={showFooter()}>
         <div class={footerRow} style={{ height: `${props.vars.footerH}px` }}>
-          <CopyButton text={props.data.text} variant="inline" labelKey="transcript.copyMessage" />
+          <CopyButton text={props.data.text} variant="inline" />
         </div>
       </Show>
     </div>

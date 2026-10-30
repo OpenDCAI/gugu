@@ -18,6 +18,8 @@
  * 落在条目里（`TranscriptContextReset.reason`）与日志里；行上只说**后果**，
  * 因为用户此刻要做的判断只有一个：上面的话要不要重说一遍。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TranscriptContextReset } from '@gugu/session-core/acp';
@@ -31,17 +33,21 @@ import { boundaryLabel, boundaryRow, boundaryRule } from './boundary.css';
  */
 export const CONTEXT_RESET_ROW_H = 24;
 
+function boundaryLayout(data: TranscriptContextReset, ctx: MeasureCtx) {
+  const actions = 0;
+  return readableLabel(rowTranslator(ctx)('transcript.contextReset'), ctx, ctx.width - 20 - actions, 12, 18);
+}
+
 export const contextResetUnitDef = defineUnit<TranscriptContextReset, { rowH: number }>({
   kind: 'context-reset',
   margin: { top: 16, bottom: 12 },
   vars: { rowH: CONTEXT_RESET_ROW_H },
 
-  measure(_data, _ctx, vars_) {
-    return vars_.rowH;
-  },
+  measure(data, ctx, vars_) { return Math.max(vars_.rowH, boundaryLayout(data, ctx).height + 6); },
 
   Render(props) {
     const translate = useChatTranslator();
+    const layout = () => boundaryLayout(props.data, props.ctx.measureCtx!());
     const label = (): string => translate('transcript.contextReset');
 
     return (
@@ -52,11 +58,11 @@ export const contextResetUnitDef = defineUnit<TranscriptContextReset, { rowH: nu
         class={boundaryRow}
         // 排查时要的是原因,给鼠标停留看得到,而不摊在正文里;标签窄时会收成省略号,所以整句放在原因前面。
         title={`${label()}\n${props.data.reason}`}
-        style={{ height: `${props.vars.rowH}px` }}
+        style={{ height: `${Math.max(props.vars.rowH, layout().height + 6)}px` }}
       >
         <span data-slot="context-reset-rule" aria-hidden="true" class={boundaryRule} />
-        <span data-slot="context-reset-label" class={boundaryLabel}>
-          {label()}
+        <span data-slot="context-reset-label" class={boundaryLabel} style={{ 'flex-shrink': 0, width: `${Math.min(layout().width, props.ctx.measureCtx!().width - 20)}px` }}>
+          {layout().text}
         </span>
         <span data-slot="context-reset-rule" aria-hidden="true" class={boundaryRule} />
       </div>

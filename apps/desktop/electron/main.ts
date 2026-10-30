@@ -3638,7 +3638,7 @@ function crossMachine(): CrossMachineSessions {
         const client = await cloudComputerClient()
         return client ? await client.state() : null
       } catch (error) {
-        // 这里没开放(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
+        // 此环境未配置可选云电脑服务(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
         if (isCloudComputerNotOpen(error)) return null
         createLogger('cloud-computer').warn({ err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable')
         throw error
