@@ -18,7 +18,13 @@ import (
 
 // This opt-in native integration test uses an isolated headless Chromium, not a
 // user's browser or an installed Gugu instance. CI must provide the executable.
-func TestChromiumDecodesEncodedProjection(t *testing.T) {
+func TestChromiumDecodesEncodedProjection(t *testing.T) { testChromiumProjection(t, false) }
+
+func TestChromiumRecoversWhenFirstIDRIsLostAndHostIsIdle(t *testing.T) {
+	testChromiumProjection(t, true)
+}
+
+func testChromiumProjection(t *testing.T, loseFirst bool) {
 	chromium := os.Getenv("GUGU_TEST_CHROMIUM")
 	if chromium == "" {
 		t.Fatal("browser-tagged tests require GUGU_TEST_CHROMIUM")
@@ -108,11 +114,52 @@ func TestChromiumDecodesEncodedProjection(t *testing.T) {
 		t.Fatalf("browser media readiness: %v: %s", err, diagnostics.text())
 	}
 	config := testEncoderConfig(t)
-	encoder, err := StartVideoEncoder(ctx, config, source)
+	var output RTPWriter = source
+	if loseFirst {
+		output = &dropFirstPicture{output: source}
+	}
+	encoder, err := StartVideoEncoder(ctx, config, output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer encoder.Close()
+	if loseFirst {
+		frame := make([]byte, config.Width*config.Height*4)
+		for i := 0; i < len(frame); i += 4 {
+			frame[i+2] = 230
+			frame[i+3] = 255
+		}
+		// The initial IDR is lost before SRTP; the P picture cannot initialize a
+		// fresh decoder. No more source frames or source acknowledgements follow.
+		if _, err = encoder.WriteFrame(ctx, 1, frame); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = encoder.WriteFrame(ctx, 2, frame); err != nil {
+			t.Fatal(err)
+		}
+		var recovery EncodedFrame
+		var lastPixel decodedPixel
+		for {
+			select {
+			case <-source.keyframes:
+				if recovery.Sequence == 0 {
+					recovery, err = encoder.RefreshFrame(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			case pixel := <-pixels:
+				lastPixel = pixel
+				if recovery.Sequence != 0 && pixel.Timestamp == recovery.Timestamp && pixel.RGB[0] >= 215 && pixel.RGB[1] <= 15 && pixel.RGB[2] <= 15 {
+					return
+				}
+			case failure := <-failures:
+				t.Fatal(failure)
+			case <-ctx.Done():
+				t.Fatalf("lost first IDR never recovered with idle host: recovery=%+v pixel=%+v: %s", recovery, lastPixel, diagnostics.text())
+			}
+		}
+	}
 	var sequence uint64
 	for channel := 0; channel < 3; channel++ {
 		frame := make([]byte, config.Width*config.Height*4)
@@ -167,7 +214,6 @@ const projectionBrowserFixture = `<!doctype html><video autoplay muted playsinli
   peer.ondatachannel = ({channel}) => { window.control = channel; channel.onmessage = () => {}; };
   peer.ontrack = ({track}) => { (async () => {
     video.srcObject = new MediaStream([track]);
-    await video.play();
     const frame = (_, metadata) => {
       if (!Number.isInteger(metadata.rtpTimestamp)) { report('Decoded video frame has no RTP timestamp'); return; }
       draw.drawImage(video, 0, 0, 128, 96);
@@ -175,6 +221,7 @@ const projectionBrowserFixture = `<!doctype html><video autoplay muted playsinli
       video.requestVideoFrameCallback(frame);
     };
     video.requestVideoFrameCallback(frame);
+    await video.play();
   })().catch(report); };
   await peer.setRemoteDescription(await (await fetch('/offer')).json());
   await peer.setLocalDescription(await peer.createAnswer());

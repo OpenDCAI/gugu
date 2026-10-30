@@ -3,6 +3,7 @@
 package projection
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -10,9 +11,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pion/rtcp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -101,13 +105,25 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 	encoded := make(chan MediaMessage, 4)
 	result := make(chan string, 1)
 	stamps := make(chan uint32, 16)
+	var remoteSSRC atomic.Uint32
+	units := make(chan []byte, 16)
 	viewer.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		depacketizer := &codecs.H264Packet{}
+		var unit bytes.Buffer
 		for {
 			packet, _, readErr := track.ReadRTP()
 			if readErr != nil {
 				return
 			}
+			remoteSSRC.Store(packet.SSRC)
+			nal, decodeErr := depacketizer.Unmarshal(packet.Payload)
+			if decodeErr != nil {
+				return
+			}
+			unit.Write(nal)
 			if packet.Marker {
+				units <- bytes.Clone(unit.Bytes())
+				unit.Reset()
 				select {
 				case stamps <- packet.Timestamp:
 				case <-ctx.Done():
@@ -170,6 +186,7 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 		}
 		select {
 		case stamp := <-stamps:
+			<-units
 			if stamp != receipt.Frame.Timestamp {
 				t.Fatal("native IPC frame receipt differs from actual SRTP frame")
 			}
@@ -184,6 +201,61 @@ func TestNativeMediaProcessFramesControlAndClose(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("helper did not deliver direct metadata")
 		}
+	}
+	// No further host frame or decoded ACK is sent. A PLI must recover the
+	// retained source picture, with a new RTP timestamp and an independent IDR.
+	if err = viewer.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: remoteSSRC.Load()}}); err != nil {
+		t.Fatal(err)
+	}
+	var recovered MediaMessage
+	select {
+	case recovered = <-encoded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PLI did not recover an unacknowledged picture while host input remained idle")
+	}
+	if recovered.Frame == nil || recovered.Frame.Sequence != 403 {
+		t.Fatalf("recovery changed source identity: %+v", recovered)
+	}
+	select {
+	case stamp := <-stamps:
+		if stamp != recovered.Frame.Timestamp {
+			t.Fatal("recovery receipt differs from decoded unit")
+		}
+	case <-ctx.Done():
+		t.Fatal("missing recovery video")
+	}
+	var recovery []byte
+	select {
+	case recovery = <-units:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	// A burst must coalesce and obey the service's one-second recovery budget.
+	burst := make([]rtcp.Packet, 100)
+	for i := range burst {
+		burst[i] = &rtcp.PictureLossIndication{MediaSSRC: remoteSSRC.Load()}
+	}
+	if err = viewer.WriteRTCP(burst); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-encoded:
+		t.Fatal("PLI burst bypassed the recovery rate limit")
+	case <-time.After(500 * time.Millisecond):
+	}
+	select {
+	case again := <-encoded:
+		if again.Frame == nil || !again.Frame.Recovery || again.Frame.Sequence != 403 {
+			t.Fatalf("burst recovery changed source: %+v", again)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("coalesced PLI was never serviced")
+	}
+	decoder := exec.CommandContext(ctx, config.Executable, "-v", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")
+	decoder.Stdin = bytes.NewReader(recovery)
+	decoded, decodeErr := decoder.Output()
+	if decodeErr != nil || len(decoded) != config.Width*config.Height*4 || decoded[2] < 215 {
+		t.Fatalf("PLI recovery was not independently decodable: %d %v", len(decoded), decodeErr)
 	}
 	if err = writeMessage(input, MediaMessage{Type: "send", ID: 2, Data: fromHost}); err != nil {
 		t.Fatal(err)
