@@ -2,11 +2,12 @@ import { eq } from 'drizzle-orm';
 import { projectEvents } from '@main/core/projects/project-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { prSyncEngine } from '@main/core/pull-requests/pr-sync-engine';
-import { forgetSessionOutputs } from '@main/core/sessions/session-outputs';
-import { sessionWorkspaceManager } from '@main/core/sessions/session-workspace-manager';
+import { archiveSession } from '@main/core/sessions/archiveSession';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
-import { sessions, projects } from '@main/db/schema';
+import { automations, sessions, projects } from '@main/db/schema';
+
+import { detachProjectFolder, listProjectFolderRefs } from './project-folders';
 
 export async function deleteProject(id: string): Promise<void> {
   const provider = projectManager.getProject(id);
@@ -14,16 +15,21 @@ export async function deleteProject(id: string): Promise<void> {
     .select({ id: sessions.id })
     .from(sessions)
     .where(eq(sessions.projectId, id));
-  // 会话随项目一起删(外键级联),它们的视图状态与「输出」就在这里一起收:启动时 ❌ 再按「不在本机表里」猜孤儿去删。
-  await Promise.allSettled([
-    ...(provider ? sessionRows.map((c) => sessionWorkspaceManager.teardownSession(c.id)) : []),
-    ...sessionRows.map((c) => viewStateService.del(`session:${c.id}`)),
-    ...sessionRows.map((c) => viewStateService.del(`session:${c.id}:tabs`)),
-    ...sessionRows.map((c) => forgetSessionOutputs(c.id)),
-  ]);
+  for (const row of sessionRows) await archiveSession(id, row.id);
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);
+  if (sessionRows.length) {
+    const folders = await listProjectFolderRefs(id);
+    if (!folders) throw new Error(`Project not found: ${id}`);
+    for (const folder of folders) {
+      const result = await detachProjectFolder(id, folder.workspaceId);
+      if (!result.success) throw new Error(result.error.message);
+    }
+    await db.update(automations).set({ projectId: null }).where(eq(automations.projectId, id));
+    void viewStateService.del(`project:${id}`);
+    return;
+  }
   const deleted = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
   void viewStateService.del(`project:${id}`);
   if (deleted.length > 0) projectEvents._emit('project:deleted', id);

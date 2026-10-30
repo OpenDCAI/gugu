@@ -1,3 +1,4 @@
+import { permanentlyRemove } from './agentIdentityRemoval'
 import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
@@ -120,11 +121,7 @@ export async function removeDevice(
   deviceId: string,
   options: { cascade?: boolean } = {},
 ): Promise<void> {
-  const { error } = await client.rpc('remove_device', {
-    p_device_id: deviceId,
-    p_cascade: options.cascade ?? false,
-  })
-  if (error) throw new Error(error.message)
+  await permanentlyRemove({ client, deviceId, cascade: options.cascade })
 }
 
 // @@@1962 只列当前用户自己的设备(user_id = ownerId 显式过滤)。gugu_devices 生产 RLS 虽已 owner-scoped

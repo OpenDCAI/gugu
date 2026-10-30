@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, ne, sql } from 'drizzle-orm';
-import { deleteSession } from '@main/core/sessions/deleteSession';
+import { archiveSession } from '@main/core/sessions/archiveSession';
 import { db } from '@main/db/client';
 import { automationRuns, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -294,10 +294,10 @@ export class AutomationsService implements Hookable<AutomationsServiceHooks> {
       );
       if (hasActiveRun) throw new Error('automation_runs_active');
 
-      // 还挂在运行上的会话随自动化一起删;被收成普通会话的已经不在这里(它的 automation_run_id 清掉了)。
+      // 还挂在运行上的任务随自动化一起归档;被收成普通任务的已经不在这里(它的 automation_run_id 清掉了)。
       for (const target of targets) {
         if (target.sessionId === null || target.projectId === null) continue;
-        await deleteSession(target.projectId, target.sessionId);
+        await archiveSession(target.projectId, target.sessionId);
       }
 
       for (const runId of new Set(targets.map((target) => target.runId))) {

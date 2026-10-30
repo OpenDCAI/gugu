@@ -92,8 +92,6 @@ export async function closeLocalAssistant(
   })
   await step('started', async () => {
     for (const session of started) {
-      const agentUserId = session.agent?.userId
-      if (agentUserId && agentUserId !== input.assistantId) await deps.removeAgent(agentUserId)
       await deps.archiveSession(session.projectId, session.conversationId)
     }
   })

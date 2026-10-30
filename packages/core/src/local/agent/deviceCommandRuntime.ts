@@ -20,7 +20,7 @@ import { normalizeAgentType, type AgentType } from '../../agentTypes'
 import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
-import { getAgent, listAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
+import { getAgent, listAgents, archiveAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
 import { agentOwnerUserId, agentsForOwner } from '../state/agentOwner'
 import { normalizeAgentModelSelection, type AgentModelSelection } from './modelAccess'
 import { engineIdForAgentType } from '../../shared/agentModelSelection'
@@ -651,7 +651,7 @@ export async function handleAgentDeliverDeviceCommand(
   if (!options.accessToken) {
     throw new Error('agent.deliver nudge requires a fresh owner access token')
   }
-  if (!(await getAgent({ guguUserId }, env))) {
+  if (!agentsForOwner(await listAgents(env), options.ownerUserId).some((agent) => agent.gugu_user_id === guguUserId)) {
     // #5041 — 队列按持有判据只把本实例持有、或没有任何活着的实例持有(持有预算已尽)的命令交到这里;拿到一条名册里没有的
     // agent = 这台设备上没有运行中的实例持有它(典型:它所在的咕咕窗口已关闭)。终态必须对用户显形——先向来源 chat 落一条
     // 稳定 id 的 system 披露,再 fail loud 落 error,并在错误上标记「已显形」,宿主据此不再叠第二层通用失败提示。
@@ -731,6 +731,7 @@ export function agentInboxDepsFromBridge(input: {
   }
   return {
     accessToken: input.accessToken,
+    recipientIsRegistered: async (id) => agentsForOwner(await listAgents(input.env), input.ownerUserId).some((agent) => agent.gugu_user_id === id),
     ...(bridge.sessionArchival ? { sessionArchival: bridge.sessionArchival } : {}),
     ...(bridge.sessionMessageRefused ? { sessionMessageRefused: bridge.sessionMessageRefused } : {}),
     ...(bridge.downloadAttachment ? { downloadAttachment: bridge.downloadAttachment } : {}),
@@ -910,7 +911,7 @@ export async function clearLocalAgentRuntimesForOwnerChange(
       await removeAgentRuntimeSession(agent.gugu_user_id, env)
     }
   }
-  for (const agent of await removeAgents((agent) => !agentOwnerUserId(agent), env)) {
+  for (const agent of await archiveAgents((agent) => !agentOwnerUserId(agent), env)) {
     await options.onAgentRosterRemoved?.(agent, 'owner-change')
   }
 }
@@ -944,7 +945,7 @@ async function pruneDeadGuestRecords(
 ): Promise<void> {
   const now = Date.now()
   const known = new Set(agents)
-  await removeAgents((agent) => {
+  await archiveAgents((agent) => {
     if (!known.has(agent)) return false
     if (agent.status !== 'guest' || agent.gugu_user_id) return false
     // 完全没有 session id 的 guest 永远无法被身份解析,直接清掉。
@@ -1037,7 +1038,7 @@ export function createDeviceCommandHoldingResolver(
   const nowMs = input.nowMs ?? (() => Date.now())
   let roster: Promise<Set<string>> | null = null
   let rosterRefreshed = false
-  const loadRoster = () => listAgents(env).then((agents) => new Set(agents.map((agent) => agent.gugu_user_id)))
+  const loadRoster = () => listAgents(env).then((rows) => new Set(agentsForOwner(rows, null).map((agent) => agent.gugu_user_id)))
   const rosterHas = async (agentUserId: string): Promise<boolean> => {
     roster ??= loadRoster()
     if ((await roster).has(agentUserId)) return true
@@ -1128,7 +1129,7 @@ async function findLocalAgentByGuguUserId(
   env: NodeJS.ProcessEnv
 ): Promise<LocalAgentRecord> {
   const agent = await getAgent({ guguUserId }, env)
-  if (!agent) throw new Error(`Local agent not found for ${guguUserId}`)
+  if (!agent || !agentsForOwner([agent], null).length) throw new Error(`Local agent not found for ${guguUserId}`)
   return agent
 }
 

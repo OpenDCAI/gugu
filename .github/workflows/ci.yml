@@ -104,6 +104,8 @@ jobs:
           path: node_modules/.cache/eslint
           key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
           restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-
+      - name: Check permanent removal call sites
+        run: node scripts/check-permanent-removal.mjs
       - name: Check frozen source file growth
         if: github.event_name == 'pull_request'
         env:

@@ -1406,3 +1406,26 @@ test('session get exposes native running and terminal proof for the exact latest
   assert.equal(ended.preview.entries.at(-1).messageId,messageId)
  }finally{finish();await fx.close()}
 })
+
+test('retire keeps phone history but the shared view excludes it from inbox and live inventory', async () => {
+  let nudge
+  const fx = await fixture(async (command, hooks) => {
+    await recordTurn(command, hooks, 'kept history')
+    return { status: 'done', text: 'kept history' }
+  }, { onRpcStart: ({ onCommand }) => { nudge = onCommand } })
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'keep history' }], 'archive-contract')
+    await until(() => fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events)
+    fx.commands.push({ id: randomUUID(), type: 'agent.retire', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(journal.agents[agentId].status, 'archived')
+    assert.equal(journal.agents[agentId].sessionId, created.conversationId)
+    assert.equal(Object.values(journal.jobs)[0].text, 'kept history')
+    assert.equal((await fx.host.invoke('sessionTimeline.sessionsList', [])).sessions.length, 0)
+    const pulls = fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length
+    fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
+    await nudge()
+    assert.equal(fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length, pulls)
+  } finally { await fx.close() }
+})

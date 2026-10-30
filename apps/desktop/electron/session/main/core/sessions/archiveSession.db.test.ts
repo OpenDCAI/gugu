@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
@@ -49,6 +52,9 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 vi.mock('./session-events', () => ({ sessionEvents: { _emit: vi.fn() } }));
 
 vi.mock('@main/core/session-import/host-source', () => ({ hasLocalSessionSource: () => false }));
+
+vi.mock('@main/core/pull-requests/pr-sync-engine', () => ({ prSyncEngine: { deleteProjectData: vi.fn() } }));
+vi.mock('../../../../sessionpage/sessionpage-project-groups', () => ({ listProjectGroupIds: async () => [], forgetProjectGroupId: vi.fn() }));
 
 const { getProjects } = await import('../projects/operations/getProjects');
 const { listSessionHistory } = await import('../session-history/list-session-history');
@@ -107,6 +113,40 @@ describe('archiveSession', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+  });
+
+  it('project removal retains real tasks through the actual reaper; only a genuine missing task is marked', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'gugu-archive-roster-'));
+    const env = { GUGU_HOME: home };
+    const { createAgent, updateAgent, listAgents } = await import('@gugu/core');
+    const { reconcileSessionpageAgents } = await import('../../../../sessionpage/sessionpage-agent-reaper');
+    const bind = async (id: string, sessionId: string) => {
+      await createAgent({ name: id, gugu_user_id: id, agent_type: 'codex' }, env);
+      await updateAgent({ guguUserId: id }, { cache: { emdash_session_id: sessionId, sessionpage_owner_user_id: 'owner' } }, env);
+    };
+    const deps = {
+      env, getAuth: async () => ({ userId: 'owner', accessToken: 'unused', refreshToken: 'unused' }),
+      resolveDeviceId: async () => 'device',
+      getInventory: async () => ({
+        sessionIds: (fixture.sqlite.prepare('SELECT id FROM sessions').all() as { id: string }[]).map(row => row.id), projectIds: ['p1'],
+      }),
+    };
+    try {
+      insertSession('incident');
+      await bind('kept-identity', 'incident');
+      fixture.sqlite.exec("INSERT INTO workspaces (id,type,kind,location,path,key) VALUES ('incident-root','local','project-root','local','/repo','incident-root'); UPDATE projects SET repository_workspace_id='incident-root' WHERE id='p1';");
+      await (await import('../projects/operations/deleteProject')).deleteProject('p1');
+      expect(await reconcileSessionpageAgents(deps)).toEqual({ reapedAgents: 0, archivedGroups: 0 });
+      expect(archivedAt('incident')).not.toBeNull();
+      await bind('orphan-identity', 'legacy-missing');
+      expect(await reconcileSessionpageAgents(deps)).toEqual({ reapedAgents: 1, archivedGroups: 0 });
+      const roster = await listAgents(env);
+      expect(roster.find(row => row.gugu_user_id === 'orphan-identity')?.status).toBe('archived');
+      expect(roster.find(row => row.gugu_user_id === 'kept-identity')?.status).not.toBe('archived');
+      await restoreSession('p1', 'incident');
+      expect(archivedAt('incident')).toBeNull();
+      expect(fixture.sqlite.prepare("SELECT id FROM sessions WHERE id='incident'").get()).toEqual({ id: 'incident' });
+    } finally { await rm(home, { recursive: true }); }
   });
 
   it('无目录项目归档后隐藏,历史仍能恢复原会话与工作区,重读清单也保留', async () => {

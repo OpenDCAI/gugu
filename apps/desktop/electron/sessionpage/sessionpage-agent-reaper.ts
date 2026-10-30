@@ -1,32 +1,10 @@
+import { releaseAgentLocalFootprint } from './agent-local-footprint'
 import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
-// @@@sessionpage TASKPAGE-FUSION — DELETION SYNC (spec ⑨「删除必同步」, owner: 千万不要只同步增、不同步删).
-// Provisioning mirrors a session-page conversation INTO gugu's social side (an agent contact, and for a
-// project-scoped conversation a member seat in the group mirroring that project). This module mirrors the
-// REMOVALS back out: delete a conversation and its agent leaves the contact list; delete a
-// project and the group mirroring it is archived along with the agents it produced.
-//
-// RECONCILE, NOT PER-EVENT BOOKKEEPING. We diff the roster against the session backend's authoritative inventory
-// (`emdashSessionpageInventory`) instead of subscribing to a delete event per entity — because two of the
-// removal paths emit no usable per-entity signal at all: deleting a task/project can cascade
-// its conversation rows away WITHOUT emitting a
-// per-conversation delete. A diff catches those, plus any future removal path nobody wired up. The session backend's
-// trigger (`onEmdashSessionpageReapTrigger`) only says "something may have changed" and makes us re-diff; it
-// is never the source of truth. Also runs once at boot, so removals that happened while gugu was closed
-// still converge. This is spec ⑨'s 单向真源 in code: the session page decides, the social side follows.
-//
-// FAIL-LOUD, BUT COMPLETE: every stale agent is attempted; per-agent failures are collected and re-thrown
-// as one aggregate error at the end (a single Supabase hiccup must not silently strand the other agents,
-// and it must not be swallowed either). Reaping is idempotent — a half-finished reap converges on the next
-// trigger, since the roster record is the thing that makes an agent visible.
-//
-// NEVER BY ABSENCE FROM THE ROSTER. A cloud agent homed on this machine with no row in this install's roster is not
-// evidence that its conversation is gone: the device id comes from (machine, account, tier), not from the data
-// directory, so another install of the same account on this machine (another --user-data-dir), a reinstall, or a
-// wiped / emptied agents.json all look exactly like that. Nothing in the cloud row tells them apart, so such agents
-// are left alone (they stay the owner's, visible and removable by hand). Reaping keys only off this install's own
-// roster rows and its own session inventory.
+// Reconcile missing local tasks by archival. Missing inventory never authorizes
+// deleting cloud identities or group membership. Existing project-group archival
+// still respects other machines and the original inventory trust checks.
 import { listAgents } from '@gugu/core'
-import { removeAgentCloudIdentityViaSupabase } from '@gugu/core/cloud/agentIdentityRemoval'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { makeChatClient, makeIdentityClient } from '../supabase'
 import {
   SESSION_CACHE_KEY,
@@ -36,7 +14,6 @@ import {
   PROJECT_CACHE_KEY,
   cacheString,
 } from './emdash-agent-provisioning'
-import { releaseAgentLocalFootprint } from './agent-local-footprint'
 import { emdashAgentRegistry } from './emdash-agent-registry'
 import { createLogger } from '../lib/logger'
 import { forgetProjectGroupId, listProjectGroupIds } from './sessionpage-project-groups'
@@ -185,7 +162,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
   // Only records this module provisioned (they carry the conversation binding) are ours to reap. A gugu
   // agent the user made themselves has no binding and must never be touched here.
   // #4277 停放行(别的账号正在驱动这条会话时挪到 parked 格的绑定)同样跟着会话走:会话没了一起收。
-  const bound = roster
+  const bound = agentsForOwner(roster, null)
     .map((agent) => ({
       guguUserId: agent.gugu_user_id,
       name: agent.name,
@@ -400,62 +377,6 @@ async function reapAgent(
   emdashAgentRegistry.unregister(agent.guguUserId)
   await ctx.deps.disposeSession?.(agent.sessionId)
 
-  // 2. Remove the cloud identity so the agent leaves the contact list. Home-guarded + owner-scoped;
-  //    'not-owned' = already gone (idempotent), 'not-homed' = another device owns it (leave that identity
-  //    alone, but still drop OUR local record below).
-  // ORDER MATTERS (learned the loud way in a live run): cleanup_removed_group_agent is a POST-deletion RPC —
-  // it raises `agent % still exists` while the identity is alive, because the product calls it AFTER an agent
-  // is deleted. So the identity must go first, then the group seat.
-  let identityRemoved = false
-  if (ctx.deviceId && agent.guguUserId) {
-    const outcome = await removeAgentCloudIdentityViaSupabase({
-      agentUserId: agent.guguUserId,
-      accessToken: ctx.accessToken,
-      deviceId: ctx.deviceId,
-    })
-    if (!outcome.removed && outcome.reason === 'error') {
-      throw new Error(`remove cloud identity: ${outcome.message ?? 'unknown error'}`)
-    }
-    identityRemoved = outcome.removed
-  }
-
-  // 3. Vacate the project group seat. With the identity gone, the product's own cleanup RPC applies (it
-  //    clears the member row AND that agent's per-chat state). If the identity SURVIVED ('not-homed': another
-  //    device owns it), that RPC would refuse — so drop just the member row, which is what the product does
-  //    when removing a still-existing agent from a group. Either way the seat goes away.
-  if (agent.chatId) {
-    if (identityRemoved) {
-      const { error } = await ctx.chat.rpc('cleanup_removed_group_agent', {
-        p_chat_id: agent.chatId,
-        p_agent_user_id: agent.guguUserId,
-      })
-      // The group may already be gone/archived, or the seat already cleaned — benign for a reap.
-      if (error && !/not found|no rows/i.test(error.message)) {
-        throw new Error(`cleanup group seat ${agent.chatId}: ${error.message}`)
-      }
-    } else {
-      await createGroupAdmin(ctx.chat, ctx.ownerUserId).remove(agent.chatId, agent.guguUserId)
-    }
-  }
-
-  // 4. Drop the local footprint last — the roster record is what makes this binding discoverable, so
-  //    removing it only after the cloud side is handled keeps a failed reap retryable on the next trigger.
-  //    Shared with the owner-initiated delete path (#4526): both drivers release the SAME set of local
-  //    things, so they run the same operation rather than two implementations that drift apart. Its own
-  //    registry unregister is an idempotent no-op here — step 1 already did it, before the cloud call.
-  //
-  //    `identityRemoved` gates the tombstone and the local-session release exactly as before: the offline
-  //    local-session target is the compatibility blocker while transport/teardown is in flight, and only a
-  //    confirmed cloud identity deletion followed by successful roster removal makes the owner permanently
-  //    unreachable. not-homed (the identity is alive on another device) is not a deletion — no tombstone.
-  await releaseAgentLocalFootprint({
-    agentUserId: agent.guguUserId,
-    name: agent.name,
-    identityRemoved,
-    // #4277 回收(会话归档 / 删除)不是 owner 删联系人:碑只记 agent id。会话取消归档、再被驱动时要能
-    // 重新开户(spec「驱动过的会话在就在」);按会话记碑会把它钉死成「此后无身份」(真机:归档的
-    // 「何丽丽」换号后报「还没有咕咕身份」)。
-    tombstoneSession: false,
-    env: ctx.env,
-  })
+  // Missing task rows never authorize deleting identities, messages or group seats.
+  await releaseAgentLocalFootprint({ agentUserId: agent.guguUserId, identityRemoved: false, env: ctx.env })
 }

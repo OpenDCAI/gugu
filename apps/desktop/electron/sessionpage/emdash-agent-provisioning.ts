@@ -48,7 +48,7 @@ import {
   type SessionpageSessionSurface,
 } from '@gugu/session-plugins/agents'
 import { electronFetch, makeChatClient } from '../supabase'
-import { agentMayBelongTo, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { AGENT_CLOUD_IDENTITY_STATE_CACHE_KEY } from '@gugu/core/local/state/agentCloudIdentity'
 import { emdashAgentRegistry, unregisterEmdashAgent } from './emdash-agent-registry'
 // #5419 撤回一行没落地的本机身份 = 释放它的本机足迹,与「owner 删 agent」「回收器收 agent」
@@ -611,9 +611,9 @@ export function cacheString(cache: Record<string, unknown> | null | undefined, k
 
 /** Replay a create against its durable roster binding, never the process-local registry. */
 export async function sessionpageAgentSessionForStart(agentUserId: string, ownerUserId: string): Promise<string | undefined> {
-  const agent = (await listAgents()).find((row) => row.gugu_user_id === agentUserId)
+  const agent = agentsForOwner(await listAgents(), null, { includeArchived: true }).find((row) => row.gugu_user_id === agentUserId)
   if (!agent) return undefined
-  if (!agentMayBelongTo(agent, ownerUserId)) throw new Error('agent.create roster owner mismatch')
+  if (!agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) throw new Error('agent.create roster owner mismatch')
   return cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY) || undefined
 }
 
@@ -875,6 +875,7 @@ async function provisionLockedBody(
       }
     }
     await updateAgent({ guguUserId: existing.gugu_user_id }, {
+      status: 'idle',
       cache: {
         ...(existing.cache ?? {}),
         [DIRECT_CHAT_CACHE_KEY]: directChatId,
@@ -1364,11 +1365,12 @@ async function resolveOwnedBindingForSession(
   const ownerUserId = ownerAuth.userId
   const isMine = async (agent: RosterRow): Promise<boolean> => {
     const recorded = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (recorded) return recorded === ownerUserId
+    if (recorded) return agentsForOwner([agent], ownerUserId, { includeArchived: true }).length > 0
     if (!deps.isAgentOwnedByCurrentUser) return true
     return deps.isAgentOwnedByCurrentUser(agent.gugu_user_id)
   }
 
+  roster = agentsForOwner(roster, null, { includeArchived: true })
   const active = roster.find(
     (agent) => agent.gugu_user_id && cacheString(agent.cache, SESSION_CACHE_KEY) === sessionId,
   )
@@ -1701,15 +1703,12 @@ export async function registerExistingSessionpageAgents(
   const log = createLogger('sessionpage/boot')
   const startedAt = Date.now()
   log.info({}, 'persisted binding roster read started')
-  const roster = await listAgents(env, { includeGuests: true })
+  const roster = agentsForOwner(await listAgents(env, { includeGuests: true }), options.ownerUserId)
   const readMs = Date.now() - startedAt
   log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
   const incompleteCapabilityRows: string[] = []
   for (const agent of roster) {
-    // #4277 别家账号的行不注册:它在这个账号的进程里既收不到投递也拉不到收件箱,挂着只会每次
-    // 开机扫出一行 400。没记 owner 的老行照旧;不知道当前是谁(未登录)也照旧。
-    if (!agentMayBelongTo(agent, options.ownerUserId)) continue
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
@@ -1769,9 +1768,9 @@ export async function unregisterForeignSessionpageAgents(
 ): Promise<number> {
   if (!ownerUserId) return 0
   let released = 0
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     if (!agent.gugu_user_id) continue
-    if (agentMayBelongTo(agent, ownerUserId)) continue
+    if (agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) continue
     unregisterEmdashAgent(agent.gugu_user_id)
     unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
     released++

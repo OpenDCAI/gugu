@@ -6,7 +6,7 @@ import type { AutomationRun } from '@shared/core/automations/automation-run';
 import { executeAgentDelivery } from './actions/deliverToAgent';
 import { agentScheduleChangeText, restoreAgentSchedules, runAgentScheduleAction, tellAgentScheduleChanged } from './agent-schedules';
 import { AutomationScheduler, type SchedulerCallbacks } from './automation-scheduler';
-import { deleteSession } from '@main/core/sessions/deleteSession';
+import { archiveSession } from '@main/core/sessions/archiveSession';
 import { AutomationsService } from './automations-service';
 import { closeSpentOneTimeAutomation, getAutomation, insertRun } from './repo';
 import { setOwnerTimeZoneContext } from '@shared/core/automations/timezone';
@@ -25,7 +25,7 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
-vi.mock('@main/core/sessions/deleteSession', () => ({ deleteSession: vi.fn() }));
+vi.mock('@main/core/sessions/archiveSession', () => ({ archiveSession: vi.fn() }));
 // 人建的那种到点开会话;这里只走 agent 那一支,开会话那一整套不必拖进来。
 vi.mock('./actions/sessionCreate', () => ({ executeSessionCreate: vi.fn() }));
 vi.mock('@main/core/sessions/session-orchestration', () => ({
@@ -167,7 +167,7 @@ describe('schedule_create / schedule_list / schedule_cancel', () => {
     await expect(runAgentScheduleAction(AGENT, { action: 'schedule_cancel', schedule_id: mineId })).resolves.toEqual({ schedule_id: mineId, cancelled: true });
     expect(await getAutomation(scheduleIdOf(mine))).toBeNull();
     // 取消只删这一条和它的运行记录;建它的会话不是运行建出来的,原样留着。
-    expect(deleteSession).not.toHaveBeenCalled();
+    expect(archiveSession).not.toHaveBeenCalled();
     expect(fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get(AGENT.sessionId)).toBeTruthy();
     // 剩下的是别人那条 09:00。
     expect(keeperNextDue()).toBe(Date.UTC(2026, 9, 15, 1, 0, 0));

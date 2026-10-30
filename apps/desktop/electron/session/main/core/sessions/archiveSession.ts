@@ -37,7 +37,7 @@ import {
 export async function archiveSession(
   projectId: string,
   sessionId: string,
-  options: { withChildren?: boolean } = {}
+  options: { withChildren?: boolean; skipTransportStop?: boolean } = {}
 ): Promise<ArchiveOutcome> {
   const [row] = await db
     .select({ archivedAt: sessions.archivedAt })
@@ -58,18 +58,18 @@ export async function archiveSession(
       archived.push({ projectId: member.projectId, sessionId: member.id });
     }
   }
-  archived.push(...(await archiveOne(projectId, sessionId)));
+  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop)));
   return { archived, unreached };
 }
 
 /**
  * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区与身份保留。
  */
-async function archiveOne(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
-  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId));
+async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false): Promise<ArchivedSessionRef[]> {
+  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop));
 }
 
-async function archiveOneLocked(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
+async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)
@@ -78,7 +78,7 @@ async function archiveOneLocked(projectId: string, sessionId: string): Promise<A
   if (!row || row.archivedAt) return [];
 
   const archivedAt = setSessionArchival(sessionId, true);
-  await stopSessionRuntime(projectId, sessionId, row.runtime, 'archive');
+  await stopSessionRuntime(projectId, sessionId, row.runtime, 'archive', skipTransportStop);
 
   events.emit(sessionChangedChannel, {
     sessionId,

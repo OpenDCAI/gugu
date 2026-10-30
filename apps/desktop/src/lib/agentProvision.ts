@@ -1,3 +1,4 @@
+import { rpcOn } from '@/session/renderer/lib/ipc'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -226,11 +227,14 @@ export async function defaultStopAgentRuntime(agentUserId: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
-// #2219 governed reclaim: hard-deletes the agent identity and writes the lifecycle tombstone. The provision row's
-// agent_user_id is ON DELETE SET NULL, so the live link drops while provisioned_agent_user_id survives as evidence.
-export async function defaultRemoveOwnedAgent(agentUserId: string): Promise<void> {
-  const { error } = await identityDb.rpc('remove_owned_agent', { p_agent_user_id: agentUserId })
-  if (error) throw new Error(error.message)
+/** Reuse the host's manual task archive; cloud cancellation settlement remains authoritative. */
+export async function defaultArchiveOwnedAgent(member: AgentProvision): Promise<void> {
+  const device = (await listDevicesOnceIdentified()).find((row) => row.device_id === member.device_id)
+  const host = rpcOn(device?.is_current_device ? null : member.device_id)
+  for (const session of (await host.sessionTimeline.sessionsList()).sessions) {
+    if (session.agent?.userId !== member.provisioned_agent_user_id) continue
+    await host.sessions.archiveSession(session.projectId, session.conversationId)
+  }
 }
 
 // ── read / rediscovery helpers (owner-scoped by RLS SELECT) ─────────────────────────────────────────────

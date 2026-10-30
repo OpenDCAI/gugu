@@ -1,5 +1,5 @@
 import { localAgentForSession } from '../sessionpage/sessionpage-session-agent'
-import { deleteSession } from './deleteSession'
+import { archiveSession } from './archiveSession'
 import { stopExactSessionpageSession } from './session-orchestration'
 
 /** Startup owns its process and an unbound new row, never an identity's durable task. */
@@ -14,5 +14,5 @@ export async function rollbackAgentSessionStartup(input: {
   // Provision can throw after writing the binding. Read its SSOT even on failure;
   // deleting that row would emit session:deleted and reclaim the existing identity.
   if (await localAgentForSession(input.sessionId, process.env)) return
-  await deleteSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
 }

@@ -1,3 +1,4 @@
+import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
 import { updateDisplayAlias } from './displayOverrides'
 import { messageForUser } from './userFacingError'
 import { dbPayload } from '@gugu/core/cloud/supabase'
@@ -545,10 +546,7 @@ export const contactsService = {
   },
 
   async removeOwnedAgent(agentUserId: string): Promise<void> {
-    const { error } = await identityDb.rpc('remove_owned_agent', {
-      p_agent_user_id: agentUserId,
-    })
-    if (error) throw new Error(messageForUser(error), { cause: error })
+    await permanentlyRemove({ client: identityDb, agentId: agentUserId })
   },
 
   // #1228: update an owned agent's profile (name + bio) in one write. RLS path:

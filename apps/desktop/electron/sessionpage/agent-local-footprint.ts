@@ -24,6 +24,7 @@
 // (owner-delete 的 IPC)按顺序做,而不是塞进这个两条驱动共用的函数里 —— 会话页那条驱动的会话
 // 本来就没了,它要的是 dispose/teardown,不是 cancel。两条驱动语义不同的那一段就不该共用。
 import {
+  archiveAgents,
   listAgents,
   recordReapedAgents,
   removeAgentRuntimeSession,
@@ -109,8 +110,8 @@ export async function releaseAgentLocalFootprint(
   // ② runtime session —— 本机运行态文件。纯机器状态,没有用户内容,直接删。
   await removeAgentRuntimeSession(agentUserId, env)
 
-  // ③ 花名册记录。它是"这台机器上还有这个 agent"的开关,也是 provisioning 的幂等键。
-  const removed = await removeAgents((agent) => agent.gugu_user_id === agentUserId, env)
+  // ③ 已确认永久删除才摘行;自动清理复用同一归档写口,保留原绑定。
+  const removed = await (input.identityRemoved ? removeAgents : archiveAgents)((agent) => agent.gugu_user_id === agentUserId, env)
 
   // ④ 云端身份确认删除 + 花名册已摘 = 永久不可达 ⇒ 立碑。碑同时按 conversation id 记账,
   //    让那条仍然活着的会话页会话此后按 identity-none 处理,而不是被重新开户。
@@ -125,8 +126,8 @@ export async function releaseAgentLocalFootprint(
       }],
       env,
     )
-    unregisterLocalSessionDeliveryForAgent(agentUserId, sessionId || undefined)
   }
 
-  return { rosterRemoved: removed.length > 0, sessionId, name }
+  unregisterLocalSessionDeliveryForAgent(agentUserId, sessionId || undefined)
+  return { rosterRemoved: input.identityRemoved && removed.length > 0, sessionId, name }
 }
