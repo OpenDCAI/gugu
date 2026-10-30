@@ -182,6 +182,10 @@ describe('failureKey / connectorHealth / 小件', () => {
     expect(connectorHealth({ connected: true })).toBe('ok')
     expect(connectorHealth({ connected: false, errorType: 'authorization_expired' })).toBe('reauth')
     expect(connectorHealth({ connected: false, errorType: 'auth_failed' })).toBe('reauth')
+    // #921 平台不认 #649 搬上来的那把 key:要重新填一把。
+    expect(connectorHealth({ connected: false, errorType: 'key_rejected' })).toBe('reauth')
+    // 高德这会儿用不了(额度、QPS、临时错误):暂时的,❌ 当成要重新授权。
+    expect(connectorHealth({ connected: false, errorType: 'provider_unavailable' })).toBe('issue')
     expect(connectorHealth({ connected: false, errorType: 'rate_limited' })).toBe('issue')
     expect(connectorHealth({ connected: false })).toBe('issue')
     expect(connectorHealth(undefined)).toBe('unknown')

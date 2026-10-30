@@ -133,6 +133,10 @@ vi.mock('./cli/cli-integrations', async (importActual) => {
   };
 });
 
+// #921 平台保管凭据那一侧不在本文件的范围:替成「没有平台保管的那几家」,❌ 牵进真的账号表与钥匙串。
+vi.mock('./platform-credentials-instance', () => ({
+  platformCredentials: { isPlatformProvider: () => false, custody: () => null },
+}));
 vi.mock('./integration-credential-store-instance', () => ({
   integrationCredentialStore: {
     isConfigured: async (id: string) => fake.records.has(id),

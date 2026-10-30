@@ -11,9 +11,6 @@ export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', m
 export const senderNameLink = style({ border: 0, padding: 0, background: 'transparent', color: 'inherit', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', textAlign: 'inherit', cursor: 'pointer', selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { textDecoration: 'underline', outlineOffset: 2 } } });
 const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } });
 globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
-/** 过程里中途说的话:一行灰字,与步骤组「跑了」两个字对齐(「›」凸在左边,MBP 量过差 10.6px),放不下省略。 */
-export const conversationNarration = style({ display: 'block', boxSizing: 'border-box', padding: '6px 0 6px 20px', minWidth: 0,
-  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: 14, lineHeight: '20px' });
 /** 气泡上方一行引用:「谁 · 摘要」,单行截断(owner 10-28:要看得出是谁说的)。 */
 export const conversationQuote = style({ display: 'flex', alignItems: 'center', gap: 5, boxSizing: 'border-box', minWidth: 0, maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px', background: 'transparent', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2 }, '&:disabled': { cursor: 'default' } } });
 globalStyle(`${conversationQuote} > span:last-of-type`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });

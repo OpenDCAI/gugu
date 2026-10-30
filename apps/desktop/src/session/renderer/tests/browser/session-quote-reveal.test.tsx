@@ -13,7 +13,7 @@ describe('session quote navigation', () => {
     const state = { committedTurns: [turn('latest', 3)], activeTurnSnapshot: null };
     const pages = [[turn('middle', 2)], [turn('source', 1)]];
     const loadOlderHistory = vi.fn(async () => pages.shift() ?? []);
-    const store = { chatState: { transcript: { state } }, get canLoadOlderHistory() { return pages.length > 0; }, loadOlderHistory } as unknown as AcpChatStore;
+    const store = { sessionId: 'task-a', chatState: { transcript: { state } }, get canLoadOlderHistory() { return pages.length > 0; }, loadOlderHistory } as unknown as AcpChatStore;
     const scrollToItem = vi.fn();
     const loadOlder = vi.fn((older: TranscriptTurn[]) => { state.committedTurns = [...older, ...state.committedTurns]; });
     const view = { scrollToItem, loadOlder } as unknown as ChatView;
@@ -21,7 +21,7 @@ describe('session quote navigation', () => {
     let actions!: ReturnType<typeof useSessionSourceMessage>;
     function Harness() {
       actions = useSessionSourceMessage(store, useRef(view), missing);
-      return <button onClick={() => actions.reveal('source')}>Quote</button>;
+      return <button onClick={() => actions.reveal('gugu-session://task-a?message=source')}>Quote</button>;
     }
     const host = document.createElement('div');
     document.body.append(host);
@@ -48,6 +48,27 @@ describe('session quote navigation', () => {
       root.unmount();
       host.remove();
     }
+  });
+  it('rejects another task before reading history, even when an item id matches', async () => {
+    const state = { committedTurns: [turn('source', 1)], activeTurnSnapshot: null };
+    const loadOlderHistory = vi.fn(async () => []);
+    const store = { sessionId: 'task-a', chatState: { transcript: { state } }, canLoadOlderHistory: true, loadOlderHistory } as unknown as AcpChatStore;
+    const scrollToItem = vi.fn(), missing = vi.fn();
+    const view = { scrollToItem } as unknown as ChatView;
+    function Harness() {
+      const actions = useSessionSourceMessage(store, useRef(view), missing);
+      return <button onClick={() => actions.reveal('gugu-session://task-b?message=source')}>Quote</button>;
+    }
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      root.render(<Harness />);
+      await until('foreign quote button is mounted', () => !!host.querySelector('button'));
+      host.querySelector('button')!.click();
+      expect(missing).toHaveBeenCalledOnce();
+      expect(loadOlderHistory).not.toHaveBeenCalled();
+      expect(scrollToItem).not.toHaveBeenCalled();
+    } finally { root.unmount(); host.remove(); }
   });
   it('centers a source after real history rows have been prepended and laid out', async () => {
     const context = createChatContext({ theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true }) });

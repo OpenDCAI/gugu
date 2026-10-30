@@ -91,6 +91,24 @@ export const acpRuntimeStartInputSchema = acpStartInputSchema.extend({
    * 缺席 = 聊过、或记着首轮(首轮没跑完的照旧由用户点「重来」照首轮重来):引擎说没有就如实报 missing。
    */
   freshIfProviderSessionMissing: z.boolean().optional(),
+  /**
+   * #980 接回已有会话时**不让 agent 把历史重放一遍**(只由宿主给出)。会话页的历史以 agent 自己的记录为准、
+   * 由宿主直接读文件补齐,重放回来的东西本来就会被丢掉;而重放本身在长会话上是几分钟的独占
+   * (重启后 9 条 Codex 会话同时重放,共享进程卡了约 7 分钟)。宿主只对读得懂记录的那几家置 `false`。
+   * 缺席 = 照旧重放。
+   */
+  replayHistory: z.boolean().optional(),
+  /**
+   * #980 不重放时 agent 已经收到过的投递(消息编号),宿主从 agent 自己的记录里读出来(只由宿主给出)。
+   * 重启后补投那几条之前靠它去重 —— 从前这份事实来自重放。`null` = 记录读不出来:补投照旧,
+   * 每条标「可能已收到」(与重放失败同一个处理)。缺席 = 照旧以重放为准。
+   */
+  recordedDeliveryIds: z.array(z.string()).nullable().optional(),
+  /**
+   * #980 不重放时回合序号从几开始数(只由宿主给出):库里已存回合的运行时序号最大值 + 1。
+   * 运行时回合 id 由序号派生,不接着数就会和上一次运行留在库里的同名回合撞上。缺席 = 0。
+   */
+  turnIndexBase: z.number().int().nonnegative().optional(),
 });
 export type AcpRuntimeStartInput = z.infer<typeof acpRuntimeStartInputSchema>;
 
@@ -140,6 +158,33 @@ export const acpRuntimeApiContract = defineContract({
   promptSteered: eventStream({
     key: z.void(),
     event: z.object({ sessionId: z.string().min(1) }),
+  }),
+  /**
+   * The host prepares each native prompt's notice (an assistant's resource changes) in its own module graph,
+   * so the runtime asks for it per provider request (#881). Off until the host calls `enableNativePromptPreparation`.
+   */
+  nativePromptPreparationRequested: eventStream({
+    key: z.void(),
+    event: z.object({ sessionId: z.string().min(1), requestId: z.string().min(1) }),
+  }),
+  /** The provider request that carried the prepared notice was sent (`accepted`) or abandoned. */
+  nativePromptPreparationSettled: eventStream({
+    key: z.void(),
+    event: z.object({ requestId: z.string().min(1), accepted: z.boolean() }),
+  }),
+  enableNativePromptPreparation: procedure({
+    input: z.object({}),
+    output: z.void(),
+  }),
+  /** `ok: false`: the runtime no longer waits for this request; the host releases what it prepared. */
+  resolveNativePromptPreparation: procedure({
+    input: z.object({
+      requestId: z.string().min(1),
+      available: z.boolean(),
+      text: z.string().optional(),
+      beforeText: z.string().optional(),
+    }),
+    output: z.object({ ok: z.boolean() }),
   }),
   /**
    * 一条回合提交了(#5381)。主进程订阅它把历史落盘 —— 会话页不再把「用户会不会丢历史」

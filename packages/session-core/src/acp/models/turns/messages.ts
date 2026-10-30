@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { attachmentRefSchema } from '../attachments';
+import { entityContentSchema } from '../entity-content';
 
 export const transcriptMessageSchema = z.object({
   kind: z.literal('message'),
@@ -9,6 +10,9 @@ export const transcriptMessageSchema = z.object({
   seq: z.number().int(),
   role: z.enum(['user', 'assistant']),
   text: z.string(),
+  /** Canonical blocks; text is their display projection, written by the fold. */
+  content: z.array(entityContentSchema).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   /** Native provider boundary; never a display index or a text match. */
   revertAnchor: z.string().optional(),
   /** Attachment metadata only; bytes are served separately by the runtime. */

@@ -8,6 +8,8 @@
 // 一个复数类别，`_one` 永远不会被选中，但 catalog 的共享类型是 `Record<keyof typeof enUS…, string>`，
 // 两侧 key 集合必须逐字相等，所以中文侧照样写满两个形态。
 export const enUSSessionWorkflowMessages = {
+  'transcript.quoteMessage': 'Quote',
+  'transcript.copySelection': 'Copy selected text',
   'sessionImport.title': 'Import session',
   'sessionImport.done': 'Done',
   'sessionImport.continue': 'Import more',
@@ -648,6 +650,8 @@ export const enUSSessionWorkflowMessages = {
 } as const;
 
 export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflowMessages, string> = {
+  'transcript.quoteMessage': '引用',
+  'transcript.copySelection': '复制所选文字',
   'sessionImport.title': '导入会话',
   'sessionImport.done': '完成',
   'sessionImport.continue': '继续导入',

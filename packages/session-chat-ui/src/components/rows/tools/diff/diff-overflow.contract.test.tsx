@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
 
 import { diffBodyCard } from './diff.css'
 import { diffUnitDef } from './diff.def'
@@ -9,9 +10,8 @@ it('keeps a long diff line readable through the body scroll container', async ()
   const item = {
     kind: 'diff' as const,
     id: 'long-diff',
-    path: 'packages/session-chat-ui/src/components/rows/tools/diff/diff-lines.ts',
-    oldText: 'before',
-    newText: `after ${'x'.repeat(400)}`,
+    patches: [textFilePatch('packages/session-chat-ui/src/components/rows/tools/diff/diff-lines.ts', 'before', `after ${'x'.repeat(400)}`)],
+
     status: 'done' as const
   }
 

@@ -2,6 +2,7 @@ import type { PermissionState } from '@capacitor/core'
 import { BackgroundMode } from '@anuradev/capacitor-background-mode'
 import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'
 import { App } from '@capacitor/app'
+import { Clipboard } from '@capacitor/clipboard'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { AndroidSettings, IOSSettings, NativeSettings } from 'capacitor-native-settings'
 import { hostCatalog } from '../../shared/host-localization'
@@ -181,7 +182,10 @@ let notificationSeq = Math.floor(Date.now() / 1000) % 1_000_000_000
 
 export const capacitorPlatform: AppPlatform = {
   ...base,
-  capabilities: { ...base.capabilities, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
+  capabilities: { ...base.capabilities, clipboard: true, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
+  async writeClipboardText(value) {
+    await Clipboard.write({ string: value })
+  },
   // @@@android-app-update 应用内更新:与桌面同一套接口、同一个状态形状,界面不分宿主(见 capacitorAppUpdate.ts)。
   checkForUpdates,
   updateState,

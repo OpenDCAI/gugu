@@ -16,5 +16,5 @@ export function MarkdownText() {
   const { text } = useMessagePartText()
   // 与桌面会话页转录同一种读法(`packages/session-chat-ui/src/core/markdown/to-html.ts` 的 TRANSCRIPT_DIALECT):
   // 段落里的单个换行就是换行。不开的话,agent 一行一句写的诗/清单在手机上并成一整段(2026-10-02 真机)。
-  return <Markdown trust="chat" hardBreaks content={text} />
+  return <Markdown trust="chat" codeCopy hardBreaks content={text} />
 }

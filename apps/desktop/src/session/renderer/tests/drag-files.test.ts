@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   clearDraggedWorkspaceFile,
   droppedDirectoryMention,
+  droppedFileItems,
   getDraggedWorkspaceFile,
   hasDraggedWorkspaceFile,
   setDraggedWorkspaceFile,
@@ -69,6 +70,27 @@ describe('drag-files', () => {
       workspaceId: 'workspace-1',
       targetPath: '/repo/src/index.ts',
     });
+  });
+});
+
+describe('droppedFileItems', () => {
+  const fileItem = (file: File, isDirectory: boolean) =>
+    ({ kind: 'file', getAsFile: () => file, webkitGetAsEntry: () => ({ isDirectory }) }) as unknown as DataTransferItem;
+
+  // #985 复查:终端拖放靠这个分出文件夹,文件夹照原路径给,不走「存一份」。
+  it('marks which dropped items are folders', () => {
+    const folder = new File([], 'repro');
+    const shot = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
+    const dataTransfer = { items: [fileItem(folder, true), fileItem(shot, false)], files: [folder, shot] } as unknown as DataTransfer;
+    expect(droppedFileItems(dataTransfer)).toEqual([
+      { file: folder, directory: true },
+      { file: shot, directory: false },
+    ]);
+  });
+
+  it('treats everything as files when the transfer has no item list', () => {
+    const shot = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' });
+    expect(droppedFileItems({ files: [shot] } as unknown as DataTransfer)).toEqual([{ file: shot, directory: false }]);
   });
 });
 

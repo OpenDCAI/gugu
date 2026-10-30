@@ -109,7 +109,6 @@ const STRINGS = {
     yesterday: '昨天',
     week: '过去 7 天',
     earlier: '更早',
-    editedWhen: '改于 {time}',
     noKind: '这里没有这一类的文件。',
     leftDays: '临时 · {n} 天',
     leftHours: '临时 · {n} 小时',
@@ -141,7 +140,6 @@ const STRINGS = {
     open: '打开',
     close: '关闭',
     col_name: '名称',
-    col_who: '上传者',
     col_when: '修改时间',
     col_size: '大小',
     d_size: '大小',
@@ -157,6 +155,8 @@ const STRINGS = {
     machineOffline: '离线',
     hostOffline: '{machine} 离线，上线后才能打开这个文件。',
     pick: '选择',
+    pickAll: '全选',
+    pickDone: '完成',
     picked: '已选 {n} 项',
     pickCancel: '取消选择',
     pickDownload: '下载',
@@ -264,7 +264,6 @@ const STRINGS = {
     yesterday: 'Yesterday',
     week: 'Past 7 days',
     earlier: 'Earlier',
-    editedWhen: 'edited {time}',
     noKind: 'No files of this kind here.',
     leftDays: 'Temporary · {n}d',
     leftHours: 'Temporary · {n}h',
@@ -296,7 +295,6 @@ const STRINGS = {
     open: 'Open',
     close: 'Close',
     col_name: 'Name',
-    col_who: 'Uploaded by',
     col_when: 'Modified',
     col_size: 'Size',
     d_size: 'Size',
@@ -312,6 +310,8 @@ const STRINGS = {
     machineOffline: 'offline',
     hostOffline: '{machine} is offline: this file opens once it is back.',
     pick: 'Select',
+    pickAll: 'Select all',
+    pickDone: 'Done',
     picked: '{n} selected',
     pickCancel: 'Clear selection',
     pickDownload: 'Download',
@@ -343,6 +343,7 @@ const state = {
   details: null, // the entry whose details are open
   ofKind: [], // the files of the kind picked in the list last drawn: what the filters offer to pick by
   picked: new Set(), // 多选: the ids of the files picked, on screen
+  selecting: false, // the phone's explicit selection mode, including an empty selection
   pickFrom: null, // the file pressed last, where a Shift press's range starts
   order: [], // the files on screen, in their order: what a range runs along
   locating: null, // 「在聊天中定位」 for a selection: { ids: message ids oldest first, at }
@@ -359,7 +360,7 @@ const state = {
   listing: null, // the list asked last, on its way: { heard: [changes said meanwhile] }
   place: null, // { query: a pill's `at`, file: the file its link names }, waiting for that file's text to be drawn
   found: null, // what a pill's place showed, until the next press: { lines: [first, last] marked or null, said: in the banner }
-  menuAnchor: null, // the ⋯ whose menu is open
+  menuAnchor: null, // the control whose menu is open
   shown: null, // the entry on screen, text/JSON or binary: what Download saves
   titled: null, // the title last given to the host (setTabTitle)
 }
@@ -472,6 +473,7 @@ function renderChrome() {
     Promise.resolve(gugu.setTabTitle(title)).catch(() => {})
   }
   $('filter').placeholder = t.filter
+  $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
   $('new-doc').hidden = !canWrite()
@@ -731,7 +733,11 @@ function tableHead() {
     }
     return head
   }
-  li.append(column('name', t.col_name, 'name'), column('who', t.col_who), column('when', t.col_when, 'recent'), column('size', t.col_size, 'size'))
+  const all = Object.assign(document.createElement('button'), { type: 'button', className: 'pick-all' })
+  all.setAttribute('role', 'checkbox')
+  all.setAttribute('aria-label', t.pickAll)
+  all.onclick = () => pickAll()
+  li.append(all, column('name', t.col_name, 'name'), column('when', t.col_when, 'recent'), column('size', t.col_size, 'size'))
   return li
 }
 
@@ -1103,17 +1109,17 @@ function storedOnText(storedOn) {
 function storedOnMark(storedOn) {
   const mark = document.createElement('span')
   mark.className = 'file-host'
-  mark.title = storedOnText(storedOn)
-  mark.setAttribute('aria-label', mark.title)
+  mark.title = `${machineOf(storedOn)} · ${storedOnText(storedOn)}`
   const icon = document.createElement('gugu-icon')
   icon.setAttribute('name', 'server')
   icon.setAttribute('aria-hidden', 'true')
-  mark.append(icon, Object.assign(document.createElement('span'), { textContent: machineOf(storedOn) }))
+  mark.append(icon)
   // Whether it is on (storedOn.online; known for the reader's own machines): a dot, and the word on hover.
   if (storedOn.online !== undefined) {
     mark.dataset.online = String(storedOn.online)
     mark.title = `${machineOf(storedOn)} · ${storedOn.online ? state.t.machineOnline : state.t.machineOffline} — ${mark.title}`
   }
+  mark.setAttribute('aria-label', mark.title)
   return mark
 }
 
@@ -1130,7 +1136,7 @@ function openFile(entry) {
 // A cloud copy kept for a while (entry.keep.expiresAt): how long it has left, faint (owner 10-28) — the day it goes on hover.
 function keepMark(entry, now) {
   const left = timeLeft(entry.keep?.expiresAt, now)
-  if (!left) return null
+  if (!left || Date.parse(entry.keep.expiresAt) - now.getTime() > 3 * 86400000) return null
   const t = state.t
   const mark = document.createElement('span')
   mark.className = 'file-keep'
@@ -1154,27 +1160,27 @@ function whenOf(iso, now) {
   return new Intl.DateTimeFormat(locale, at.getFullYear() === now.getFullYear() ? { month: 'numeric', day: 'numeric' } : { dateStyle: 'medium' }).format(at)
 }
 
-// The row's second line: who made it, when it last changed, how big it is — one line, no avatars (owner 10-28); who made
-// and who edited it, and when, on hover.
-// Each cell says which column it is in where the pane is wide (`who`, `when`, `size`): a table of the same rows.
+// Narrow rows show the modified time; the same rows add a size column where wide. Activity stays in hover and Details.
 function metaOf(entry, now) {
   const t = state.t
   const cells = []
   if (isFolder(entry)) {
     cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
   } else {
-    if (entry.createdBy && entry.createdBy.kind !== 'system' && !entry.systemRole) cells.push(['who', who(entry.createdBy)])
-    const edited = entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) - Date.parse(entry.createdAt) > 60_000
     const when = whenOf(changedAt(entry), now)
-    if (when) cells.push(['when', edited ? fmt(t.editedWhen, { time: when }) : when])
+    if (when) cells.push(['when', when])
     const size = sizeOf(entry.size)
     if (size) cells.push(['size', size])
   }
   return cells
 }
 
+const fileTip = (entry) => [
+  pathOf(entry), ...activityOf(entry), sizeOf(entry.size), entry.storedOn ? machineOf(entry.storedOn) : '',
+  entry.keep ? entry.keep.expiresAt ? state.t.keepTemporary : state.t.keepPermanent : '',
+].filter(Boolean).join(' · ')
+
 function listItem(entry, now = new Date(Date.now())) {
-  const t = state.t
   const li = document.createElement('li')
   li.className = 'file'
   li.dataset.id = entry.id
@@ -1192,13 +1198,13 @@ function listItem(entry, now = new Date(Date.now())) {
   if (folder) {
     li.dataset.folder = ''
     if (entry.systemRole) li.dataset.system = entry.systemRole
-    title.append(folderMark())
+    open.append(folderMark())
   } else {
-    title.append(fileMark(entry))
+    open.append(fileMark(entry))
   }
   title.append(name)
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
-  open.title = pathOf(entry)
+  open.title = folder ? pathOf(entry) : fileTip(entry)
   const meta = document.createElement('span')
   meta.className = 'file-meta'
   for (const [cell, text] of metaOf(entry, now)) {
@@ -1212,7 +1218,7 @@ function listItem(entry, now = new Date(Date.now())) {
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = (event) => (folder ? enterFolder(entry.id) : pressFile(entry, event))
-  if (!folder) pickable(li, open, entry)
+  if (!folder) pickable(li, entry)
   if (offline(entry)) li.dataset.offline = ''
   // Files carry the same resource link outside this App; folder moves stay inside it.
   const drag = (text, isLink) => {
@@ -1238,24 +1244,15 @@ function listItem(entry, now = new Date(Date.now())) {
   if (marks.length) {
     const box = Object.assign(document.createElement('span'), { className: 'file-marks' })
     box.append(...marks)
-    li.append(box)
+    title.append(box)
   }
-  if (rowMenu(li, entry).length === 0) return li
-  const more = document.createElement('button')
-  more.type = 'button'
-  more.className = 'row-more'
-  more.innerHTML = '<gugu-icon name="more-horizontal"></gugu-icon>'
-  more.setAttribute('aria-label', t.more)
-  more.setAttribute('aria-haspopup', 'menu')
-  more.onclick = () => toggleMenu(more, rowMenu(li, entry))
-  li.append(more)
+  fileMenu(li, open, entry)
   return li
 }
 
 // A cell of the grid (images and videos): its picture — or its suffix, large — with its name under it; how long its cloud
-// copy has left in a corner; the same ⋯ as its row.
+// copy has left in a corner; the same context menu as its row.
 function gridItem(entry, now) {
-  const t = state.t
   const li = document.createElement('li')
   li.className = 'file cell'
   li.dataset.id = entry.id
@@ -1265,7 +1262,7 @@ function gridItem(entry, now) {
   const open = document.createElement('button')
   open.type = 'button'
   open.className = 'file-open'
-  open.title = [pathOf(entry), ...metaOf(entry, now).map(([, text]) => text)].join(' · ')
+  open.title = fileTip(entry)
   const mark = fileMark(entry)
   mark.classList.add('cell-picture')
   if (/^video\//i.test(entry.contentType || '')) {
@@ -1278,57 +1275,103 @@ function gridItem(entry, now) {
   open.append(mark, Object.assign(document.createElement('span'), { className: 'file-name', textContent: shownName(entry) }))
   open.onclick = (event) => pressFile(entry, event)
   li.append(open)
-  pickable(li, open, entry)
+  pickable(li, entry)
   const keep = keepMark(entry, now)
   if (keep) li.append(Object.assign(keep, { className: `${keep.className} cell-keep` }))
   if (entry.storedOn) li.append(Object.assign(storedOnMark(entry.storedOn), { className: 'file-host cell-host' }))
-  const more = document.createElement('button')
-  more.type = 'button'
-  more.className = 'row-more'
-  more.innerHTML = '<gugu-icon name="more-horizontal"></gugu-icon>'
-  more.setAttribute('aria-label', t.more)
-  more.setAttribute('aria-haspopup', 'menu')
-  more.onclick = () => toggleMenu(more, rowMenu(li, entry))
-  li.append(more)
+  fileMenu(li, open, entry)
   return li
 }
 
-// One ⋯ per row, made when it opens: what to do with the file (download, find its message, copy its link), how long its
-// cloud copy is kept, then the other Apps that open it, rename, move and delete. 「附件」 is gugu's: nothing to do to it.
+// File rows and grid cells use the page's existing menu, with the same actions and permission checks.
 function rowMenu(li, entry) {
   const t = state.t
   const folder = isFolder(entry)
-  const groups = []
-  if (!folder) {
-    const use = [{ text: t.download, run: () => downloadEntry(entry) }]
-    if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds[entry.sourceMessageIds.length - 1]) })
-    use.push({ text: t.copyLink, run: () => copyLink(entry) }, { text: t.details, run: () => showDetails(entry) })
-    groups.push(use)
-    // 「设为临时 / 一直保留」 (gugu-supabase #68/#69): the reader's own cloud copy; someone else's, or a file kept on its
-    // machine, says why it cannot — on hover (owner 10-28: no long text in the menu).
+  const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
+  const openWith = { text: t.openWith, run: () => openInHost(entry, true) }
+  const change = canWrite() && !entry.systemRole
+    ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
+  const remove = canWrite() && !entry.systemRole && entry.canDelete
+    ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
+  const groups = [[open]]
+  if (folder) groups.push(change)
+  else {
+    const use = [{ text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
+    if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
+    const detail = { text: t.details, run: () => showDetails(entry) }
+    const select = { text: t.pick, run: () => { state.selecting = true; pick(entry.id, 'toggle') } }
+    const keep = []
     if (entry.keep || entry.storedOn) {
       const temporary = !!entry.keep?.expiresAt
       const why = !entry.keep ? storedOnText(entry.storedOn) : !entry.keep.mine ? t.keepNotMine : !canWrite() ? t.denied : t.keepTip
       const usable = !!entry.keep?.mine && canWrite()
-      groups.push([
-        { label: t.keep, title: why },
+      keep.push({ text: t.keep, title: why, children: [
         { text: t.keepTemporary, checked: !!entry.keep && temporary, disabled: !usable, title: why, run: () => keepAs(entry, 'temporary') },
         { text: t.keepPermanent, checked: !!entry.keep && !temporary, disabled: !usable, title: why, run: () => keepAs(entry, 'permanent') },
-      ])
+      ] })
+    }
+    if (touchPane?.matches) {
+      groups.push(use, [...change.slice(0, 1), select], [{ text: t.more, children: [openWith, ...change.slice(1), ...keep, detail] }])
+    } else {
+      groups[0].push(openWith)
+      groups.push(use, change, keep, [select, detail])
     }
   }
-  const change = []
-  if (!folder) change.push({ text: t.openWith, run: () => openInHost(entry, true) })
-  if (canWrite() && !entry.systemRole) {
-    const count = folder ? under(entry.id).length : 0
-    change.push({ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) })
-    // Delete only where the folder says this person may (entry.canDelete: who made it, or the chat's owner or an admin).
-    if (entry.canDelete) groups.push(change, [{ text: t.remove, run: () => removeFile(entry), ask: folder && count ? fmt(t.confirmRemoveFolder, { n: count }) : t.confirmRemove }])
-    else groups.push(change)
-  } else if (change.length) {
-    groups.push(change)
+  groups.push(remove)
+  return groups.filter((group) => group.length).flatMap((group, i) => i ? [{ separator: true }, ...group] : group)
+}
+
+function fileMenu(li, open, entry) {
+  const show = (point) => {
+    const items = !isFolder(entry) && state.picked.size
+      ? [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }] : rowMenu(li, entry)
+    toggleMenu(open, items, { point, entry: state.picked.size && !isFolder(entry) ? null : entry, selection: state.picked.size && !isFolder(entry) })
   }
-  return groups.filter((group) => group.length).flatMap((group, i) => (i ? [{ separator: true }, ...group] : group))
+  let timer = null
+  let held = false
+  let from = null
+  const cancel = () => { clearTimeout(timer); timer = null }
+  li.addEventListener('contextmenu', (event) => {
+    event.preventDefault()
+    const holding = timer !== null
+    cancel()
+    if (!held) {
+      held = holding
+      show({ x: event.clientX, y: event.clientY })
+    }
+  })
+  li.addEventListener('keydown', (event) => {
+    if (event.target.closest('input, textarea')) return
+    if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') {
+      event.preventDefault()
+      show()
+    } else if (state.picked.size <= 1 && canWrite() && !entry.systemRole) {
+      if (event.key === 'F2') { event.preventDefault(); startRename(li, entry) }
+      if (event.key === 'Delete' && entry.canDelete) {
+        event.preventDefault()
+        const remove = rowMenu(li, entry).find((item) => item.ask)
+        toggleMenu(open, [{ ...remove, text: remove.ask }], { entry })
+      }
+    }
+  })
+  open.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'touch') return
+    cancel()
+    held = false
+    from = { x: event.clientX, y: event.clientY }
+    timer = setTimeout(() => { timer = null; if (li.isConnected) { held = true; show(from) } }, 500)
+  })
+  open.addEventListener('pointermove', (event) => {
+    if (from && (Math.abs(event.clientX - from.x) > 8 || Math.abs(event.clientY - from.y) > 8)) cancel()
+  })
+  open.addEventListener('pointerup', cancel)
+  open.addEventListener('pointercancel', () => { cancel(); held = false })
+  open.addEventListener('click', (event) => {
+    if (!held) return
+    held = false
+    event.stopImmediatePropagation()
+    event.preventDefault()
+  }, true)
 }
 
 async function keepAs(entry, how) {
@@ -2064,6 +2107,7 @@ function hideBanner() {
 // Side by side needs room (style.css hides its button when narrow): there the choice is Source or Preview, and a
 // person who chose side by side reads the preview until the pane is wide again (主人 10-01).
 const narrowPane = window.matchMedia?.('(max-width: 640px)') ?? null
+const touchPane = window.matchMedia?.('(hover: none) and (pointer: coarse)') ?? null
 
 function setMode(mode) {
   state.mode = mode
@@ -2076,19 +2120,19 @@ function applyMode() {
   for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
 }
 
-// The page's one menu (#menu): a row's ⋯, and the open file's ⋯ when narrow. Under the ⋯ that opened it, above when there
+// The page's one menu (#menu): file context menus and the open file's actions. At the pointer or control, above when there
 // is no room below; a press elsewhere, Escape, a scroll or a resize closes it, and so does choosing an item. An item that
 // asks first (`ask`: Delete, in red) only says its question on the first press; the items are made anew on every open,
-// so closing the menu takes the question back. The keyboard goes with it: in on the first item, back to the ⋯ on close.
-function toggleMenu(anchor, items) {
+// so closing the menu takes the question back. The keyboard goes with it: in on the first item, back to its control on close.
+function toggleMenu(anchor, items, context = {}) {
   const again = state.menuAnchor === anchor
   closeMenu()
   if (again) return
   const menu = $('menu')
   // An item: `[text, run, ask]`, or `{ text, run, ask, checked, disabled, title }`; `{ label }` names the items after it,
   // `{ separator: true }` sets groups apart. A `checked` one is one of a choice (its state shown by a tick).
-  menu.replaceChildren(...items.map((given) => {
-    const { text, run, ask, checked, disabled, title, label, separator } = Array.isArray(given) ? { text: given[0], run: given[1], ask: given[2] } : given
+  const nodes = (entries) => entries.map((given) => {
+    const { text, run, ask, checked, disabled, title, label, separator, children } = Array.isArray(given) ? { text: given[0], run: given[1], ask: given[2] } : given
     if (separator) return Object.assign(document.createElement('div'), { className: 'menu-separator', role: 'separator' })
     if (label) {
       const head = Object.assign(document.createElement('div'), { className: 'menu-label', textContent: label })
@@ -2106,33 +2150,70 @@ function toggleMenu(anchor, items) {
     } else {
       item.setAttribute('role', 'menuitem')
     }
-    item.textContent = text
+    item.textContent = children ? `${text} ›` : text
+    if (children) item.setAttribute('aria-haspopup', 'menu')
     if (title) item.title = title
     if (disabled) item.disabled = true
+    let submenu = null
     item.onclick = () => {
+      if (submenu) return void submenu.querySelector('button:not(:disabled)')?.focus()
       if (ask && item.textContent !== ask) return void (item.textContent = ask)
       closeMenu()
-      run()
+      if (children) toggleMenu(anchor, [{ text: `‹ ${text}`, run: () => toggleMenu(anchor, items, context) }, { separator: true }, ...children], context)
+      else run()
+    }
+    if (children && !touchPane?.matches) {
+      const group = Object.assign(document.createElement('div'), { className: 'menu-group', role: 'presentation' })
+      submenu = Object.assign(document.createElement('div'), { className: 'menu-submenu card list', role: 'menu' })
+      submenu.append(...nodes(children))
+      group.append(item, submenu)
+      item.onkeydown = (event) => {
+        if (event.key === 'ArrowRight') { event.preventDefault(); submenu.querySelector('button:not(:disabled)')?.focus() }
+      }
+      return group
     }
     return item
-  }))
+  })
+  menu.replaceChildren(...nodes(items))
+  const fileContext = !!(context.entry || context.selection)
+  menu.classList.toggle('file-context', fileContext)
+  if (fileContext && touchPane?.matches) {
+    const heading = Object.assign(document.createElement('div'), { className: 'menu-file' })
+    const words = Object.assign(document.createElement('div'), { className: 'menu-file-words' })
+    words.append(Object.assign(document.createElement('strong'), { textContent: context.selection ? fmt(state.t.picked, { n: state.picked.size }) : shownName(context.entry) }))
+    if (context.entry) {
+      words.append(Object.assign(document.createElement('small'), { textContent: fileTip(context.entry) }))
+      heading.append(isFolder(context.entry) ? folderMark() : fileMark(context.entry))
+    }
+    heading.append(words)
+    menu.prepend(heading)
+  }
   state.menuAnchor = anchor
   anchor.setAttribute('aria-expanded', 'true')
   menu.hidden = false
-  const box = anchor.getBoundingClientRect()
-  const below = box.bottom + 4 + menu.offsetHeight <= innerHeight - 8
-  menu.style.top = `${below ? box.bottom + 4 : Math.max(8, box.top - 4 - menu.offsetHeight)}px`
-  menu.style.left = `${Math.max(8, box.right - menu.offsetWidth)}px`
+  menu.style.top = menu.style.left = ''
+  if (!fileContext || !touchPane?.matches) {
+    const box = context.point ? { left: context.point.x, right: context.point.x, top: context.point.y, bottom: context.point.y } : anchor.getBoundingClientRect()
+    const below = box.bottom + 4 + menu.offsetHeight <= innerHeight - 8
+    menu.style.top = `${below ? box.bottom + 4 : Math.max(8, box.top - 4 - menu.offsetHeight)}px`
+    let left = Math.max(8, Math.min(context.point ? box.left : box.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8))
+    const subWidth = Math.min(180, innerWidth - menu.offsetWidth - 24)
+    const opensLeft = !!menu.querySelector('.menu-submenu') && left + menu.offsetWidth + subWidth > innerWidth - 8
+    if (opensLeft) left = Math.max(left, subWidth + 8)
+    menu.classList.toggle('submenu-left', opensLeft)
+    menu.style.setProperty('--submenu-width', `${subWidth}px`)
+    menu.style.left = `${left}px`
+  }
   menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true })
 }
 
 // ─── 多选 ───────────────────────────────────────────────────────────────────
-// Files are picked by their box (the mark's place, drawn on hover and while anything is picked), Ctrl/⌘ or a long press on
-// a row, Shift for the run from the one pressed last, or a frame dragged across the list's empty space; while anything is
+// Ctrl/⌘ picks, Shift picks a range, and a frame picks rows across the list's empty space. The phone's explicit selection
+// mode shows a separate checkbox column; a long press opens the same row menu. While anything is
 // picked a press picks too. What is picked can be downloaded at once, made temporary or kept, and found in the chat one
 // message after another. Folders are not picked; a change of folder, kind or filter lets go of all.
 
-function pickable(li, open, entry) {
+function pickable(li, entry) {
   const box = document.createElement('button')
   box.type = 'button'
   box.className = 'file-pick'
@@ -2145,35 +2226,12 @@ function pickable(li, open, entry) {
   }
   li.prepend(box)
   if (state.picked.has(entry.id)) li.classList.add('picked')
-  // A long press (a finger's) picks, as a phone's list does; the click after it is the press's, not an open.
-  let held = null
-  open.addEventListener('pointerdown', (event) => {
-    if (event.pointerType === 'mouse') return
-    held = setTimeout(() => {
-      held = 'fired'
-      pick(entry.id, 'toggle')
-    }, 500)
-  })
-  const drop = () => {
-    if (typeof held === 'number') clearTimeout(held)
-    if (held !== 'fired') held = null
-  }
-  open.addEventListener('pointerup', drop)
-  open.addEventListener('pointercancel', () => { drop(); held = null })
-  open.addEventListener('pointermove', (event) => { if (typeof held === 'number' && (Math.abs(event.movementX) > 4 || Math.abs(event.movementY) > 4)) drop() })
-  open.addEventListener('click', (event) => {
-    if (held !== 'fired') return
-    held = null
-    event.stopImmediatePropagation()
-    event.preventDefault()
-  }, true)
-  open.addEventListener('contextmenu', (event) => { if (held === 'fired') event.preventDefault() })
 }
 
 // A press on a file: with Shift, the run to it; with Ctrl/⌘ — or while anything is picked — it is picked or let go; else it opens.
 function pressFile(entry, event) {
   if (event?.shiftKey) return pick(entry.id, 'range')
-  if (event?.ctrlKey || event?.metaKey || state.picked.size) return pick(entry.id, 'toggle')
+  if (event?.ctrlKey || event?.metaKey || state.picked.size || state.selecting) return pick(entry.id, 'toggle')
   state.pickFrom = entry.id
   return openFile(entry)
 }
@@ -2188,7 +2246,8 @@ function pick(id, how) {
 }
 
 function clearPicks() {
-  if (!state.picked.size && !state.locating) return
+  if (!state.picked.size && !state.locating && !state.selecting) return
+  state.selecting = false
   state.picked.clear()
   state.locating = null
   renderPicks()
@@ -2196,16 +2255,37 @@ function clearPicks() {
 
 const pickedEntries = () => state.order.filter((id) => state.picked.has(id)).map((id) => state.entries.find((e) => e.id === id)).filter(Boolean)
 
+// The same four batch actions in the toolbar and the selection's context menu.
+const pickedActions = () => [
+  { text: state.t.pickDownload, run: downloadPicked },
+  ...(canWrite() ? [{ text: state.t.pickTemporary, run: () => keepPicked('temporary') }, { text: state.t.pickPermanent, run: () => keepPicked('permanent') }] : []),
+  { text: state.t.pickLocate, run: startLocate },
+]
+
+function pickAll() {
+  state.picked = new Set(state.order.every((id) => state.picked.has(id)) ? [] : state.order)
+  state.locating = null
+  renderPicks()
+}
+
 // The rows say whether they are picked; the bar says how many, and what to do with them.
 function renderPicks() {
   const t = state.t
   for (const li of $('file-list').querySelectorAll('li.file')) {
     const on = state.picked.has(li.dataset.id)
     li.classList.toggle('picked', on)
+    li.setAttribute('aria-selected', String(on || state.current?.entry.id === li.dataset.id))
     li.querySelector('.file-pick')?.setAttribute('aria-checked', String(on))
   }
   const count = state.picked.size
-  $('file-list').classList.toggle('picking', count > 0)
+  if (!count && !touchPane?.matches) state.selecting = false
+  $('file-list').classList.toggle('selecting', state.selecting || count > 0)
+  document.querySelector('aside.files').classList.toggle('has-picks', count > 0)
+  const select = $('select-files')
+  select.textContent = state.selecting || count ? t.pickDone : t.pick
+  select.setAttribute('aria-pressed', String(state.selecting || count > 0))
+  const all = $('file-list').querySelector('.pick-all')
+  all?.setAttribute('aria-checked', count && count === state.order.length ? 'true' : count ? 'mixed' : 'false')
   const bar = $('pick-bar')
   bar.hidden = count === 0
   if (!count) return void bar.replaceChildren()
@@ -2215,11 +2295,10 @@ function renderPicks() {
     ? [act('‹', () => stepLocate(-1), { title: t.pickPrev, disabled: locating.at === 0 }),
       Object.assign(document.createElement('span'), { className: 'pick-at', textContent: fmt(t.pickLocateAt, { i: locating.at + 1, n: locating.ids.length }) }),
       act('›', () => stepLocate(1), { title: t.pickNext, disabled: locating.at === locating.ids.length - 1 })]
-    : [act(t.pickLocate, () => startLocate())]
+    : [act(t.pickLocate, startLocate)]
   bar.replaceChildren(
     Object.assign(document.createElement('span'), { className: 'pick-count', textContent: fmt(t.picked, { n: count }) }),
-    act(t.pickDownload, () => downloadPicked()),
-    ...(canWrite() ? [act(t.pickTemporary, () => keepPicked('temporary')), act(t.pickPermanent, () => keepPicked('permanent'))] : []),
+    ...pickedActions().slice(0, -1).map(({ text, run }) => act(text, run)),
     ...locate,
     act('✕', () => clearPicks(), { className: 'pick-close', title: t.pickCancel, ariaLabel: t.pickCancel }),
   )
@@ -2404,6 +2483,13 @@ function start() {
     void folderContextMenu(event.clientX, event.clientY)
   })
   folder.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !event.target.closest('input, textarea, [contenteditable]')) {
+      event.preventDefault()
+      state.picked = new Set(state.order)
+      state.locating = null
+      renderPicks()
+      return
+    }
     if (!(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) || !blank(event.target)) return
     event.preventDefault()
     const rect = event.target.getBoundingClientRect()
@@ -2414,6 +2500,10 @@ function start() {
     clearPicks()
     state.filter = event.target.value
     renderList()
+  }
+  $('select-files').onclick = () => {
+    if (state.selecting || state.picked.size) clearPicks()
+    else { state.selecting = true; renderPicks() }
   }
   $('sort').onclick = () => sortMenu()
   for (const button of $('views').children) {
@@ -2445,7 +2535,7 @@ function start() {
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return
     if (!state.menuAnchor && state.details) closeDetails()
-    else if (!state.menuAnchor && state.picked.size) clearPicks()
+    else if (!state.menuAnchor && (state.picked.size || state.selecting)) clearPicks()
     closeMenu()
     if (!$('move-dialog').hidden) closeMoveDialog()
   })

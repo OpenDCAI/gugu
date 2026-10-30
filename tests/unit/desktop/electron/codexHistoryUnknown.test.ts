@@ -17,6 +17,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   if (m.method === 'thread/turns/list') return out({id:m.id,error:{code:-32603,message:'fixture history unavailable'}});
   if (m.method === 'turn/start') {
     const turn = {id:'resumed-turn',status:'completed'};
+    out({method:'item/started',params:{item:{type:'userMessage',id:'user-'+m.id,clientId:m.params.clientUserMessageId,content:m.params.input}}});
     out({id:m.id,result:{turn}});
     return out({method:'turn/completed',params:{threadId:'same-thread',turn}});
   }
@@ -63,18 +64,20 @@ describe('Codex history uncertainty is an explicit load result', () => {
       process.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params }) + '\n');
       return awaitFact(method, () => replies.get(requestId), { producer: process });
     };
-    await request('initialize', { protocolVersion: 1, clientCapabilities: {} });
-    const reply = await request('session/load', { sessionId: 'same-thread', cwd: dir, mcpServers: [] });
+    // The native shim speaks ACP v2: a saved thread reopens with session/resume.
+    await request('initialize', { protocolVersion: 2, capabilities: {} });
+    const reply = await request('session/resume', { sessionId: 'same-thread', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } });
     expect(reply).toMatchObject({ error: { data: { kind: 'history_unknown', sessionId: 'same-thread' } } });
     expect(reply).not.toHaveProperty('result');
     expect(updates).toEqual(expect.arrayContaining([expect.objectContaining({
       sessionId: 'same-thread', update: expect.objectContaining({
         sessionUpdate: 'config_option_update', configOptions: expect.arrayContaining([
-          expect.objectContaining({ id: 'model', currentValue: 'gpt-5' }),
+          expect.objectContaining({ configId: 'model', currentValue: 'gpt-5' }),
         ]),
       }),
     })]));
     expect(await request('session/prompt', { sessionId: 'same-thread', prompt: [{ type: 'text', text: 'after unknown history' }] }))
-      .toMatchObject({ result: { stopReason: 'end_turn' } });
+      // The resumed thread still takes input: v2's receipt names the echoed message.
+      .toMatchObject({ result: { messageId: expect.any(String) } });
   });
 });

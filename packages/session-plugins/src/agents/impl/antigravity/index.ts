@@ -175,9 +175,6 @@ export const plugin = definePlugin(
       // 400MB 的 par + 本地内核头一次被系统读进来、过一遍扫描;没有自解压缓存可预热。
       // 启动只等事实、不设墙钟(#6183),这里只亮「首次较慢」让等待看得见。
       startup: { noticeKey: 'chat.antigravityPreparing' },
-      // 忙时插话:它收不了并发的第二条 prompt(连接当场断),`session/cancel` 却保留全部历史
-      // ⇒ 当前工具跑完就打断这一轮、插话作为下一轮发出(语义见 capability 的 `midTurnSteer`)。
-      midTurnSteer: 'interrupt-at-tool-boundary',
       // agy_acp_server 1.2.1 在 `session/new` 的 configOptions 里自报 `model` 与 `mode` 两项
       // (category 同名、type select),`session/set_config_option` 的响应带回整份 configOptions,
       // currentValue 即新值(2026-09-23 实测两项都读得回)。咕咕启动时就要下发这两维,
@@ -412,7 +409,7 @@ export const provider = registerPluginBehavior(plugin, {
     ...createNativeAcpBehavior((ctx) => ({
       args: [],
       env: withLoopbackNoProxy(ctx.env),
-    })),
+    }), { interruptAtToolBoundary: true }),
     // 用户 skill 它读进了系统提示却不经 ACP 报 ⇒ 咕咕按它认的四处目录补进「/」面板(见 ./skills.ts)。
     discoverCommands: discoverAntigravitySkills,
     // `session/fork` 回 `{}` ⇒ 复制存档并改写 id,运行时再 `session/load`(见 ./fork.ts)。

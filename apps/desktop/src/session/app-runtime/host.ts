@@ -1,6 +1,7 @@
 import { fileRefOf, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
 import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
+import type { ProjectionHost } from './projection-source';
 
 /**
  * What the preload exposes as `window.__guguHost` and the runtime builds `window.gugu` from.
@@ -8,7 +9,7 @@ import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, Ap
  * Only the part the runtime itself calls is typed here; every other member is copied onto
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
-export interface GuguHost {
+export interface GuguHost extends ProjectionHost {
   readonly sessions?: {
     index(options?: AppSessionIndexOptions): Promise<AppSessionIndex>;
     read(options: AppSessionReadOptions): Promise<AppSessionRead>;

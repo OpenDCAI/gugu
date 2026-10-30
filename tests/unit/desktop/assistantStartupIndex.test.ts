@@ -239,6 +239,53 @@ it('retains every configured integration when device and note metadata exhaust t
   expect(overflow.mock.calls[0]?.[1]).toBe('owner-a')
 })
 
+it('carries the delegation hint of a connected CLI application into the opening index', async () => {
+  const use = { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: ['lark-calendar', 'lark-doc'] }
+  const index = await assistantStartupIndex({ ...fixture(), localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [
+      { id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use },
+      { id: 'feishu:second', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use },
+      { id: 'email:default', name: '邮箱', modifiedAt: '2026-10-29T07:38:13Z' },
+    ],
+  }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toEqual([
+    { id: 'email', name: '邮箱' }, { id: 'feishu', name: '飞书', use },
+  ])
+})
+
+it('carries the issue-only note of a connection into the opening index, also under budget pressure', async () => {
+  const note = '只用来关联 issue，助理不能直接用'
+  const items = [{ id: 'github:default', name: 'GitHub', modifiedAt: '2026-10-29T07:38:13Z', note },
+    { id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z',
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: Array.from({ length: 600 }, (_, i) => `lark-skill-${i}`) } }]
+  const index = await assistantStartupIndex({ ...fixture(), overflow: async () => '/isolated/remaining-index.md',
+    localSources: async () => [{ source: 'integrations', status: 'read', read: 'catalog_list', items }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toContainEqual({ id: 'github', name: 'GitHub', note })
+})
+
+it('keeps the other local sources readable when a delegation hint names an unexpected tool', async () => {
+  const index = await assistantStartupIndex({ ...fixture(), localSources: async () => [
+    { source: 'assistant_memory', status: 'read', read: 'Read', items: [{ id: '/memory/a.md', name: 'a.md', modifiedAt: '2026-10-29T07:38:13Z' }] },
+    { source: 'integrations', status: 'read', read: 'catalog_list', items: [{ id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z',
+      use: { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_open' }, task_skills: ['lark-calendar'] } }] },
+  ] })
+  expect(records(index).find(row => row.source === 'assistant_memory')).toMatchObject({ status: 'read' })
+  expect(records(index).find(row => row.source === 'integrations')?.items?.[0]).toMatchObject({ id: 'feishu', name: '飞书' })
+})
+
+it('keeps the delegation route when the budget forces application details out', async () => {
+  const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
+  const use = { note: '飞书已连接，要用就派任务', delegate: { tool: 'session_spawn' }, task_skills: Array.from({ length: 600 }, (_, i) => `lark-skill-${i}`) }
+  const index = await assistantStartupIndex({ ...fixture(), overflow, localSources: async () => [{
+    source: 'integrations', status: 'read', read: 'catalog_list', items: [{ id: 'feishu:default', name: '飞书', modifiedAt: '2026-10-29T07:38:13Z', use }],
+  }] })
+  expect(records(index).find(row => row.source === 'integrations')?.items).toEqual([
+    { id: 'feishu', name: '飞书', use: { note: use.note, delegate: use.delegate } },
+  ])
+  expect(index.length).toBeLessThanOrEqual(6000)
+  expect(overflow.mock.calls[0]?.[0]).toContain('lark-skill-599')
+})
+
 it('keeps application names inline even when their optional CLI locations alone exceed the budget', async () => {
   const overflow = vi.fn(async (_index: string, _account: string) => '/isolated/remaining-index.md')
   const index = await assistantStartupIndex({ ...fixture(), overflow, localSources: async () => [{

@@ -127,7 +127,7 @@ describe('importLocalSession', () => {
       expect(importedProviderSessionId(lastCreateSessionParams())).toBe(CODEX_SESSION);
     });
 
-    it('默认进终端腿;#6264 要「通用」(只经隧道连着的机器)就进聊天腿,续的仍是原会话 id', async () => {
+    it('默认和显式通用都进聊天腿,显式终端照常走终端腿,续的仍是原会话 id', async () => {
       const params = {
         engine: 'claude-code' as const,
         providerSessionId: CLAUDE_SESSION,
@@ -136,11 +136,13 @@ describe('importLocalSession', () => {
         cwd: '/work/webapp',
       };
       await importLocalSession(params);
-      expect(lastCreateSessionParams().sessionConfig.initialSession?.type).toBe('pty');
+      expect(lastCreateSessionParams().sessionConfig.initialSession?.type).toBe('acp');
 
       await importLocalSession({ ...params, sessionView: 'general' });
       expect(lastCreateSessionParams().sessionConfig.initialSession?.type).toBe('acp');
       expect(importedProviderSessionId(lastCreateSessionParams())).toBe(CLAUDE_SESSION);
+      await importLocalSession({ ...params, sessionView: 'code' });
+      expect(lastCreateSessionParams().sessionConfig.initialSession?.type).toBe('pty');
     });
 
     it('provider 按引擎映射到会话页的 agent id', async () => {

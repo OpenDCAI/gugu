@@ -171,7 +171,14 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   useEffect(() => {
     if (!userId) return
     return subscribeAccountRevision('device_changed', (operations) => {
-      void refreshCloudComputer().catch(() => undefined)
+      // 只有可能牵动云电脑的那几条才去问管家:它自己那一行(睡下 / 醒来)、新出现或被移除的一台(开通 / 销毁)。
+      // 别的电脑每 30 秒一次的心跳摘要 ❌ —— 忙账号六七台机器,每次心跳都多一发管家请求。
+      const cloudDeviceId = getCloudComputerState().snapshot?.deviceId ?? null
+      const known = new Set(devicesRef.current.map((row) => row.device_id))
+      if (operations.some((operation) => {
+        const key = readDeviceRevision(operation.payload)
+        return key.removed || key.deviceId === cloudDeviceId || !known.has(key.deviceId)
+      })) void refreshCloudComputer().catch(() => undefined)
       return applyDeviceRevisions(operations)
     })
   }, [userId, applyDeviceRevisions, subscribeAccountRevision])

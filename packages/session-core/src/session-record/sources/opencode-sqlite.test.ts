@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -121,6 +122,12 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('opencode sqlite 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { dbPath, fixture } = await stage();
+    const entries = await startAll(createOpencodeSqliteSource({ harness: 'opencode', providerSessionId: fixture.session.id, roots: [dbPath] }));
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('库里没有这个会话时响亮地失败', async () => {
     const { dbPath } = await stage();
     await expect(
@@ -142,7 +149,7 @@ describe('opencode sqlite 记录源', () => {
     ).rejects.toBeInstanceOf(SessionRecordNotFoundError);
   });
 
-  it('把 message/part 三表解码成 SessionUpdate', async () => {
+  it('把 message/part 三表解码成领域事件', async () => {
     const { dbPath, fixture } = await stage();
     const entries = await start(
       createOpencodeSqliteSource({
@@ -151,9 +158,8 @@ describe('opencode sqlite 记录源', () => {
         roots: [dbPath]
       })
     );
-    const kinds = entries.map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
+    const kinds = entries.map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
     expect(kinds).toContain('tool_call');
     for (const entry of entries) expect(entry.key.startsWith('opencode:prt_')).toBe(true);
 
@@ -170,11 +176,11 @@ describe('opencode sqlite 记录源', () => {
       createOpencodeSqliteSource({ harness: 'opencode', providerSessionId: fixture.session.id, roots: [dbPath] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
     const agentTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(userTexts).toHaveLength(1);
     expect(agentTexts).toHaveLength(1);
     expect(userTexts[0]).not.toBe(agentTexts[0]);
@@ -223,9 +229,9 @@ describe('opencode sqlite 记录源', () => {
           roots: [staged.dbPath]
         })
       );
-      const calls = entries.filter((entry) => entry.update.sessionUpdate === 'tool_call');
+      const calls = entries.filter((entry) => (entry.event.kind === 'tool_call'));
       expect(calls).toHaveLength(1);
-      expect((calls[0].update as { status?: string }).status).not.toBe('completed');
+      expect((calls[0].event as { status?: string }).status).not.toBe('completed');
     });
 
     it('插入一行后，下一个轮询节拍订阅者就收到增量', async () => {
@@ -330,7 +336,7 @@ describe('opencode sqlite 记录源', () => {
 
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
       const grown = contentEntries(seen)
-        .map((entry) => (entry.update as { content?: { text?: string } }).content?.text ?? '')
+        .map((entry) => (entry.event as { text?: string }).text ?? '')
         .find((text) => text.includes('（续写）'));
       // 增量那一条只该带新长出来的那截；带上前半段 = 界面上前半段说两遍。
       expect(grown).toBe('（续写）');
@@ -462,7 +468,7 @@ describe('mimocode 库(opencode 族)', () => {
     );
     expect(entries.some((entry) => synthetic.includes(entry.key))).toBe(false);
     // 主 agent 三条用户消息里,只有两条带真正的用户文本(中间那条只有 synthetic)。
-    expect(entries.filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')).toHaveLength(2);
+    expect(entries.filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))).toHaveLength(2);
   });
 
   it('出错且没盖完成戳的 assistant 消息也关掉这一轮', async () => {
@@ -517,7 +523,7 @@ describe('mimocode 库(opencode 族)', () => {
     // 判据：第一条边界排在最后一条内容之前。全堆批尾时这条必红。
     expect(boundaryEntries(all)).toHaveLength(2);
     const firstBoundary = all.findIndex((entry) => entry.boundary !== undefined);
-    const lastContent = all.findLastIndex((entry) => entry.update !== undefined);
+    const lastContent = all.findLastIndex((entry) => entry.event !== undefined);
     expect(firstBoundary).toBeGreaterThanOrEqual(0);
     expect(firstBoundary).toBeLessThan(lastContent);
   });

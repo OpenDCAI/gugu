@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -40,6 +41,7 @@ const SCRIPTS = {
 let turnSeq = 0
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: THREAD }, model: 'm' } })
   if (m.method === 'turn/start') {
@@ -85,12 +87,12 @@ async function toolUpdates(script: string): Promise<ToolUpdate[]> {
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: unknown }>()
   const updates: ToolUpdate[] = []
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
     const update = m.method === 'session/update' ? m.params?.update : undefined
     if (update?.toolCallId) updates.push(update)
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -98,7 +100,7 @@ async function toolUpdates(script: string): Promise<ToolUpdate[]> {
     return id
   }
   const reply = (id: number, what: string) => awaitFact(what, () => responses.get(id), { producer: child })
-  await reply(send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await reply(send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   const created = (await reply(send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')).result as { sessionId: string }
   await reply(send('session/prompt', { sessionId: created.sessionId, prompt: [{ type: 'text', text: script }] }), `${script} settles`)
   return updates

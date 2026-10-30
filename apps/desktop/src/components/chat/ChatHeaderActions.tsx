@@ -194,7 +194,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
                   icon={<Search size={16} />}
                 >{t('header.searchChat')}</MenuItem>}
             {/* 群的 ⋯ = 话题列表 + 群设置(owner 10-27);话题从这里进,项目群的侧栏不再挂话题行。 */}
-            {groupId && !mobile && <GroupTopicsMenuItem chatId={groupId} />}
+            {groupId && <GroupTopicsMenuItem chatId={groupId} />}
             <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenInfo={() => isGroupChat ? onOpenInfo('main') : onOpenInfo()} />
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}

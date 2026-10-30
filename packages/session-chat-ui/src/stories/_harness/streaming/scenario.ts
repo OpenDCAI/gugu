@@ -1,3 +1,4 @@
+import type { SessionPatch } from '@gugu/session-core/acp';
 /**
  * Streaming scenario builders — pure, Solid-free functions that produce
  * ScriptStep[] arrays for use with ScriptedChat.
@@ -250,7 +251,7 @@ export function streamFileOp(opts: {
 /**
  * Produce steps that simulate a diff preview streaming in:
  *
- *   1. `diff_start` with empty `newText` (synchronous) — the row appears as a
+ *   1. `diff_start` with no patch bytes (synchronous) — the row appears as a
  *      header-only card with the file name shimmering (Stage A).
  *   2. After `headerMs`, content is revealed line-by-line via `diff_update`,
  *      each update sending the full accumulated text (Stage B — streaming body).
@@ -261,9 +262,7 @@ export function streamFileOp(opts: {
  */
 export function streamDiff(opts: {
   id: string;
-  path: string;
-  oldText: string | null;
-  newText: string;
+  patches: SessionPatch[];
   /** Dwell on the header-only state before the first content arrives, ms (default: 700). */
   headerMs?: number;
   /** Delay between subsequent content line chunks in ms (default: 140). */
@@ -275,9 +274,7 @@ export function streamDiff(opts: {
 }): ScriptStep[] {
   const {
     id,
-    path,
-    oldText,
-    newText,
+    patches,
     headerMs = 700,
     chunkMs = 140,
     finalStatus = 'done',
@@ -293,24 +290,21 @@ export function streamDiff(opts: {
       driveEvent(api, {
         type: 'diff_start',
         id,
-        path,
-        oldText,
-        newText: '',
+        patches: patches.map(patch => ({ ...patch, patch: null })),
         ...(parentId !== undefined ? { parentId } : {}),
       }),
   });
 
-  // Stage B — reveal content line-by-line; each update carries the full snapshot.
-  const lines = chunkText(newText, { mode: 'line' });
-  let acc = '';
-  for (let i = 0; i < lines.length; i++) {
-    acc += lines[i];
-    const snapshot = acc;
-    result.push({ kind: 'wait', ms: i === 0 ? headerMs : chunkMs });
-    result.push({
-      kind: 'call',
-      fn: (api: TranscriptApi) => driveEvent(api, { type: 'diff_update', id, newText: snapshot }),
-    });
+  // Stage B — each replacement carries the canonical patch accumulated so far.
+  for (const patch of patches) {
+    const lines = chunkText(patch.patch?.text ?? '', { mode: 'line' });
+    let acc = '';
+    for (let i = 0; i < lines.length; i++) {
+      acc += lines[i];
+      const snapshot = { ...patch, patch: patch.patch ? { ...patch.patch, text: acc } : null };
+      result.push({ kind: 'wait', ms: i === 0 ? headerMs : chunkMs });
+      result.push({ kind: 'call', fn: (api: TranscriptApi) => driveEvent(api, { type: 'diff_update', id, patches: [snapshot] }) });
+    }
   }
 
   // Stage C — settle (drops the shimmer).

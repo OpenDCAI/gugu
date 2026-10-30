@@ -14,6 +14,22 @@ function fixture(target='cloud') {
   return {deps,rpc,deliverLocal,prepareRemote,requestRemote,subscribe,warn}
 }
 describe('account delivery host',()=>{
+  it('reconciles server-expired work after a realtime claim returns no deliveries',async()=>{
+    const f=fixture();let changed!:()=>void
+    f.rpc.mockResolvedValue({data:{events:[]},error:null})
+    f.subscribe.mockImplementation(async(_owner:string,cb:()=>void)=>{changed=cb;return()=>{}})
+    const afterDrain=vi.fn(async()=>{})
+    const host=createAssistantWorkOutboxHost({...f.deps,afterDrain,active:async()=>false})
+    try {
+      await host.tick()
+      await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
+      changed()
+      await vi.waitFor(()=>expect(afterDrain).toHaveBeenCalledOnce(),{timeout:500})
+      expect(f.rpc).toHaveBeenCalledWith('assistant_work_outbox_claim',expect.any(Object))
+      expect(f.deliverLocal).not.toHaveBeenCalled()
+      expect(f.requestRemote).not.toHaveBeenCalled()
+    } finally {host.stop()}
+  })
   it('reports a failed claim through the availability route without waking a receiver',async()=>{
     const f=fixture(),unavailable=vi.fn(async()=>{})
     f.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing migration'}} as never)
@@ -52,8 +68,13 @@ describe('account delivery host',()=>{
     const local=fixture();const localHost=createAssistantWorkOutboxHost(local.deps);await localHost.kick();localHost.stop()
     expect(local.deliverLocal).toHaveBeenCalledWith(expect.objectContaining({message_id:'message'}),expect.any(AbortSignal))
   })
-  it('transmits only a cloud reference, after the remote wake path',async()=>{
-    const f=fixture('phone');const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
+  it('does not delegate an empty online claim, then wakes an eligible offline target before sending its reference',async()=>{
+    const f=fixture('phone');const eligible=f.rpc.getMockImplementation()!
+    let offline=false
+    f.rpc.mockImplementation(async name=>name==='assistant_work_outbox_claim'&&!offline?{data:{events:[]},error:null}:eligible(name))
+    const host=createAssistantWorkOutboxHost(f.deps);await host.kick()
+    expect(f.prepareRemote).not.toHaveBeenCalled();expect(f.requestRemote).not.toHaveBeenCalled()
+    offline=true;await host.kick()
     expect(f.requestRemote).toHaveBeenCalledWith('phone','assistantWork.deliver',{assistant_id:'assistant',work_id:'work',message_id:'message'},expect.any(AbortSignal))
     expect(f.prepareRemote.mock.invocationCallOrder[0]).toBeLessThan(f.requestRemote.mock.invocationCallOrder[0]!)
     expect(f.deliverLocal).not.toHaveBeenCalled();host.stop()
@@ -71,11 +92,12 @@ describe('account delivery host',()=>{
     await vi.waitFor(()=>expect(f.subscribe).toHaveBeenCalledOnce())
     changed()
     await vi.waitFor(()=>expect(f.deliverLocal).toHaveBeenCalledOnce())
+    await vi.waitFor(()=>expect(afterDrain).toHaveBeenCalledOnce())
     expect(claims()).toBeGreaterThan(0)
     const before=claims();assistant=true
     await host.tick()
     expect(claims()).toBeGreaterThan(before)
-    expect(afterDrain).toHaveBeenCalledOnce()
+    expect(afterDrain).toHaveBeenCalledTimes(2)
     host.stop()
   })
   it('a tick claims as before when the assistant check fails, and event kicks never wait for it',async()=>{

@@ -45,6 +45,12 @@ const state = vi.hoisted(() => ({
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
   hostWaits: [] as Array<{ sessionId: string; id: string; open: boolean }>,
+  /** 聊天腿的 agent 此刻在不在跑(write-bridge `acpSessionLive` 的桩)。 */
+  acpLive: false,
+  /** 唤醒(write-bridge `ensureAcpSessionLive` 的桩):默认 ❌ —— 谁走到这里就是叫醒了它。 */
+  wake: vi.fn(async (_id: string): Promise<void> => {
+    throw new Error('❌ 没开起来的会话不许走唤醒');
+  }),
 }));
 
 const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
@@ -135,10 +141,8 @@ vi.mock('./write-bridge', () => {
   return {
     SessionWriteError,
     deliverSessionText: (...args: unknown[]) => state.deliverText(...args),
-    acpSessionLive: async () => false,
-    ensureAcpSessionLive: async () => {
-      throw new Error('❌ 没开起来的会话不许走唤醒');
-    },
+    acpSessionLive: async () => state.acpLive,
+    ensureAcpSessionLive: (id: string) => state.wake(id),
     deliverPermissionDecision: (...args: unknown[]) => state.deliverPermission(...args),
     permissionChannelError: (...args: unknown[]) => state.permissionChannelError(...args),
     prepareQuestionAnswer: (...args: unknown[]) => state.prepareQuestion(...args),
@@ -178,6 +182,10 @@ vi.mock('@main/core/sessions/platform-model-selection', () => ({
 }));
 vi.mock('@main/core/agents/session-discovery', () => ({
   listLocalModels: async () => ({ models: [{ id: 'platform:gpt-5', name: 'GPT-5' }] }),
+}));
+// 真实现要把平台模型目录、agent 控制器一起拉进来;这一组只问「附没附上菜单」。
+vi.mock('./session-model-menu', () => ({
+  readSessionModelMenu: async (sessionId: string) => ({ agentName: `menu-of-${sessionId}`, platformModels: [], ownCatalog: null, ownAuth: null }),
 }));
 
 // 本机名录:只有 conv-1 有 agent 身份。
@@ -312,6 +320,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
         settlements.set(itemId, { ...settlement, state: 'cancelled', resolvedAt: 3 });
       }
     },
+    syncTerminals: () => {},
     syncLiveReply: () => undefined,
     syncQueuedPrompts: (prompts) => {
       queuedPrompts = prompts.map(({ id, text }) => ({ id, text }));
@@ -371,6 +380,11 @@ describe('session timeline service', () => {
     state.deliverQuestion = vi.fn();
     state.permissionChannelError = vi.fn(() => null);
     state.questionSend.mockReset().mockResolvedValue({ status: 'delivered' });
+    state.acpLive = false;
+    state.wake.mockReset().mockImplementation(async () => {
+      throw new Error('❌ 没开起来的会话不许走唤醒');
+    });
+    state.readOptions.mockClear();
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {
@@ -530,6 +544,46 @@ describe('session timeline service', () => {
     });
   });
 
+  // #980 打开会话不叫醒 agent,手机上也一样 —— 手机一打开会话就来读这一份(SessionOptionsPill)。
+  // 判据能判假:把 sessionOptions 里「没在跑就报记录那一档」那一支删掉,第一条用例红(走到唤醒)。
+  it('#980 开起来过、此刻没在跑:读选项 ❌ 唤醒,报记录里那一档模型、附模型菜单', async () => {
+    state.rows = [row()];
+    const result = await service.sessionOptions({ conversationId: 'conv-1' });
+    expect(state.wake, '打开就把 agent 拉起来了').not.toHaveBeenCalled();
+    expect(state.readOptions, '没在跑就没有活的那一份可读').not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        mode: null,
+        effort: null,
+        model: { selected: 'platform:gpt-5', available: [{ id: 'platform:gpt-5', name: 'GPT-5' }] },
+        modelMenu: expect.objectContaining({ agentName: 'menu-of-conv-1' }),
+      },
+    });
+  });
+
+  it('#980 在跑:读活的那一份,同样不走唤醒', async () => {
+    state.acpLive = true;
+    const effort = { selected: 'high', available: [{ id: 'high', name: 'High' }] };
+    state.readOptions.mockResolvedValueOnce({ mode: null, model: null, effort });
+    expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
+      ok: true,
+      value: { mode: null, model: null, effort },
+    });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
+  it('#980 改一档是人点的:没在跑就这一刻起;从没开起来的 ❌ 起(唤醒不带第一句话)', async () => {
+    state.wake.mockResolvedValueOnce(undefined);
+    expect(await service.setSessionOptionValue({ conversationId: 'conv-1', dimension: 'effort', value: 'high' })).toMatchObject({ ok: true });
+    expect(state.wake).toHaveBeenCalledWith('conv-1');
+
+    state.wake.mockClear();
+    state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
+    await service.setSessionOptionValue({ conversationId: 'conv-1', dimension: 'effort', value: 'high' });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
   it('会话列表说清为什么没有记录、上次起它失败的原因码', async () => {
     startFailures.set('conv-2', 'platform_model_unreachable');
     state.rows = [
@@ -574,6 +628,43 @@ describe('session timeline service', () => {
     expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'tool-1', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
     expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'gone', index: 0 })).toMatchObject({ ok: false, error: { code: 'no_such_item' } });
     expect(await service.toolImage({ conversationId: 'no-such-conv', itemId: 'tool-1', index: 0 })).toMatchObject({ ok: false, error: { code: 'session_not_found' } });
+  });
+
+  // #980:存档装回来的轮里图只剩位置,快照里找不到;有 `toolImage` 口的时间线由它从记录里读回来,读不回来照实转达。
+  it('时间线自己会取图(存档里只存位置)⇒ 问它,不在快照里找', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    fake.timeline.toolImage = async ({ itemId, index }) => itemId === 'restored' && index === 0
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: `picture #${index} of tool item ${itemId} could not be read back from its record` };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 0 })).toEqual({ ok: true, value: shot });
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
+  });
+
+  // #980:抄进库的那几轮要带真图 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数。
+  it('从记录挑出来要抄进库的轮,存档里只剩位置的图先读回来;读不回来的照旧只有字数', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    const ref = { mimeType: 'image/png', chars: 9 };
+    const tool = (id: string, extra: Record<string, unknown> = {}) => ({ kind: 'mcp-tool-call', id, seq: 1, toolCallId: id, title: 'shot', status: 'done', ...extra });
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({
+      ...snapshot,
+      turns: [{ id: 't1', seq: 1, initiator: 'user', items: [
+        tool('restored', { imageRefs: [ref] }),
+        tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+      ] }],
+    }) as unknown as TimelineSnapshot;
+    fake.timeline.toolImage = async ({ itemId }) => itemId === 'restored'
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: 'could not be read back' };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    const picked = await service.pickRecordTurns('conv-1', async (turns) => turns);
+    expect(picked.ok && picked.turns?.[0].items).toEqual([
+      tool('restored', { images: [shot] }),
+      tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+    ]);
   });
 
   it('结算只成功一次：后答的一端拿到那条既有结算，provider 只被调一次', async () => {

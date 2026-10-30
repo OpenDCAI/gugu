@@ -1,7 +1,74 @@
 import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
-import { nodeReadableToWeb } from './acp-stdio';
+import { connectStdioAcp, nodeReadableToWeb } from './acp-stdio';
+import type { NormalizedEvent } from '@gugu/session-core/acp';
+
+it('v1 stdio admits on the provider\'s first update and keeps activity until the real RPC response', async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const events: NormalizedEvent[] = [];
+  const requests: { id: number; method: string; params: Record<string, unknown> }[] = [];
+  let buffered = '';
+  stdin.on('data', bytes => {
+    buffered += bytes.toString();
+    const lines = buffered.split('\n'); buffered = lines.pop()!;
+    for (const line of lines) {
+      const request = JSON.parse(line);
+      requests.push(request);
+      if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        result: { protocolVersion: 1, agentCapabilities: {} } }) + '\n');
+    }
+  });
+  const api = connectStdioAcp({ stdin, stdout }, () => ({
+    sessionEvent: ({ event }) => events.push(event), sessionUpdate: async () => {},
+    requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  }));
+  await api.initialize({ protocolVersion: 1 });
+  expect(requests[0].params).toMatchObject({ clientCapabilities: { _meta: { jetbrains: {
+    air: { version: 1, capabilities: ['nativeSubagentSessions', 'asyncTasks'] },
+  } } } });
+  const receipt = api.prompt({ sessionId: 's', prompt: [{ type: 'text', text: 'hi' }] });
+  await vi.waitFor(() => expect(requests).toHaveLength(2));
+  expect(events).toEqual([{ kind: 'agent_state', source: 'request', state: 'running' }]);
+  stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's',
+    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'on it' } } } }) + '\n');
+  expect((await receipt).status).toBe('dispatched');
+  expect(events[0]).toEqual({ kind: 'agent_state', source: 'request', state: 'running' });
+  stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requests[1].id, result: { stopReason: 'end_turn' } }) + '\n');
+  await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ source: 'request', state: 'idle', stopReason: 'end_turn' }));
+  stdout.end(); stdin.end();
+});
+
+it('decodes permission tool facts before they cross the v1 transport boundary', async () => {
+  const stdin = new PassThrough(), stdout = new PassThrough();
+  const permissions: unknown[] = [];
+  let buffered = '';
+  stdin.on('data', bytes => {
+    buffered += bytes.toString();
+    const lines = buffered.split('\n'); buffered = lines.pop()!;
+    for (const line of lines) {
+      const request = JSON.parse(line);
+      if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        result: { protocolVersion: 1, agentCapabilities: {} } }) + '\n');
+    }
+  });
+  const api = connectStdioAcp({ stdin, stdout }, () => ({
+    sessionEvent: () => {},
+    requestPermission: async request => { permissions.push(request); return { outcome: { outcome: 'selected', optionId: 'allow' } }; },
+  }));
+  await api.initialize({ protocolVersion: 1 });
+  const tool = { toolCallId: 'read', title: 'Read file', kind: 'read', rawInput: { path: '/work/a' },
+    content: [{ type: 'content', content: { type: 'text', text: 'Approval body' } }], _meta: { toolName: 'Read' } };
+  stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 91, method: 'session/request_permission', params: {
+    sessionId: 's', toolCall: tool, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+  } }) + '\n');
+  await vi.waitFor(() => expect(permissions).toHaveLength(1));
+  expect(permissions[0]).toMatchObject({ subject: { type: 'tool_call', toolCall: tool },
+    toolCall: { kind: 'tool_update', toolCallId: 'read', toolName: 'Read', toolKind: 'read',
+      rawInput: JSON.stringify({ path: '/work/a' }, null, 2), outputText: 'Approval body' } });
+  stdout.end(); stdin.end();
+});
 
 describe('nodeReadableToWeb', () => {
   it('drives delayed Node stdout without relying on Readable.toWeb flowing mode', async () => {

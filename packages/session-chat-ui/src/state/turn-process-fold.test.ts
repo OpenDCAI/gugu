@@ -64,8 +64,7 @@ function ctxWith(extra: Partial<SegmentCtx>): SegmentCtx {
     plan: () => null,
     translate: defaultChatTranslator,
     pendingToolCallIds: () => new Set<string>(),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    terminalSnapshot: () => null,
     ...extra,
   } as unknown as SegmentCtx;
 }
@@ -623,13 +622,13 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     expect(ids(units)).toContain('a14');
-    // 对话布局例外(管家 10-28,MBP 验收 #733):跑着就套头,写「执行中 · 后台任务」,❌ 行平铺在上一轮回复底下。
+    // 对话布局跑着就套头，但不把轮次触发来源写成推算的状态文案。
     const silent = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1')], undefined, { startedAt: 5_000 });
     for (const record of [running, silent]) {
       const conversation = flattenTier([record], ctxWith({ foldTurnProcess: true, active: true, agentConversation: true }), SEGMENTERS);
       const head = conversation.map(unit => unit.kind === 'turn-process' ? unit.data : (unit.data as ChatMessage).conversationProcess).find(Boolean) as TurnProcessItem | undefined;
       expect(head?.live).toBe(true);
-      expect(head?.trigger).toEqual({ kind: 'agent' });
+      expect(head).not.toHaveProperty('trigger');
     }
   });
 
@@ -821,11 +820,11 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(header(closed)).not.toHaveProperty('withBody');
   });
 
-  it('❌ 落定的轮没有空头 —— 一句话就答完的那轮,落定后头收掉', () => {
+  it('有答案而无过程时不留空头，最后空轮保留收到确认', () => {
     const answered = turn('t13', [user('u13'), reply('a13', 'on it')], DONE, { startedAt: 7_000, endedAt: 9_000 });
     expect(kinds(flattenTier([answered], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
     const settled = turn('t14', [user('u14')], DONE, { startedAt: 7_000, endedAt: 9_000 });
-    expect(kinds(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
+    expect(header(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).toMatchObject({ id: 't14:process', empty: true });
   });
 });
 
@@ -934,7 +933,7 @@ describe('agent conversation segment process', () => {
   const completed = () => turn('footer', [user('u'), thinking('think'), tool('call'), reply('answer')],
     { kind: 'done', reason: 'end_turn' }, { startedAt: 1000, endedAt: 25000 });
   const conversation = (record: TranscriptTurn, active = false, open = false) => flattenTier([record], ctxWith({ active, foldTurnProcess: true, agentConversation: true,
-    isTurnProcessExpanded: () => open }), SEGMENTERS);
+    isTurnProcessExpanded: () => open }), SEGMENTERS).flatMap(unit => unit.children ?? [unit]);
   it('binds every completed segment to its stable process head, with only tools counted', () => {
     const units = conversation(completed());
     expect(ids(units).indexOf('footer:process:head')).toBe(ids(units).indexOf('answer') - 1);
@@ -942,9 +941,9 @@ describe('agent conversation segment process', () => {
     expect(units.find(unit => unit.itemId === 'answer')?.data).toMatchObject({ conversationPart: 'body', conversationHead: 'footer:process:head' });
     expect(ids(units)).not.toContain('call');
   });
-  it('expands single steps in their original order above the reply', () => {
+  it('keeps semantic summaries and disclosed steps in their original order above the reply', () => {
     const units = conversation(completed(), false, true);
-    expect(ids(units)).toEqual(['u', 'footer:process:head', 'think', 'call', 'answer']);
+    expect(ids(units)).toEqual(['u', 'footer:process:head', 'footer:run:think', 'think', 'call', 'answer']);
   });
   it('keeps a live reply visible when its process is collapsed', () => {
     const running = turn('running', [user('u'), reply('answer'), tool('search')]);
@@ -986,21 +985,23 @@ describe('agent conversation segment process', () => {
     expect(process(units)).toMatchObject({ steps: 3, live: true });
     expect(conversation(record, true, true).length).toBeLessThan(units.length);
   });
-  it('carries delivery, schedule and agent triggers through both process paths', () => {
+  it('keeps runtime triggers out of both observable process paths', () => {
     for (const trigger of [{ kind: 'delivery' as const, chatIds: ['g1'] }, { kind: 'schedule' as const }, { kind: 'agent' as const }]) {
       for (const speech of [[], [reply('said')]]) {
         const record = { ...turn('t', [user('u'), tool('a'), ...speech]), trigger };
-        expect(process(conversation(record, true))?.trigger).toEqual(trigger);
-        expect(process(conversation(record))?.trigger).toBeUndefined();
+        expect(process(conversation(record, true))).not.toHaveProperty('trigger');
+        expect(process(conversation(record))).not.toHaveProperty('trigger');
       }
     }
-    expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))?.trigger).toEqual({ kind: 'agent' });
-    expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))?.trigger).toBeUndefined();
+    expect(process(conversation(turn('bg', [reply('said'), tool('a')]), true))).not.toHaveProperty('trigger');
+    expect(process(conversation(turn('owner', [user('u'), tool('a')]), true))).not.toHaveProperty('trigger');
   });
-  it('leaves a single tool as one row and uses speech to separate consecutive tool groups', () => {
+  it('summarizes single tools and uses speech to separate consecutive tool groups', () => {
     const record = turn('pings', [user('u'), bash('p1'), reply('mid'), bash('p2'), reply('final')], DONE);
     const units = conversation(record, false, true);
-    expect(units.filter(unit => unit.kind === 'tool-run')).toHaveLength(0);
+    expect(units.filter(unit => unit.kind === 'tool-run').map(unit => unit.data)).toMatchObject([
+      { stepCount: 1, label: 'Ran 1 shell command' }, { stepCount: 1, label: 'Ran 1 shell command' },
+    ]);
     expect(ids(units).filter(id => ['p1', 'mid', 'p2', 'final'].includes(id))).toEqual(['p1', 'mid', 'p2', 'final']);
   });
   it('keeps the failure outcome visible beside the same readable reply/process structure', () => {

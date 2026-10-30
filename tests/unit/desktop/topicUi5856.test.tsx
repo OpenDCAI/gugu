@@ -657,11 +657,10 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     // **左边来源线**的输入框上 —— 发出去就发在源群里,正是话题要隔离掉的那个方向。
     const source = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')
     expect(source).not.toMatch(/^\s*onQuote\?: /m)
-    // 引用发出去走**结构化** replyToMessageId,❌ 不是把 `> 引文` 拼进正文 ——
-    // 只有结构化那条路才有引用条、点得回原消息,group-routing 的「回复穿透档位」也才叫得醒被引用的 agent。
+    // 整条引用走结构化 replyToMessageId；显式选段保留这个关系，并用既有正文引用格式带选段。
+    // 点击回原消息和 group-routing 的回复穿透档位仍依赖结构化关系。
     expect(source).toContain("opts?.replyToMessageId ?? null")
-    // 引用条认主体:换话题时 ❌ 不许漂过去(这个组件实例在换话题时不重挂)。
-    expect(source).toContain("const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null")
+    // 同实例换话题的引用隔离由 topicMessageSelection.test.tsx 实际选字和发送验证。
 
     expect(quotePrefixOf({ content: '分片那段我看了,是 range 请求被网关吃了' }))
       .toBe('> 分片那段我看了,是 range 请求被网关吃了')

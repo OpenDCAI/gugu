@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /** @jsxImportSource solid-js */
 import { expect, it } from 'vitest';
 import { AcpTranscriptParser } from '@gugu/session-core/acp/transcript-parser';
@@ -10,7 +11,7 @@ it('#5995 Codex tool payloads use the shared disclosure before and after view re
   const parser = new AcpTranscriptParser({ sessionId: 'codex-tools' });
   const names = ['cua_repl.js', 'gugu.message_rules', 'gugu.message_reply'];
   for (const [index, title] of names.entries()) {
-    parser.push({
+    parser.pushEvent(decodeSessionUpdate({
       sessionUpdate: 'tool_call',
       toolCallId: `tool-${index}`,
       title,
@@ -20,7 +21,7 @@ it('#5995 Codex tool payloads use the shared disclosure before and after view re
       rawOutput: index === 2
         ? [{ type: 'inputText', text: `result-${index}` }]
         : { content: [{ type: 'text', text: `result-${index}` }], structuredContent: null },
-    });
+    }));
   }
   parser.endTurn();
   const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });

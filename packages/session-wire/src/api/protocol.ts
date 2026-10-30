@@ -2,6 +2,7 @@ import { toSerializedError, type Serializable, type SerializedError, type Unsubs
 import type { LiveUpdate } from '../live/protocol';
 
 export type WireErrorCode =
+  | 'TIMEOUT'
   | 'CANCELLED'
   | 'DISCONNECTED'
   | 'UNKNOWN_PROCEDURE'

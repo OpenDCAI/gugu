@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 /**
  * Height + inner-geometry contracts for the rows redrawn in the #3334 P3 third
  * batch (`file-op`, `execute`), plus the clipped-root scan those two sit inside.
@@ -250,36 +252,33 @@ const plan: ChatPlan = {
 const diff: ChatDiff = {
   kind: 'diff',
   id: 'card-diff',
-  path: 'src/height.ts',
-  oldText: 'const height = 20;\nreturn height;',
-  newText: 'const height = 21;\nreturn height;\n// measured',
+  patches: [textFilePatch('src/height.ts', 'const height = 20;\nreturn height;', 'const height = 21;\nreturn height;\n// measured')],
+
   status: 'done'
 }
 
 const longNameDiff: ChatDiff = {
   ...diff,
   id: 'card-diff-long-name',
-  path: `src/${'extremely-long-diff-file-name-segment-'.repeat(4)}component.tsx`
+  patches: [textFilePatch(`src/${'extremely-long-diff-file-name-segment-'.repeat(4)}component.tsx`, 'before', 'after')]
 }
 
 const multiHunkDiff: ChatDiff = {
   ...diff,
   id: 'card-diff-multi-hunk',
-  path: 'src/multi-hunk.ts',
-  oldText: Array.from({ length: 30 }, (_, index) => `const value${index} = ${index}`).join('\n'),
-  newText: Array.from({ length: 30 }, (_, index) =>
+  patches: [textFilePatch('src/multi-hunk.ts', Array.from({ length: 30 }, (_, index) => `const value${index} = ${index}`).join('\n'), Array.from({ length: 30 }, (_, index) =>
     [1, 15, 28].includes(index)
       ? `const value${index} = ${index + 100}`
       : `const value${index} = ${index}`
-  ).join('\n')
+  ).join('\n'))],
+
 }
 
 const headerOnlyDiff: ChatDiff = {
   kind: 'diff',
   id: 'card-diff-header-only',
-  path: 'src/pending.ts',
-  oldText: null,
-  newText: '',
+  patches: [{ changes: [{ operation: 'add', path: 'src/pending.ts' }], scope: 'unknown', patch: null }],
+
   status: 'running'
 }
 

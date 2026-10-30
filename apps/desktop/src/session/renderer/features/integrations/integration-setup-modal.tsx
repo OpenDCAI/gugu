@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { useAssistantPanelIntegration } from '@/components/assistant/useAssistantPanelIntegration';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
 import { useTranslation } from 'react-i18next';
@@ -302,7 +303,7 @@ function IntegrationCliLogin({
     if (mountedRef.current) setError(failure instanceof Error ? failure.message : String(failure));
   });
   const copyUrl = async (url: string) => {
-    try { await navigator.clipboard.writeText(url); } catch (failure) { rendererLogger('actions/integration-setup-modal').error({ error: failure }, 'action failed'); setError(messageForUser(failure)); return; }
+    try { await platform.writeClipboardText(url); } catch (failure) { rendererLogger('actions/integration-setup-modal').error({ error: failure }, 'action failed'); setError(messageForUser(failure)); return; }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -499,6 +500,13 @@ function IntegrationSetupForm({
           );
         })}
         {method.help ? <p className="text-xs leading-5 text-foreground-muted">{method.help}</p> : null}
+        {method.custody ? (
+          <p className="text-xs leading-5 text-foreground-muted">
+            {method.custody === 'platform'
+              ? translate('integrations.platformCustodyNote', { label: secretLabel ?? method.fields[0]?.label ?? '', name: metadata.name })
+              : translate('integrations.localCustodyNote', { label: secretLabel ?? method.fields[0]?.label ?? '' })}
+          </p>
+        ) : null}
         {method.helpUrl ? (
           <Button
             type="button"

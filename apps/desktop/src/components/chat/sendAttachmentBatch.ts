@@ -5,6 +5,7 @@ import { attachmentsEndpoint, prepareChatAttachment, type PreparedChatAttachment
 import { requireThreadCapableChat } from '../../lib/chatThreadGate'
 import { attachmentSendTiming, attachmentUploadTimeoutMs, type AttachmentSendTiming } from '../../lib/attachmentSendTiming'
 import { attachmentAttemptEndpoint, retryAttachmentUpload, settleAttachmentSend, type ObserveAttachmentMessage } from '../../lib/attachmentSendRecovery'
+import { setAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
 
 // @@@2188 composer 分阶段发送的附件批执行器(自 ChatAreaPanel.handleSendAttachments 抽出)。
 // #7290 gugu-3:字节经 attachments/upload 直传 OSS,attachments/commit 把它放进会话的「附件」、发一条附件消息(说明由服务端接在
@@ -25,13 +26,19 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
       try {
         const file = files[index]
         const prepared = await retryAttachmentUpload(attempt => timings[index].stage('upload', attempt,
-          (signal, capDeadline) => prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
-            { ...scope, request_id: timings[index].clientId }, plan => capDeadline(plan.expires_at), attempt > 1),
+          (signal, capDeadline, progress) => {
+            setAttachmentUploadProgress(timings[index].clientId)
+            return prepareChatAttachment(attachmentAttemptEndpoint(endpoint, signal), file,
+            { ...scope, request_id: timings[index].clientId }, plan => { capDeadline(plan.expires_at); progress() }, attempt > 1,
+            transfer => { progress(transfer.loaded, transfer.total); setAttachmentUploadProgress(timings[index].clientId, { ...transfer, attempt }) })
+          },
           undefined, { timeoutMs: attachmentUploadTimeoutMs(file.size) }))
         settle[index].resolve(prepared)
       } catch (error) {
         timings[index].finish('failed', 'upload')
         settle[index].reject(error)
+      } finally {
+        setAttachmentUploadProgress(timings[index].clientId)
       }
     }
   }

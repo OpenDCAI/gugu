@@ -1,4 +1,5 @@
 import { createChatContext } from '@session-chat/chat-context'
+import { textFilePatch } from '@gugu/session-core/lib'
 import { createChatView } from '@session-chat/chat-view'
 import type { ChatCommands } from '@session-chat/commands'
 import { DEFAULT_THEME } from '@session-chat/core/theme'
@@ -246,9 +247,9 @@ describe('background tasks at the end of the transcript', () => {
   it('hovering a subagent row shows its tool timeline, and the panel survives roster updates', async () => {
     const { state, host } = mount()
     const calls = [
-      { toolCallId: 'c1', title: 'Read src/ChatRoot.tsx', status: 'done' as const, seq: 0 },
-      { toolCallId: 'c2', title: 'Grep "virtualizer"', status: 'error' as const, seq: 1 },
-      { toolCallId: 'c3', title: 'Run pnpm test', status: 'running' as const, seq: 2 }
+      { toolCallId: 'c1', title: 'Read src/ChatRoot.tsx', category: 'read' as const, detail: 'src/ChatRoot.tsx', status: 'done' as const, seq: 0 },
+      { toolCallId: 'c2', title: 'Grep "virtualizer"', category: 'search' as const, detail: '"virtualizer"', status: 'error' as const, seq: 1 },
+      { toolCallId: 'c3', title: 'Run pnpm test', category: 'execute' as const, detail: 'pnpm test', status: 'running' as const, seq: 2 }
     ]
     state.transcript.history.seed([settled])
     state.session.setBackgroundTasks({ commands: [], subagents: [agent({ model: 'claude-sonnet', calls })] })
@@ -268,16 +269,16 @@ describe('background tasks at the end of the transcript', () => {
     expect(panel()!.textContent).toContain('Audit chat perf')
     expect(panel()!.textContent).toContain('claude-sonnet')
     const steps = [...panel()!.querySelectorAll<HTMLElement>('[data-slot="subagent-timeline-step"]')]
-    expect(steps.map((s) => [s.dataset.status, s.textContent])).toEqual([
-      ['done', 'Read src/ChatRoot.tsx'],
-      ['error', 'Grep "virtualizer"'],
-      ['running', 'Run pnpm test']
+    expect(steps.map((s) => [s.dataset.status, s.querySelector('[data-slot="subagent-step-action"]')?.textContent, s.querySelector('[data-slot="subagent-step-summary"]')?.textContent])).toEqual([
+      ['done', 'Read 1 file', 'src/ChatRoot.tsx'],
+      ['error', 'Searched for 1 pattern', '"virtualizer"'],
+      ['running', 'Ran 1 shell command', 'pnpm test']
     ])
 
     // 名单来了更新(新对象):浮层还开着,多出来的那一步也画上。
     state.session.setBackgroundTasks({
       commands: [],
-      subagents: [agent({ model: 'claude-sonnet', calls: [...calls, { toolCallId: 'c4', title: 'Edit a.ts', status: 'running', seq: 3 }] })]
+      subagents: [agent({ model: 'claude-sonnet', calls: [...calls, { toolCallId: 'c4', title: 'Edit a.ts', category: 'edit', detail: 'a.ts', status: 'running', seq: 3 }] })]
     })
     await until('the new step shows', () => panel()?.querySelectorAll('[data-slot="subagent-timeline-step"]').length === 4)
 
@@ -294,7 +295,7 @@ describe('background tasks at the end of the transcript', () => {
   it('shows a step that just started even though the completed count did not change', async () => {
     const { state, host } = mount()
     const startedAt = Date.now() - 30_000
-    const done = { toolCallId: 'c1', title: 'Read a.ts', status: 'done' as const, seq: 0 }
+    const done = { toolCallId: 'c1', title: 'Read a.ts', category: 'read' as const, detail: 'a.ts', status: 'done' as const, seq: 0 }
     state.transcript.history.seed([settled])
     state.session.setBackgroundTasks({ commands: [], subagents: [agent({ startedAt, completedSteps: 1, calls: [done] })] })
     await until('the background line is on screen', () => row(host) !== null)
@@ -306,7 +307,7 @@ describe('background tasks at the end of the transcript', () => {
 
     state.session.setBackgroundTasks({
       commands: [],
-      subagents: [agent({ startedAt, completedSteps: 1, calls: [done, { toolCallId: 'c2', title: 'Run pnpm test', status: 'running', seq: 1 }] })]
+      subagents: [agent({ startedAt, completedSteps: 1, calls: [done, { toolCallId: 'c2', title: 'Run pnpm test', category: 'execute', detail: 'pnpm test', status: 'running', seq: 1 }] })]
     })
     await until('the running step shows', () => steps().length === 2)
     expect(steps()[1].dataset.status).toBe('running')
@@ -392,7 +393,7 @@ it('keeps a sealed bubble above a steer and the background pill on the following
   expect(host.querySelectorAll('[data-slot="background-tasks-pill"]')).toHaveLength(1)
 })
 
-it('renders a single Bash step without a nested disclosure and gives an owner steer its own origin', async () => {
+it('summarizes a single live command, discloses semantic details and keeps the owner steer boundary', async () => {
   const { state, host } = mount({}, true)
   const now = Date.now()
   state.transcript.activeTurn.set({ id: 'origin', seq: 0, initiator: 'agent', trigger: { kind: 'agent' }, startedAt: now - 5000, items: [
@@ -401,16 +402,42 @@ it('renders a single Bash step without a nested disclosure and gives an owner st
     { kind: 'execute-tool-call', id: 'single', seq: 2, toolCallId: 'single', toolName: 'Bash', title: 'Read Beta workflow', command: 'cat workflow.yml', status: 'done', at: now - 1000 },
   ] })
   await until('owner-steer process is visible', () => host.querySelector('[data-conversation-process="origin:process@owner-steer"]') !== null)
-  const step = host.querySelector<HTMLElement>('[data-conversation-step="single"]')!
+  const step = host.querySelector<HTMLElement>('[data-slot="tool-run"]')!
   expect(step).not.toBeNull()
-  expect(step.textContent).toContain('Bash')
-  expect(step.textContent).toContain('Read Beta workflow')
-  expect(step.querySelector('button, [data-collapse-id]')).toBeNull()
-  expect(step.offsetHeight).toBe(32)
+  expect(step.textContent).toContain('Ran 1 shell command')
+  expect(step.textContent).not.toContain('Bash')
+  expect(step.getAttribute('data-step-count')).toBe('1')
+  step.querySelector<HTMLButtonElement>('[data-collapse-id]')!.click()
+  await until('the semantic command detail appears', () => host.querySelector('[data-conversation-step="single"]') !== null)
+  expect(host.textContent).not.toContain('Bash')
+  expect(host.querySelector('[data-conversation-step="single"]')!.textContent).toContain('Ran 1 shell command')
+  expect(host.querySelector<HTMLElement>('[data-slot="tool-run"]')!.offsetHeight).toBeGreaterThan(0)
   const process = host.querySelector<HTMLElement>('[data-conversation-process="origin:process@owner-steer"]')!
   expect(process.textContent).not.toContain('background task')
   const bubble = host.querySelector<HTMLElement>('[data-user-card="before"]')!
   const input = host.querySelector<HTMLElement>('[data-agent-conversation-message="owner-steer"]')!
   await untilStable('message seam settles', () => input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom)
   expect(Math.abs(input.getBoundingClientRect().top - bubble.getBoundingClientRect().bottom - 20)).toBeLessThanOrEqual(1)
+})
+
+it('keeps background tasks on the completed process with a trailing change card', async () => {
+  const { state, host } = mount({}, true)
+  state.transcript.history.seed([{
+    id: 'edited', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 4000, outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: 'edit-request', seq: 0, role: 'user', text: 'Update the file and leave the checks running.' },
+      { kind: 'diff', id: 'edit-file', seq: 1, patches: [textFilePatch('/workspace/result.txt', null, 'Updated.')], status: 'done' },
+      { kind: 'message', id: 'edit-reply', seq: 2, role: 'assistant', text: 'Updated the file; checks are still running.' },
+    ],
+  } as unknown as TranscriptTurn])
+  state.session.setBackgroundTasks({ commands: [command], subagents: [agent()] })
+  await until('the result card and background tasks mount', () => !!host.querySelector('[data-slot="file-change-summary"]') && !!host.querySelector('[data-slot="background-tasks-pill"], [data-slot="background-tasks"]'))
+  await untilStable('completed process layout settles', () => host.querySelector('[data-chat-canvas]')?.getBoundingClientRect().height)
+  const head = host.querySelector<HTMLElement>('[data-agent-conversation-message="edited:process:head"]')!
+  const pill = head.querySelector<HTMLElement>('[data-slot="background-tasks-pill"]')
+  expect(pill).not.toBeNull()
+  expect(pill!.textContent).toContain('Background · 1 command · 1 subagent')
+  expect(row(host)).toBeNull()
+  const process = head.querySelector<HTMLElement>('[data-conversation-process]')!
+  expect(Math.abs(process.getBoundingClientRect().top - pill!.getBoundingClientRect().top)).toBeLessThanOrEqual(2)
+  expect(host.querySelectorAll('[data-slot="file-change-summary"]')).toHaveLength(1)
 })

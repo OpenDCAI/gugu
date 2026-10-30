@@ -5,7 +5,6 @@ import type {
   LiveSettingsCapability,
 } from '@gugu/session-core/agents/plugins';
 import type { AcpSendPromptError } from '@gugu/session-core/acp';
-import type { PromptResponse } from '@agentclientprotocol/sdk';
 import type { Result } from '@gugu/session-shared';
 import type { Logger } from '@gugu/session-shared/logger';
 
@@ -89,15 +88,12 @@ export interface SessionCellDeps {
   acceptsImagePrompts?: boolean;
   /** Whether initialize negotiated the ACP `_session/steering` extension. */
   supportsSteering?: boolean;
-  /** 忙时插话的送法(插件 `acp.midTurnSteer`,语义见那里)。缺席 = 并发 `session/prompt`。 */
-  midTurnSteer?: 'interrupt-at-tool-boundary';
   /** Host-verified personal assistant owner; absent for task agents and ordinary sessions. */
   assistantOwnerId?: string;
   /** Synchronous queue persistence must have succeeded before cancelling a replied continuation. */
   queuedPromptsPersisted?: () => boolean;
   /** 这一家「失败报成正常结束」的识别(插件 `acp.turnFailure`,语义见那里)。 */
   turnFailure?: {
-    fromPromptResponse?: (response: PromptResponse) => string | null;
     fromAgentMessage?: (text: string) => string | null;
     /** 还会从 stderr 报(晚到的那一行要等一下)。 */
     watchesStderr: boolean;
@@ -111,7 +107,7 @@ export interface SessionCellDeps {
    */
   mergeEnvelopes?: (texts: readonly string[]) => string;
   /** Core-owned envelope identity and uncertainty marking, injected by the host. */
-  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean) => string | null;
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   logger: Logger;
   /**
    * behavior `agent-context-injection` 的 **③**:走用户级载体的会话级系统提示词。

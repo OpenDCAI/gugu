@@ -74,6 +74,26 @@ function shape(timeline: SessionTimeline): string {
 }
 
 describe('时间线存档', () => {
+  it('publishes independent terminal snapshots without adding a second durable archive', async () => {
+    const source = await stage(await fixtureLines());
+    const timeline = await open(source.root);
+    const cursor = timeline.getSnapshot().cursor;
+    const terminals = [{ terminalId: 'orphan', owner: 'agent' as const, canKill: false,
+      command: 'echo', args: [], cwd: '/w', output: 'UNREFERENCED_TERMINAL_BYTES', truncated: false,
+      exitStatus: { exitCode: 0, signal: null } }];
+    timeline.syncTerminals(terminals);
+    expect(timeline.getSnapshot().terminals).toEqual(terminals);
+    expect(timeline.getAfter(cursor)).toMatchObject({ ok: true, batch: { terminals } });
+    const archive = await timeline.archive?.();
+    expect(archive).toBeTruthy();
+    expect(JSON.stringify(archive)).not.toContain('UNREFERENCED_TERMINAL_BYTES');
+    const reopened = await open(source.root, archive);
+    expect(reopened.getSnapshot().terminals).toEqual([]);
+    // The retained live authority, rather than the native archive, hydrates a new view.
+    reopened.syncTerminals(terminals);
+    expect(reopened.getSnapshot().terminals).toEqual(terminals);
+  });
+
   it('装回存档后只读增量，拼出来的时间线与整份重读逐字一致', async () => {
     const lines = await fixtureLines();
     const half = Math.max(1, Math.floor(lines.length / 2));
@@ -81,6 +101,8 @@ describe('时间线存档', () => {
     // ① 冷开前一半 → 存档
     const first = await stage(lines.slice(0, half));
     const before = await open(first.root);
+    before.syncPendingRequests([{ itemId: 'cache-witness', kind: 'permission', title: 'Cached approval', options: [] }]);
+    before.settle({ itemId: 'cache-witness', optionId: 'allow', by: 'desktop' });
     const archive = await before.archive?.();
     expect(archive).toBeTruthy();
     before.dispose();
@@ -93,23 +115,30 @@ describe('时间线存档', () => {
     const full = await open((await stage(lines)).root);
 
     expect(shape(resumed)).toBe(shape(full));
-    // 阴控：确认走的真是续读那条路。整份重读会换代号，续上了才留着存档里那个。
-    expect(resumed.epoch).toBe(archive!.epoch);
+    // The host-only settlement cannot be rebuilt from native history: the cache really was reused.
+    expect(resumed.getSnapshot().settlements).toContainEqual(expect.objectContaining({ itemId: 'cache-witness', state: 'resolved', optionId: 'allow' }));
+    expect(full.getSnapshot().settlements.some(item => item.itemId === 'cache-witness')).toBe(false);
+    expect(resumed.epoch).not.toBe(archive!.epoch);
   });
 
-  it('存档版本对不上就整份重放，内容一条不少', async () => {
+  it.each([1, 2, 3, 4, TIMELINE_ARCHIVE_VERSION + 1])('rejects archive version %s and rebuilds from native history', async (version) => {
     const lines = await fixtureLines();
     const staged = await stage(lines);
     const before = await open(staged.root);
     const archive = await before.archive?.();
     before.dispose();
 
-    const stale = { ...archive!, version: TIMELINE_ARCHIVE_VERSION + 1 } as TimelineArchive;
+    const stale = { ...archive!, version } as TimelineArchive;
     const reopened = await open(staged.root, stale);
     const full = await open((await stage(lines)).root);
 
     expect(shape(reopened)).toBe(shape(full));
     expect(reopened.epoch).not.toBe(archive!.epoch);
+    const rebuilt = await reopened.archive?.();
+    expect(rebuilt?.version).toBe(TIMELINE_ARCHIVE_VERSION);
+    const resumed = await open(staged.root, rebuilt);
+    expect(resumed.epoch).not.toBe(rebuilt!.epoch);
+    expect(shape(resumed)).toBe(shape(full));
   });
 
   it('记录被改写后不拿旧偏移量往下接，整份重放而不是缺一段', async () => {
@@ -129,7 +158,7 @@ describe('时间线存档', () => {
     expect(shape(reopened)).toBe(shape(full));
   });
 
-  it('装回存档后手机手里的旧游标仍然有效，只补增量', async () => {
+  it('reuses the archive contents but resets a client from the previous publisher', async () => {
     const lines = await fixtureLines();
     const half = Math.max(1, Math.floor(lines.length / 2));
     const staged = await stage(lines.slice(0, half));
@@ -142,9 +171,11 @@ describe('时间线存档', () => {
     const resumed = await open(staged.root, archive);
 
     const after = resumed.getAfter(cursor);
-    // 续得上 ⇒ 给增量批次，而不是 `ok: false` + 一份「换代了，你整份重下」的快照。
-    expect(after.ok).toBe(true);
-    expect(after.ok && after.batch.turns.length).toBeGreaterThan(0);
+    expect(after.ok).toBe(false);
+    if (after.ok) throw new Error('a previous publisher cursor must reset');
+    expect(after.reset).toBe('epoch_changed');
+    expect(after.snapshot.turns).toEqual(resumed.getSnapshot().turns);
+    expect(after.snapshot.cursor.epoch).not.toBe(cursor.epoch);
   });
 
   it('记录被截短（inode 没换、只是变短）→ 同样整份重放，❌ 不许拿旧偏移量往下读', async () => {

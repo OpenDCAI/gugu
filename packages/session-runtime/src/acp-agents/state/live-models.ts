@@ -2,7 +2,7 @@ import {
   acpApiContract,
   initialSessionConfigState,
   type AgentState,
-  type PlanState,
+  type SessionPlans,
   type PromptDraft,
   type SessionConfigState,
   type SessionState,
@@ -68,7 +68,7 @@ export function publishLiveModelState<T>(
 
 export type {
   AgentState,
-  PlanState,
+  SessionPlans,
   PromptDraft,
   SessionConfigState,
   SessionState,

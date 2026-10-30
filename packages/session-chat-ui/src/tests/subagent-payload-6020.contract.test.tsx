@@ -1,7 +1,8 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /** @jsxImportSource solid-js */
 import { expect, it } from 'vitest';
 import { AcpTranscriptParser } from '@gugu/session-core/acp/transcript-parser';
-import { enrichClaudeUpdate } from '../../../session-plugins/src/agents/impl/claude/acp-transform';
+import { createClaudeSessionDecoder } from '../../../session-plugins/src/agents/impl/claude/acp-transform';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
@@ -9,15 +10,17 @@ import { toolGroupUnitDef } from '@session-chat/components/rows/tools/tool-group
 import { makeContractCtx, renderAndMeasureUnit } from './contract';
 import type { ItemNode } from '@session-chat/state/flatten';
 import { until } from '../../../../tests/support/awaitCondition';
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
+
 
 it('native Codex child reasoning and results expand inside the existing subagent disclosure', async () => {
   const parser = new AcpTranscriptParser({ sessionId: 'native-subagent' });
-  parser.push(subagentUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit native', task: 'Audit native', background: true, request: 'NATIVE_REQUEST' }));
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: 'child', name: 'Audit native', task: 'Audit native', background: true, request: 'NATIVE_REQUEST' }));
   for (const [sessionUpdate, text] of [['agent_thought_chunk', 'NATIVE_REASONING'], ['agent_message_chunk', 'NATIVE_RESULT']]) {
-    parser.push(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: { sessionUpdate, content: { type: 'text', text } } }));
+    parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'child', update: { sessionUpdate, content: { type: 'text', text } } }));
   }
-  parser.push(subagentUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'completed' }));
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'completed' }));
   parser.endTurn();
   const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);
@@ -44,15 +47,15 @@ it('native Codex child reasoning and results expand inside the existing subagent
 });
 
 it.each([false, true])('#6020 subagent details use shared disclosure, including children: %s', async (withChild) => {
-  const parser = new AcpTranscriptParser({ sessionId: 'subagent-details', enrich: enrichClaudeUpdate });
-  parser.push({ sessionUpdate: 'tool_call', toolCallId: 'parent', title: 'inspect files', kind: 'other',
+  const parser = new AcpTranscriptParser({ sessionId: 'subagent-details' });
+  parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'parent', title: 'inspect files', kind: 'other',
     status: withChild ? 'failed' : 'completed',
     rawInput: { description: 'inspect files', prompt: 'FULL_PROMPT_DETAIL', model: 'worker-model' },
     rawOutput: { message: withChild ? 'FAILURE_DETAIL' : 'SUCCESS_DETAIL' },
-    _meta: { claudeCode: { toolName: 'Agent' } } });
-  if (withChild) parser.push({ sessionUpdate: 'tool_call', toolCallId: 'child', title: 'child lookup', kind: 'other',
+    _meta: { claudeCode: { toolName: 'Agent', toolResponse: { agentId: 'native-child' } } } }));
+  if (withChild) parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'child', title: 'child lookup', kind: 'other',
     status: 'completed', rawInput: { query: 'CHILD_ARGUMENT' }, rawOutput: 'CHILD_RESULT',
-    _meta: { claudeCode: { parentToolUseId: 'parent' } } });
+    _meta: { claudeCode: { parentToolUseId: 'parent' } } }));
   parser.endTurn();
   const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);

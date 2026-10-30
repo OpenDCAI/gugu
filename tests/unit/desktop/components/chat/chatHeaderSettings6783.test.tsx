@@ -9,6 +9,7 @@ import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/ch
 import { drainTopicSplitRequest } from '../../../../../apps/desktop/src/lib/topicSplitRequest'
 
 vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
+vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
@@ -57,8 +58,8 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
     })
   }
 
-  it('group (desktop): ⋯ holds Topics — this group\'s topic list — beside Settings, and a topic opens in the split', async () => {
-    await renderHeader({ isGroupChat: true, mobile: false }, [
+  it.each([false, true])('group (mobile=%s): ⋯ holds Topics beside Settings and opens a topic', async (mobile) => {
+    await renderHeader({ isGroupChat: true, mobile }, [
       { id: 't-old', kind: 'topic', source_chat_id: 'g', name: '旧话题', last_message_at: '2026-10-01T00:00:00Z' },
       { id: 't-new', kind: 'topic', source_chat_id: 'g', name: '新话题', last_message_at: '2026-10-27T00:00:00Z' },
       { id: 't-else', kind: 'topic', source_chat_id: 'other', name: '别的群', last_message_at: '2026-10-27T00:00:00Z' },
@@ -67,7 +68,7 @@ describe('#6783 页头 = 这个聊天自己的信息', () => {
     expect(topics.textContent).toContain('话题')
     await clickElement(topics)
     const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-menu-topic"]'))
-    expect(rows.map((row) => row.textContent)).toEqual(['新话题', '旧话题'])
+    expect(rows.map((row) => row.querySelector('.gg-topic-name')?.textContent)).toEqual(['新话题', '旧话题'])
     await clickElement(rows[0]!)
     expect(drainTopicSplitRequest('g')).toMatchObject({ chatId: 't-new', sourceChatId: 'g' })
   })

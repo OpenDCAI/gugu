@@ -184,14 +184,14 @@ function withHostResolvedCli(
       const cancelled = await client.cancelLogin(input);
       if (!cancelled.success) throw new Error('Connection removed, but its sign-in process could not be cancelled');
     }),
-    selectConnection: (input) => connectionOperation(async () => {
+    selectConnection: ({ stopBusySessions, ...input }) => connectionOperation(async () => {
       const status = await client.refreshAuthStatus({ ...input, runContext: await runContextFor(input) });
       if (!status.success) throw new Error('Cannot read the connection’s sign-in status');
       if (input.connectionId !== 'native' && status.data.kind !== 'authenticated') throw new Error('Sign in before using this connection');
       if (input.providerId === 'codex' || input.providerId === 'claude') {
         // 已有会话跟着默认订阅走:换凭据前要先停掉在跑的会话(#26)。
         const { switchSubscription } = await import('@main/core/sessions/subscription-switch');
-        await switchSubscription(input.providerId, input.connectionId, (await runContextFor({ providerId: input.providerId })).env);
+        await switchSubscription(input.providerId, input.connectionId, (await runContextFor({ providerId: input.providerId })).env, { stopBusySessions });
       } else {
         await selectHarnessConnection(input.providerId, input.connectionId);
       }

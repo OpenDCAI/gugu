@@ -31,8 +31,12 @@ export interface LocalIntegrationTools {
   call(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<CallToolResult>
 }
 
-/** 每次调用现取的对方地址与请求头:OAuth 那几家是固定地址 + 现取的 Bearer 令牌,高德是带用户 key 的地址。 */
-export type IntegrationEndpoint = { url: string; headers: Record<string, string> }
+/**
+ * 每次调用现取的对方地址与请求头:OAuth 那几家是固定地址 + 现取的 Bearer 令牌;凭据由平台保管的那几家(高德,#921)
+ * 是平台的转发口 + 本人现取的会话令牌。`fetch`:认得那一端特有的「不成」应答、把它说成一句清楚的错(平台转发口的
+ * 「没连」「存着的凭据被拒」);不给 = 全局 fetch。
+ */
+export type IntegrationEndpoint = { url: string; headers: Record<string, string>; fetch?: typeof fetch }
 
 /** 工具从哪来:转发给对方的托管 MCP,或咕咕自己答。 */
 export type IntegrationUpstream =
@@ -53,8 +57,8 @@ async function withUpstream<T>(
   signal: AbortSignal | undefined,
   run: (client: Client) => Promise<T>,
 ): Promise<T> {
-  const { url, headers } = await upstream.endpoint(signal)
-  const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } })
+  const { url, headers, fetch } = await upstream.endpoint(signal)
+  const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers }, ...(fetch ? { fetch } : {}) })
   const client = new Client({ name: 'gugu', version: '1.0.0' })
   await client.connect(transport)
   try {
