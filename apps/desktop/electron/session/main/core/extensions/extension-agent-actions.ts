@@ -526,8 +526,8 @@ function withWindowNote<T extends { next?: string }>(shown: 'shown' | 'pending' 
 
 function installNext(
   manifest: ExtensionManifest,
-  /** What `app_install` was given, as the agent passes it again with chat_id: `{"source_dir":…}` or `{"market":…}`. */
-  from: { source_dir: string } | { market: string },
+  /** What `app_install` was given, as the agent passes it again with chat_id: `{"source_dir":…}`, `{"market":…}` or `{"app":…}`. */
+  from: { source_dir: string } | { market: string } | { app: string },
   { checkAvailable, sentToGroup }: { checkAvailable: boolean; sentToGroup: boolean },
   /** `skillsLeftOut`: said first, on either path (the quiet reinstall too — an author fixing one goes that way). */
   leftOut: readonly string[]
@@ -833,8 +833,8 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
         : removeExtensionVariant(id, target.variant, action.consent, dependencies);
     }
     case 'install': {
-      if ((action.source_dir === undefined) === (action.market === undefined)) {
-        throw new Error('app_install takes exactly one of source_dir, source_message_id or market');
+      if ([action.source_dir, action.market, action.app].filter((given) => given !== undefined).length !== 1) {
+        throw new Error('app_install takes exactly one of source_dir, source_message_id, market or app');
       }
       // A Gugu server has no window to run a page in: app_check is not offered as the next step there.
       const following = { checkAvailable: dependencies.checkSurface !== undefined && !dependencies.headless, sentToGroup: action.chat_id !== undefined };
@@ -846,6 +846,13 @@ async function actOn(action: z.infer<typeof agentActionSchema>, dependencies: Ex
         return result.installed ? { ...result, tabs: tabKinds(result.manifest), next: `Variant ${action.variant} is active; the App data and where it is enabled are kept.` } : result;
       }
       if (action.market !== undefined) return installFromMarketForAgent(action.market, action.chat_id, following, dependencies);
+      if (action.app !== undefined) {
+        // Installed here already: nothing is installed; the host sends its installed copy into the chat (`pack_installed`).
+        const service = extensionsService();
+        if (!service.isInstalled(action.app)) throw new Error(`app_install: App ${action.app} is not installed on this computer — app_search finds what is`);
+        const { manifest } = service.get(action.app);
+        return { installed: true, id: manifest.id, name: manifest.name, version: manifest.version, tabs: tabKinds(manifest), ...installNext(manifest, { app: manifest.id }, following, []) };
+      }
       const sourceDir = await agentFolder('source_dir', action.source_dir!, dependencies.callerWorkspaceRoot);
       return installFolder(sourceDir, { chatId: action.chat_id, from: { source_dir: sourceDir }, following }, dependencies);
     }
