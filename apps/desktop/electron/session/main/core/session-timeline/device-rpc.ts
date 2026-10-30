@@ -2,6 +2,7 @@ import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder';
 import { SUBSCRIPTION_IDLE_MS } from '@gugu/session-core/session-record';
 import { createSessionHostDeviceRpcHandlers } from '../../host-ws/device-session-host';
 import { createMessagePreviewHost, type MessagePreviewHostDeps } from './preview-rpc';
+import { createSessionpageProjectionDeviceHost, type ProjectionDeviceFactoryOptions } from '../extensions/projection-device-factory';
 
 /**
  * 这台机器在设备 RPC 上应答的会话页动词。
@@ -19,9 +20,11 @@ export function createSessionpageSessionDeviceRpcHandlers(options?: {
   idleMs?: number;
   /** MessagePreview(#6357);不给 = 不接 `taskpage.preview.*`。 */
   preview?: Omit<MessagePreviewHostDeps, 'now' | 'idleMs'>;
+  /** Only the real authenticated cloud responder supplies this. SSH has no private asker proof. */
+  projection?: ProjectionDeviceFactoryOptions;
 }): {
   handlers: DeviceRpcHandlers;
-  dispose: () => void;
+  dispose: () => Promise<void> | void;
   /** 测试钩子:立刻做一次清扫,返回被拆掉的订阅 id。 */
   sweep: () => string[];
 } {
@@ -35,10 +38,12 @@ export function createSessionpageSessionDeviceRpcHandlers(options?: {
 
   // #6264 别的桌面、手机经这条频道用这台机器的整套会话页宿主(一套工作台,见 host-ws/device-session-host.ts)。
   const sessionHost = createSessionHostDeviceRpcHandlers();
+  const projection = options?.projection ? createSessionpageProjectionDeviceHost(options.projection) : null;
 
   const handlers: DeviceRpcHandlers = {
     ...sessionHost.handlers,
     ...previewHost?.handlers,
+    ...projection?.handlers,
   };
 
   return {
@@ -48,6 +53,7 @@ export function createSessionpageSessionDeviceRpcHandlers(options?: {
       sessionHost.dispose();
       if (sweepTimer) clearInterval(sweepTimer);
       previewHost?.dispose();
+      return projection?.dispose();
     },
   };
 }

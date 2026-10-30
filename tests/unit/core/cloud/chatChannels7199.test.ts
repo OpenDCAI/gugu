@@ -1,6 +1,6 @@
-// #7199 聊天渠道的客户端:管家 /channels 的路径与方法、出错码(没开放 = not_open)。
+// #7199 聊天渠道的客户端:管家 /channels 的路径与方法、出错码(服务配置故障 = unavailable)。
 import { describe, expect, it, vi } from 'vitest'
-import { createChatChannelsClient, isChatChannelsNotOpen } from '@gugu/core/cloud/chatChannels'
+import { createChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 
 function client(respond: (method: string, url: string, body: unknown) => Response) {
   const calls: Array<{ method: string; url: string; body: unknown; headers: Record<string, string> }> = []
@@ -46,13 +46,10 @@ describe('chatChannels client', () => {
     expect(calls[0].headers).toMatchObject({ Authorization: 'Bearer jwt', apikey: 'anon' })
   })
 
-  it('这扇门说没开放:not_open;别的错照码带回', async () => {
-    const notOpen = client(() => json({ error: 'not_open', message: '聊天工具暂未开放' }, 503)).c
-    const err = await notOpen.list().catch((e: unknown) => e)
-    expect(isChatChannelsNotOpen(err)).toBe(true)
+  it('preserves configuration and ownership failures as request errors', async () => {
+    const unavailable = client(() => json({ error: 'unavailable', message: 'Channel service signing key is not configured.' }, 503)).c
+    await expect(unavailable.list()).rejects.toMatchObject({ status: 503, code: 'unavailable', message: 'Channel service signing key is not configured.' })
     const forbidden = client(() => json({ error: 'forbidden', message: '只能对接你自己的 agent' }, 403)).c
-    const err2 = await forbidden.setAgent('wechat', 'x').catch((e: unknown) => e)
-    expect(isChatChannelsNotOpen(err2)).toBe(false)
-    expect(err2).toMatchObject({ status: 403, code: 'forbidden' })
+    await expect(forbidden.setAgent('wechat', 'x')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
   })
 })

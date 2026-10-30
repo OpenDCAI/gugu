@@ -18,7 +18,10 @@ const entry = (id: string, name: string, type: string, parentId: string | null, 
   parentId, path, systemRole: null, version: 1, createdBy: me, createdAt: ago(600), updatedAt: ago(60), sourceMessageIds: [], canDelete: true, ...more,
 })
 const ENTRIES: Entry[] = []
-const reset = () =>
+const reset = () => {
+  // The recent sort uses updatedAt. Seed one clock for the whole fixture: a
+  // millisecond boundary between constructors must not reorder the next case.
+  const times = { createdAt: ago(600), updatedAt: ago(60) }
   ENTRIES.splice(0, ENTRIES.length,
     // 「附件」 is shown by its role, whatever its row says (a stored name here that is not the shown one, so it tells).
     entry('att', 'attachments-store', 'folder', null, 'attachments-store', { systemRole: 'attachments', createdBy: { id: '', name: '', kind: 'system' } }),
@@ -28,6 +31,8 @@ const reset = () =>
     // A change a little newer than shot.png's: the order between them is not left to the milliseconds the rig takes.
     entry('notes', 'notes.md', 'text', null, 'notes.md', { updatedAt: ago(50) }),
     entry('shot', 'shot.png', 'binary', 'att', 'attachments-store/shot.png'))
+  for (const item of ENTRIES) Object.assign(item, times)
+}
 
 const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
 const coded = (code: string, message: string) => Object.assign(new Error(message), { code })

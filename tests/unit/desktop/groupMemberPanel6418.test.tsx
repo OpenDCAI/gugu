@@ -11,7 +11,16 @@ import { act, Fragment, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
 import type { DisplayIdentity } from '../../../apps/desktop/src/lib/displayIdentity'
-import { createNode, createReactHarness, displayIdentity, renderWithAppProviders, typeInto, waitForCondition } from '../../support/testHarness'
+import { createNode, createReactHarness, device, displayIdentity, renderWithAppProviders, typeInto, waitForCondition } from '../../support/testHarness'
+import { closeInfoTab, infoTabOf, openInfoTab } from '../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
+import { publishProjectGroupChats } from '../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
+import type { MemberProfileChatTarget } from '../../../apps/desktop/src/components/MemberProfileCard'
+import { DevicesContext } from '../../../apps/desktop/src/store/devicesContext'
+import { removeDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+
+const shell = vi.hoisted(() => ({ mobile: false }))
+vi.mock('../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
@@ -74,7 +83,15 @@ beforeEach(() => {
   getGroupCollab.mockResolvedValue({ snapshot: SNAPSHOT, identities: IDENTITIES })
   listJoinRequests.mockResolvedValue([])
 })
-afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
+afterEach(() => {
+  harness.cleanup()
+  vi.clearAllMocks()
+  shell.mobile = false
+  closeInfoTab('group-navigation')
+  closeInfoTab('other-group-navigation')
+  publishProjectGroupChats([], new Map(), new Map())
+  removeDeviceSessions('navigation-device')
+})
 
 const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null, title, actions)
 
@@ -121,6 +138,67 @@ async function click(element: HTMLElement | null) {
   expect(element).not.toBeNull()
   await act(async () => { element!.click(); await Promise.resolve(); await Promise.resolve() })
 }
+
+describe('#969 leaving the group info page', () => {
+  async function renderMembers(onOpenUserChat = vi.fn()) {
+    publishProjectGroupChats([], new Map(), new Map([['claude', { projectId: 'project-1', sessionId: 'session-1' }]]))
+    updateDeviceSessions('navigation-device', { sessions: [{
+      conversationId: 'session-1', projectId: 'project-1', title: 'Task', harness: 'claude', runtime: 'acp',
+      agentStatus: null, lastInteractedAt: null, supported: true, agent: { userId: 'claude' },
+    }], cached: false, loading: false, error: null })
+    openInfoTab('group-navigation', 'members')
+    openInfoTab('other-group-navigation', 'members')
+    const members = createNode(ControlledMemberListPanel, {
+      chatId: 'group-navigation', chatKind: 'group', head, snapshot: SNAPSHOT,
+      onReload: vi.fn(async () => {}), onOpenUserChat,
+    })
+    await renderWithAppProviders(harness, createNode(DevicesContext.Provider, { value: {
+      devices: [device('navigation-device', [])], loading: false, error: null,
+      refresh: vi.fn(async () => {}), rename: vi.fn(async () => {}), remove: vi.fn(async () => {}),
+      listBoundAgents: vi.fn(async () => []),
+    } }, members), { auth: { id: 'owner-1' }, chat: {
+      identitiesById: Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity])),
+    }, contacts: { contacts: [] } })
+  }
+
+  it.each([
+    [true, 'claude', 'agent'], [true, 'member-1', 'human'],
+    [false, 'claude', 'agent'], [false, 'member-1', 'human'],
+  ] as const)('Message on mobile=%s to %s closes only the mobile source info before routing', async (mobile, memberId, type) => {
+    shell.mobile = mobile
+    const sourceAtNavigation: Array<ReturnType<typeof infoTabOf>> = []
+    const open = vi.fn((_target: MemberProfileChatTarget) => { sourceAtNavigation.push(infoTabOf('group-navigation')) })
+    await renderMembers(open)
+    await click(q(`[data-member-row="${memberId}"]`))
+    await click(q('[data-testid="member-profile-send-message-button"]'))
+    expect(open).toHaveBeenCalledOnce()
+    expect(open.mock.calls[0]?.[0]).toMatchObject({ id: memberId, type })
+    if (type === 'agent') expect(open.mock.calls[0]?.[0].session).toEqual({ projectId: 'project-1', sessionId: 'session-1' })
+    expect(sourceAtNavigation).toHaveLength(1)
+    if (mobile) expect(sourceAtNavigation[0]).toBeNull()
+    else expect(sourceAtNavigation[0]).not.toBeNull()
+    expect(infoTabOf('other-group-navigation')).not.toBeNull()
+  })
+
+  it('New Agent closes only the source info before asking the shell to open the group-bound creation page', async () => {
+    shell.mobile = true
+    await renderMembers()
+    const sourceAtNavigation: Array<ReturnType<typeof infoTabOf>> = []
+    const create = vi.fn((event: Event) => {
+      sourceAtNavigation.push(infoTabOf('group-navigation'))
+      expect((event as CustomEvent).detail).toEqual({ chatId: 'group-navigation' })
+    })
+    window.addEventListener(UI_EVENTS.createAgentInGroup, create)
+    try {
+      await click(q('[data-testid="member-list-create-agent"]'))
+      expect(create).toHaveBeenCalledOnce()
+      expect(sourceAtNavigation).toEqual([null])
+      expect(infoTabOf('other-group-navigation')).not.toBeNull()
+    } finally {
+      window.removeEventListener(UI_EVENTS.createAgentInGroup, create)
+    }
+  })
+})
 
 describe('gugu-dev#181 我的 agent 收成一组', () => {
   it('「我的 agent · N」与「其他人的 agent · N」是两组同级的:我的默认展开,收起后别人的 agent 仍在自己那一组里', async () => {

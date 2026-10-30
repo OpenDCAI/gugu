@@ -28,6 +28,9 @@ import type { BackgroundCommandEntry } from '@session-chat/lib/background-comman
 import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import type { ChatCaches } from './caches';
 import type { ChatTheme } from './theme';
+import type { ChatTranslator } from '@session-chat/localization';
+import type { ChatCommands } from '@session-chat/commands';
+import type { SelfIdentity } from '@session-chat/lib/self-identity';
 
 // ── Measured ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +69,12 @@ export type Measured<L = unknown> = {
  */
 export type MeasureCtx = {
   theme: ChatTheme;
+  /** The same text services as Render: localized labels are layout inputs when they wrap. */
+  translate?: ChatTranslator;
+  commands?: ChatCommands;
+  selfIdentity?: SelfIdentity | null;
+  chatName?: (id: string) => string | null;
+  appName?: (id: string) => string | null;
   width: number;
   isCollapsed: (id: string) => boolean;
   expanded: (id: string) => boolean;

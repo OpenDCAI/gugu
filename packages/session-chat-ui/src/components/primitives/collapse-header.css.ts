@@ -32,6 +32,8 @@ export const collapseHeader = style([collapseRow, { fontSize: vars.typeBodyFontS
 
 export const chevron = style({
   display: 'inline-block',
+  flexShrink: 0,
+  width: 12, height: 12, lineHeight: '12px', textAlign: 'center',
   // @@@type-chrome (Refs #6104) — 这个字号量的是**箭头字形本身**的大小,走 chrome 的最小那一档(10)。
   fontSize: vars.typeChromeMicroFontSize,
   transition: 'transform 150ms ease-out',

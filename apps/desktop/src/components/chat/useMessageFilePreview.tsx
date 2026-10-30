@@ -21,7 +21,7 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
   visible: boolean
   closeRightSurfaces: () => void
   toast: (message: string, kind: 'error', description?: string) => void
-  onForward: (message: MessageItem) => void
+  onForward?: (message: MessageItem) => void
 }) {
   const { t } = useTranslation('messaging')
   const downloadFailed = t('chatArea.downloadFailed')

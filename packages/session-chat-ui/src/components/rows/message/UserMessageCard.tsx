@@ -28,6 +28,7 @@ import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { agentSendLabel } from '@session-chat/state/agent-send';
+import { readableLabel } from '../readable-label';
 import { UserMessageActions } from './UserMessageActions';
 import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
@@ -54,17 +55,21 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const chatName = useChatName();
   const commands = useCommands();
   const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
+  const [menuRoot, setMenuRoot] = createSignal<HTMLDivElement>();
   const textMount = createMemo(() => commands().onMessageTextMount);
   const textMessageId = createMemo(() => props.data.id);
   createEffect(() => {
-    const root = textRoot(), mount = textMount(), itemId = textMessageId();
+    const root = textRoot(), bubble = menuRoot(), mount = textMount(), itemId = textMessageId();
     if (!props.conversation || !root || !mount) return;
-    const cleanup = mount({ root, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
+    const cleanup = mount({ root, menuRoot: bubble, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
     if (cleanup) onCleanup(cleanup);
   });
   const turn = useTurnState();
   /** 对话布局里发出去的那条:气泡下面那一行最前面常驻「发到 群名」(管家 10-28)。 */
   const sentTo = () => props.conversation && props.data.sentTo ? agentSendLabel(props.data.sentTo, translate, chatName) : undefined;
+  const destination = () => sentTo() && props.ctx.measureCtx ? readableLabel(sentTo()!, props.ctx.measureCtx(), props.ctx.measureCtx().width - 120) : null;
+  const actionVars = () => destination() ? { ...props.vars, footerH: Math.max(props.vars.footerH, destination()!.height) } : props.vars;
+
   const mCtx = () => props.ctx.measureCtx?.();
   // Layout-resolved geometry (#4874): `base` narrows padding, drops the border
   // and reserves a left gutter. Same helper as measureMessage so the painted
@@ -199,7 +204,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           style={{
             height: `${attachStripH()}px`,
             // `base`:整条右对齐到与气泡同一条边。
-            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': 'flex-end' } : {}),
+            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': props.conversation && props.data.role === 'assistant' ? 'flex-start' : 'flex-end' } : {}),
           }}
         >
           <For each={props.data.attachments}>
@@ -211,6 +216,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
     <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
+      ref={setMenuRoot}
       data-user-card={props.data.id}
       data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
       data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
@@ -269,7 +275,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     </Show>
     <Show when={!props.conversation || hasConversationActions(props.data)}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} prefix={sentTo()} />
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={actionVars()} prefix={destination()?.text ?? sentTo()} controlHeight={destination() && destination()!.height > props.vars.footerH ? props.vars.footerH : undefined} />
     </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
@@ -312,6 +318,7 @@ function AttachmentChip(props: { attachment: ChatAttachment; itemId: string }) {
       )}
       onClick={(e) => {
         e.stopPropagation();
+        if (props.attachment.href) { commands().onOpenLink?.(props.attachment.href); return; }
         commands().onViewAttachment?.({
           attachment: { ...props.attachment, ...(dataUrl() ? { dataUrl: dataUrl() } : {}) },
           itemId: props.itemId,

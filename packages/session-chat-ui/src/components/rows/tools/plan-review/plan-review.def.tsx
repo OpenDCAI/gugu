@@ -4,6 +4,7 @@
  * 不另存状态：等不等批准看会话现有的待批请求（`permissionFor`）；批了没批看工具状态（done / error，与 question-tools
  * 同一条判据）；点选项交给宿主的 `onResolvePermission`，答的就是输入框上那条本要答的请求，所以卡在流里时宿主不再出那一条。
  */
+import { rowTranslator } from '../../readable-label';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import {
   HOOK_NOTICE_VARS,
@@ -83,10 +84,16 @@ function optionHeight(label: string, ctx: MeasureCtx): number {
   return measureSoftWrap(label, width, font).visualLineCount * NOTICE_OPTION.lineH + 2 * NOTICE_OPTION.padY;
 }
 
+function planHeader(item: PlanReview, ctx: MeasureCtx): string {
+  const t = rowTranslator(ctx);
+  const state = item.state === 'awaiting' ? t('transcript.awaitingPermission') : item.state === 'approved' ? t('transcript.planApproved') : item.state === 'rejected' ? t('transcript.planRejected') : null;
+  return t('transcript.planReview') + (state ? ` · ${state}` : '');
+}
+
 function planExtra(item: PlanReview, ctx: MeasureCtx, render: () => JSX.Element = () => null): NoticeExtra {
   const n = item.options.length;
   const h = item.options.reduce((sum, option) => sum + optionHeight(option.label, ctx), (n - 1) * HOOK_NOTICE_VARS.gap);
-  return { blocks: ctx.caches.parseBlocks(`${item.id}:plan`, item.text), ...(n > 0 && { footer: { h, render } }) };
+  return { label: planHeader(item, ctx), blocks: ctx.caches.parseBlocks(`${item.id}:plan`, item.text), ...(n > 0 && { footer: { h, render } }) };
 }
 
 function PlanReviewRender(props: { data: PlanReview; ctx: RenderCtx; vars: HookNoticeVars }) {

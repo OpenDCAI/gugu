@@ -26,7 +26,7 @@ export const resourceLinkRoot = style({
 const rowBase = style({
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
+  columnGap: '8px', rowGap: '4px', flexWrap: 'wrap',
   minWidth: 0,
   maxWidth: '100%',
   fontSize: vars.typeBodyFontSize,
@@ -54,9 +54,8 @@ export const titleText = style({
   // room (#7316).
   flex: '0 1 auto',
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   transition: 'color 150ms',
   selectors: {
     [`${rowClickable}:hover &`]: {
@@ -70,9 +69,8 @@ export const titleText = style({
 export const pathText = style({
   color: vars.fgMuted,
   ...givesWayFirst,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   fontSize: '0.75rem',
 });
 

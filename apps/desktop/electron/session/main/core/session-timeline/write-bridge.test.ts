@@ -98,6 +98,24 @@ describe('终端腿(pty)回话:唤醒归 session-direct 的路由', () => {
 });
 
 describe('mobile ACP replies use the shared session message router', () => {
+  it('admits a caption and its image as one manual native input, including image-only input', async () => {
+    const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const, name: 'a.png' }];
+    await bridge.deliverSessionText(target, 'caption', 'input-with-image', attachments);
+    expect(state.sentParams).toEqual([expect.objectContaining({ text: 'caption', clientMessageId: 'input-with-image', delivery: { queue: true, origin: 'manual', attachments } })]);
+    await bridge.deliverSessionText(target, '', 'image-only', attachments);
+    expect(state.sentParams).toHaveLength(2);
+    await expect(bridge.deliverSessionText(ptyTarget, 'caption', 'bad-terminal-image', attachments)).rejects.toMatchObject({ code: 'unsupported_runtime' });
+  });
+  it('keeps the caller input ID when the same direct send is retried after reconnecting', async () => {
+    await bridge.deliverSessionText(target, 'one input', 'input-request-1');
+    await bridge.deliverSessionText(target, 'one input', 'input-request-1');
+    expect(state.sentParams).toEqual([
+      expect.objectContaining({ clientMessageId: 'input-request-1', text: 'one input' }),
+      expect.objectContaining({ clientMessageId: 'input-request-1', text: 'one input' }),
+    ]);
+    expect(state.sentTexts).toEqual(['one input', 'one input']);
+    expect(state.sentTexts.some(text => text.includes('gugu_delivery'))).toBe(false);
+  });
   it.each(['starting', 'working', 'closed', 'lost'])(
     'delegates %s sessions without a separate ACP wake or prompt path', async (lifecycle) => {
       state.summaries = { s: summary(lifecycle) };
@@ -106,7 +124,7 @@ describe('mobile ACP replies use the shared session message router', () => {
       expect(await bridge.deliverSessionText(target, `  ${text}  `)).toEqual({ accepted: 'started' });
       expect(state.calls).toEqual(['send']);
       expect(state.sentParams).toEqual([{
-        projectId: 'p', sessionId: 'conv-1', clientMessageId: expect.any(String), text, kind: 'session-direct',
+        projectId: 'p', sessionId: 'conv-1', clientMessageId: expect.any(String), text, kind: 'session-direct', delivery: { queue: true, origin: 'manual' },
       }]);
     },
   );

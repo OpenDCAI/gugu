@@ -4,7 +4,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ChatSlotHost } from '../../../../apps/desktop/src/components/ChatSlotHost'
+import { ChatSummariesHost } from '../../../../apps/desktop/src/components/chat/ChatSummariesHost'
 import { readChatSummary } from '../../../../apps/desktop/src/lib/chatSummariesBridge'
 import { ChatStoreProvider } from '../../../../apps/desktop/src/store/chatContext'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
@@ -35,7 +35,7 @@ describe('the chat summaries the shell hands the session page', () => {
         chat({ id: 'topic-1', kind: 'topic', name: '登录页白屏', source_chat_id: 'group-1' }),
       ],
     })
-    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSummariesHost))) })
     expect(readChatSummary('dm-alias')).toMatchObject({ name: '阿威', kind: 'dm', lastMessagePreview: '周四前对一下', sourceChatId: null })
     expect(readChatSummary('dm-plain')?.name).toBe('Jun')
     expect(readChatSummary('topic-1')).toMatchObject({ name: '登录页白屏', kind: 'topic', sourceChatId: 'group-1' })
@@ -45,7 +45,7 @@ describe('the chat summaries the shell hands the session page', () => {
 it('publishes a group alias to quick open and delivery titles, and removes it when cleared', async () => {
   const render = async (alias: string | null) => {
     const value = chatStore({ chatsRead: true, chats: [chat({ id: 'group-alias', kind: 'group', name: 'Shared group', alias })] })
-    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSummariesHost))) })
   }
   await render('Private group')
   expect(readChatSummary('group-alias')).toMatchObject({ name: 'Private group', alias: 'Private group' })
@@ -61,7 +61,7 @@ it('publishes a group alias to quick open and delivery titles, and removes it wh
 it('publishes unread changes and durable manual marks through the same summary subscription', async () => {
   const render = async (unread_count: number, is_marked_unread: boolean) => {
     const value = chatStore({ chatsRead: true, chats: [chat({ id: 'project-read', kind: 'group', name: 'Project', unread_count, is_marked_unread })] })
-    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSlotHost, {} as never))) })
+    await act(async () => { root.render(createElement(ChatStoreProvider, { value }, createElement(ChatSummariesHost))) })
   }
   await render(3, false)
   expect(readChatSummary('project-read')).toMatchObject({ unreadCount: 3, isMarkedUnread: false })

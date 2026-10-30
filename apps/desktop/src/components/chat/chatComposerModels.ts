@@ -6,6 +6,9 @@ import type { ComposerAttachAction } from './ComposerAttachButton'
 import type { AgentStatusById } from './agentMentionStatusModels'
 
 export interface ChatMessageComposerProps {
+  /** Agent conversations share the project composer, including its live queue controls. */
+  conversation?: Partial<import('react').ComponentProps<typeof import('@renderer/lib/chat/agent-conversation-view').AgentConversationComposer>>
+
   // @@@threads (#957) — opts 加可选 threadRootId：话题视图发送时由 ChatAreaPanel 注入活动话题 id。
   // @@@whisper (#820) — opts 加可选 isWhisper：悄悄话模式下强制设为 true。
   onSend: (content: string, opts?: { toUserIds?: string[] | null; replyToMessageId?: string | null; threadRootId?: string | null; isWhisper?: boolean; beforeDeliver?: () => Promise<void>; submittedAt?: number }) => Promise<void>
