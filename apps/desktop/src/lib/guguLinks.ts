@@ -27,7 +27,7 @@ export function openLinkTarget(target: GuguLinkTarget | SenderChatTarget, source
 export function openLink(raw: string | OpenTarget, groupParticipantRequestId?: string): Promise<boolean> | null {
   const target = typeof raw === 'string' ? parseGuguLink(raw, { supabaseUrl: readMobileShell() ? getSupabaseUrl() : undefined }) : raw
   if (!target) return null
-  return openTarget(target, groupParticipantRequestId)
+  return groupParticipantRequestId ? openTarget(target, groupParticipantRequestId) : openTarget(target)
 }
 
 export async function openTarget(target: OpenTarget, groupParticipantRequestId?: string): Promise<boolean> {

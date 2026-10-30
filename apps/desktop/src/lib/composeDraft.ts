@@ -16,7 +16,8 @@ export async function composeTaskDraft(row: Pick<SessionDirectoryRow, 'session'>
     import('@/session/renderer/features/extensions/compose-in-session'),
   ])
   // Opened the one way a session is opened, then the draft in its composer.
-  await openLink({ kind: 'session', sessionId: row.session.conversationId, projectId: row.session.projectId, ...(row.deviceId ? { deviceId: row.deviceId } : {}) }, groupParticipantRequestId)
+  const requestArgs: [] | [string] = groupParticipantRequestId ? [groupParticipantRequestId] : []
+  await openLink({ kind: 'session', sessionId: row.session.conversationId, projectId: row.session.projectId, ...(row.deviceId ? { deviceId: row.deviceId } : {}) }, ...requestArgs)
   if (files.length || row.session.runtime === 'acp') { await handoffNativeComposer(row.session.conversationId, { text, files }); return }
   await composeWhenOpen(() => getProjectManagerStore().projects.get(row.session.projectId)?.mountedProject?.sessionManager.sessions.get(row.session.conversationId)?.viewModel ?? undefined, text)
 }
