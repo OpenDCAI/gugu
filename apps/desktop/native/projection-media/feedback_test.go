@@ -3,6 +3,7 @@ package projection
 import (
 	"bytes"
 	"context"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -71,6 +72,29 @@ func TestIDRRefreshRetainsSourceAndRTPContinuity(t *testing.T) {
 		}
 		if !idr {
 			t.Fatal("PLI refresh did not emit an IDR")
+		}
+		if attempt == 0 {
+			// The caller cleared its original storage. Decode the actual retained IDR
+			// to distinguish a private copy from a direct alias, without the race tool.
+			var accessUnit bytes.Buffer
+			parser := &codecs.H264Packet{}
+			for _, data := range packets[before:] {
+				var packet rtp.Packet
+				if err = packet.Unmarshal(data); err != nil {
+					t.Fatal(err)
+				}
+				nal, parseErr := parser.Unmarshal(packet.Payload)
+				if parseErr != nil {
+					t.Fatal(parseErr)
+				}
+				accessUnit.Write(nal)
+			}
+			decoder := exec.CommandContext(ctx, config.Executable, "-v", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1")
+			decoder.Stdin = &accessUnit
+			decoded, decodeErr := decoder.Output()
+			if decodeErr != nil || len(decoded) != len(pixels) || decoded[2] < 215 {
+				t.Fatalf("retained picture aliases caller storage: bytes=%d err=%v", len(decoded), decodeErr)
+			}
 		}
 		if &video.pixels[0] != address {
 			t.Fatal("recovery allocated another raw-frame cache")

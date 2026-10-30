@@ -7,22 +7,12 @@ import type { ChatTranslator } from '@session-chat/localization';
 import { IconCheck, IconX } from '@session-chat/components/primitives/icons';
 import * as styles from './conversation-step.css';
 import { tallyToolRun, toolRunLabel } from '@session-chat/state/tool-run';
-import { deriveToolInputSummary } from '../tools/tool-input-summary';
+import { toolStepDetail as stepDetail } from '@session-chat/lib/tool-step-detail';
 import { ConversationTextBody, conversationNarrationHeight, conversationTextKey } from '../message/ConversationNarration';
 import { conversationTextOverflow, conversationTextWidth } from '../message/conversation-text-overflow';
 
 type Step = Exclude<ToolNode, { kind: 'tool-group' }>;
 type ConversationStepData = Step & { actionLabel: string; stateLabel: string | null };
-function stepDetail(item: Step): string | undefined {
-  switch (item.kind) {
-    case 'execute-tool-call': return item.command ?? item.inputSummary ?? deriveToolInputSummary(item.rawInput);
-    case 'read-tool-call': return item.path ?? item.resource;
-    case 'search-tool-call': return item.query;
-    case 'web-fetch-tool-call': return item.url;
-    case 'spawn-subagent-tool-call': return item.name;
-    default: return item.inputSummary ?? deriveToolInputSummary(item.rawInput);
-  }
-}
 const completion = (item: Step) => item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call';
 function stepText(item: Step): ChatMessage {
   const text = completion(item) ? ('summary' in item && item.summary ? item.summary : item.title) : stepDetail(item) ?? '';
