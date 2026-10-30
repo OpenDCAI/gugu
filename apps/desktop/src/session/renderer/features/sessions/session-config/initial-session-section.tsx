@@ -7,7 +7,7 @@ import {
   strictestDeclaredPermissionMode,
   type GuguPermissionMode,
 } from '@gugu/session-core/acp/client';
-import type { ResolvedModelEfforts } from '@gugu/session-core/agents/plugins';
+import { providerTakesMessageStartupInPty, type ResolvedModelEfforts } from '@gugu/session-core/agents/plugins';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { nativeComposerAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import {
@@ -268,7 +268,7 @@ export type InitialSessionState = {
   /**
    * 这条会话以哪一种**展示**开:`'code'` 编程视角(harness 自己的原生 TUI 跑在终端里),
    * `'general'` 通用视角(咕咕渲染的结构化聊天面板)。这是**生效值**:用户的持久偏好经这一家的
-   * 能力与入口解析之后的结果,可能与偏好不同(见 `generalForcedByInbound`、只有通用视角的 agent)。
+   * 能力与入口解析之后的结果,可能与偏好不同(见 `generalForcedHere`、只有通用视角的 agent)。
    * ⚠️ 运行时起哪种进程(pty / acp)是另一层事实,只在构造载荷那一刻翻译一次。
    */
   sessionView: SessionView;
@@ -368,23 +368,40 @@ interface InitialSessionStateOptions {
    */
   initialPrompt?: string;
   initialAttachmentDraft?: ComposerAttachmentDraft;
+  /** 这个框把首句派成群里的一张任务卡(`taskChatId`):首句是一条真的咕咕消息,见 `terminalLegUnstartableForCreation`。 */
+  dispatchesToChat?: boolean;
 }
 
-/** Resolve the leg for this creation surface without retiring a still-targeted TUI form. */
+/**
+ * 从这里建,终端腿起不来:首句要终端腿接住一条真的咕咕消息,而它接不住。
+ *  · 对话页:终端腿收不到入站(`inbound: 'none'`,kimi 那一格);同一家在会话页上终端照样可选。
+ *  · 派进群里的任务(项目里的新任务):首句是那张任务卡,终端腿要有吃得下消息首句的启动通道
+ *    (`providerTakesMessageStartupInPty`,codex 那一格)—— 主进程起 pty 时那道闸问的是同一个函数,
+ *    所以框里给得出「终端」的,起得来。
+ */
+export function terminalLegUnstartableForCreation(input: {
+  sessionpage: AgentCapabilities['sessionpage'] | null | undefined;
+  prompt: AgentCapabilities['prompt'] | null | undefined;
+  creationSurface: SessionCreationSurface;
+  dispatchesToChat: boolean;
+}): boolean {
+  const tui = input.sessionpage?.['tui'];
+  if (!tui) return false;
+  if (input.creationSurface === 'chat-page') return tui.inbound === 'none';
+  return input.dispatchesToChat && !providerTakesMessageStartupInPty(input.prompt ?? undefined, tui.messageTransport);
+}
+
+/** Resolve the leg for this creation without retiring a still-targeted TUI form. */
 export function sessionpageLegForCreation(input: {
   sessionpage: AgentCapabilities['sessionpage'] | null | undefined;
   preferred: 'acp' | 'tui';
-  creationSurface: SessionCreationSurface;
+  /** `terminalLegUnstartableForCreation` 的答案。 */
+  terminalUnstartable: boolean;
 }): 'acp' | 'tui' {
-  const preferredIntegration = input.sessionpage?.[input.preferred];
-  const shouldResolveFallback =
-    preferredIntegration === undefined
-    || (
-      input.creationSurface === 'chat-page'
-      && input.preferred === 'tui'
-      && preferredIntegration.inbound === 'none'
-    );
-  if (!shouldResolveFallback) return input.preferred;
+  if (input.preferred === 'tui' && input.terminalUnstartable) {
+    return sessionpageLegFor(input.sessionpage ?? undefined, 'acp') ?? input.preferred;
+  }
+  if (input.sessionpage?.[input.preferred] !== undefined) return input.preferred;
   return sessionpageLegFor(input.sessionpage ?? undefined, input.preferred) ?? input.preferred;
 }
 
@@ -511,6 +528,7 @@ export function useInitialSessionState(
     unattended = false,
     creationSurface = 'session-page',
     initialPrompt = '',
+    dispatchesToChat = false,
   } = options;
   const { translate } = useSessionMessages();
   // 新建会话的记忆 —— 应用设置 `newSessionMemory`,这台设备一份;主进程的 spawnAgent 读的是同一份(L11 复核 58)。
@@ -839,13 +857,16 @@ export function useInitialSessionState(
   const generalWired = agentOffersSessionView(capabilities, 'general');
   const resolvablePreferredSurface =
     sessionViewOffered && !generalOnlyAgent && !generalWired ? 'tui' : preferredSessionpageLeg;
-  // Chat-page's first sentence needs a receiving leg. Kimi's TUI row intentionally remains
-  // selectable on session-page for the native channel work; only the chat-page + terminal-preference
-  // path resolves its inbound:none declaration to the ACP leg.
+  const terminalUnstartable = terminalLegUnstartableForCreation({
+    sessionpage: capabilities?.sessionpage,
+    prompt: capabilities?.prompt,
+    creationSurface,
+    dispatchesToChat,
+  });
   const sessionpageSurface = sessionpageLegForCreation({
     sessionpage: capabilities?.sessionpage,
     preferred: resolvablePreferredSurface,
-    creationSurface,
+    terminalUnstartable,
   });
   // 目录按这条会话会落的那条腿取(#6246):两条腿的配置根可能不同(pi:终端腿读用户自己的根,
   // ACP 腿读咕咕自有的根),拿另一条腿的清单当菜单,就会列出这条腿跑不了的、或漏掉跑得了的。
@@ -875,13 +896,9 @@ export function useInitialSessionState(
     harnessCatalogState,
     staticModelsCapability?.modelOptions
   );
-  // 判据用解析后的腿(resolvablePreferredSurface),不用原始偏好:偏好是通用、但通用视角没接通
-  // 被折回编程、编程视角又收不到首句 ⇒ 最终仍落在通用,这一条也属于「从这里发起只能通用」。
-  const generalForcedByInbound =
-    creationSurface === 'chat-page'
-    && resolvablePreferredSurface === 'tui'
-    && capabilities?.sessionpage?.['tui']?.inbound === 'none'
-    && sessionpageSurface === 'acp';
+  // 从这里建终端起不来 ⇒ 不管偏好是哪头都锁在通用(❌ 等人点了终端才变灰);只在通用那条腿真能落时锁,
+  // 锁显示的才等于这条会话真实的展示。
+  const generalForcedHere = terminalUnstartable && sessionpageSurface === 'acp';
   const sessionView = sessionViewOfLeg(sessionpageSurface);
   // 展示控件的锁:三种「选不了」各有各的含义,控件显示的必须等于这条会话真实的展示(上面那个
   // `sessionView`),❌ 不是偏好。owner 2026-08-28 实测过反例:「这里写死了,没法切换,没法测」。
@@ -892,7 +909,7 @@ export function useInitialSessionState(
       ? { view: 'general', reason: creationSurface === 'chat-page' ? 'general-required-here' : 'remote-needs-ssh' }
       : generalOnlyAgent
       ? { view: 'general', reason: 'general-only' }
-      : generalForcedByInbound
+      : generalForcedHere
         ? { view: 'general', reason: 'general-required-here' }
         : !generalWired
           ? { view: 'code', reason: 'code-only' }
