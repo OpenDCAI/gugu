@@ -3,7 +3,7 @@ import { join, relative, resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apply, enabled } = vi.hoisted(() => ({ apply: vi.fn(async () => {}), enabled: { value: true } }))
-vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ search: { apply } }) }))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ search: { write: apply } }) }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/global-search/global-search-flag', () => ({
   globalSearchV3Enabled: () => enabled.value,
 }))
@@ -22,7 +22,7 @@ beforeEach(() => { apply.mockClear(); enabled.value = true })
 
 describe('search index feed', () => {
   it('is the only renderer module that writes the search index', () => {
-    const writers = sources(desktopSrc).filter((path) => /\bsearch\.apply\(/.test(readFileSync(path, 'utf8')))
+    const writers = sources(desktopSrc).filter((path) => /\bsearch\.write\(/.test(readFileSync(path, 'utf8')))
     expect(writers.map((path) => relative(desktopSrc, path))).toEqual(['lib/searchIndexFeed.ts'])
   })
 

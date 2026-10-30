@@ -46,6 +46,18 @@ export function createRPCRouter<T extends RouterMap>(routers: T): T {
   return routers;
 }
 
+// 客户端会被当成值传递(props、context、日志),React 开发版这类工具会反射读它:
+// `.name` / `.toString()` / `Symbol.toPrimitive` / `toJSON` / `$$typeof`。这些键❌ 当成频道路径,
+// 否则拿到的是又一个代理,转字符串时抛「Cannot convert object to primitive value」,整次提交中断。
+const NOT_A_CHANNEL = new Set(['then', 'toJSON', '$$typeof', 'asymmetricMatch', 'nodeType']);
+// The client proxy wraps a function, so every name a function has (apply, call, bind, name, length, toString,
+// constructor…) also reads reflectively. Registration refuses such names: the client could never reach them.
+const PROXY_TARGET = function () {};
+
+function reflectiveKey(target: object, key: string | symbol): boolean {
+  return typeof key !== 'string' || key in target;
+}
+
 // Recursively walks the handler tree and registers every leaf function with
 // ipcMain at its full dot-joined path (e.g. "git.commit", "git.worktree.commit").
 function registerHandlers(ipcMain: RpcIpcMainLike, prefix: string, value: unknown): void {
@@ -59,6 +71,9 @@ function registerHandlers(ipcMain: RpcIpcMainLike, prefix: string, value: unknow
     });
   } else if (value !== null && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
+      if (NOT_A_CHANNEL.has(key) || reflectiveKey(PROXY_TARGET, key)) {
+        throw new Error(`RPC route ${prefix}.${key} cannot be reached: '${key}' is a property every client proxy already has`);
+      }
       registerHandlers(ipcMain, `${prefix}.${key}`, child);
     }
   }
@@ -66,6 +81,9 @@ function registerHandlers(ipcMain: RpcIpcMainLike, prefix: string, value: unknow
 
 export function registerRPCRouter(router: RouterMap, ipcMain: RpcIpcMainLike): void {
   for (const [ns, handlers] of Object.entries(router)) {
+    if (NOT_A_CHANNEL.has(ns) || reflectiveKey({}, ns)) {
+      throw new Error(`RPC namespace ${ns} cannot be reached: '${ns}' is a property every client already has`);
+    }
     registerHandlers(ipcMain, ns, handlers);
   }
 }
@@ -79,15 +97,6 @@ type IpcClient<R> = {
     : IpcClient<R[K]>;
 };
 
-// 客户端会被当成值传递(props、context、日志),React 开发版这类工具会反射读它:
-// `.name` / `.toString()` / `Symbol.toPrimitive` / `toJSON` / `$$typeof`。这些键❌ 当成频道路径,
-// 否则拿到的是又一个代理,转字符串时抛「Cannot convert object to primitive value」,整次提交中断。
-// 路由里没有任何方法叫这些名字。
-const NOT_A_CHANNEL = new Set(['then', 'toJSON', '$$typeof', 'asymmetricMatch', 'nodeType']);
-
-function reflectiveKey(target: object, key: string | symbol): boolean {
-  return typeof key !== 'string' || key in target;
-}
 
 // Returns a callable Proxy that accumulates the dot-joined channel path on each
 // property access and calls invoke() when invoked as a function.
