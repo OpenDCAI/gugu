@@ -17,6 +17,8 @@
  * Outer geometry (height) is applied by resource-link.def.tsx Render.
  */
 
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, wrappedRowHeight } from '../readable-label';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { GenericFileIcon, IconError } from '@session-chat/components/primitives/icons';
 import { resolveFileIconClass } from '@session-chat/lib/file-icons';
@@ -35,7 +37,7 @@ import { useChatTranslator } from '@session-chat/localization';
 
 // ── Secondary label ─────────────────────────────────────────────────────────
 
-function secondaryLabel(uri: string, target: ResourceTarget): string {
+export function secondaryLabel(uri: string, target: ResourceTarget): string {
   if (target.kind === 'workspace-file') {
     return target.path;
   }
@@ -47,13 +49,12 @@ function secondaryLabel(uri: string, target: ResourceTarget): string {
     }
   }
   // opaque: show the scheme or the raw uri, capped
-  const colon = uri.indexOf(':');
-  return colon > 0 ? uri.slice(0, colon + 1) + '//' + '…' : uri;
+  return uri;
 }
 
 // ── Size formatting ─────────────────────────────────────────────────────────
 
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -61,20 +62,30 @@ function formatSize(bytes: number): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+export function resourceLinkLayout(item: ChatResourceLink, ctx: MeasureCtx) {
+  const available = Math.max(1, ctx.width - 25);
+  const title = readableLabel(item.title ?? item.name, ctx, available, ctx.theme.config.roles.body.size, 20);
+  const path = readableLabel(secondaryLabel(item.uri, item.target), ctx, available, 12, 18);
+  const parts = [{ width: 17, height: 17 }, { width: Math.min(available, title.width), height: title.height }, { width: Math.min(available, path.width), height: path.height }];
+  if (item.size !== undefined) parts.push({ width: readableLabel(formatSize(item.size), ctx).width, height: 18 });
+  if (item.status === 'error') parts.push({ width: 17, height: 17 });
+  return { title, path, available, height: Math.max(32, wrappedRowHeight(parts, ctx.width, 8, 4)) };
+}
+
 export type ResourceLinkProps = {
   item: ChatResourceLink;
+  measureCtx: () => MeasureCtx;
 };
 
 export function ResourceLink(props: ResourceLinkProps) {
   const translate = useChatTranslator();
   const commands = useCommands();
 
-  const displayName = () => props.item.title ?? props.item.name;
+  const layout = () => resourceLinkLayout(props.item, props.measureCtx());
   const iconName = () => {
     const name = props.item.name;
     return resolveFileIconClass(name) ?? null;
   };
-  const secondary = () => secondaryLabel(props.item.uri, props.item.target);
   const isClickable = () => props.item.target.kind !== 'opaque';
 
   const handleClick = () => {
@@ -102,8 +113,8 @@ export function ResourceLink(props: ResourceLinkProps) {
           <span class={iconName()!} />
         </Show>
       </div>
-      <span class={titleText}>{displayName()}</span>
-      <span class={pathText}>{secondary()}</span>
+      <span class={titleText} style={{ width: `${Math.min(layout().available, layout().title.width)}px`, flex: 'none' }}>{layout().title.text}</span>
+      <span class={pathText} style={{ width: `${Math.min(layout().available, layout().path.width)}px`, flex: 'none' }}>{layout().path.text}</span>
       <Show when={props.item.size !== undefined}>
         <span class={sizeText}>{formatSize(props.item.size!)}</span>
       </Show>

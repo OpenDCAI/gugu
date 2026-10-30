@@ -27,6 +27,7 @@ export const backgroundTaskRow = style({
   minWidth: 0,
   padding: '4px 8px',
   borderRadius: vars.radiusSm,
+  fontFamily: vars.fontSans,
   fontSize: vars.typeChromeFontSize,
   lineHeight: '20px',
   color: vars.fg,
@@ -41,13 +42,7 @@ export const backgroundTaskIcon = style({
   color: `color-mix(in srgb, ${vars.fg} 35%, transparent)`,
 });
 
-export const backgroundTaskName = style({
-  flex: 1,
-  minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-});
+export const backgroundTaskName = style({ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', overflowWrap: 'normal' });
 
 /** 时长 / 步数:等宽数字,每秒在变也不左右挪。 */
 export const backgroundTaskMeta = style({
@@ -122,9 +117,8 @@ export const subagentPanelMeta = style({
 
 export const subagentPanelModel = style({
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
   color: `color-mix(in srgb, ${vars.fg} 35%, transparent)`,
 });
 

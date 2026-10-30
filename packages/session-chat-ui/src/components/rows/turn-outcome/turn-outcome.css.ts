@@ -111,6 +111,7 @@ export const outcomeBadge = style({
 
 /** 说辞那一截：先于原因保住。它短（「回合失败」「你停止了这一轮」），不参与收缩。 */
 export const outcomeBadgeLabel = style({
+  whiteSpace: 'pre-wrap',
   flex: 'none',
 });
 
@@ -203,9 +204,8 @@ export const outcomeActionPrimary = style([
 export const outcomeReason = style({
   color: vars.fgMuted,
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
 });
 
 /**

@@ -43,14 +43,13 @@ export const boundaryLabel = style({
   // 所以每一种界线标签都要能缩。被截掉的那句话由各行的 title 补全(行的 aria-label 本来就是整句)。
   flex: '0 1 auto',
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+
   fontFamily: vars.fontSans,
   fontSize: '12px',
   lineHeight: '18px',
-  letterSpacing: '0.02em',
+
   color: vars.fgMuted,
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
 });
 
 /**
@@ -60,8 +59,7 @@ export const boundaryLabel = style({
 export const boundaryLabelShrinkable = style({
   flexShrink: 1,
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+
 });
 
 /**
@@ -77,9 +75,9 @@ export const boundaryAction = style({
   fontFamily: vars.fontSans,
   fontSize: '12px',
   lineHeight: '18px',
-  letterSpacing: '0.02em',
+
   color: vars.link,
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
   cursor: 'pointer',
   textDecoration: 'underline',
   textUnderlineOffset: '2px',
