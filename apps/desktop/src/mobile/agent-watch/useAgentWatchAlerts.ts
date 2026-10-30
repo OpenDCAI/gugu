@@ -17,7 +17,8 @@ import { registerDeviceSessionsRetry, retainDeviceSessions, updateDeviceSessions
 import { workspaceDevices } from './machine-list'
 
 /**
- * 「agent 做完了 / 在等你」的提醒 —— 挂在看管入口的**根**上，不是挂在某一条会话的时间线页上。
+ * 「agent 在等你」的提醒 —— 挂在看管入口的**根**上，不是挂在某一条会话的时间线页上。
+ * 只有停下来等你批准 / 回答才叫人(shouldNotify,与桌面、聊天同一份判据);做完、出错不叫(owner 10-30)。
  *
  * 原来的实现只在你**已经盯着那条会话**时才弹，恰好是最不需要提醒的场景：在机器列表、
  * 在会话列表、或者刚切走，全都不响。spec product spec 一期边界那条要的是
@@ -36,7 +37,7 @@ import { workspaceDevices } from './machine-list'
  * agent 干完了一声不响。owner 2026-09-15 实测撞上：桌面跑完一轮，手机停在「机器与会话」，
  * 通知栏空的。订阅的寿命 = App 登录着的寿命(挂在移动壳根上的 AgentWatchRoot),与你停在哪个 tab、哪一层无关。
  */
-/** 人此刻正盯着的那条会话:它的「做完了 / 在等你」页头已经写着,再弹提示条就是同一件事报两遍。 */
+/** 人此刻正盯着的那条会话:它的「在等你」页头已经写着,再弹提示条就是同一件事报两遍。 */
 
 export type AgentWatchFocus = { deviceId: string; sessionId: string } | null
 
@@ -107,15 +108,15 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
       stops.push(claimBackgroundWatch('agentWatch', tRef.current('agentWatch.backgroundWatch', { count: onlineIds.length })))
     }
 
-    const deliver = (deviceId: string, alerts: readonly AgentWatchAlert[]): void => {
+    const deliver = (alerts: readonly AgentWatchAlert[]): void => {
       for (const alert of alerts) {
-        const text = tRef.current('agentWatch.notify.status', { name: alert.title, status: agentStatusText(alert.label) })
-        // 正看着这条会话:页头状态词已经在说这件事,再报一遍就是同一件事说两遍(#3566 审计)。
-        const current = watchFocus
-        if (appActiveRef.current
-          && current && current.deviceId === deviceId && current.sessionId === alert.sessionId) continue
-        void announce(text)
+        void announce(tRef.current('agentWatch.notify.status', { name: alert.title, status: agentStatusText(alert.label) }))
       }
+    }
+    // 正看着这条会话:页头状态词已经在说这件事,再报一遍就是同一件事说两遍(#3566 审计)。
+    const watching = (deviceId: string) => (sessionId: string): boolean => {
+      const current = watchFocus
+      return appActiveRef.current && current !== null && current.deviceId === deviceId && current.sessionId === sessionId
     }
 
     /**
@@ -133,7 +134,7 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
         onList: (result) => {
           if (retryScope.current.ownerId !== ownerId) return
           updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false, connected: true })
-          deliver(deviceId, diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions))
+          deliver(diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions, watching(deviceId)))
           statusRef.current[deviceId] = statusMapOf(result.sessions)
         },
         onLoading: (loading) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { loading }) },
@@ -170,7 +171,7 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
 }
 
 /**
- * 「agent 干完了 / 在等你」怎么送到人眼前 —— **只有一个通道:系统横幅**,不分 App 在不在前台。
+ * 「agent 在等你」怎么送到人眼前 —— **只有一个通道:系统横幅**,不分 App 在不在前台。
  *
  * owner 2026-09-15:「其实你就统一一下,都用系统横幅不行吗?没必要搞什么 App 内的提示条,
  * 尤其是在手机端,我觉得完全没必要。……总之就是,你把话搞复杂了」。

@@ -2,14 +2,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatItem, ChatUnreadLocator } from '@gugu/core/shared/types/chat'
 import { unreadForYou } from '@gugu/core/shared/ui/chatModels'
-import { shouldNotifyForChat } from '@gugu/core/shared/ui/chatNotificationModels'
+import { shouldNotify } from '@gugu/core/shared/ui/notificationModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import { mergeUnreadRows } from '../../../../apps/desktop/src/lib/chatProjection'
 import { phoneChatUnread } from '../../../../apps/desktop/src/mobile/chat/phoneChatUnread'
 import { advanceReadWatermark } from '../../../../apps/desktop/src/store/chatRealtimeMutations'
 import { chat } from '../../../support/testHarness'
 
-const on = { activeChatId: null, notificationsEnabled: true }
+const on = { enabled: true, onScreen: false }
 const locator = (unread: number, addressed?: number): ChatUnreadLocator => ({
   stream_id: 'main:topic', stream_kind: 'main', thread_root_id: null, message_id: 'first', message_seq: 1,
   unread_count: unread, cursor_seq: 0, version: 1, is_marked_unread: false,
@@ -39,8 +39,8 @@ describe('a backend without addressed_count (older than gugu-supabase#73) falls 
   })
 
   it('a row cached by an older client does not raise a false notification once the real count arrives', () => {
-    expect(shouldNotifyForChat(topic(5), topic(5, 2), on)).toBe(false)
-    expect(shouldNotifyForChat(topic(5), topic(6, 3), on)).toBe(false)
+    expect(shouldNotify({ kind: 'chat', previous: topic(5), next: topic(5, 2) }, on)).toBe(false)
+    expect(shouldNotify({ kind: 'chat', previous: topic(5), next: topic(6, 3) }, on)).toBe(false)
   })
 })
 

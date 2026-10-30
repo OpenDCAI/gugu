@@ -1,18 +1,18 @@
 import { lazy, Suspense, useRef, useState } from 'react'
-import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
 import { useDevicesStore } from '../store/devicesContext'
 import { useMyAssistantContact } from '../lib/myAssistant'
+import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { AboutSection } from './settings/AboutSection'
 import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
 import { ConnectorsSection } from './settings/ConnectorsSection'
 import { DevicesSection } from './settings/DevicesSection'
+import { FileStorageSection } from './settings/FileStorageSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
-import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
 import { SettingsDetailNavigation, type SettingsDetailState } from './settings/SettingsDetailNavigation'
 import { usePanelScroll } from '../session/renderer/features/assistant/use-panel-scroll'
@@ -47,7 +47,6 @@ import { useTranslation } from 'react-i18next'
 const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
-      (section !== 'usage' || officialServicesEnabled()) &&
       (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&
       (section !== 'phone' || platform.kind === 'capacitor') &&
@@ -96,8 +95,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
   const requestedSection = section ?? internalSection
-  // 「文件存储与读取」是设备页里的内页:直达链接落到设备页并打开它。
-  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection === 'files' ? 'devices' : requestedSection
+  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection
   const setActiveSection = onSectionChange ?? setInternalSection
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
@@ -119,12 +117,13 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
     switch (activeSection) {
       case 'assistant': return <AssistantSection available={sections} onOpenSection={selectSection} onOpenAssistantPage={openAssistantPage} />
       case 'connectors': return <ConnectorsSection />
-      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} />
+      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} mobile={mobile} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
-      case 'devices':  return <DevicesSection key={requestedSection} fileStorage={requestedSection === 'files'} onUpgrade={() => selectSection('usage')} />
+      case 'devices':  return <DevicesSection onUpgrade={() => selectSection(membershipSettingsSection(mobile))} />
+      // This is a primary page now; keep its content while opting out of nested-page navigation.
+      case 'files':    return <SettingsDetailNavigation.Provider value={null}><FileStorageSection onBack={back} /></SettingsDetailNavigation.Provider>
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
-      case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
       case 'apps':     return <Suspense fallback={null}><MobileAppsSection appDetail={appDetail} /></Suspense>

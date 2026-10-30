@@ -6,6 +6,12 @@ export function createClaudeSessionDecoder(): (raw: unknown) => NormalizedEvent 
   return (raw: unknown): NormalizedEvent => {
     const event = decodeV2SessionUpdate(raw);
     const meta = (raw as { _meta?: Record<string, unknown> })._meta;
+    // 桥接(1.6.1 起)把 SDK hook 的 `transcript_path` 只带在一条无标题的 `session_info_update._meta.claudeCode` 上转来:
+    // 包装器在进程里设的配置目录只有 Claude 自己知道。
+    if (event.kind === 'ignored' && (raw as { sessionUpdate?: unknown }).sessionUpdate === 'session_info_update') {
+      const path = (meta?.claudeCode as { transcriptPath?: unknown } | undefined)?.transcriptPath;
+      if (typeof path === 'string' && path) return { kind: 'transcript_path', path };
+    }
     if (event.kind === 'usage') {
       const limit = meta?.['_claude/rateLimit'] as Record<string, unknown> | undefined;
       const status = limit?.status;

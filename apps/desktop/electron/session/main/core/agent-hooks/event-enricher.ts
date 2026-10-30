@@ -94,8 +94,7 @@ export async function parseHookEvent(raw: RawHookRequest): Promise<ParsedHookEve
   const body = parseBody(raw);
   const plugin = getPlugin(ctx.providerId);
   // harness 在 hook 里报了它实际用的配置目录:记下,在场读者和会话记录都先认它(见 harness-config-roots)。
-  const configRoot = plugin?.behavior.hooks?.presence?.configRootOfHook?.(body);
-  if (configRoot) learnHarnessConfigRoot({ sessionId: ctx.sessionId, providerId: ctx.providerId, root: configRoot });
+  learnHarnessConfigRoot({ sessionId: ctx.sessionId, providerId: ctx.providerId, report: body });
   const parser = plugin?.behavior.hooks?.parseHookEvent ?? defaultHookEventParser;
   const canonical = parser(raw.type, body);
 

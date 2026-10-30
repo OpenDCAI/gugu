@@ -22,6 +22,9 @@ export const GUGU_DOWNLOAD_URLS = {
  */
 export const GUGU_BILLING_URL = 'https://gugu.nextmind.space/dashboard/'
 
+/** 积分充值直达加量包页;会员管理和账单等入口仍使用面板总览。 */
+export const GUGU_TOPUP_URL = `${GUGU_BILLING_URL}#topup`
+
 /**
  * 去网页面板(开会员、续费)。三端同一条路:Electron 里 window.open 被主窗口的 setWindowOpenHandler
  * 交给系统浏览器,网页版是用户自己浏览器里的新标签,手机交给系统浏览器。

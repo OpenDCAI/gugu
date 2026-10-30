@@ -10,6 +10,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
+import { GuguSubscriptionRow } from '@renderer/features/settings/subscriptions/GuguSubscriptionRow';
 import { queryClient } from '@renderer/lib/query-client';
 import { setLocalePreference } from '@/i18n';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -67,9 +68,10 @@ const control = vi.hoisted(() => ({
 }));
 
 vi.mock('@/store/auth', () => ({ useAuth: () => ({ user: { id: 'subscription-test' } }) }));
-vi.mock('@/lib/billing', () => ({
+vi.mock('@/lib/billing', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/billing')>()),
   formatCredits: (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value),
-  quotaWindowViews: () => ({ period: { limit: 4, remaining: 3.2 - control.held, freesAt: new Date('2026-11-01T00:00:00Z') } }),
+  quotaWindowViews: () => ({ period: { hours: 744, limit: 4, remaining: 3.2 - control.held, freesAt: new Date('2026-11-01T00:00:00Z') } }),
   getMembership: async () => {
     if (control.membershipError) throw new Error('offline');
     return { tier: 'free', expiresAt: null };
@@ -238,6 +240,35 @@ it('adds a third-party API and explicitly switches the connection without openin
   expect(thrown).toEqual([]);
 });
 
+
+it.each([390, 720])('Gugu credits fit a %s px settings container with a prominent total and compact recharge action', async width => {
+  host.style.cssText = `width: ${width}px; container: gg-settings / inline-size`;
+  root.render(<GuguSubscriptionRow />);
+  await until('the Gugu balances render', () => host.querySelector('[data-testid="subscription-credits-balance"]')?.textContent?.includes('8.2') ?? false);
+  const row = host.querySelector<HTMLElement>('[data-testid="subscription-row-gugu"]')!;
+  const quotas = [...row.querySelectorAll<HTMLElement>('.subscription-quota')];
+  await untilStable('the credit layout is measured', () => quotas.map(q => q.getBoundingClientRect().top).join(','));
+  const period = quotas[0].getBoundingClientRect();
+  const wallet = quotas[1].getBoundingClientRect();
+  const total = row.querySelector<HTMLElement>('[data-testid="subscription-credits-balance"]')!;
+  expect(parseFloat(getComputedStyle(total).fontSize)).toBeGreaterThan(parseFloat(getComputedStyle(quotas[0].querySelector('strong')!).fontSize));
+  expect(total.getBoundingClientRect().bottom).toBeLessThanOrEqual(period.top);
+  const recharge = row.querySelector<HTMLElement>('[data-testid="membership-open-web"]')!;
+  expect(recharge.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/#topup');
+  expect(row.querySelector('a')?.getAttribute('href')).toBe('https://gugu.nextmind.space/dashboard/');
+  expect(recharge.getBoundingClientRect().width).toBeLessThan(row.clientWidth * 0.7);
+  expect(row.querySelector('[data-testid="subscription-billing-copy"]')).toBeNull();
+  if (width === 390) {
+    expect(wallet.top).toBeGreaterThanOrEqual(period.bottom);
+    expect(Math.abs(wallet.left - period.left)).toBeLessThanOrEqual(1);
+    const reset = quotas[0].querySelector('p')!.getBoundingClientRect();
+    expect(Math.abs(reset.left - period.left)).toBeLessThanOrEqual(1);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+  } else {
+    expect(Math.abs(wallet.top - period.top)).toBeLessThanOrEqual(1);
+    expect(wallet.left).toBeGreaterThan(period.right);
+  }
+});
 
 it('explains reserved credits when the available total differs from the two balances', async () => {
   control.held = 1;

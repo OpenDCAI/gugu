@@ -190,6 +190,8 @@ export default {
     "unavailable": "该 Agent 不存在或未公开分享"
   },
   "runtime": {
+    "groupMine": "我的",
+    "groupOthers": "其他人的",
     "justNow": "刚刚",
     "messagePreview": {
       "connecting": "正在连接…",

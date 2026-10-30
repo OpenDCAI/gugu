@@ -48,7 +48,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
   resourceOf?: (id: string) => ResourceContext;
   query: string;
   hostKey: string;
-  api: Pick<ProductPageApi, 'marketReadme'>;
+  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>;
   lifecycleOf: (id: string, item: ShelfItem) => AppLifecycle;
   pending: Record<string, ExtensionPendingAction>;
   downloadPercent: Record<string, number>;

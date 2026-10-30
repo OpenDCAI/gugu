@@ -857,7 +857,7 @@ export default {
     "keptHint": "标了「临时」的文件，和项目群里发的图片，在云端保存多久，到期自动删除。标了「一直保留」的不会删。只影响之后发的。",
     "keptDiffer": "现在图片是 {{images}}、临时文件是 {{temporary}}；改一次就对齐。",
     "dashboard": {"title": "云端占用", "total": "你上传到云端的文件 · {{count}} 个", "files": "{{count}} 个", "classes": {"temporary": "临时文件", "image": "图片", "kept": "一直保留"}, "clean": "从云端删除…", "cleanTitle": "从云端删除这些文件？", "cleanNote": "只删云端这一份，你机器上的文件还在。删除后无法恢复。", "confirmClean": "删除 {{size}}", "cancel": "取消", "soonTitle": "即将过期", "columns": {"name": "名称", "group": "群", "size": "大小", "expires": "多久后删除"}, "daysLeft": "还剩 {{count}} 天", "today": "今天", "showAll": "查看全部 {{count}} 个", "showLess": "收起", "machinesTitle": "在你的机器上", "machinesNote": "存在你的机器上，不占云端空间", "machineHint": "项目文件 {{count}} 个，共 {{size}} · 别人打开时传到云端 {{copies}}", "machineHintNone": "项目文件 {{count}} 个，共 {{size}} · 没有传到云端的"},
-    "title": "文件存储与读取",
+    "title": "文件存储",
     "entryHint": "你名下机器上的项目群：图片、其他文件怎么存，留多久；和普通群对照。",
     "projectTitle": "项目群",
     "machines": "管你名下这些机器上的项目群：{{machines}}。别人机器上的项目群，按那台机器主人的设置。",
@@ -1085,7 +1085,7 @@ export default {
       "balanceBlocked": "已用完",
       "periodCredits": "会员额度",
       "walletCredits": "不过期积分",
-      "openWebBilling": "去网页充值与管理会员",
+      "openWebBilling": "去网页充值",
       "statTokensHint": "咕咕模型，含缓存读写"
     },
     "noCompare": "上一段没有可比的数据",

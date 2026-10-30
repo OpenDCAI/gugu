@@ -148,6 +148,7 @@ export function Sheet({
     >
       {open ? <Dialog.Portal>
         <Dialog.Backdrop
+          forceRender
           className={cn('gg-sheet-backdrop window-no-drag-region', sheetBackdropMotion)}
           data-sheet-mobile={mobile ? 'true' : 'false'}
           style={{ zIndex }}

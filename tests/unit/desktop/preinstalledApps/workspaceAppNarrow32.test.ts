@@ -72,21 +72,24 @@ beforeAll(async () => {
 })
 
 describe('workspace App in a narrow pane (F32)', () => {
-  test('side by side is not offered narrow: the default shows the preview (主人 10-01), and the choice comes back when it is wide', () => {
-    // Control (the parent commit): 'edit' — a narrow pane opened a document on its source.
+  test('side by side is not offered narrow; a document opens on its reading at every width (owner 10-30), and side by side comes back when it is wide', () => {
+    // Control (the parent commit): wide, the default was side by side.
     expect(document.body.dataset.mode).toBe('preview')
     expect(pressed()).toEqual(['preview'])
     setNarrow(false)
-    expect(document.body.dataset.mode, '对照:宽栏里默认就是并排').toBe('split')
-    expect(pressed()).toEqual(['split'])
-    setNarrow(true)
-    $('mode-preview').click()
-    expect(document.body.dataset.mode).toBe('preview')
-    setNarrow(false)
-    expect(document.body.dataset.mode, 'a choice made narrow stays when it widens').toBe('preview')
+    expect(document.body.dataset.mode, '阅读 first, wide too').toBe('preview')
+    expect(pressed()).toEqual(['preview'])
     $('mode-split').click()
+    expect(document.body.dataset.mode).toBe('split')
+    setNarrow(true)
+    expect(document.body.dataset.mode, 'narrow, side by side is the reading').toBe('preview')
+    setNarrow(false)
+    expect(document.body.dataset.mode, 'the choice comes back when it is wide').toBe('split')
+    $('mode-preview').click()
     setNarrow(true)
     expect(document.body.dataset.mode).toBe('preview')
+    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.id), '阅读 / 编辑 / 对照').toEqual(['mode-preview', 'mode-edit', 'mode-split'])
+    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.textContent)).toEqual(['Read', 'Edit', 'Side by side'])
   })
 
   test('Download and Open with another App fold behind ⋯, which is there only when one of them is', async () => {
@@ -100,7 +103,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect($('more').hidden).toBe(false)
     expect($('more').getAttribute('aria-label')).toBe('More')
     expect($('menu').hidden).toBe(true)
-    // Wide, style.css lays the two buttons in the row; narrow, ⋯ opens them in the page's one menu (a row's ⋯ opens it too).
+    // At every width ⋯ opens them in the page's one menu (style.css folds them; a row's ⋯ opens it too).
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')

@@ -38,9 +38,9 @@
       <h1 id="doc-title" class="doc-title"></h1>
       <div class="doc-actions">
         <div class="modes" role="tablist" aria-labelledby="doc-title">
+          <button id="mode-preview" role="tab" type="button"></button>
           <button id="mode-edit" role="tab" type="button"></button>
           <button id="mode-split" role="tab" type="button"></button>
-          <button id="mode-preview" role="tab" type="button"></button>
         </div>
         <span id="doc-status" class="status"></span>
         <div id="peers" class="peers"></div>
@@ -48,7 +48,7 @@
           <button id="json-discard" type="button"></button>
           <button id="json-apply" class="primary" type="button"></button>
         </div>
-        <!-- Wide: these two sit in the row. Narrow: they fold behind ⋯, which opens them in the page's one menu (#menu). -->
+        <!-- These two fold behind ⋯ at every width (owner 10-30, folder-docs): it opens them in the page's one menu (#menu). -->
         <button id="download" class="fold" type="button" hidden></button>
         <button id="open-with" class="fold" type="button" hidden></button>
         <button id="more" class="more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
@@ -60,6 +60,8 @@
     <div class="panes">
       <div id="editor" class="editor"></div>
       <article id="preview" class="preview"></article>
+      <!-- An empty document, where its preview would be: what can be done here. -->
+      <gugu-empty id="doc-empty" class="doc-empty" icon="file-text" hidden><strong id="doc-empty-title"></strong><small id="doc-empty-hint"></small><span class="row"><button id="empty-write" class="primary" type="button"><gugu-icon name="pencil"></gugu-icon><span id="empty-write-label"></span></button><button id="empty-draft" type="button"><gugu-icon name="sparkles"></gugu-icon><span id="empty-draft-label"></span></button></span></gugu-empty>
     </div>
   </main>
   <!-- A file's details: beside the list when the pane is wide, over it when narrow. -->
@@ -67,6 +69,8 @@
   <div id="menu" class="menu card list" role="menu" hidden></div>
   <!-- The frame dragged across the list. -->
   <div id="lasso" class="lasso" hidden></div>
+  <!-- Beside the reading block under the pointer: its menu cites it, keeps it, copies a link to it, finds it in the source. -->
+  <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
     <div class="dialog-box card">
@@ -84,6 +88,13 @@
   </div>
   <!-- Beside a selection, in the source or the preview (app.js places it). -->
   <div id="sel-bar" class="sel-bar" hidden>
+    <!-- In the source only: the marks a selection is wrapped in (the same text everyone edits). -->
+    <span class="fmt-bar">
+      <button id="fmt-bold" class="fmt" type="button" data-fmt="bold"><gugu-icon name="bold"></gugu-icon></button>
+      <button id="fmt-italic" class="fmt" type="button" data-fmt="italic"><gugu-icon name="italic"></gugu-icon></button>
+      <button id="fmt-code" class="fmt" type="button" data-fmt="code"><gugu-icon name="braces"></gugu-icon></button>
+      <button id="fmt-link" class="fmt" type="button" data-fmt="link"><gugu-icon name="link"></gugu-icon></button>
+    </span>
     <button id="copy-sel" type="button"></button>
     <button id="cite-sel" type="button"></button>
     <button id="hold-sel" type="button"></button>

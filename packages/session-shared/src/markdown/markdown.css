@@ -341,3 +341,67 @@
 @media (prefers-reduced-motion: reduce) {
   .gg-md .gg-md-fresh { animation: none; }
 }
+
+/* ── documents (comfortable only: chat, transcript and cards keep the compact look) ──
+   Notion/Craft-style reading (owner 10-30, folder-docs mock in gugu-base design/app-borrow-1030/folder-docs): sections
+   breathe, quotes read at full contrast, done tasks step back, tables sit in one quiet frame with a filled head row, a
+   code block says its language and copies (its head is documentToHtml's), front matter is a property list. The #7333
+   type scale is unchanged. */
+.gg-md--comfortable { --md-gap: 0.75em; --md-h-top: 1.75em; --md-h-bottom: 0.4em; }
+.gg-md--comfortable h3 { --md-h-top: 1.25em; }
+.gg-md--comfortable blockquote { padding-left: 1em; border-left-width: 3px; color: inherit; }
+.gg-md--comfortable li:has(> input[type='checkbox']:checked, > p:first-child > input[type='checkbox']:checked) {
+  color: var(--md-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--md-rule);
+}
+.gg-md--comfortable .gg-md-table-scroll { overflow-y: hidden; border: 1px solid var(--md-rule-soft); border-radius: 6px; }
+.gg-md--comfortable .gg-md-table-scroll > table { margin: 0; }
+.gg-md--comfortable .gg-md-table-scroll :is(th, td) { padding: 0.5em 0.85em; }
+.gg-md--comfortable .gg-md-table-scroll :is(th, td) + :is(th, td) { border-left: 1px solid var(--md-rule-soft); }
+.gg-md--comfortable .gg-md-table-scroll th { border-bottom-color: var(--md-rule-soft); background: var(--md-fill); color: inherit; font-weight: 600; }
+.gg-md .gg-md-code { margin: 0 0 var(--md-gap); overflow: hidden; border-radius: 8px; background: var(--md-fill); }
+.gg-md .gg-md-code > pre { margin: 0; padding: 4px 14px 12px; border: 0; border-radius: 0; background: transparent; }
+.gg-md .gg-md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 4px 6px 0 14px;
+  color: var(--md-faint);
+  /* 代码头专用档 12/16(#7333),与转录的代码头同一档 */
+  font-size: 12px;
+  line-height: 16px;
+}
+.gg-md .gg-md-copy {
+  width: 24px;
+  min-width: 0;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: currentColor;
+  color: var(--md-faint);
+  cursor: pointer;
+  opacity: 0.85;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='1.5'%3E%3Crect width='11' height='11' x='9' y='9' rx='2.5'/%3E%3Cpath d='M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9'/%3E%3C/g%3E%3C/svg%3E") center / 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='1.5'%3E%3Crect width='11' height='11' x='9' y='9' rx='2.5'/%3E%3Cpath d='M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9'/%3E%3C/g%3E%3C/svg%3E") center / 16px no-repeat;
+}
+.gg-md .gg-md-copy:hover { color: var(--md-muted); opacity: 1; }
+.gg-md .gg-md-copy[data-copied] {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+.gg-md .gg-md-props {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 16px;
+  margin: 0 0 1.25em;
+  padding: 0 0 1em;
+  border-bottom: 1px solid var(--md-rule-soft);
+  font-size: 0.875em;
+  line-height: calc(20 / 14);
+}
+.gg-md .gg-md-props dt { color: var(--md-muted); }
+.gg-md .gg-md-props dd { margin: 0; overflow-wrap: anywhere; }
