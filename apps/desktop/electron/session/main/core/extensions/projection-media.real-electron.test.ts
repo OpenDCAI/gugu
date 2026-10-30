@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const electron = process.env.GUGU_BROWSER_REAL_ELECTRON;
 const enabled = electron && process.env.GUGU_TEST_MEDIA_HELPER && process.env.GUGU_PROJECTION_FFMPEG && process.env.GUGU_TEST_CHROMIUM;
 let temporary = '';
-let result: { passed: boolean; reused: boolean; inputCalls: number; paints: unknown[] };
+let result: { passed: boolean; reused: boolean; inputCalls: number; paints: unknown[]; ownership: { lateHelperExited: boolean; concurrentNativeDecoders: number; reusedPerStream: boolean } };
 
 // Real installed App grants, NativeImage, native H264 and browser paint/control.
 // Only project lookup and unrelated process event buses are fixture adapters.
@@ -55,5 +55,6 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
   it('decodes two correlated captures, reuses pixels, applies Unicode once, and drains on App revocation', () => {
     expect(result).toMatchObject({ passed: true, reused: true, inputCalls: 1 });
     expect(result.paints.length).toBeGreaterThanOrEqual(2);
+    expect(result.ownership).toEqual({ lateHelperExited: true, concurrentNativeDecoders: 2, reusedPerStream: true });
   });
 });

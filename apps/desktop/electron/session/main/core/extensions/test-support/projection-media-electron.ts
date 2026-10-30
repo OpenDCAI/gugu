@@ -10,6 +10,7 @@ import { extensionProjections as bridge } from '../extension-projection-bridge';
 import { extensionsService } from '../extensions-root';
 import { revokeExtensionProgramAccess } from '../extension-program-access';
 import { createProjectionImageDecoder } from '../projection-image';
+import { probeFeedOwnership } from './projection-feed-ownership';
 import { projectionSources, type ProjectionHost } from '../../../../../../src/session/app-runtime/projection-source';
 import { openMediaProcess } from '../../../../../../native/projection-media/node/host.mjs';
 import { ProjectionSignals } from '../../../../../../native/projection-media/node/signaling.mjs';
@@ -64,14 +65,16 @@ void app.whenReady().then(async () => {
     assert.deepEqual(picture.getSize(), { width: 128, height: 96 });
     return publisher.publish({ width: 128, height: 96, mime: 'image/png', data: picture.toPNG().toString('base64') });
   }
-  const decode = createProjectionImageDecoder(nativeImage.createFromBuffer, { r: 0, g: 0, b: 0 });
   const feeds = new Map<unknown, ReturnType<typeof bridge.mediaFeed>>();
   const signals = new ProjectionSignals({
     authorize: async (bound, sourceId, signal) => {
       signal.throwIfAborted();
-      const feed = bridge.mediaFeed(page, sourceId, bound, async (frame, signal) => {
-        const lease = await decode(frame, signal); pixels.push(lease.data);
-        const at = (80 * frame.width + 110) * 4; decoded.push([...lease.data.subarray(at, at + 4)]); return lease;
+      const feed = bridge.mediaFeed(page, sourceId, bound, () => {
+        const decode = createProjectionImageDecoder(nativeImage.createFromBuffer, { r: 0, g: 0, b: 0 });
+        return async (frame, signal) => {
+          const lease = await decode(frame, signal); pixels.push(lease.data);
+          const at = (80 * frame.width + 110) * 4; decoded.push([...lease.data.subarray(at, at + 4)]); return lease;
+        };
       }, async (size, signal, onControl) => {
         const media = await openMediaProcess({ ...size, executable: process.env.GUGU_TEST_MEDIA_HELPER!,
           ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!, fps: 10, bitrate: 500000, signal,
@@ -132,13 +135,18 @@ void app.whenReady().then(async () => {
     for (const [channel, wanted] of [190, 40, 26].entries()) assert.ok(Math.abs(second.rgb[channel]! - wanted) < 12, JSON.stringify({ second, decoded }));
     assert.equal(second.rtpTimestamp, encoded.get(2));
     assert.equal(pixels.length, 2); assert.equal(pixels[0], pixels[1]);
+    const ownershipPicture = await source.webContents.capturePage();
+    const ownership = await probeFeedOwnership(runtime, page, context,
+      { width: 128, height: 96, mime: 'image/png', data: ownershipPicture.toPNG().toString('base64') },
+      () => openMediaProcess({ executable: process.env.GUGU_TEST_MEDIA_HELPER!, ffmpeg: process.env.GUGU_PROJECTION_FFMPEG!,
+        width: 128, height: 96, fps: 10, bitrate: 500000, signal: new AbortController().signal }));
     service.setPermissionGranted(id, 'agents:tools', false);
     await assert.rejects(publisher.publish({ width: 128, height: 96, mime: 'image/png', data: 'YQ==' }), /revoked/);
     revokeExtensionProgramAccess(id);
     await until(() => stopped && [...feeds.values()][0]!.lease.signal.aborted);
     await signals.dispose();
     assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
-    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
+    process.stdout.write('PROJECTION_PIPELINE_RESULT=' + JSON.stringify({ passed: true, ownership, paints, decoded, inputCalls, reused: pixels[0] === pixels[1],
       home: process.env.GUGU_HOME, userData: app.getPath('userData'), electron: process.versions.electron }) + '\n');
   } finally {
     try { await signals.dispose(); }

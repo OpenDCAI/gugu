@@ -17,7 +17,7 @@ type CreateMedia = (size: { width: number; height: number }, signal: AbortSignal
 
 /** Raw pixels use only the local host/helper pipe; the network carries H264 and frame metadata. */
 export function projectionVideoFeed(resources: ExtensionProjections, authority: Authority,
-  context: ProjectionSignalContext, decode: Decoder, createMedia: CreateMedia) {
+  context: ProjectionSignalContext, createDecoder: () => Decoder, createMedia: CreateMedia) {
   authority.assertCurrent();
   if (context.appId !== authority.extensionId || context.sessionId !== authority.sessionId
     || context.pageId !== String(authority.pageId) || context.epoch !== String(authority.epoch)) {
@@ -25,6 +25,7 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
     throw new Error('Projection media authority does not match its host context');
   }
   const lifetime = new AbortController();
+  let decode: Decoder;
   let connection: Connection | undefined;
   let media: MediaProcess | undefined;
   let latest: ProjectionFrame | undefined;
@@ -84,6 +85,7 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
     void pump();
   };
   try {
+    decode = createDecoder();
     connection = resources.connect({ extensionId: authority.extensionId, sessionId: authority.sessionId }, authority.sourceId, {
       transport: 'local', send: picture,
       onClose: close => {
@@ -149,8 +151,8 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
         clearTimeout(timer); offFirst(); check();
         size = { width: frame.width, height: frame.height };
         media = await createMedia(size, lifetime.signal, onControl);
-        check();
         void media.closed.then(() => stop(new Error('Projection media closed')), stop);
+        check();
         const native = media;
         return Object.freeze({ ...native,
           async answer(sdp: Parameters<MediaProcess['answer']>[0]) {
@@ -166,7 +168,15 @@ export function projectionVideoFeed(resources: ExtensionProjections, authority: 
           },
         });
       } catch (error) {
-        signal.removeEventListener('abort', cancelled); stop(error); throw error;
+        signal.removeEventListener('abort', cancelled); stop(error);
+        try { await media?.close(); }
+        catch (cleanup) {
+          if (cleanup !== lifetime.signal.reason) {
+            const details = [error, cleanup].map(reason => String(reason).slice(0, 1000)).join('; ');
+            throw new AggregateError([error, cleanup], `Projection media initialization and cleanup failed: ${details}`, { cause: error });
+          }
+        }
+        throw error;
       } finally { clearTimeout(timer); offFirst(); }
     },
   };
