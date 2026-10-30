@@ -30,6 +30,14 @@ export function useAutomations(projectId?: string) {
   const host = useAutomationsHost();
   const api = host.api;
 
+  useEffect(() => {
+    // Restore must refresh an empty list too: there may be no visible row left to subscribe for it.
+    return onMachineEvent(machineOf(host), automationChangedChannel, () => {
+      void queryClient.invalidateQueries({ queryKey: automationsQueryKey(host) });
+    });
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, host.key]);
+
   function invalidateAutomations() {
     void queryClient.invalidateQueries({ queryKey: automationsQueryKey(host, projectId) });
   }
@@ -201,7 +209,6 @@ export function useAutomationEventBridge(automationId: string) {
     const machine = machineOf(host);
     const unsubChanged = onMachineEvent(machine, automationChangedChannel, ({ automationId: id }) => {
       if (id !== automationId) return;
-      void queryClient.invalidateQueries({ queryKey: automationsQueryKey(host) });
       void queryClient.invalidateQueries({ queryKey: automationsQueryKey(host, 'runs', id, 'scheduled') });
     });
     const unsubRun = onMachineEvent(machine, automationRunChangedChannel, ({ automationId: id }) => {

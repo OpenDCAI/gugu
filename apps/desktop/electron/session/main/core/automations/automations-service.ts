@@ -1,5 +1,7 @@
 import { and, asc, count, desc, eq, ne, sql } from 'drizzle-orm';
 import { deleteSession } from '@main/core/sessions/deleteSession';
+import { sessionEvents } from '@main/core/sessions/session-events';
+import { projectEvents } from '@main/core/projects/project-events';
 import { db } from '@main/db/client';
 import { automationRuns, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -25,6 +27,8 @@ import {
   insertRun,
   listAutomationRunCleanupTargets,
   listAutomations as repoListAutomations,
+  listAgentSchedules,
+  listOrphanedAgentScheduleIds,
   removeRun,
   renameAutomation as renameInRepo,
   setAutomationEnabled as repoSetAutomationEnabled,
@@ -51,6 +55,7 @@ export class AutomationsService implements Hookable<AutomationsServiceHooks> {
   );
   private readonly deletingAutomationIds = new Set<string>();
   private readonly startingAutomationCounts = new Map<string, number>();
+  private readonly lifecycleOffs: Array<() => void> = [];
 
   private readonly scheduler = new AutomationScheduler({
     onRunStep: (run) => {
@@ -67,10 +72,19 @@ export class AutomationsService implements Hookable<AutomationsServiceHooks> {
   }
 
   start(): void {
+    if (this.lifecycleOffs.length === 0) {
+      this.lifecycleOffs.push(
+        sessionEvents.on('session:deleted', (id) => this.removeOrphanedAgentSchedules(id)),
+        projectEvents.on('project:deleted', () => this.removeOrphanedAgentSchedules()),
+        sessionEvents.on('session:archived', (id) => this.notifyAgentSchedules(id)),
+        sessionEvents.on('session:created', (session) => this.notifyAgentSchedules(session.id))
+      );
+    }
     this.scheduler.start();
   }
 
   stop(): void {
+    for (const off of this.lifecycleOffs.splice(0)) off();
     this.scheduler.stop();
   }
 
@@ -79,7 +93,22 @@ export class AutomationsService implements Hookable<AutomationsServiceHooks> {
   }
 
   async listAutomations(projectId?: string): Promise<Automation[]> {
-    return repoListAutomations(projectId);
+    await this.removeOrphanedAgentSchedules();
+    return (await repoListAutomations(projectId)).filter((automation) => !automation.agentSession?.archived);
+  }
+
+  private async removeOrphanedAgentSchedules(sessionId?: string): Promise<void> {
+    for (const id of await listOrphanedAgentScheduleIds(sessionId)) {
+      // Concurrent lifecycle/list reads share the existing deletion barrier, not a second cleanup path.
+      if (this.deletingAutomationIds.has(id) || !(await getAutomation(id))) continue;
+      if (!this.deletingAutomationIds.has(id)) await this.deleteAutomation(id);
+    }
+  }
+
+  private async notifyAgentSchedules(sessionId: string): Promise<void> {
+    for (const automation of await listAgentSchedules(sessionId)) {
+      events.emit(automationChangedChannel, { automationId: automation.id });
+    }
   }
 
   async createAutomation(params: CreateAutomationParams): Promise<Automation> {

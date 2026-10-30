@@ -239,9 +239,9 @@ export const enUSProjectMessages = {
   'projects.delete.description':
     '"{projectLabel}" will be deleted, together with all of its tasks (archived ones included) — they cannot be restored from Task history. The project folder and worktrees will stay on the filesystem.',
   'projects.delete.detachWarning_one':
-    'This automation will be detached from the project and will not run until attached to another project:',
+    'If this automation belongs to a task deleted with the project, it will also be deleted. Otherwise, it will be detached and will not run until attached to another project:',
   'projects.delete.detachWarning_other':
-    'These automations will be detached from the project and will not run until attached to another project:',
+    'Automations belonging to tasks deleted with the project will also be deleted. Other automations will be detached and will not run until attached to another project:',
 
   // ── projects: task list ────────────────────────────────────────────────
 
@@ -474,8 +474,8 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.delete.failed': '未能删除项目',
   'projects.delete.checkTimeout': '检查项目时那台设备没有应答。请等连接恢复后重试。',
   'projects.delete.description': '将删除“{projectLabel}”。项目里的会话（包括已归档的）会一并永久删除，不能从会话历史里恢复。项目文件夹与 worktree 仍会保留在文件系统上。',
-  'projects.delete.detachWarning_one': '该自动化将从项目分离，并在挂到其他项目之前不会运行：',
-  'projects.delete.detachWarning_other': '这些自动化将从项目分离，并在挂到其他项目之前不会运行：',
+  'projects.delete.detachWarning_one': '若该自动化属于随项目删除的任务，它也将被删除；否则将从项目分离，在挂到其他项目之前不会运行：',
+  'projects.delete.detachWarning_other': '属于随项目删除任务的自动化也将被删除；其他自动化将从项目分离，在挂到其他项目之前不会运行：',
 
   // ── projects: task list ────────────────────────────────────────────────
 
