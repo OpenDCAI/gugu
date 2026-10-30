@@ -7,6 +7,7 @@
 // 连上之后原地换成此刻的。
 // 项目只在用到时挂(projectManager.ensureMounted),列出 ❌ 挂。
 import { comparer, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
+import { deviceMachines } from '@gugu/core/shared/deviceMachines';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { SessionHostClient } from '@shared/lib/ipc/session-host-client';
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
@@ -288,6 +289,16 @@ export class RemoteHostsStore {
 
   device(deviceId: string): RemoteHostDevice | null {
     return this.hosts.get(deviceId)?.device ?? null;
+  }
+
+  /** 人能选来开任务或挂文件夹的机器;每台只列一个版本,不列本机和个人助理宿主。路由仍保留全部版本。 */
+  pickableMachineIds(): string[] {
+    return deviceMachines([...this.hosts.values()].map(({ device }) => ({
+      ...device, device_id: device.id, machine_id: device.machineId,
+      is_online: device.isOnline, last_seen_at: device.lastSeenAt, is_current_device: device.isCurrentMachine,
+    })))
+      .filter(machine => !machine.current && !machine.device.assistantHome)
+      .map(machine => machine.device.id);
   }
 
   /**
@@ -601,7 +612,7 @@ export class RemoteHostsStore {
       // 心跳说它在(远程 SSH:设备连接没报问题)就连;刚从离线回来的不等退避。
       if (remoteHostReachable(device)) {
         const client = machineClient(device.id);
-        if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id);
+        if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id, { automatic: true });
       }
     }
     for (const deviceId of [...this.hosts.keys()]) if (!seen.has(deviceId)) this.forget(deviceId);

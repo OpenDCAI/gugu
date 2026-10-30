@@ -183,10 +183,10 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
     const picked = key === 'all' ? 0 : selected.filter((id) => model.sourcesOf(id).includes(key)).length
     return (
       <Button key={key} variant="option" size="sm" role="radio" aria-checked={result ? searchScope === key : sourceKey === key} data-picker-source={key} onClick={() => pickSource(key)}
-        className={cn('shrink-0 gap-2', mobile ? '!rounded-[var(--radius-capsule)]' : 'w-full justify-start !border-transparent', result && count === 0 && 'text-[var(--faint-fg)]')}>
+        className={cn('shrink-0 gap-2', mobile ? '!rounded-[var(--radius-capsule)]' : 'w-full justify-start !border-transparent', result && count === 0 && 'text-[var(--muted-fg)]')}>
         <span className={cn(!mobile && 'min-w-0 flex-1 truncate text-left')}>{label}</span>
         {picked > 0 ? <span className="text-[length:var(--font-caption)] text-[var(--primary)]">✓{picked}</span> : null}
-        <span className="text-[length:var(--font-caption)] tabular-nums text-[var(--faint-fg)]">{count}</span>
+        <span className="text-[length:var(--font-caption)] tabular-nums text-[var(--muted-fg)]">{count}</span>
       </Button>
     )
   }
@@ -246,16 +246,16 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
             <div role="radiogroup" className="flex shrink-0 flex-wrap gap-2 !px-3 !pt-2">
               {[{ name: null, count: source.entries.length }, ...projects].map((p) => (
                 <Button key={p.name ?? ''} variant="option" size="sm" role="radio" aria-checked={project === p.name} onClick={() => { setProject(p.name); setActive(0) }} className="!rounded-[var(--radius-capsule)]">
-                  {p.name ?? t('memberPicker.allProjects')} <span className="tabular-nums text-[var(--faint-fg)]">{p.count}</span>
+                  {p.name ?? t('memberPicker.allProjects')} <span className="tabular-nums text-[var(--muted-fg)]">{p.count}</span>
                 </Button>
               ))}
             </div>
           ) : null}
           <div ref={listRef} id="member-picker-list" role="listbox" aria-multiselectable="true" className={cn('min-h-0 flex-1 overflow-y-auto !px-2 !pb-3', letters && !mobile && '!pr-6')}>
-            {loading ? <p className="!m-0 !p-8 text-center text-[length:var(--font-body)] text-[var(--faint-fg)]">{t('common.loading')}</p>
-              : failed ? <div className="!p-8 text-center text-[length:var(--font-body)] text-[var(--faint-fg)]">{t('common.loadFailed')} <Button variant="ghost" size="sm" onClick={() => void reload()}>{t('common.retry')}</Button></div>
-              : showPeopleDenied ? <p data-testid={AUTOMATION_TEST_IDS.groupMembersPickerHumanDenied} className="!m-0 !p-6 text-center text-[length:var(--font-body)] leading-relaxed text-[var(--text-tertiary)]">{peopleDenied}</p>
-              : visibleRows.length === 0 ? <p className="!m-0 !p-8 text-center text-[length:var(--font-body)] text-[var(--faint-fg)]">{emptyText}</p>
+            {loading ? <p className="!m-0 !p-8 text-center text-[length:var(--font-body)] text-[var(--muted-fg)]">{t('common.loading')}</p>
+              : failed ? <div className="!p-8 text-center text-[length:var(--font-body)] text-[var(--muted-fg)]">{t('common.loadFailed')} <Button variant="ghost" size="sm" onClick={() => void reload()}>{t('common.retry')}</Button></div>
+              : showPeopleDenied ? <p data-testid={AUTOMATION_TEST_IDS.groupMembersPickerHumanDenied} className="!m-0 !p-6 text-center text-[length:var(--font-body)] leading-relaxed text-[var(--muted-fg)]">{peopleDenied}</p>
+              : visibleRows.length === 0 ? <p className="!m-0 !p-8 text-center text-[length:var(--font-body)] text-[var(--muted-fg)]">{emptyText}</p>
               : list}
           </div>
           {letters ? <ContactsAzIndex mobile={mobile} present={new Set(visibleRows.map((row) => getPinyinInitial(displayName(row.entry.contact))))} onPick={jump} /> : null}
@@ -316,7 +316,7 @@ function PickerOption({ row, index, mobile, active, checked, locked, where, note
         <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={mobile ? 'md' : 'sm'} isAgent={isAgent} harnessBadge={false} />
       </>}
       title={nameText}
-      accessory={mobile ? marks : <>{marks}{faint ? <span className="min-w-0 flex-1 truncate !pl-1 text-[length:var(--font-caption)] text-[var(--faint-fg)]">{faint}</span> : null}</>}
+      accessory={mobile ? marks : <>{marks}{faint ? <span className="min-w-0 flex-1 truncate !pl-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{faint}</span> : null}</>}
       meta={mobile || !where ? time : `${where} · ${time}`}
       subtitle={mobile ? <>{where ? `${where} · ` : ''}{faint}</> : undefined}
       onClick={onToggle}

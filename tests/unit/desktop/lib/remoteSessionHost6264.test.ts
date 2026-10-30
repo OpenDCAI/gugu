@@ -125,6 +125,16 @@ describe('remote task host pipe over device RPC', () => {
     expect(device.upgrades).toEqual(['d22'])
   })
 
+  it.each(['attach-refusal', 'open-refusal'])('requests the existing desktop version-matching upgrade after a server_outdated %s', async kind => {
+    const device = fakeDevice(() => {
+      if (kind === 'attach-refusal') throw Object.assign(new Error('please update the remote machine'), { code: 'server_outdated' })
+      return { error: { code: 'server_outdated', message: 'please update the remote machine' } }
+    }, { ssh: true })
+    const error = await openRemoteSessionHostPipe('old-account-process', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SessionHostTooOldError)
+    expect(device.upgrades).toEqual(['old-account-process'])
+  })
+
   it('升级只因为版本:开线的其它失败(拒绝、出错、超时、传输断了)都照实抛出,❌ 替它升级', async () => {
     for (const code of ['internal_error', 'not_found', 'ssh_unreachable', 'ssh_link_refused', 'device_offline', 'forbidden']) {
       const device = fakeDevice(() => ({ error: { code, message: 'nope' } }), { ssh: true })

@@ -203,8 +203,9 @@ describe('MessageBubble touch menu', () => {
   })
   it('replies from the desktop context menu through the existing quote action', async () => {
     const onQuote = vi.fn()
-    await renderMessage(undefined, false, vi.fn(), { onQuote })
+    await renderMessage(undefined, false, vi.fn(), { onQuote, onEnterSelectMode: vi.fn(), onOpenTopic: vi.fn() })
     await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy', 'openTopic', 'forward', 'select', 'delete'])
     await clickElement(menuItem('回复'))
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -225,12 +226,26 @@ describe('MessageBubble touch menu', () => {
   it('copies the captured message selection after menu focus clears the DOM selection', async () => {
     const writeText = vi.fn(async (_text: string) => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    await renderMessage(undefined, false)
+    await renderMessage(undefined, false, vi.fn(), { onEnterSelectMode: vi.fn(), onOpenTopic: vi.fn() })
     selectMessageText('hello')
     await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy'])
     window.getSelection()!.removeAllRanges()
     await clickElement(menuItem('复制文本'))
     expect(writeText).toHaveBeenCalledWith('hello')
+  })
+  it('keeps only selection and existing link actions when the selected text is a link', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, false, vi.fn(), { content: 'before https://example.com/path after' })
+    const link = messageBubble().querySelector('a')!
+    selectTextIn(link, 'https://example.com/path')
+    await act(() => { link.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 2 })) })
+    await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy', 'copyLink', 'openLink'])
+    window.getSelection()!.removeAllRanges()
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    expect(writeText).toHaveBeenCalledWith('https://example.com/path')
   })
   it('hides excerpt quoting while retaining whole-message reply after desktop selection', async () => {
     const onQuote = vi.fn()
@@ -517,22 +532,10 @@ describe('MessageBubble touch menu', () => {
     await openMenuAndCopy()
     expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'clipboard denied [path] [redacted token]')
   })
-  it('exposes working copy, quote and more actions below a private agent answer without hovering', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    const toast = vi.fn(), onQuote = vi.fn()
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: false, onQuote })
-    const bar = harness.container.querySelector('[data-testid="agent-answer-actions"]')!
-    const buttons = [...bar.querySelectorAll('button')]
-    expect(buttons.map(button => button.getAttribute('aria-label'))).toEqual(['复制文本', '回复', '更多'])
-    await clickElement(buttons[0])
-    expect(writeText).toHaveBeenCalledWith('hello from mobile')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
-    await clickElement(buttons[1])
-    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
-    await clickElement(buttons[2])
-    expect(document.body.textContent).toContain('转发')
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: true })
+  it('does not retain the retired private-agent answer toolbar in the IM bubble', async () => {
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: false })
+    expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: true })
     expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
   })
 })
@@ -551,6 +554,8 @@ async function renderMessage(
     showReadReceipt?: boolean
     memberProfile?: MemberProfileCardModel
     onQuote?: (msg: unknown) => void
+    onEnterSelectMode?: () => void
+    onOpenTopic?: (messageId: string) => void
   } = {},
 ) {
   const isMine = options.isMine ?? false
@@ -568,6 +573,8 @@ async function renderMessage(
       onReaction,
       memberReadSeqs: {},
       onQuote: options.onQuote ?? vi.fn(),
+      onEnterSelectMode: options.onEnterSelectMode,
+      onOpenTopic: options.onOpenTopic,
       onForward: vi.fn(),
       onDelete: vi.fn(),
       compactMobile,
@@ -594,6 +601,10 @@ async function contextMenu() {
     messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 }))
   })
   await act(async () => { await vi.dynamicImportSettled() })
+}
+function actionKeys() {
+  return [...document.querySelectorAll('[data-testid^="message-action-"][role="menuitem"]')]
+    .map((item) => item.getAttribute('data-testid')!.slice('message-action-'.length))
 }
 function menuItem(label: string) {
   const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) => node.textContent === label)

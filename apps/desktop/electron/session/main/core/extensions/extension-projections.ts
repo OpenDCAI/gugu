@@ -82,8 +82,22 @@ export class ExtensionProjections {
     };
   }
 
+  /** Internal host authority: resolve the real resource, never treat signaling payloads as a grant. */
+  sourceAccess(principal: ProjectionPrincipal, id: string): { signal: AbortSignal; assertCurrent(): void } {
+    const resource = this.resources.get(id);
+    if (!resource || !same(principal, resource.principal)) throw new Error('Projection is not in this App session');
+    const bound = { ...resource.principal };
+    const assertCurrent = () => {
+      this.authorize(bound);
+      resource.controller.signal.throwIfAborted();
+      if (this.resources.get(id) !== resource) throw new Error('Projection resource was replaced');
+    };
+    assertCurrent();
+    return Object.freeze({ signal: resource.controller.signal, assertCurrent });
+  }
+
   connect(principal: ProjectionPrincipal, id: string, connection: ProjectionConnection): {
-    receive(packet: unknown): Promise<void>; close(): void;
+    receive(packet: unknown): Promise<void>; close(): void; disconnect(): Promise<void>;
   } {
     this.authorize(principal);
     principal = { ...principal };
@@ -100,10 +114,12 @@ export class ExtensionProjections {
         catch (error) { void this.close(id, resource).catch(() => undefined); throw error; }
       }
     };
+    let disconnected: Promise<void> = Promise.resolve();
     const viewer = new ProjectionViewer(randomUUID(), resource.sequence, connection, (gone) => {
       resource.viewers.delete(gone);
       resource.disconnected.add(gone.generation);
-      resource.queue = resource.queue.then(drain).catch(() => { void this.close(id, resource).catch(() => undefined); });
+      disconnected = resource.queue.then(drain);
+      resource.queue = disconnected.catch(() => { void this.close(id, resource).catch(() => undefined); });
     });
     if (!viewer.abort.signal.aborted) {
       resource.viewers.add(viewer);
@@ -174,6 +190,9 @@ export class ExtensionProjections {
         } finally { signal.removeEventListener('abort', abort); }
       },
       close: () => viewer.close('Viewer closed'),
+      // The direct-media authority must release held native input before its lease.
+      // Keep the uncaught cleanup result even though the resource queue handles failure.
+      disconnect: async () => { viewer.close('Viewer closed'); await disconnected; },
     };
   }
 

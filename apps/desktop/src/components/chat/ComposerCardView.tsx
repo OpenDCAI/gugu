@@ -12,6 +12,8 @@ import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
+import { useContactsStore } from '../../store/contactsContext'
+import { identityDisplayName } from '../../lib/displayIdentity'
 import { useAuth } from '../../store/auth'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { openTaskCardSession } from './openTaskCardSession'
@@ -59,8 +61,14 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
 }) {
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
+  const { identitiesById } = useChatStore('identitiesById')
+  const { contacts } = useContactsStore()
   const task = card.type === 'task' ? card : null
   const agent = task && memberProfiles?.[task.agentUserId]
+  const identity = task && identitiesById[task.agentUserId]
+  const agentName = agent?.displayName ?? (identity ? identityDisplayName(identity,
+    Object.keys(memberProfiles ?? {}).flatMap(id => identitiesById[id] ? [identitiesById[id]!] : []),
+    contacts.find(contact => contact.id === identity.id)?.alias) : task?.agentName)
   const owned = agent?.ownerUserId ? agent.ownerUserId === user?.id : isMine
   const place = useTaskCardPlace(task, owned, agent?.ownerDisplayName || senderName)
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
@@ -81,7 +89,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
         <span className="break-words text-[var(--font-caption)] text-[var(--muted-fg)]">{place.label}</span>
       ) : task && (
         <TaskCardHandedTo
-          agentName={task.agentName}
+          agentName={agentName ?? task.agentName}
           agentAvatar={task.agentAvatar ?? null}
           agentUserId={task.agentUserId}
           note={join === 'pending' ? `· ${t('message.taskCard.awaitingApproval')}` : join === 'rejected' ? `· ${t('message.taskCard.rejected')}` : place.label ? `· ${place.label}` : ''}

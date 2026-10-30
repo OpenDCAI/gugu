@@ -42,7 +42,7 @@ const h = vi.hoisted(() => {
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: { extensions: {} },
+  rpc: { extensions: {}, viewState: { save: vi.fn(async () => ({ success: true })) } },
   rpcOn: () => ({}),
   events: { on: () => () => undefined },
   onMachineEvent: () => () => undefined,
@@ -92,7 +92,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
         ? { success: true, data: { outcome: 'ask', ask: { manifest: next, manifestDigest: 'digest-next', installed: h.manifest('1.0.0'), revokedPermissions: ['files:read'] }, asks } }
         : { success: true, data: { outcome: 'confirmed', manifest: next } })
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
     await settle();
     const button = [...dom.window.document.querySelectorAll('button')].find((node) =>
@@ -171,7 +171,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     } as never);
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -194,7 +194,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     });
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -221,7 +221,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     h.api.uninstall.mockRejectedValueOnce(new Error('device offline'));
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -302,7 +302,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
 
   it('the sheet says what the installed version changed and that it came from the market', async () => {
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
     await settle();
     await showInstalled(dom);
@@ -378,6 +378,7 @@ describe('市场页 (#7059)', () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     h.api.market.mockImplementation(saved.market!);
+    delete (h.api as Record<string, unknown>).marketRead;
     dom.window.close();
   });
 
@@ -440,17 +441,20 @@ describe('市场页 (#7059)', () => {
   });
 
   it.each(['README', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
-    const readme = vi.fn().mockResolvedValueOnce(failure === 'README' ? { success: false, error: 'unreadable' }
-      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/shot.png)' } })
-      .mockResolvedValueOnce({ success: true, data: { readme: null } });
+    // 读不到的一直读不到(这一页画过的那份目录在、重读也会再取一次),直到点「重试」时才读得到。
+    const readme = vi.fn(async () => (failure === 'README' ? { success: false, error: 'unreadable' }
+      // 一张这次运行里没解码过的图(解码好的图这次运行里留着,不再解)。
+      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/unreadable.png)' } }));
     (h.api as Record<string, unknown>).marketReadme = readme;
-    if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValueOnce(new Error('image unreadable'));
+    if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValue(new Error('image unreadable'));
     await render(false);
     const card = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"]');
     expect(card()?.querySelector('[role="alert"]')?.textContent).toContain(translateSessionMessage('extensions.loadFailed'));
     expect(card()?.querySelector('.mk-hero-big')).toBeNull();
+    readme.mockResolvedValue({ success: true, data: { readme: null } } as never);
+    const before = readme.mock.calls.length;
     await press('[data-testid="app-featured-pomo"] [role="alert"] button');
-    expect(readme).toHaveBeenCalledTimes(2);
+    expect(readme).toHaveBeenCalledTimes(before + 1);
     expect(card()?.querySelector('[role="alert"]')).toBeNull();
     // A successful README with no artwork is the one case that uses the icon design.
     expect(card()?.querySelector('.mk-hero-big')).not.toBeNull();
@@ -473,6 +477,167 @@ describe('市场页 (#7059)', () => {
     expect(art()?.querySelector('img')?.getAttribute('src')).toBe('https://dl.example/pomo/shot.png');
     await settle();
     expect(readme).toHaveBeenCalledTimes(1);
+  });
+
+  // owner 10-30「既然曾经缓存过,为什么又要失效又要重新读取……只有新精选图要出来的时候,直接原子替换」。
+  const pomoAt = (version: string) => {
+    const pomo = listing.find((item) => item.manifest.id === 'pomo')!;
+    return { ...pomo, manifest: { ...pomo.manifest, version }, ref: { ...pomo.ref, version }, cloud: { ...pomo.cloud, version } };
+  };
+  const listingWith = (version: string) => {
+    const extensions = listing.map((item) => (item.manifest.id === 'pomo' ? pomoAt(version) : item));
+    h.api.market.mockResolvedValue({
+      success: true,
+      data: { extensions, invalid: [], errorKind: null, error: null, total: extensions.length, page: 0, hasMore: false, fetchedAt: null },
+    } as never);
+  };
+  const shotOf = (version: string) => `https://dl.example/market/media/pomo/${version}.png`;
+  const readmeOf = (version: string) => ({ success: true, data: { readme: `# Pomo\n\n![Pomo](${shotOf(version)})\n` } });
+  const heroArt = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
+  const reopen = async () => {
+    await act(async () => root.render(null));
+    act(() => root.render(page()));
+  };
+
+  it('精选卡的截图:离开 15 分钟再进来,第一帧照旧是截图,README 不再取', async () => {
+    // 浏览器里 react-query 默认 5 分钟回收没人看的查询(这里 window 是后来才换上的,它当自己在服务端、默认不回收):照浏览器的来。
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 5 * 60_000 } } });
+    const readme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    const calls = readme.mock.calls.length;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await act(async () => root.render(null));
+      vi.advanceTimersByTime(15 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    act(() => root.render(page()));
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    // 这次运行里解码过的图:重新挂上的卡片直接画它,❌ 先藏起来等再解一遍。
+    expect((heroArt()?.querySelector('img') as HTMLImageElement).style.visibility).toBe('');
+    await settle();
+    expect(readme).toHaveBeenCalledTimes(calls);
+  });
+
+  it('精选出了新一版:新截图解码好之前一直画旧的,解码好整张换上,中间没有骨架', async () => {
+    let answer!: () => void;
+    let decoded!: () => void;
+    const readme = vi.fn(async ({ version }: { version: string }) => {
+      if (version === '1.1.0') await new Promise<void>((resolve) => { answer = resolve; });
+      return readmeOf(version);
+    });
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+
+    listingWith('1.1.0');
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(new Promise<void>((resolve) => { decoded = resolve; }));
+    await reopen();
+    const stillOld = () => {
+      expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+      expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    };
+    stillOld();
+    await settle();
+    expect(readme.mock.calls.some(([args]) => args.version === '1.1.0')).toBe(true);
+    stillOld();
+    await act(async () => answer());
+    await settle();
+    stillOld();
+    await act(async () => decoded());
+    await settle();
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.1.0'));
+  });
+
+  it('下载站连不上:新一版的 README 取不到,画着的那份一直留着,❌ 骨架、❌ 错误面板', async () => {
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) =>
+      version === '1.0.0' ? readmeOf(version) : { success: false, error: 'download site unreachable' });
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+
+    listingWith('1.1.0');
+    await reopen();
+    await settle();
+    await settle();
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+  });
+
+  // 重启:渲染进程是新的(这一页的进程内缓存、查询缓存都是空的),上次画的那份在 localStorage(kept-shelf.ts)。
+  it('重启后第一帧:画上次那份清单,精选卡先画占位图、大图解码好再换上;❌ 骨架,❌ 空着的图', async () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
+    // 占位图:经 marketRead 读到图的字节,缩成一张小 JPEG(jsdom 没有画布,这里只判走的是这条路、存下的是它)。
+    const placeholder = 'data:image/jpeg;base64,c21hbGw=';
+    const marketRead = vi.fn(async () => ({ success: true, data: { base64: btoa('png bytes') } }));
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 900, close: () => undefined })));
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => undefined } as never);
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(placeholder);
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(marketRead).toHaveBeenCalledWith({ path: 'media/pomo/1.0.0.png' });
+    await act(async () => root.render(null));
+
+    // 新的渲染进程:模块里的缓存、解码过的图都没有了,手上只有 localStorage 那份。
+    vi.resetModules();
+    const { ExtensionsSettingsCard: FreshCard } = await import('./ExtensionsSettingsCard');
+    const { SessionLocalizationProvider: FreshLocalization } = await import('@renderer/localization/localization-provider');
+    // 下载站那一趟没回来之前:第一帧全靠手上那份。
+    h.api.market.mockImplementation(() => new Promise(() => undefined));
+    let decoded!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(new Promise<void>((resolve) => { decoded = resolve; }));
+    act(() => root.render(React.createElement(QueryClientProvider, { client: new QueryClient() },
+      React.createElement(FreshLocalization, null, React.createElement(FreshCard)))));
+    const document = dom.window.document;
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.querySelector('[data-testid="extension-card-arxiv"]')).not.toBeNull();
+    expect(img()?.getAttribute('src')).toBe(placeholder);
+    expect(img()?.style.visibility).toBe('');
+    await act(async () => decoded());
+    expect(img()?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(img()?.style.visibility).toBe('');
+  });
+
+  // 全新安装、什么都没存:骨架第一次换成图时,新挂上的 <img> 自己解码好才露出来(真机 DPR3 上先画了约 6 帧空的)。
+  it('第一次进来:新的 <img> 自己解码好之前骨架留着,❌ 先画一帧空的', async () => {
+    const src = 'https://dl.example/market/media/pomo/first-visit.png';
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: `![Pomo](${src})` } }));
+    let painted!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode)
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(new Promise<void>((resolve) => { painted = resolve; }));
+    await render(false);
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
+    expect(img()?.getAttribute('src')).toBe(src);
+    expect(img()?.style.visibility).toBe('hidden');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    await act(async () => painted());
+    expect(img()?.style.visibility).toBe('');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it('老版本的机器没有 marketRead:没有占位图就是没有,❌ 重试、❌ 报错', async () => {
+    const marketRead = vi.fn(async () => {
+      throw new Error('No handler registered for extensions.marketRead');
+    });
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => readmeOf('1.0.0'));
+    await render(false);
+    expect(marketRead).toHaveBeenCalledTimes(1);
+    expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
   });
 
   it('browses complete New and Popular pages without subtracting featured Apps or capping at six', async () => {

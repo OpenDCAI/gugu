@@ -45,6 +45,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     },
   },
   sidebarStore: {
+    remoteSession: () => undefined,
     navChain: [
       { kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-other' },
     ],

@@ -66,6 +66,7 @@ vi.mock('@renderer/lib/stores/app-state', async () => {
     navigation: shown.navigation,
   },
   sidebarStore: {
+    remoteSession: () => undefined,
     navChain: [{ kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-1' }],
     // 设置 `interface.showLeftSidebarAgentNameOnHover` 的镜像(现在开的是身份卡,#6092)。这里是**开**的那一档;
     // 关掉那一档由下面单独一条用例把它翻过去判。

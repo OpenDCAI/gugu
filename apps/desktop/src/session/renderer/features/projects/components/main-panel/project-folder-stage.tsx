@@ -51,7 +51,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
   };
   const machineOf = (deviceId: string | null): FolderCardMachine => (deviceId ? describeMachine(deviceId) : thisComputer);
   // 「+」能挂到的机器:这台电脑 + 名下每台机器(此刻连不上的列着、灰掉)。
-  const attachMachines: AttachMachine[] = [thisComputer, ...[...remoteHostsStore.hosts.keys()].map(describeMachine)];
+  const attachMachines: AttachMachine[] = [thisComputer, ...remoteHostsStore.pickableMachineIds().map(describeMachine)];
   const projectMachines = [...new Map(memberIds.map((id) => {
     const deviceId = machineRegistry.machineOf(id) ?? null;
     return [deviceId, deviceId ? describeMachine(deviceId) : thisComputer] as const;

@@ -169,8 +169,8 @@ export async function composeInChat(
 ): Promise<AppComposeDetail> {
   if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);
   const text = String(args.text ?? '').trim();
-  if (!text && !named(args.refs)) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
   const images = composeImagesOf(args.images);
+  if (!text && !named(args.refs) && !images.length) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
   const placed = await composePlace(platform, text, args);
   return images.length > 0 ? { ...placed, images } : placed;
 }

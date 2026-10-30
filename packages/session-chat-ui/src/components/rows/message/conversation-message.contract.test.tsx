@@ -7,6 +7,8 @@ import { CommandsContext } from '@session-chat/components/contexts/CommandsConte
 import { ThemeContext } from '@session-chat/components/contexts/ThemeContext';
 import { CachesContext } from '@session-chat/components/contexts/CachesContext';
 import { SelfIdentityProvider } from '@session-chat/lib/self-identity';
+import { SenderNameProvider } from '@session-chat/lib/sender-avatar';
+import { ConversationProcess } from './ConversationProcess';
 import { createChatCaches } from '@session-chat/core/caches';
 import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
@@ -14,12 +16,12 @@ import type { ChatMessage } from '@session-chat/model';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { cardFadeOverlay } from './user-message.css';
 
-async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}) {
+async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {}, senderName: (id: string | null) => string | null = () => null) {
   const item = normalizeMessage(raw);
   const [data, setData] = createSignal(item);
   const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
   const caches = createChatCaches();
-  const ctx: MeasureCtx = { theme, caches, width, isCollapsed: () => false, expanded: () => false };
+  const ctx: MeasureCtx = { theme, caches, width, senderName, commands: { conversationAgentName: () => 'Codex 11', ...commands }, selfIdentity: { userId: 'owner', displayName: '刘威', guguNumber: 111179 }, isCollapsed: () => false, expanded: () => false };
   const renderCtx: RenderCtx = { measureCtx: () => ctx, viewState: { isCollapsed: () => false } };
   const host = document.createElement('div');
   host.style.width = `${width}px`;
@@ -29,8 +31,9 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
   const dispose = render(() => <ThemeContext.Provider value={() => theme}><CachesContext.Provider value={caches}>
     <SelfIdentityProvider value={() => ({ userId: 'owner', displayName: '刘威', guguNumber: 111179 })}>
     <CommandsContext.Provider value={() => ({ conversationAgentName: () => 'Codex 11', ...commands })}>
+    <SenderNameProvider value={senderName}>
       <Comp data={data()} ctx={renderCtx} vars={messageUnitDef.vars!} />
-    </CommandsContext.Provider></SelfIdentityProvider>
+    </SenderNameProvider></CommandsContext.Provider></SelfIdentityProvider>
   </CachesContext.Provider></ThemeContext.Provider>, host);
   await document.fonts.ready;
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -38,6 +41,49 @@ async function mount(raw: ChatMessage, width = 600, commands: ChatCommands = {})
 }
 
 describe('agent-centered conversation bubbles', () => {
+  it('renders and measures the current identity name after an in-place rename', async () => {
+    const [name, setName] = createSignal('Current identity');
+    const view = await mount({ kind: 'message', id: 'current-name', role: 'user',
+      text: '<gugu_delivery route="chat" from="Creation-time name" from_id="user:sender" chat="group" msg="msg:current"><![CDATA[The original message body.]]></gugu_delivery>' },
+      320, {}, id => id === 'user:sender' ? name() : null);
+    try {
+      const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+      const assertCurrentName = () => {
+        expect(row.querySelector('span[title]')?.textContent?.replace(/\n/g, '')).toBe(name());
+        expect(row.textContent).not.toContain('Creation-time name');
+        expect(row.querySelector('[data-user-card]')?.textContent).toContain('The original message body.');
+        expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+      };
+      assertCurrentName();
+      setName('Current task identity with a longer name');
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      expect(view.host.querySelector('[data-agent-conversation-message]')).toBe(row);
+      assertCurrentName();
+    } finally { view.dispose(); }
+  });
+
+  it('keeps an authorized system notice visible in a closed zero-step process header', () => {
+    const host = document.createElement('div');
+    host.style.width = '320px';
+    document.body.append(host);
+    const text = '消息已保留，助理就绪后回复。';
+    const [pending, setPending] = createSignal(true);
+    const measureCtx: MeasureCtx = { theme: buildChatTheme(DEFAULT_CONFIG), caches: createChatCaches(), width: 320, isCollapsed: () => false, expanded: () => false };
+    const dispose = render(() => <CommandsContext.Provider value={() => ({ conversationProcessNotice: () => pending() ? { id: 'notice', text } : null })}>
+      <ConversationProcess measureCtx={() => measureCtx} process={{ id: 'im:notice:process', steps: 0 }} anchorId="p" expanded={false} />
+    </CommandsContext.Provider>, host);
+    try {
+      const header = host.querySelector<HTMLElement>('[data-conversation-process]')!;
+      expect(header.textContent).toContain(text);
+      expect(header.querySelector('[data-agent-conversation-message="notice"]')?.textContent).toBe(text);
+      expect(header.offsetHeight).toBe(22);
+      expect(header.getBoundingClientRect().width).toBeLessThanOrEqual(320);
+      expect(host.textContent).not.toContain('0 steps');
+      setPending(false);
+      expect(header.textContent).not.toContain(text);
+      expect(header.querySelector('[data-agent-conversation-message="notice"]')).toBeNull();
+    } finally { dispose(); host.remove(); }
+  });
   it.each([320, 600])('keeps the subject left and incoming agents right at width %s with matching measured geometry', async width => {
     for (const role of ['assistant', 'user'] as const) {
       const view = await mount({ kind: 'message', id: role, role, text: '你好，**一起讨论一下这个计划**。'.repeat(12), at: Date.now(), conversationReply: { itemId: 'source', text: '你好' } }, width);
@@ -239,7 +285,7 @@ describe('agent-centered conversation bubbles', () => {
   it('keeps the quote in the name row and never repeats it on the body', async () => {
     const quote = { itemId: 'src', text: '这是被引用的那条消息，'.repeat(12), from: '小王' };
     const quoted = await mount({ kind: 'message', id: 'send:head', role: 'assistant', text: '', at: Date.now(), conversationPart: 'head', sentReplyTo: 'src', conversationReply: quote,
-      conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } });
+      conversationProcess: { id: 'send:process', startedAt: 1000, endedAt: 2000 } }, 600, { onConversationReply: () => {} });
     const plain = await mount({ kind: 'message', id: 'call:sent:b', role: 'assistant', text: '答你', at: Date.now(), conversationPart: 'body', conversationReply: quote });
     try {
       const line = quoted.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
@@ -253,6 +299,29 @@ describe('agent-centered conversation bubbles', () => {
       expect(plain.host.querySelector('[data-slot="conversation-quote"]')).toBeNull();
     } finally { quoted.dispose(); plain.dispose(); }
   });
+  it.each([false, true])('shows no sender for a quote without a known source (clickable: %s)', async clickable => {
+    const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
+      conversationReply: { itemId: 'source', text: 'original words' } }, 600, clickable ? { onConversationReply: () => {} } : {});
+    try {
+      const quote = view.host.querySelector<HTMLElement>('[data-slot="conversation-quote"]')!;
+      expect(quote.textContent).toBe('original words');
+      expect(quote.textContent).not.toContain('刘威');
+      expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    } finally { view.dispose(); }
+  });
+
+  it.each([
+    [{ from: 'Peer' }, 'Peer：original words'],
+    [{ fromId: 'user:owner' }, '刘威：original words'],
+    [{ self: true }, 'Codex 11：original words'],
+  ] as const)('uses known source identity %j for an explicit quote', async (identity, expected) => {
+    const view = await mount({ kind: 'message', id: 'reply', role: 'assistant', text: 'answer',
+      conversationReply: { itemId: 'source', text: 'original words', ...identity } }, 600, { onConversationReply: () => {} });
+    try {
+      expect(view.host.querySelector('[data-slot="conversation-quote"]')?.textContent).toBe(expected);
+    } finally { view.dispose(); }
+  });
+
   it('clicks the exact quote anchor after a virtual row is reused', async () => {
     const onConversationReply = vi.fn();
     const quoted: ChatMessage = { kind: 'message', id: 'reply', role: 'assistant', text: 'reply', conversationReply: { itemId: 'original-1', text: 'same words' } };
@@ -336,4 +405,42 @@ describe('agent-centered conversation bubbles', () => {
       expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
     } finally { view.dispose(); }
   });
+});
+
+it.each([320, 600])('paints a sent file as the existing left-side attachment card, opens its canonical link and measures it at width %s', async width => {
+  const onOpenLink = vi.fn();
+  const view = await mount({ kind: 'message', id: 'file:sent:receipt', role: 'assistant', text: 'proof.txt',
+    sentAttachment: { messageId: 'receipt', name: 'proof.txt', href: 'gugu-file://proof?v=2' } }, width, { onOpenLink });
+  try {
+    const row = view.host.querySelector<HTMLElement>('[data-agent-conversation-message]')!;
+    const card = row.querySelector<HTMLButtonElement>('[data-attachment-chip]')!;
+    expect(row.dataset.side).toBe('left');
+    expect(card.dataset.kind).toBe('file');
+    expect(card.textContent).toBe('proof.txt');
+    expect(row.querySelector('[data-user-card]'), 'an attachment-only send has no empty text bubble').toBeNull();
+    expect(Math.abs(row.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    card.click();
+    expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
+  } finally { view.dispose(); }
+});
+
+it.each([320, 600])('renders an injected original image instead of local-path instructions at width %s', async width => {
+  const messageId = '11111111-2222-4333-8444-555555555555';
+  const raw: ChatMessage = { kind: 'message', id: 'original-image', role: 'user', text: `<gugu_delivery route="chat" from="Owner" from_id="user:owner" msg="msg:${messageId}" chat="chat" chat_kind="dm"><![CDATA[Look at this\n[Folder file gugu-file://proof?v=2 — instructions]\n[Image attached at local path: /private/agent/image.png]]]></gugu_delivery>` };
+  const original = { text: 'Look at this', attachments: [{ id: `gugu-message-file://${messageId}`, name: 'original.png', kind: 'image' as const, href: 'gugu-file://proof?v=2' }] };
+  const resolveAttachment = vi.fn(async () => 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=');
+  const onOpenLink = vi.fn();
+  const view = await mount(normalizeMessage(raw, () => original), width, { resolveAttachment, onOpenLink });
+  try {
+    await expect.poll(() => view.host.querySelector('[data-attachment-chip] img')?.getAttribute('src')).toContain('data:image/gif');
+    const card = view.host.querySelector<HTMLButtonElement>('[data-attachment-chip]')!;
+    expect(card.dataset.kind).toBe('image');
+    expect(card.textContent).toBe('original.png');
+    expect(view.host.textContent).toContain('Look at this');
+    expect(view.host.textContent).not.toContain('/private/agent');
+    expect(view.host.textContent).not.toContain('Folder file');
+    expect(Math.abs(view.host.getBoundingClientRect().height - messageUnitDef.measure(view.item, view.ctx, messageUnitDef.vars!))).toBeLessThanOrEqual(1);
+    card.click(); expect(onOpenLink).toHaveBeenCalledWith('gugu-file://proof?v=2');
+    expect(raw.text).toContain('/private/agent');
+  } finally { view.dispose(); }
 });

@@ -2,7 +2,7 @@ import { openAsBlob } from 'node:fs'
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { FileSink } from '../../shared/fileCipher'
-import { FILE_CHUNK_BYTES, requireFileRange } from '../../shared/fileResolver'
+import { FILE_CHUNK_BYTES, requireFileRange, requireFileRevision } from '../../shared/fileResolver'
 import type { FileChunkCache } from '../../shared/fileCache'
 import { createHash, randomUUID } from 'node:crypto'
 import { attachmentDownloadName } from '../../shared/attachmentDownloadName.mjs'
@@ -92,7 +92,7 @@ export function createNodeFileResolver(root: string, endpoint: (context: FileCon
 
 /** Export only complete original bytes, with the existing portable filename and atomic replacement. */
 export async function saveFileHandle(file: FileHandle, directory: string, name = file.revision.file_name) {
-  return { ...await writeFileHandle(file, join(directory, file.revision.sha256, attachmentDownloadName(name))), file_name: name }
+  return { ...await writeFileHandle(file, join(directory, file.revision.sha256 ?? `legacy-${randomUUID()}`, attachmentDownloadName(name))), file_name: name }
 }
 
 /** A trusted native save dialog may select an exact destination; the original still verifies before atomic rename. */
@@ -102,12 +102,14 @@ export async function writeFileHandle(file: FileHandle, path: string) {
   let createdDirectory: string | undefined
   const hash = createHash('sha256'); let size = 0
   try {
+    requireFileRevision(file.revision)
     createdDirectory = await mkdir(target, { recursive: true, mode: 0o700 })
     output = await open(partial, 'wx', 0o600)
     for await (const chunk of file.stream()) { size += chunk.length; if (size > file.revision.size_bytes) throw new Error('File export size changed'); hash.update(chunk); await output.writeFile(chunk) }
-    if (size !== file.revision.size_bytes || hash.digest('hex') !== file.revision.sha256) throw new Error('File export SHA-256 mismatch')
+    const observedSha = hash.digest('hex')
+    if (size !== file.revision.size_bytes || file.revision.sha256 !== null && observedSha !== file.revision.sha256) throw new Error('File export SHA-256 mismatch')
     await output.sync(); await output.close(); await rename(partial, path)
-    return { file_path: path, file_name: basename(path), size_bytes: size, sha256: file.revision.sha256, content_type: file.revision.content_type }
+    return { file_path: path, file_name: basename(path), size_bytes: size, sha256: observedSha, content_type: file.revision.content_type }
   } catch (error) {
     await output?.close().catch(() => undefined); await rm(partial, { force: true })
     if (createdDirectory === target) await rmdir(target).catch(failure => { if (!['ENOENT', 'ENOTEMPTY'].includes(failure.code)) throw failure }); throw error

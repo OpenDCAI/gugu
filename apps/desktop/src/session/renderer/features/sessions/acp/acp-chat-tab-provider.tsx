@@ -6,7 +6,7 @@ import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab
 import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
 import { SessionAgentIcon } from '../session-agent-icon';
-import { sessionAgentNames } from '../stores/session-agent-names';
+import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { sessionRegistry } from '../stores/session-registry';
 import { acpChatResources } from './acp-chat-resources';
 import { confirmCloseSessionTab } from '../close-session-tab-flow';
@@ -34,7 +34,7 @@ export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
   const label = session
-    ? sessionAgentNames.displayNameFor(store.sessionId, session.data.providerId, session.data.title)
+    ? resolveSessionDisplayName({ identityName: session.data.agentDisplayName, providerId: session.data.providerId, title: session.data.title }) ?? ''
     : 'ACP Chat';
   // 会话的名字在这枚页签上,它的动作(置顶 / 重命名 / 重启 / 换展示 / 归档)就在它的右键里(#7052)。
   const sessionCommands = useSessionTabCommands(store.sessionId, () => host.requestRename(tab.tabId));
@@ -80,7 +80,7 @@ export const AcpChatTabBarItemDragPreview = observer(function AcpChatTabBarItemD
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
   const label = session
-    ? sessionAgentNames.displayNameFor(store.sessionId, session.data.providerId, session.data.title)
+    ? resolveSessionDisplayName({ identityName: session.data.agentDisplayName, providerId: session.data.providerId, title: session.data.title }) ?? ''
     : 'ACP Chat';
 
   return (

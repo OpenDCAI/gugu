@@ -83,7 +83,7 @@ export type SessionHostClient = {
   hello(): SessionHostHello | null
   connect(): Promise<void>
   /** 别等退避了,现在就再连一次(那台机器刚上线 / 刚登上)。 */
-  reconnectNow(): void
+  reconnectNow(options?: { automatic?: boolean }): void
   close(): void
 }
 
@@ -101,6 +101,8 @@ export type SessionHostClientOptions = {
   /** 已确认不可达(含云电脑休眠)时不开线、不发心跳、不退避；变化后恢复原订阅。 */
   isReachable?: () => boolean
   subscribeReachability?: (listener: () => void) => () => void
+  /** A version refusal is retried automatically only after this advertised peer version changes. */
+  peerVersion?: () => string | null
   /** 重连退避上限。 */
   retryMaxMs?: number
   /** 宿主为某个 wire channel 宣告了端口、又没人经 openWireTransport 等它时:交给页面(浏览器形态)。 */
@@ -152,6 +154,15 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   /** 头一回想连时挂上,close 时摘掉:收到就 reconnectNow(在开线就作废这一问,在退避就取消计时、立刻重开,开着就换一条)。 */
   let unwatchPeer: (() => void) | null = null
   let unwatchReachability: (() => void) | null = null
+  let versionRefusal: { version: string | null; error: Error } | null = null
+  const peerVersion = () => options.peerVersion?.() ?? null
+  const refusalUnchanged = () => {
+    // Without a version source (for example the browser WebSocket adapter), a
+    // later explicit connect is the only available signal that the peer changed.
+    if (!versionRefusal || !options.peerVersion) return false
+    const currentVersion = peerVersion()
+    return currentVersion === null || versionRefusal.version === currentVersion
+  }
   const reachable = () => options.isReachable?.() ?? true
   const pending = new Map<number, Pending>()
   const eventListeners = new Map<string, Set<(data: unknown) => void>>()
@@ -338,7 +349,11 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     retryDelay = 1000
     void connect().catch(() => undefined)
   }
-  const reconnectNow = (): void => reopen('reconnect requested')
+  const reconnectNow = (request?: { automatic?: boolean }): void => {
+    if (request?.automatic && refusalUnchanged()) return
+    versionRefusal = null
+    reopen('reconnect requested')
+  }
 
   /**
    * @@@silent-window - 窗口多半已死的判据,看门狗按拍判、发问前当场判,都走这里。两个信号,各按宿主的关窗规矩定门槛:
@@ -377,17 +392,22 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     unwatchReachability ??= options.subscribeReachability?.(() => {
       if (disposed) return
       if (!reachable()) suspend()
-      else if (state === 'closed') reconnectNow()
+      else if (state === 'closed') reconnectNow({ automatic: true })
     }) ?? null
     if (!reachable()) {
       suspend()
       return Promise.reject(Object.assign(new Error(failureText('hostNotConnected')), { code: 'unreachable' }))
     }
+    if (refusalUnchanged()) return Promise.reject(versionRefusal!.error)
+    versionRefusal = null
     if (pipe && state === 'open' && !dropIfSilent()) return Promise.resolve()
     if (opening) return opening
-    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow()) ?? null
+    // A real taskhost.ready is evidence of a new host even when its device
+    // directory has not published an app version yet. Ordinary heartbeats are not.
+    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow({ automatic: peerVersion() !== null })) ?? null
     // 换线中开的那一条:开好之前照旧是 switching(❌ 掉回 connecting,界面会读成重连)。
     if (state !== 'switching') setState('connecting')
+    const attemptPeerVersion = peerVersion()
     const gen = ++generation
     const abandoned = new Promise<never>((_resolve, reject) => {
       abandonOpening = () => reject(new Error('[session-host] opening replaced or closed'))
@@ -450,6 +470,12 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
           generation += 1
           opening = null
           abandonOpening = null
+          if (code === 'client_outdated' || code === 'server_outdated') {
+            versionRefusal = {
+              version: attemptPeerVersion,
+              error: Object.assign(new Error(code === 'server_outdated' ? failureText('hostTooOld') : failureText('clientTooOld')), { code }),
+            }
+          }
           setState('closed')
           // 开线器说那台机器此刻够不着(离线):这就是离线,❌ 记成「连不上」、❌ 退避空转 —— 停在 closed,
           // 它回来时由调用方 reconnectNow;有人要用它时再 connect 一次(当场又说够不着,不出网)。

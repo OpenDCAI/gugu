@@ -39,4 +39,3 @@ export function PlatformCopyButton({ text, kind }: { text: string | (() => strin
     {copied && <output aria-live="polite" className="sr-only">{t('agentShare.copied')}</output>}
   </>
 }
-

@@ -19,5 +19,6 @@ export function visibleMachines<T extends Device>(devices: readonly T[], isHome:
 
 /** 目录保留停止宿主后的手机会话;没有会话的机器不会产生项目分区。 */
 export function directoryMachines<T extends Device>(devices: readonly T[], isHome: (device: T) => boolean): T[] {
-  return deviceMachines(devices.filter((device) => !isHome(device))).map(machine => machine.device)
+  // Profiles on one physical machine own distinct sessions. Only the create-device picker chooses a representative.
+  return devices.filter((device) => !isHome(device))
 }

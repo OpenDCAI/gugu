@@ -12,12 +12,6 @@ export default {
       "hint": "Agent 所在设备的咕咕版本较旧，部分运行信息可能缺失。",
       "label": "主机旧"
     },
-    "notification": {
-      "online": "Agent 已上线",
-      "replyFailed": "Agent 回复失败",
-      "startedWorking": "Agent 已开始工作",
-      "startFailed": "Agent 启动失败"
-    },
     "offlineWarning": "当前不在线，可能无法及时回复",
     "archivedWarning": "对方已归档",
     "wakeRefused": "{{name}}现在上不了线：",
@@ -34,10 +28,10 @@ export default {
         "queuePosition": "（第 {{current}} 条，共 {{total}} 条）",
         "alreadyAnswered": "已在别处答过了。",
         "noLongerWaiting": "已经不等了：这一问已经结束，没有装。",
-        "failed": "批准没有送达，请在任务中打开后作答。"
+        "failed": "批准没有送达，请重试。"
       },
-      "open": "在任务中打开",
-      "openFailed": "无法在任务中打开：{{reason}}",
+      "resolve": "处理问题",
+      "openFailed": "无法处理这个问题：{{reason}}",
       "review": {
         "action": "请打开任务终端检查 MCP server，然后按 Enter 确认。",
         "title": "Agent 正等待 MCP review"

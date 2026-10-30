@@ -35,7 +35,7 @@ describe('session replies sent to IM', () => {
     } satisfies ItemSegmenter]));
     const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true,
       plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
-      terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
+      terminalSnapshot: () => null } as unknown as SegmentCtx;
     const rows = flattenTier([record], ctx, segmenters);
     // On the session page the send is drawn as the agent's words (agent-send); the reply copied out of it is not drawn again.
     const said = rows.filter(row => (row.kind === 'agent-send' && (row.data as { send?: { text?: string } }).send?.text === '你好，我在。')
@@ -110,11 +110,56 @@ it('binds a tool-only group reply to its footer instead of a duplicate process h
   } satisfies ItemSegmenter]));
   const ctx = { caches: {}, expanded: () => false, active: false, foldTurnProcess: true, agentConversation: true,
     plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(),
-    terminalOutputText: () => null, terminalExitStatus: () => null } as unknown as SegmentCtx;
+    terminalSnapshot: () => null } as unknown as SegmentCtx;
   const rows = flattenTier([record], ctx, segmenters);
   expect(rows.filter(row => row.kind === 'turn-process').map(row => row.data)).toMatchObject([{ silent: true }]);
   const head = rows.find(row => row.kind === 'message' && (row.data as { conversationPart?: string }).conversationPart === 'head')?.data;
   const delivered = rows.find(row => row.itemId.includes(':sent:') && !row.itemId.endsWith(':head'))?.data;
   expect(head).toMatchObject({ conversationPart: 'head', conversationProcess: { startedAt: 1000, endedAt: 4000 } });
   expect(delivered).toMatchObject({ text: '你好，我在。', conversationPart: 'body' });
+});
+
+it('projects text, a confirmed file card and text at their actual call positions in every agent conversation', () => {
+  const first = send({ text: 'First' });
+  const file = { ...send(), id: 'file', toolCallId: 'file', seq: 3, tool: 'message_send_file',
+    rawInput: JSON.stringify({ chat_id: 'group', file_path: '/private/proof.txt' }),
+    outputText: JSON.stringify({ status: 'sent', message_id: '7417511d-8f36-4cbc-8cbb-81ce9f97df73', file_name: 'proof.txt', file: `gugu-file://${id}?v=2` }) };
+  const last = { ...send({ text: 'Last' }), id: 'last', toolCallId: 'last', seq: 4, outputText: 'sent (id=msg:8417511d-8f36-4cbc-8cbb-81ce9f97df73)' };
+  const record = { ...turn(first), items: [turn(first).items[0], first, file, last] };
+  const projected = withSentReplies(record, { allDestinations: true });
+  expect(words(projected).map(item => item.kind === 'message' ? item.text : '')).toEqual(['First', 'proof.txt', 'Last']);
+  expect(words(projected)[1]).toMatchObject({ sentAttachment: { name: 'proof.txt', href: `gugu-file://${id}?v=2` } });
+  expect(withSentReplies(projected, { allDestinations: true })).toBe(projected);
+});
+
+it('ends an injected DM with its confirmed MCP reply instead of a second task summary', () => {
+  const record = turn();
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'task-summary', seq: 3, role: 'assistant', text: 'I have completed the task: 你好，我在。' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['你好，我在。']);
+  expect(record.items.at(-1)?.id).toBe('task-summary');
+});
+
+it('keeps a normal task response and the explanation of an unsuccessful DM reply', () => {
+  const record = turn({ ...send(), status: 'error' });
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'error', seq: 3, role: 'assistant', text: 'The send failed.' });
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['The send failed.']);
+  input.text = 'A task typed directly in this session';
+  expect(words(withSentReplies(record, { allDestinations: true })).map(item => item.kind === 'message' ? item.text : '')).toEqual(['The send failed.']);
+});
+
+it('also completes an injected DM when the confirmed reply is a file', () => {
+  const file = { ...send({ chat_id: 'group', file_name: 'reply.txt' }), tool: 'message_send_file',
+    outputText: JSON.stringify({ status: 'sent', message_id: id, file_name: 'reply.txt' }) };
+  const record = turn(file);
+  const input = record.items[0];
+  if (input.kind !== 'message') throw new Error('fixture');
+  input.text = input.text.replace('chat_kind="group"', 'chat_kind="dm"');
+  record.items.push({ kind: 'message', id: 'summary', seq: 3, role: 'assistant', text: 'I sent the file.' });
+  expect(words(withSentReplies(record, { allDestinations: true }))).toMatchObject([{ text: 'reply.txt' }]);
 });

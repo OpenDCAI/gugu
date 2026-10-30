@@ -7,7 +7,7 @@ import { vars } from '@session-chat/styles/theme.css';
 
 export const conversationRoot = style({ position: 'relative', color: vars.fgBody });
 export const conversationHeader = style({ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden', fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize, lineHeight: '18px' });
-export const conversationName = style({ fontWeight: 650, whiteSpace: 'nowrap', maxWidth: '52%', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 });
+export const conversationName = style({ fontWeight: 650, whiteSpace: 'pre-wrap', maxWidth: '100%', flexShrink: 0 });
 export const senderNameLink = style({ border: 0, padding: 0, background: 'transparent', color: 'inherit', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', textAlign: 'inherit', cursor: 'pointer', selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { textDecoration: 'underline', outlineOffset: 2 } } });
 const caretBlink = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0 } });
 globalStyle('[data-conversation-caret="true"] p:last-child::after', { content: '"▍"', display: 'inline-block', width: 0, color: vars.fgMuted, animation: `${caretBlink} 1s steps(1) infinite` });
@@ -16,7 +16,7 @@ export const conversationQuote = style({ display: 'flex', alignItems: 'center', 
 globalStyle(`${conversationQuote} > span:last-of-type`, { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
 globalStyle(`${conversationQuote} svg`, { flexShrink: 0, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4 });
 export const conversationQuoteFrom = style({ fontWeight: 600, flexShrink: 0, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' });
-export const conversationTime = style({ display: 'flex', alignItems: 'center', gap: 9, color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
+export const conversationTime = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', alignContent: 'start', columnGap: 9, rowGap: 0, color: vars.fgMuted, fontFamily: vars.fontSans, fontSize: vars.typeChromeTinyFontSize });
 globalStyle(`${conversationRoot}[data-side="right"] ${conversationHeader}`, { justifyContent: 'flex-end' });
 globalStyle(`${conversationRoot}[data-side="right"] ${conversationName}`, { order: 3 });
 globalStyle(`${conversationRoot}[data-side="right"] ${conversationTime}`, { justifyContent: 'flex-end' });
@@ -31,8 +31,8 @@ globalStyle(`${conversationRoot}[data-side="left"] [data-user-card]`, { backgrou
 
 
 
-export const conversationProcessButton = style({ display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: 0, border: 0, background: 'transparent', color: vars.fgMuted, font: 'inherit', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', whiteSpace: 'nowrap', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:disabled': { cursor: 'default' }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } } });
-export const conversationProcessChevron = style({ display: 'inline-block', lineHeight: 1, transition: 'transform 120ms ease', selectors: { [`${conversationProcessButton}[aria-expanded="true"] &`]: { transform: 'rotate(90deg)' } }, '@media': { '(prefers-reduced-motion: reduce)': { transition: 'none' } } });
+export const conversationProcessButton = style({ maxWidth: '100%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: 0, border: 0, background: 'transparent', color: vars.fgMuted, font: 'inherit', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', whiteSpace: 'nowrap', selectors: { '&:hover:not(:disabled)': { color: vars.fg }, '&:disabled': { cursor: 'default' }, '&:focus-visible': { outline: `1px solid ${vars.fgMuted}`, outlineOffset: 2, borderRadius: 3 } } });
+export const conversationProcessChevron = style({ flexShrink: 0, display: 'inline-grid', placeItems: 'center', width: 12, height: 12, fontSize: 10, lineHeight: '10px', transition: 'transform 120ms ease', selectors: { [`${conversationProcessButton}[aria-expanded="true"] &`]: { transform: 'rotate(90deg)' } }, '@media': { '(prefers-reduced-motion: reduce)': { transition: 'none' } } });
 globalStyle(`${conversationProcessButton} svg`, { flexShrink: 0 });
 /** 过程行里「执行中」与「后台 · …」之间那道细竖线。 */
 export const conversationTimeSeparator = style({ width: 1, height: 10, background: vars.border, flexShrink: 0 });
@@ -54,7 +54,7 @@ globalStyle(`${conversationRoot} [data-user-message-actions]`, { opacity: 1, poi
 globalStyle(`${conversationRoot} [data-user-message-actions] > :not([data-slot="sent-to"])`, { opacity: 0, pointerEvents: 'none', transition: 'opacity 120ms ease' });
 globalStyle(`${conversationRoot}:hover [data-user-message-actions] > *, ${conversationRoot} [data-user-message-actions]:focus-within > *`, { opacity: 1, pointerEvents: 'auto' });
 // 发出去的气泡:那一行最前面常驻一小段淡灰的「发到 群名」(管家 10-28),时间、复制照旧悬停才出。
-globalStyle(`${conversationRoot} [data-user-message-actions] > [data-slot="sent-to"]`, { order: -1, marginLeft: 0, marginRight: 8, color: vars.fgMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 });
+globalStyle(`${conversationRoot} [data-user-message-actions] > [data-slot="sent-to"]`, { order: -1, marginLeft: 0, marginRight: 8, color: vars.fgMuted, whiteSpace: 'pre-wrap', minWidth: 0 });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions]`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] ${userMessageExpandRow}`, { justifyContent: 'flex-start' });
 globalStyle(`${conversationRoot}[data-side="left"] [data-user-message-actions] time`, { order: 2, marginLeft: 8, marginRight: 0 });

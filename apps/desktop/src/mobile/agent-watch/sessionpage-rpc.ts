@@ -75,6 +75,7 @@ function host(deviceId: string): SessionHostClient {
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
       isReachable: () => reachable(deviceId),
+      peerVersion: () => readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.app_version ?? null,
       subscribeReachability: (listener) => {
         const stopCloud = subscribeCloudComputerState(listener)
         const stopDevices = subscribeCachedDevices(listener)
@@ -109,7 +110,7 @@ function host(deviceId: string): SessionHostClient {
  */
 if (typeof window !== 'undefined') {
   const reopenClosed = () => {
-    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow()
+    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow({ automatic: true })
   }
   window.addEventListener('online', reopenClosed)
   document.addEventListener('visibilitychange', () => {
@@ -214,8 +215,10 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export function sendSessionText(deviceId: string, sessionId: string, text: string): Promise<unknown> {
-  return value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text }))
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']): Promise<unknown> {
+  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(attachments?.length ? { attachments } : {}) }))
+  if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
+  return receipt
 }
 
 /** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
@@ -367,4 +370,9 @@ export function onLinkChange(deviceId: string, cb: (open: boolean) => void): () 
  */
 export function onMachineEvent<T>(deviceId: string, event: { name: string; _data?: T }, cb: (data: T) => void): () => void {
   return host(deviceId).api.eventOn(event.name, (data) => cb(data as T))
+}
+
+export function changeSessionQueue(deviceId: string, conversationId: string, action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction, phoneHost = false): Promise<null> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionQueue', [{ conversationId, action }])
+  return value(rpc(deviceId).sessionTimeline.sessionQueue({ conversationId, action }))
 }

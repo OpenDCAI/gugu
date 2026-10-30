@@ -20,6 +20,8 @@
  * 已经跑了五分钟的会话时会说 3 秒。回放来的一轮没有时刻,那就不写时间
  * —— 一个会少报的计时器比没有计时器更糟。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics';
 import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
@@ -29,32 +31,42 @@ import type { TurnProcessItem } from '@session-chat/model';
 import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-fold';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { conversationHeader, conversationName, conversationTime } from '../message/conversation-message.css';
+import { processRowHeight } from '../message/process-row-layout';
 import { ConversationProcess } from '../message/ConversationProcess';
 import { ProcessBackgroundList, ProcessBackgroundPill, backgroundHeight } from '../message/ConversationMessage';
-import { CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H } from '../message/conversation-body';
+import { CONVERSATION_HEADER_H } from '../message/conversation-body';
 import { SenderName } from '../message/SenderName';
 import { conversationAgentTarget } from '@session-chat/lib/sender-target';
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
+
+function nameLayout(ctx: MeasureCtx) {
+  return readableLabel(ctx.commands?.conversationAgentName?.() ?? 'Agent', ctx, ctx.width, 12, 18, 650);
+}
+function silentLayout(ctx: MeasureCtx) { return readableLabel(rowTranslator(ctx)('transcript.processSilent'), ctx, ctx.width, 12, 22); }
+function classicHeight(data: TurnProcessItem, ctx: MeasureCtx) {
+  const sampleClock = (data.startedAt ?? 0) + 999 * 3600000 + 59 * 60000;
+  const label = readableLabel(turnProcessLabel(data, sampleClock, rowTranslator(ctx)), ctx, ctx.width - 20, ctx.theme.config.roles.body.size, 18);
+  return Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8);
+}
+function conversationHeight(data: TurnProcessItem, ctx: MeasureCtx) {
+  return Math.max(CONVERSATION_HEADER_H, nameLayout(ctx).height + 6) + processRowHeight(data.id, data, ctx)
+    + (data.silent ? silentLayout(ctx).height : 0) + backgroundHeight(data, ctx);
+}
 
 export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }>({
   kind: 'turn-process',
   margin: { top: 4, bottom: 4 },
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
-  measure(_data, ctx, vars_) {
-    // 对话布局:名字一行 + 过程行,与回复里的那两行一样高 —— 原先按经典头的「一行正文 + 8」再加名字,过程行下面多出一截空白(owner 10-28 第 3 处)。
-    if (ctx.theme.layout.agentConversation) return CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H * (_data.silent ? 2 : 1) + backgroundHeight(_data, ctx);
-    return ctx.theme.fonts.body.lineHeight + vars_.extraH;
-  },
+  measure(data, ctx) { return ctx.theme.layout.agentConversation ? conversationHeight(data, ctx) : classicHeight(data, ctx); },
 
   Render(props) {
     const translate = useChatTranslator();
     const theme = useTheme();
     const commands = useCommands();
-    const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
-    const rowHeight = () => theme().layout.agentConversation
-      ? CONVERSATION_HEADER_H + CONVERSATION_PROCESS_H * (props.data.silent ? 2 : 1) + (props.ctx.measureCtx ? backgroundHeight(props.data, props.ctx.measureCtx()) : 0) : height();
+    const height = () => classicHeight(props.data, props.ctx.measureCtx!());
+    const rowHeight = () => theme().layout.agentConversation ? conversationHeight(props.data, props.ctx.measureCtx!()) : height();
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
     const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
@@ -85,7 +97,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         style={{ height: `${rowHeight()}px` }}
       >
         <Show when={theme().layout.agentConversation}>
-          <div class={conversationHeader} style={{ height: `${CONVERSATION_HEADER_H}px` }}><SenderName class={conversationName} name={commands().conversationAgentName?.() ?? 'Agent'} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} /></div>
+          <div class={conversationHeader} style={{ height: `${Math.max(CONVERSATION_HEADER_H, nameLayout(props.ctx.measureCtx!()).height + 6)}px` }}><SenderName class={conversationName} name={nameLayout(props.ctx.measureCtx!()).text} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} /></div>
         </Show>
         {/* 对话布局:过程行与回复头里那一行同一个样式(conversationTime)—— ❌ 套经典头的 turnProcessLine / 头槽,
             出正文前后字号 14→12、左右半边差 4px(真机验收 10-28)。 */}
@@ -97,20 +109,20 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
                 collapsible={!props.data.placeholder && !props.data.empty}
                 expanded={expanded()}
                 active={props.data.live && !props.data.withBody}
-                height={height()}
+                height={height()} wrap labelSize={theme().config.roles.body.size}
               >
                 {label()}
               </CollapseHeader>
             </div>
           </div>
         }>
-          <div class={conversationTime} data-slot="tool-timeline-line" style={{ height: `${CONVERSATION_PROCESS_H}px` }}>
-            <ConversationProcess process={props.data} anchorId={props.data.id} expanded={expanded()} />
+          <div class={conversationTime} data-slot="tool-timeline-line" style={{ height: `${processRowHeight(props.data.id, props.data, props.ctx.measureCtx!())}px` }}>
+            <ConversationProcess measureCtx={props.ctx.measureCtx!} process={props.data} anchorId={props.data.id} expanded={expanded()} />
             <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
           </div>
         </Show>
         <Show when={theme().layout.agentConversation}><ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} /></Show>
-        <Show when={theme().layout.agentConversation && props.data.silent}><div class={conversationTime} style={{ height: `${CONVERSATION_PROCESS_H}px` }}>{translate('transcript.processSilent')}</div></Show>
+        <Show when={theme().layout.agentConversation && props.data.silent}><div class={conversationTime} style={{ height: `${silentLayout(props.ctx.measureCtx!()).height}px`, 'white-space': 'pre-wrap', 'line-height': '22px' }}>{silentLayout(props.ctx.measureCtx!()).text}</div></Show>
       </div>
     );
   },

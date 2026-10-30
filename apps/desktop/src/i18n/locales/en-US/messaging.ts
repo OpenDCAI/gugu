@@ -12,12 +12,6 @@ export default {
       "hint": "This Agent's device runs an older Gugu, so some activity may be missing.",
       "label": "Host outdated"
     },
-    "notification": {
-      "online": "Agent is online",
-      "replyFailed": "Agent reply failed",
-      "startedWorking": "Agent started working",
-      "startFailed": "Agent startup failed"
-    },
     "offlineWarning": "Currently offline and may not respond promptly",
     "archivedWarning": "Recipient is archived.",
     "wakeRefused": "{{name}} can't come online right now: ",
@@ -36,7 +30,7 @@ export default {
         "noLongerWaiting": "No longer waiting: this ask is over, nothing was installed.",
         "failed": "The approval did not go through. Open it in Tasks to answer."
       },
-      "open": "Open in Tasks",
+      "resolve": "Resolve issue",
       "openFailed": "Could not open in Tasks: {{reason}}",
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",

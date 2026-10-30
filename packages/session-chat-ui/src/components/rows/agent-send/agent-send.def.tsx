@@ -7,14 +7,20 @@
  * 哪些调用算、去向怎么认:session-core `agentSendOf`(手机会话页读同一份)。
  */
 import { defineUnit } from '@session-chat/core/units';
-import { useChatName } from '@session-chat/lib/chat-name';
-import { useChatTranslator } from '@session-chat/localization';
 import type { AgentSendItem } from '@session-chat/model';
 import { agentSendLabel } from '@session-chat/state/agent-send';
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { toRow } from './agent-send.css';
 
 /** 一行高(px)。⚠️ 改它要同时改 `agent-send.css.ts` 的 height / line-height。 */
 export const AGENT_SEND_TO_ROW_H = 18;
+
+function destinationLayout(data: AgentSendItem, ctx: MeasureCtx) {
+  const t = rowTranslator(ctx);
+  const where = agentSendLabel(data.send.to, t, ctx.chatName ?? (() => null));
+  return readableLabel(data.status === 'running' ? `${where} · ${t('transcript.agentSending')}` : where, ctx);
+}
 
 export const agentSendToUnitDef = defineUnit<AgentSendItem, { rowH: number }>({
   kind: 'agent-send-to',
@@ -22,17 +28,10 @@ export const agentSendToUnitDef = defineUnit<AgentSendItem, { rowH: number }>({
   margin: { top: 2, bottom: 8 },
   vars: { rowH: AGENT_SEND_TO_ROW_H },
 
-  measure(_data, _ctx, vars_) {
-    return vars_.rowH;
-  },
+  measure(data, ctx) { return destinationLayout(data, ctx).height; },
 
   Render(props) {
-    const translate = useChatTranslator();
-    const chatName = useChatName();
-    const label = (): string => {
-      const where = agentSendLabel(props.data.send.to, translate, chatName);
-      return props.data.status === 'running' ? `${where} · ${translate('transcript.agentSending')}` : where;
-    };
-    return <div class={toRow} data-agent-send-to={props.data.id}>{label()}</div>;
+    const layout = () => destinationLayout(props.data, props.ctx.measureCtx!());
+    return <div class={toRow} style={{ height: `${layout().height}px` }} data-agent-send-to={props.data.id}>{layout().text}</div>;
   },
 });

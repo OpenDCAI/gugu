@@ -1,9 +1,11 @@
+import { safeDeliveredBody } from './delivery-presentation';
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { parseMessageQuoteLink, readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
 import { messageReferenceId } from '@gugu/session-core/acp/client';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { withSentReplies } from './sent-replies';
+import { conversationQuoteText } from './conversation-quote-text';
 
 /** Match identities only; identical words in another message are never an anchor. */
 export function resolveConversationMessageReference(turns: readonly TranscriptTurn[], reference: string, sessionId?: string): string | null {
@@ -34,7 +36,7 @@ type Quoted = { item: ChatMessage; text: string; from?: string; fromId?: string;
 
 /**
  * View-only reply anchors; persisted messages and delivery envelopes stay untouched.
- * Only explicit anchors are quoted: a delivery's `reply_to`, or the `reply_to_message_id` the agent passed
+ * Only explicit anchors are quoted: a native quote link, a delivery's `reply_to`, or the `reply_to_message_id` the agent passed
  * to message_send (`sentReplyTo`). ❌ Falling back to "the input before it" — a direct output has no
  * reply target, and a guessed one reads as a reply to someone else (owner 10-28 新管家截图).
  */
@@ -57,10 +59,10 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const data = item as ChatMessage;
     const envelope = readDeliveryEnvelope(item.text);
     const first = envelope?.segments[0]?.facts;
-    messages.set(item.id, { item: data, text: envelope?.body ?? data.text, from: first?.from ?? undefined, fromId: first?.fromId ?? undefined, self: data.role === 'assistant' || undefined, chatId: groupOf(first) });
+    messages.set(item.id, { item: data, text: envelope ? envelope.segments.map(segment => safeDeliveredBody(segment.body)).join('\n\n') : data.text, from: first?.from ?? undefined, fromId: first?.fromId ?? undefined, self: data.role === 'assistant' || undefined, chatId: groupOf(first) });
     for (const segment of envelope?.segments ?? []) {
       const canonical = segment.facts?.messageId?.replace(/^msg:/, '');
-      if (canonical) messages.set(canonical, { item: data, text: segment.body, from: segment.facts?.from ?? undefined, fromId: segment.facts?.fromId ?? undefined, chatId: groupOf(segment.facts) });
+      if (canonical) messages.set(canonical, { item: data, text: safeDeliveredBody(segment.body), from: segment.facts?.from ?? undefined, fromId: segment.facts?.fromId ?? undefined, chatId: groupOf(segment.facts) });
     }
     const sentId = /:sent:([^:]+)$/.exec(item.id)?.[1];
     if (sentId) messages.set(sentId, { item: data, text: data.text, self: true, chatId: data.sentChat ? groups.get(data.sentChat) : undefined });
@@ -70,14 +72,14 @@ export function conversationMessages(turns: readonly TranscriptTurn[]): Transcri
     const data = { ...item, sourceItemId: messageReferenceId(turn, item.id) };
     const native = readMessageQuote(data.text);
     if (native) return { ...data, text: native.body, conversationReply: {
-      itemId: native.link, text: native.excerpt, ...(native.sender ? { from: native.sender } : {}), unloaded: true,
+      itemId: native.link, text: conversationQuoteText(native.excerpt), ...(native.sender ? { from: native.sender } : {}), unloaded: true,
     } };
     const reply = readDeliveryEnvelope(item.text)?.segments[0]?.facts?.replyTo;
     const quoted = reply?.messageId.replace(/^msg:/, '') ?? (item as ChatMessage).sentReplyTo;
     const original = quoted ? messages.get(quoted) : undefined;
     if (!original) return quoted ? { ...data, conversationReply: { itemId: quoted, text: reply?.preview ?? '', unloaded: true,
       ...(reply?.from ? { from: reply.from } : {}), ...(reply?.fromId ? { fromId: reply.fromId } : {}) } } : data;
-    const conversationReply = { itemId: original.item.id, text: original.text, ...(original.from ? { from: original.from } : {}),
+    const conversationReply = { itemId: original.item.id, text: conversationQuoteText(original.text), ...(original.from ? { from: original.from } : {}),
       ...(original.fromId ? { fromId: original.fromId } : {}), ...(original.self ? { self: true } : {}), ...(original.chatId ? { chatId: original.chatId } : {}) };
     return { ...data, conversationReply };
   }) }));

@@ -1,3 +1,4 @@
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const warn = vi.hoisted(() => vi.fn())
@@ -74,7 +75,7 @@ describe('session peer sidebar titles', () => {
     ...extra,
   })
 
-  it('returns the session-page title separately from the contact identity name, with the sidebar facts', () => {
+  it('uses the current identity name as the peer title, with the sidebar facts', () => {
     expect(resolveLocalSessionPeers(
       [binding],
       [identity],
@@ -86,7 +87,7 @@ describe('session peer sidebar titles', () => {
     )).toEqual([{
       identity: { users: identity },
       sessionId: binding.sessionId,
-      title: 'Review delivery routing',
+      title: 'Contact name',
       project: 'gugu',
       status: 'needs_user',
       detail: 'approval',
@@ -99,7 +100,7 @@ describe('session peer sidebar titles', () => {
     const peers = resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Question task', {
       projectId: '00000000-0000-4000-8000-000000000001', projectName: '任务工作区',
     })]);
-    expect(peers[0]).toMatchObject({ title: 'Question task', project: '' });
+    expect(peers[0]).toMatchObject({ title: 'Contact name', project: '' });
     expect(resolveLocalSessionPeers([binding], [identity], [facts(binding.sessionId, 'Real project task', {
       projectId: 'business-project', projectName: '任务工作区',
     })])[0]?.project).toBe('任务工作区');
@@ -117,7 +118,8 @@ describe('session peer sidebar titles', () => {
         facts(third.sessionId, 'Newer', { lastInteractedAt: '2026-09-26T10:00:00.000Z' }),
       ],
     )
-    expect(peers.map((peer) => peer.title)).toEqual(['Newer', 'Older', 'Never touched'])
+    expect(peers.map((peer) => peer.sessionId)).toEqual([third.sessionId, second.sessionId, binding.sessionId])
+    expect(peers.every(peer => peer.title === peer.identity.users.display_name)).toBe(true)
   })
 
   it('fails when the session-page title is missing or ambiguous', () => {
@@ -465,6 +467,14 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
 
     expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith(sessionId, text, { steerIfBusy: true })
     expect(receipt).toMatchObject({ turnId: `turn-${providerId}` })
+  })
+
+  it('queues a verified human DM without steering the active agent turn', async () => {
+    const { injectEmdashPromptDetached } = bridgeFor('codex')
+    const text = renderDeliveryEnvelope({ route: 'chat', chat: 'dm-1', chatKind: 'ai', from: 'Owner',
+      fromId: 'user:owner', fromType: 'human', messageId: 'msg:human-dm', at: '2026-10-28', content: 'next request' })
+    await emdashAgentRegistry.tryInjectSessionMessage('conv-codex-acp', { id: 'human-dm', text, kind: 'ordinary' })
+    expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith('conv-codex-acp', text, undefined)
   })
 
   it('preserves the deferred queue claim marker across the host bridge without another context claim', async () => {

@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import type { ChatCommands } from '@gugu/session-chat-ui'
+import { openMessageSender } from '../../../../apps/desktop/src/lib/openMessageSender'
+import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
+import { stubVisibleIntersection } from '../../../support/visibleIntersection'
 
+const transcript = vi.hoisted(() => ({ commands: undefined as ChatCommands | undefined }))
 const auth = vi.hoisted(() => ({ owner: 'draft-owner-a' }))
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(() => new Promise(() => undefined)) }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', async (original) => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/supabase')>(), getCurrentAuthUserId: async () => auth.owner }))
@@ -13,7 +17,9 @@ vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () =>
   fetchSessionOptions: vi.fn(() => new Promise(() => undefined)), setSessionOption: vi.fn(), sessionAttachmentRpc: vi.fn(() => ({})),
 }))
 
-import { AgentThread } from '../../../../apps/desktop/src/mobile/agent-watch/AgentThread'
+vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { composerContent: import('react').ReactNode; commands: ChatCommands }) => { transcript.commands = props.commands; return createElement('div', {}, props.composerContent) } }))
+
+import { SessionConversation } from '../../../../apps/desktop/src/mobile/agent-watch/SessionConversation'
 import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
 import { phoneTaskSendKey, readPhoneTaskSend, restorePhoneTaskDraft, sendPhoneTaskText } from '../../../../apps/desktop/src/mobile/local-agent/phoneTaskSend'
 
@@ -29,17 +35,18 @@ async function leaveUnconfirmed(text: string) {
   return invoke.mock.calls[0][2][0]
 }
 async function show(onSend = async (_text: string) => undefined) {
-  await renderWithAppProviders(harness, createNode(AgentThread, {
+  await renderWithAppProviders(harness, createNode(SessionConversation, {
     timeline: emptyAgentWatchTimeline(), deviceId: 'phone-draft', sessionId: 'task-draft', phoneHost: true,
-    sessionRuntime: 'acp', respondingItemId: null, onRespond: () => undefined, onSend, pendingSends: [], sending: false,
+    agentName: 'Test agent', agentUserId: 'phone-agent', sessionRuntime: 'acp', respondingItemId: null, onRespond: () => undefined, onSend, pendingSends: [], sending: false,
     agentWorking: false, onStop: () => undefined, stopping: false, onLoadOlder: async () => undefined,
   }), { auth: { id: auth.owner } })
 }
 beforeEach(() => {
+  stubVisibleIntersection()
   localStorage.clear(); auth.owner = 'draft-owner-a'; rpc.invoke.mockReset(); rpc.invoke.mockImplementation(() => new Promise(() => undefined)); harness = createReactHarness()
   Element.prototype.scrollTo = () => undefined
 })
-afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll })
+afterEach(() => { harness.cleanup(); Element.prototype.scrollTo = oldScroll; vi.unstubAllGlobals() })
 
 describe('the existing phone task composer recovers an unacknowledged send', () => {
   it('restores the actual empty input without replay, then an explicit retry keeps the original id', async () => {
@@ -103,4 +110,11 @@ describe('the existing phone task composer recovers an unacknowledged send', () 
     expect(restorePhoneTaskDraft({ getState: () => ({ text: '', attachments: [{}] }), setText }, 'old')).toBe(false)
     expect(setText).not.toHaveBeenCalled()
   })
+})
+
+it('opens phone sender names through the same shell adapter with real session and user identities', async () => {
+  await show()
+  expect(transcript.commands?.onOpenSender).toBe(openMessageSender)
+  expect(transcript.commands?.conversationAgentSession?.()).toBe('task-draft')
+  expect(transcript.commands?.conversationAgentUserId?.()).toBe('phone-agent')
 })

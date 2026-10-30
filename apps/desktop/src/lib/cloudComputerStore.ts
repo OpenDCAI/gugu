@@ -26,7 +26,7 @@ import { rendererLogger } from './log'
 const log = rendererLogger('cloud-computer')
 
 export type CloudComputerStoreState = {
-  /** 拿得到管家地址、且那扇门没说「这里没开放」(503 not_open):false ⇒ 这个功能不显示。 */
+  /** 拿得到管家地址、且那扇门没说「环境未配置可选云电脑服务」(503 not_open):false ⇒ 这个功能不显示。 */
   available: boolean
   /** 还没问到 = null。 */
   snapshot: CloudComputerSnapshot | null
@@ -104,7 +104,7 @@ function requireClient() {
   return client
 }
 
-/** 问一次管家。没配地址 / 这里没开放 = null;问不到就记下原因再抛(调用方决定要不要说给人听)。 */
+/** 问一次管家。没配地址 / 环境未配置可选云电脑服务 = null;问不到就记下原因再抛(调用方决定要不要说给人听)。 */
 export async function refreshCloudComputer(): Promise<CloudComputerSnapshot | null> {
   const client = rendererCloudComputerClient()
   if (!client) {
@@ -121,16 +121,16 @@ export async function refreshCloudComputer(): Promise<CloudComputerSnapshot | nu
     }
     return snapshot
   } catch (error) {
-    // 门说「这里没开放」:整块不显示(❌ 给所有人报「读不到云电脑的状态」);配上以后登录、切回窗口时问到就出现。
+    // 门说「环境未配置可选云电脑服务」:整块不显示(❌ 给所有人报「读不到云电脑的状态」);配上以后登录、切回窗口时问到就出现。
     if (isCloudComputerNotOpen(error)) {
       if (asked === generation && mine > applied) {
         applied = mine
         set({ available: false, snapshot: null, loadError: null })
       }
-      log.info({ code: 'not_open' }, 'cloud computer is not open on this backend')
+      log.info({ code: 'not_open' }, 'cloud computer manager is not configured on this backend')
       return null
     }
-    // 别的没问到(管家连不上、云端函数没部署……)照旧说「读不到」—— 之前门说过「没开放」也一样:门配上了才会回别的。
+    // 别的没问到(管家连不上、云端函数没部署……)照旧说「读不到」—— 之前门说过「未配置」也一样:门配上了才会回别的。
     if (asked === generation) set({ available: true, loadError: cloudComputerFailureKind(error) })
     log.warn({ err: String((error as Error)?.message ?? error) }, 'cloud computer state failed')
     throw error

@@ -54,7 +54,7 @@ export function ComposerExtrasProvider({
   /**
    * 远端那一轮正在跑、能停。给了就在**输入框为空时**把发送键换成停止键；一旦打了字又换回发送键 ——
    * 机器端在跑时 `send` 是排队，手机没有「回车发送」，发送键不能被停止键永久顶掉。
-   * ❌ 不借官方的 isRunning/onCancel：那会锁输入框（理由见 AgentThread）。
+   * ❌ 不借官方的 isRunning/onCancel：那会锁输入框（发送在途与 agent 运行是两份不同的事实）。
    */
   stop?: ComposerStop | null
 }) {

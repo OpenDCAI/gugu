@@ -6,12 +6,13 @@ import { OPEN_ASSISTANT_TASK_CHAT,type AssistantTaskChat } from '../../lib/assis
 import { assistantWorkTasks,assistantWorkStatus } from './assistant-work-projection'
 import {useAssistantWorkRecords} from './assistant-work-records'
 import {readIdentityDirectoryBridge} from '../../lib/identityDirectoryBridge'
+import {resolveSessionDisplayName} from '../../session/shared/core/sessions/session-display-name'
 
 type Scope = { ownerId:string;assistantId:string;assertCurrent?:()=>void }
 const rows = (records:readonly AssistantWorkTask[]) => assistantWorkTasks(records).map(task => {
   const presence=task.agentId ? getAgentPresenceSnapshot(task.agentId) : null
   const identity=task.agentId ? readIdentityDirectoryBridge()?.getSnapshot()?.[task.agentId] : null
-  return { ...task,title:identity?.display_name ?? task.title,status:assistantWorkStatus(task.outcome,presence?.reading ?? null),
+  return { ...task,title:resolveSessionDisplayName({identityName:identity?.display_name,providerId:presence?.payload?.agentType,title:task.title}) ?? task.title,status:assistantWorkStatus(task.outcome,presence?.reading ?? null),
     harness:presence?.payload?.agentType ?? null,unseen:presence?.local?.unseen ?? false }
 })
 /** Both shells share this cloud read; no home readiness or observed session directory participates. */

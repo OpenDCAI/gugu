@@ -109,7 +109,7 @@ describe('an App page with gugu\'s look', () => {
     const { renderer } = await import('@/session/app-runtime/markdown-entry');
     const target = document.createElement('article');
     document.body.append(target);
-    renderer({ openLink: async () => undefined, openBrowserTab: async () => undefined, reportError: async () => undefined, files: {} })(target, '# Retained document\n\nThe same body.');
+    renderer({ openLink: async () => undefined, openBrowserTab: async () => undefined, reportError: async () => undefined, files: { open: async () => undefined, readVersion: async () => undefined, onChanged: () => () => undefined } })(target, '# Retained document\n\nThe same body.');
     const heading = target.querySelector('h1');
     const themeMode = document.documentElement.dataset.guguTheme as Context['themeMode'];
     push!({ ...context, themeMode, chat: { ...context.chat, name: 'Renamed chat' } });

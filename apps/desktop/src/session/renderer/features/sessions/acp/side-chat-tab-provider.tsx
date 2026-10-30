@@ -5,7 +5,7 @@ import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-reg
 import { registeredTabView } from '@renderer/features/tabs/core/tab-views';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/tab-bar/generic-tab-item';
-import { sessionAgentNames } from '../stores/session-agent-names';
+import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { sessionRegistry } from '../stores/session-registry';
 import { acpChatResources } from './acp-chat-resources';
 import { AcpChatTabResource } from './acp-chat-tab-resource';
@@ -30,7 +30,7 @@ function sideChatLabel(resource: AcpChatTabResource): string {
     .get(resource.store.sessionId)
     ?.sessions.get(resource.store.sessionId);
   const baseLabel = session
-    ? sessionAgentNames.displayNameFor(session.data.id, session.data.providerId, session.data.title)
+    ? resolveSessionDisplayName({ identityName: session.data.agentDisplayName, providerId: session.data.providerId, title: session.data.title }) ?? ''
     : 'ACP Chat';
   return translateSessionMessage('chat.sideChatSuffix', { label: baseLabel });
 }

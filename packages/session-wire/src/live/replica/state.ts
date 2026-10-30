@@ -38,6 +38,8 @@ export class ReplicaState<T> implements LiveSource {
   private localGeneration = nextGeneration();
   private localSequence = 0;
   private upstreamBase: LiveCursor | undefined;
+  /** Attach precedes the first snapshot, so updates arriving in that window are expected. */
+  private initialUpdates: LiveUpdate[] | null = [];
   private disposed = false;
 
   constructor(
@@ -57,6 +59,8 @@ export class ReplicaState<T> implements LiveSource {
         onApplied: (update) => this.handleApplied(update),
       }
     );
+    // Share the follower's in-flight read with reattach/gap recovery. A separate
+    // initial read could finish last and overwrite a newer recovered snapshot.
     this.detachPromise = handle.attach((update) => this.applyUpdate(update), {
       // 重取时 NOT_FOUND = 上游此刻没有这份实例(拆了 / 进程重启过,#7327):告诉持有者;副本照旧挂着(@@@follow-key)。
       onReattach: () =>
@@ -69,8 +73,9 @@ export class ReplicaState<T> implements LiveSource {
         if (!retrying) this.goneEmitter.emit(error);
       },
     });
+    const initialSnapshot = this.follower.refresh();
     this.ready = releaseOnFailedReady(
-      Promise.all([handle.snapshot(), this.detachPromise]).then(([snapshot]) => this.seed(snapshot)),
+      Promise.all([initialSnapshot, this.detachPromise]).then(() => undefined),
       () => this.dispose()
     );
   }
@@ -92,6 +97,10 @@ export class ReplicaState<T> implements LiveSource {
   }
 
   applyUpdate(update: LiveUpdate): void {
+    if (this.initialUpdates) {
+      this.initialUpdates.push(update);
+      return;
+    }
     this.follower.applyUpdate(update);
   }
 
@@ -166,12 +175,21 @@ export class ReplicaState<T> implements LiveSource {
   }
 
   private handleSeeded(): void {
+    this.upstreamBase = this.cursor;
     this.localGeneration = nextGeneration(this.localGeneration);
     this.localSequence = 0;
     this.emitChange({ kind: 'seed' });
     this.waiters.flushCursorWaiters();
     this.waiters.flushAllMutationWaiters();
     this.localWaiters.flushCursorWaiters();
+    if (this.initialUpdates) {
+      for (const update of this.initialUpdates) {
+        const cursor = this.cursor;
+        if (cursor?.generation === update.generation && update.sequence <= cursor.sequence) continue;
+        this.follower.applyUpdate(update);
+      }
+      this.initialUpdates = null;
+    }
   }
 
   private handleApplied(update: LiveUpdate): void {

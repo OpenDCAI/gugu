@@ -4,6 +4,8 @@ import { projectEvents } from '../projects/project-events';
 import { randomUUID } from 'node:crypto';
 import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
 import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
+import { ProjectionMediaAccess, type ProjectionRemoteMediaBinding } from './projection-media-access';
+import { projectionVideoFeed } from './projection-video-feed';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
 
@@ -24,14 +26,52 @@ type SourceCommand = Omit<Extract<ProjectionSourceEvent, { type: 'input' }>, 'id
 export class ExtensionProjectionBridge {
   private lifecycle = 0;
   private readonly resources: ExtensionProjections;
+  private readonly mediaAccess: ProjectionMediaAccess;
   private readonly sources = new Map<string, Source>();
   private readonly inputs = new Map<string, PendingInput>();
   private readonly viewers = new Map<string, Viewer>();
   private readonly epochs = new Map<number, number>();
+  private readonly pageLeases = new Map<number, Set<AbortController>>();
   private readonly watches = new Map<string, string>();
 
   constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string>) {
     this.resources = new ExtensionProjections(({ extensionId }) => authorize(extensionId));
+    this.mediaAccess = new ProjectionMediaAccess(this.resources, pageId => this.epochs.get(pageId) ?? 0);
+  }
+
+  /** Internal host adapter; deliberately absent from the App verb dispatcher. */
+  mediaResource(caller: BridgeCaller, sourceId: string) { return this.mediaAccess.open(caller, sourceId); }
+
+  /** Called only with the host's actual page caller, before any remote negotiation. */
+  viewerPage(caller: BridgeCaller) {
+    if (caller.kind !== 'page' || !caller.binding?.sessionId) throw new Error('Projection viewer needs a bound task page');
+    const { pageId, extensionId } = caller, sessionId = caller.binding.sessionId, epoch = this.epochs.get(pageId) ?? 0;
+    const scopes = this.pageLeases.get(pageId) ?? new Set<AbortController>();
+    if (scopes.size >= 16) throw new Error('Too many projection viewer page leases');
+    const lifetime = new AbortController(); scopes.add(lifetime); this.pageLeases.set(pageId, scopes);
+    const release = () => { lifetime.abort(new Error('Projection viewer page released')); scopes.delete(lifetime);
+      if (!scopes.size && this.pageLeases.get(pageId) === scopes) this.pageLeases.delete(pageId); };
+    const assertCurrent = () => {
+      lifetime.signal.throwIfAborted();
+      if (caller.kind !== 'page' || caller.pageId !== pageId || caller.extensionId !== extensionId
+        || caller.binding?.sessionId !== sessionId || (this.epochs.get(pageId) ?? 0) !== epoch) {
+        release(); throw new Error('Projection viewer page changed');
+      }
+    };
+    return Object.freeze({ id: String(pageId), epoch: epoch + 1, appId: extensionId, sessionId,
+      signal: lifetime.signal, assertCurrent, release });
+  }
+
+  /** Trusted host encoding adapter, not an App verb or a bitmap-over-RPC route. */
+  mediaFeed(caller: BridgeCaller, sourceId: string, context: Parameters<typeof projectionVideoFeed>[2],
+    createDecoder: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
+    return projectionVideoFeed(this.resources, this.mediaResource(caller, sourceId), context, createDecoder, createMedia);
+  }
+
+  /** Owner-connection authority stays separate from a local webContents caller. */
+  remoteMediaFeed(binding: ProjectionRemoteMediaBinding, sourceId: string, context: Parameters<typeof projectionVideoFeed>[2],
+    createDecoder: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
+    return projectionVideoFeed(this.resources, this.mediaAccess.openRemote(binding, sourceId), context, createDecoder, createMedia);
   }
 
   count(pageId: number): number {
@@ -227,6 +267,9 @@ export class ExtensionProjectionBridge {
   /** The actual document/child went away. Other pages of the same App keep their own resources. */
   closePage(pageId: number): void {
     this.epochs.set(pageId, (this.epochs.get(pageId) ?? 0) + 1);
+    for (const lifetime of this.pageLeases.get(pageId) ?? []) lifetime.abort(new Error('Projection viewer page changed'));
+    this.pageLeases.delete(pageId);
+    this.mediaAccess.closePage(pageId);
     for (const key of this.watches.keys()) if (key.startsWith(`${pageId}:`)) this.watches.delete(key);
     for (const [key, viewer] of this.viewers) {
       if (viewer.pageId === pageId) { viewer.close(); this.viewers.delete(key); }

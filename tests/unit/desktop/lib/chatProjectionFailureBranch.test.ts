@@ -1,7 +1,7 @@
 // @vitest-environment node
 // @@@chat-projection 失败支 —— 判据边界上的确定性阳控/阴控(#5394 ③)。
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
-import { createChatNotificationPayload } from '@gugu/core/shared/ui/chatNotificationModels'
+import { createChatNotificationPayload } from '@gugu/core/shared/ui/notificationModels'
 import { contactGroupChatsOf } from '../../../../apps/desktop/src/lib/contactGroupChats'
 import { searchContacts } from '../../../../apps/desktop/src/lib/contactSearch'
 import { describe, expect, it, vi, beforeEach } from 'vitest'

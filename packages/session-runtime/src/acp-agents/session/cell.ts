@@ -104,6 +104,8 @@ export class SessionCell {
   private lastRunningAgentCount = 0;
   /** #7342 最后一次上下文读数到达那一刻会话自报的模型 —— 读数归它,换了模型就不归了(上限随模型变)。 */
   private usageModelIdAtReport: string | null = null;
+  /** harness 报的这条会话记录的路径(`transcript_path` 事件);还没报 = null。 */
+  private reportedTranscriptPath: string | null = null;
   private lastRunningCommandTaskIds: readonly string[] = [];
   /**
    * 还活着的子智能体会话:**界面可能拿来指认它的每一个 id** → 要投递取消的那个会话号(#5117)。
@@ -336,6 +338,10 @@ export class SessionCell {
     return this.transcript.usage ? this.usageModelIdAtReport : null;
   }
 
+  get transcriptPath(): string | null {
+    return this.reportedTranscriptPath;
+  }
+
   history(): AcpChatHistory {
     return {
       committed: structuredClone([...this.transcript.history]),
@@ -522,6 +528,12 @@ export class SessionCell {
     }
     if (event.kind === 'agent_state') {
       this.onAgentState(event);
+      return;
+    }
+    if (event.kind === 'transcript_path') {
+      if (event.path === this.reportedTranscriptPath) return;
+      this.reportedTranscriptPath = event.path;
+      this.deps.callbacks?.onSessionStateChanged?.();
       return;
     }
     if (event.kind === 'interrupted_for_message') {
@@ -1433,6 +1445,9 @@ export class SessionCell {
       // A turn that ended before running still records its outcome (machine: WorkEnded in ready).
       if (working || this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkEnded', outcome: machineOutcome(outcome),
         ...((opts?.dequeueQueuedPrompt === false || this.context().dispatchPending || this.closeRequested) ? { dequeueQueuedPrompt: false } : {}) });
+      // Commands can finish without ever reporting running. Their explicit completion releases
+      // the same lane; WorkEnded in ready records the outcome but does not itself drain it.
+      if (!working && opts?.dequeueQueuedPrompt !== false) this.releaseDispatch();
       resolve?.(opts?.result ?? (outcome.kind === 'error'
         ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
         : ok({ queued: false })));
@@ -1922,14 +1937,15 @@ export class SessionCell {
         text: prompt.text,
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
+        attachmentsMode: 'replace',
         ...(steered ? { steering: true } : { trigger: promptTrigger(prompt) }),
         ...(prompt.attachments?.length
           ? {
-              attachments: prompt.attachments.map((attachment, index) => ({
-                id: attachment.type === 'attachment' ? attachment.id : `${messageId}-image-${index}`,
+              attachments: prompt.attachments.flatMap((attachment, index) => attachment.type === 'attachment' ? [{
+                id: attachment.id,
                 name: attachment.name ?? `image-${index + 1}`,
                 mimeType: attachment.mimeType,
-              })),
+              }] : []),
             }
           : {}),
       };
@@ -1991,12 +2007,18 @@ export class SessionCell {
       // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
       // 照样读得到它。发送的这一刻 agent 已经握过手,这里的判据是它自己报的那一份(#6264)。
       // 上传来的附件(`attachment`)不在此列:它们没有路径兜底,宿主发之前已经按同一判据分过路。
-      const sendable = (prompt.attachments ?? []).filter(
-        (attachment) => attachment.type !== 'local-file' || this.acceptsImagePrompts
-      );
       const resolvedAttachments = await Promise.all(
-        sendable.map((attachment) => this.deps.resolveAttachment(attachment))
+        (prompt.attachments ?? []).map((attachment) => this.deps.resolveAttachment(attachment))
       );
+      // Preserve the runtime's copy in both tentative and native-receipt projections.
+      // Model image support controls the wire blocks, not whether people can reopen their image.
+      if (prompt.attachments?.length) {
+        submittedMessage.attachments = prompt.attachments.flatMap((attachment, index) => {
+          const ref = resolvedAttachments[index]?.ref;
+          return ref ? [ref] : attachment.type === 'attachment' ? [{ id: attachment.id, name: attachment.name ?? `image-${index + 1}`, mimeType: attachment.mimeType }] : [];
+        });
+        if (!nativeSteer) recordUserMessage();
+      }
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
       // 常驻背景,该在用户这一句之前被读到。
       // ⚠️ 在 await 之后、构造请求之前取并清空 —— 并发的第二轮不会再带上它。
@@ -2005,7 +2027,9 @@ export class SessionCell {
       const contextBlocks = sessionContext
         ? [{ type: 'text' as const, text: sessionContext }]
         : [];
-      const attachmentBlocks = resolvedAttachments.map((attachment) => ({
+      const attachmentBlocks = resolvedAttachments.filter((_, index) =>
+        prompt.attachments?.[index]?.type !== 'local-file' || this.acceptsImagePrompts
+      ).map((attachment) => ({
         type: 'image' as const,
         data: attachment.data,
         mimeType: attachment.mimeType,
@@ -2373,7 +2397,11 @@ export class SessionCell {
 
   private context(): SessionMachineContext {
     return {
-      dispatchPending: [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
+      // Acceptance only admits an input. Before the provider reports running the machine is still
+      // ready, but that foreground cycle owns the lane until its real completion (including a
+      // command that goes straight to idle). A receipt must not drain ordinary queued inputs.
+      dispatchPending: this.activeTurnCompletion !== null
+        || [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
       modeIds: this.transcript.config.modeOptions?.available.map((mode) => mode.id) ?? [],
       configOptionIds: [
         ...(['model', 'effort'] as const)

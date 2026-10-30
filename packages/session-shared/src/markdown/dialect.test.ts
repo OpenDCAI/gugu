@@ -106,6 +106,14 @@ describe('markdown dialect', () => {
     expect(hrefAfter(conversation)).toBe(conversation);
     expect(hrefAfter('javascript:alert(1)')).toBeUndefined();
     expect(hrefAfter('ab:x')).toBeUndefined();
+    // An image may name a group's file (an App page's markdown draws it); no other new scheme reaches an image.
+    const srcAfter = (src: string) => {
+      const tree = { type: 'root', children: [{ type: 'element', tagName: 'img', properties: { src }, children: [] }] };
+      return (sanitize.runSync(tree as never) as unknown as { children: { properties: { src?: unknown } }[] }).children[0]?.properties.src;
+    };
+    expect(srcAfter(groupFile)).toBe(groupFile);
+    expect(srcAfter('gugu-chat://aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')).toBeUndefined();
+    expect(srcAfter('javascript:alert(1)')).toBeUndefined();
   });
 
   // #6950: GitHub's anchors (github-slugger's rule and its numbering of repeats), prefixed by the sanitizer.

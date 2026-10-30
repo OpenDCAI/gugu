@@ -1,4 +1,6 @@
 import { resolveSessionDisplayName } from '@/session/shared/core/sessions/session-display-name'
+import { observer } from 'mobx-react-lite'
+import { useNativeSessionRecord } from './useNativeSessionRecord'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
@@ -13,21 +15,26 @@ import { useBackLayer } from '@/components/ui/sheetStack'
 import { IconButton } from '@/components/ui/IconButton'
 import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
-import { AgentThread } from './AgentThread'
+import { SessionConversation } from './SessionConversation'
+import { enqueueSessionInput, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
 import { useCloudComputerWake } from '../../hooks/useWakeCloudComputer'
 import { deriveAttention } from './agent-watch-store'
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer'
 import { sessionPresentation } from './watch-status'
 import { agentStatusText } from '@/lib/agentStatusText'
 import { agentStatusColorVar } from '@gugu/core/shared/agentStatusPresentation'
 import { useAgentWatchSession } from './useAgentWatchSession'
 import { SessionActions } from './SessionsPage'
-import { MobileModeMenu } from './MobileModeMenu'
+import { SessionAppMenu } from './SessionAppMenu'
 import { useMachineLabel } from './useMachineLabel'
 import { SessionAppFrame } from '@/components/appSlot/SessionAppFrame'
 import { installedExtensionsStore } from '@/session/renderer/features/extensions/installed-extensions-store'
+import { useNetworkOnline } from '@/hooks/useNetworkOnline'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 /**
  * owner 10-16 The App tabs a session offers on the phone: installed, switched on, opening no file — the session page's 「+」
@@ -46,7 +53,7 @@ function useSessionApps(): Array<{ kind: string; name: string }> {
  * 页头状态是宿主写下的那份读数(`session` 是机器推来的最新一份,见 AgentWatchPage),与列表、提醒、桌面同一句话;
  * 时间线自己的推导(deriveAttention)只管这一页内部:最后一轮还没结算时线尾画「在干活」。
  */
-export function SessionTimelinePage({
+export const SessionTimelinePage = observer(function SessionTimelinePage({
   device,
   session,
   agent,
@@ -54,7 +61,6 @@ export function SessionTimelinePage({
   draft,
   initialAppKind,
   onBack,
-  onOpenChat,
 }: {
   device: Device
   session: SessionpageSessionSummary
@@ -65,13 +71,13 @@ export function SessionTimelinePage({
   draft?: { text: string }
   initialAppKind?: string
   onBack: () => void
-  /** 去这个 agent 的私聊(模式按钮的「聊天」,#7197)。 */
-  onOpenChat?: (agentUserId: string) => void
 }) {
   const { t } = useTranslation('main')
   const { label: machineLabel } = useMachineLabel()
   const phoneHost = isPhoneDevice(device)
-  const online = device.is_online && (!phoneHost || isAgentHostDevice(device))
+  const networkOnline = useNetworkOnline()
+  const queuedInputs = useQueuedSessionInputs(session.conversationId)
+  const online = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
@@ -89,15 +95,22 @@ export function SessionTimelinePage({
   const apps = useSessionApps()
   const {
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
-    reload, loadOlder, loadToolImage, send, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
+    reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
+
+  const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
+  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
+  const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
-  // Header state uses the host summary; an unreachable host never advertises a running snapshot.
-  const presentation = sessionPresentation(session, online)
+  // Identified agents share the group/avatar reading; transport only governs timeline access.
+  const shownStatus = useShownAgentStatus()
+  const agentUserId = agent?.agentUserId ?? session.agent?.userId
+  const presentation = !agentUserId && !online ? null
+    : shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const title = resolveSessionDisplayName({ identityName: agent?.displayName, title: session.title, providerId: session.harness }) ?? ''
@@ -119,24 +132,12 @@ export function SessionTimelinePage({
     ) : undefined,
     headerTestId: 'agent-watch-hero',
   }
+  const offlineNotice = !networkOnline
+    ? <AgentWatchNote title={translateSessionMessage('conversation.connectionUnavailable')} testId="agent-watch-local-offline" />
+    : cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
 
-  /**
-   * 机器离线 —— ⚠️ 这里此前是一句早返回,把本地缓存的那份时间线一起挡掉了
-   * (`useAgentWatchSession` 的 `readCachedTimeline` 明明读得出来)。
-   * 结果是「机器不在线 = 我连自己说过什么都看不到」,而那份内容就躺在这台手机上
-   * (spec `session-always-openable`:「打不开」不是一种可接受的降级形态)。
-   *
-   * ⇒ 离线只说明**发不出去**,不说明**看不了**:缓存里有东西就照常画,离线这件事作为
-   *   时间线顶上的一条说明出现;缓存里确实空的时候,它才是这一屏的全部内容。
-   */
-  if (!online && timeline.turns.length === 0) {
-    return (
-      <AgentWatchScreen {...taskHeader} onBack={onBack} testId="agent-watch-timeline-page">
-        {cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />}
-      </AgentWatchScreen>
-    )
-  }
-
+  // Keep the same task composer even before a cold offline phone has any timeline.
+  // Its durable input queue waits for the host's stable acknowledgement contract.
   // 动作失败贴着**动作发生的地方**显示(输入框正上方),❌ 不跑到页顶去冒充「打不开时间线」——
   // 发送失败时时间线好端端在那儿,页顶那个红框还配一个「重新读取」,对发送毫无意义。
   const actionErrorNotice = actionError ? (
@@ -164,18 +165,13 @@ export function SessionTimelinePage({
     </div>
   ) : null
 
-  // 模式按钮(#7197)在「…」左边:去对话不要那台机器,离线也去得了,所以它一直在。
-  // 有没有咕咕身份看会话自己带不带 agent id,❌ 看通讯录里有没有它的名字(通讯录还没到时会把有身份的说成没有);
-  // 通讯录里真找不到,由去对话那头(MainLayout handleOpenAgentChat)响亮地说。
   // 会话的管理动作与列表行尾「…」同一个面板;都要那台机器执行,离线不给。
-  const agentUserId = agent?.agentUserId ?? session.agent?.userId ?? null
   const headerActions = (
     <>
       {phoneHost ? <PhoneTaskSkills deviceId={device.device_id} sessionId={session.conversationId} online={online} busy={attention === 'running' || attention === 'waiting' || sending || pendingSends.length > 0 || cancelling} /> : null}
-      {!phoneHost ? <MobileModeMenu
-        at={appKind ? `app:${appKind}` : 'task'}
-        onOpenChat={agentUserId && onOpenChat ? () => onOpenChat(agentUserId) : null}
-        onOpenTask={() => setAppKind(null)}
+      {!phoneHost ? <SessionAppMenu
+        appKind={appKind}
+        onConversation={() => setAppKind(null)}
         apps={apps}
         onOpenApp={setAppKind}
       /> : null}
@@ -201,7 +197,7 @@ export function SessionTimelinePage({
       onBack={onBack}
       testId="agent-watch-timeline-page"
       actions={headerActions}
-      bodyFill={phase !== 'error'}
+      bodyFill
     >
       {timeline.lastReset ? (
         <AgentWatchNote
@@ -211,15 +207,15 @@ export function SessionTimelinePage({
         />
       ) : null}
 
-      {!online ? (
-        /* 离线但本地还有缓存:内容照常看,只说清「现在发不出去」。云电脑没醒着:说正在叫醒它。 */
-        cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
+      {!online && queuedInputs.length === 0 ? (
+        /* 待发消息只带正常发送中状态;没有待发内容时才显示机器连接状态。 */
+        offlineNotice
       ) : null}
 
-      {error ? (
+      {networkOnline && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
-          detail={error}
+          detail={nativeRecord.error ?? error ?? undefined}
           tone="danger"
           testId="agent-watch-timeline-error"
         >
@@ -231,29 +227,32 @@ export function SessionTimelinePage({
 
       {/* ⚠️ 此前是 `phase !== 'error'`:首次拉取失败就把时间线**和输入框**一起藏掉。
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
-      {phase !== 'error' || timeline.turns.length > 0 ? (
-        <AgentThread
-          timeline={timeline}
+      {(
+        <SessionConversation
+          agentName={agent?.displayName ?? session.title}
+          agentUserId={agent?.agentUserId ?? session.agent?.userId}
+          timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
-          phoneHost={phoneHost}
+          phoneHost={phoneHost} nativeRecord={native}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
-          onRespond={(input) => { void respond(input).catch(() => undefined) }}
-          onSend={send}
+          onRespond={respond}
+          onSend={async (text, attachments) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(attachments?.length ? { attachments } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           sending={sending}
           agentWorking={attention === 'running'}
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={actionErrorNotice}
-          onLoadOlder={loadOlder}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!online} />{actionErrorNotice}</>}
+          onAtBottom={native ? nativeRecord.loadNewer : undefined}
+          onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}
-          emptyNote={phase === 'loading' || timeline.turns.length > 0 ? (
+          emptyNote={online && (phase === 'loading' || timeline.turns.length > 0) ? (
             /* 刚建的会话:记录要等 agent 写下第一行才有。那时说「正在等它开口」,❌ 不说「正在读取」——
                读取早就成功了,是对面还没写。线上已画着刚发的那句时不说(线程有内容就不画空态):那句本身就是「发出去了」。
                画在线程自己的空态位上,❌ 在线程上方另起一行:那样空着的线程还会再说一句「Nothing in this task yet」
@@ -264,7 +263,7 @@ export function SessionTimelinePage({
             </div>
           ) : null}
         />
-      ) : null}
+      )}
 
       <SessionActions
           anchor={menuAnchor}
@@ -276,4 +275,4 @@ export function SessionTimelinePage({
         />
     </AgentWatchScreen>
   )
-}
+})

@@ -1,7 +1,7 @@
 /**
  * #7199 聊天渠道(微信等):管家替用户挂着收发,桌面关了照样能聊;这里是它 `/channels` 接口的客户端
  * (服务端:nmhjklnm/gugu-supabase services/cloud-computer/src/channels,接口表见那边 http.ts 文件头)。
- * 地址、鉴权与云电脑同一扇门(`cloudComputerBaseUrl`);这扇门说 503 not_open = 这个环境还没开放聊天渠道。
+ * 地址、鉴权与云电脑同一扇门(`cloudComputerBaseUrl`);服务配置故障按普通请求失败报告,保留连接并允许重试。
  *
  * 不碰 node / electron:渲染层(设置 → 聊天渠道)与主进程(把本机旧连接交给管家)共用。
  */
@@ -62,11 +62,6 @@ export type ChatChannelsClient = {
   disconnect(kind: ChatChannelKind): Promise<ChatChannelList>
   /** 桌面第一版在本机连过的那份交给管家;管家已经有这一种 = already_connected(不动它)。 */
   importLegacy(kind: ChatChannelKind, input: { legacy: unknown; agentId: string | null; connectedAt: number }): Promise<'imported' | 'already_connected'>
-}
-
-/** 这个环境没开放聊天渠道(门在、管家没配)。 */
-export function isChatChannelsNotOpen(error: unknown): boolean {
-  return error instanceof CloudComputerError && error.code === 'not_open'
 }
 
 export function createChatChannelsClient(options: {

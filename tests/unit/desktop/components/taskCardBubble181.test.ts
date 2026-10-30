@@ -6,7 +6,8 @@ import { ComposerCardView } from '../../../../apps/desktop/src/components/chat/C
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { serializeComposerCard, type TaskCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { contact, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
+import { toIdentityProfile } from '../../../../apps/desktop/src/components/memberProfileModels'
 import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
 
 const cardOpen = vi.hoisted(() => ({ open: vi.fn(), snapshot: vi.fn(async () => ({ device_id: 'device-1' })) }))
@@ -46,6 +47,31 @@ const bubble = (msg: ReturnType<typeof message>) => createNode(MessageBubble, {
 const ring = () => harness.container.querySelector('[data-testid="message-read-receipt"]')
 
 describe('task card in a chat (gugu-dev#181)', () => {
+  it.each([true, false])('updates the handed-to chip in place after rename, seated=%s', async (seated) => {
+    const current = displayIdentity(CARD.agentUserId, { type: 'agent', display_name: 'Current name' })
+    const node = (identity: typeof current) => createNode(ComposerCardView, {
+      card: CARD, isMine: true, isGroup: true, chatId: 'chat-1', senderName: 'Owner', time: '12:00',
+      memberProfiles: seated ? { [identity.id]: toIdentityProfile(identity, 'member', 'group') } : {},
+    })
+    await renderWithAppProviders(harness, node(current), { chat: { identitiesById: { [current.id]: current } } })
+    const card = harness.container.querySelector('[data-testid="composer-card"]')!
+    expect(card.querySelector('b')?.textContent).toBe('Current name')
+    const renamed = { ...current, display_name: 'Renamed current identity' }
+    await renderWithAppProviders(harness, node(renamed), { chat: { identitiesById: { [renamed.id]: renamed } } })
+    expect(harness.container.querySelector('[data-testid="composer-card"]')).toBe(card)
+    expect(card.querySelector('b')?.textContent).toBe('Renamed current identity')
+    expect(CARD.agentName).toBe('Codex 1')
+  })
+
+  it('keeps the current contact alias on a task card before the agent joins', async () => {
+    const current = displayIdentity(CARD.agentUserId, { type: 'agent', display_name: 'Current name' })
+    await renderWithAppProviders(harness, createNode(ComposerCardView, {
+      card: CARD, isMine: true, isGroup: true, chatId: 'chat-1', senderName: 'Owner', time: '12:00',
+    }), { chat: { identitiesById: { [current.id]: current } },
+      contacts: { contacts: [contact({ id: current.id, type: 'agent', display_name: current.display_name, alias: 'My reviewer' })] } })
+    expect(harness.container.querySelector('[data-testid="composer-card"] b')?.textContent).toBe('My reviewer')
+  })
+
   it('shows three rows with the time and the agent avatar, and no read ring', async () => {
     await renderWithAppProviders(harness, bubble(message({
       id: 'card-1', is_mine: true, content_type: 'card', content: serializeComposerCard(CARD), created_at: '2026-10-22T15:26:00.000Z',

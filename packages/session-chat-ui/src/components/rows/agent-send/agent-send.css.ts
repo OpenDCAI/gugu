@@ -14,8 +14,7 @@ export const toRow = style({
   fontSize: '12px',
   lineHeight: '18px',
   color: vars.fgMuted,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   userSelect: 'none',
 });

@@ -82,7 +82,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/ChatAreaPanel.tsx",
-    "count": 2
+    "count": 1
   },
   {
     "rule": "console-member",
@@ -147,7 +147,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/layouts/MainLayout.tsx",
-    "count": 3
+    "count": 1
   },
   {
     "rule": "console-member",

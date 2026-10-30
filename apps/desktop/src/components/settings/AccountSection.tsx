@@ -12,16 +12,19 @@ import { OCCUPATION_KEYS, OCCUPATION_OTHER_MAX, occupationComplete, type Occupat
 import { readOccupation, writeOccupation } from '../../lib/firstRun'
 import '../../i18n/registerMainCatalog'
 import { rendererLogger } from '../../lib/log'
+import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
+import { GuguSubscriptionRow } from '../../session/renderer/features/settings/subscriptions/GuguSubscriptionRow'
 
 const log = rendererLogger('settings/account')
 
 interface AccountSectionProps {
+  mobile?: boolean
   user: AuthUser | null
   updateUser: (user: AuthUser) => void
   logout: () => Promise<{ success: boolean }>
 }
 
-export function AccountSection({ user, updateUser, logout }: AccountSectionProps) {
+export function AccountSection({ user, updateUser, logout, mobile = false }: AccountSectionProps) {
   const { t } = useTranslation('settings')
   const { t: tMain } = useTranslation('main')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -240,6 +243,10 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
           {saving ? t('account.saving') : t('account.save')}
         </Button>
       </div>
+
+      {mobile && officialServicesEnabled() && (
+        <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>
+      )}
 
       {/* Account-wide action stays below the editor and its save feedback. */}
       <SettingsGroup
