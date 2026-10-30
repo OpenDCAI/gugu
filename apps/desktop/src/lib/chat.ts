@@ -71,17 +71,14 @@ import {
   type MessageOverlay,
   type WindowRevalidation,
 } from './chatMessageRevalidation'
-import {
-  forwardCanonicalMessage,
-  uploadCanonicalGroupAvatar,
-} from './chatCanonicalStorage'
+import { forwardCanonicalMessage, uploadCanonicalGroupAvatar } from './chatCanonicalStorage'
 import { writeIdempotentChatMessage } from './chatMessageWriter'
 import { findTombstonedGroupMemberIds } from './groupMemberIdentity'
 import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
 import { currentGroupAdmin } from './groupAdmin'
-import { feedClearChat, feedQuietly, feedRemoved, feedRows } from './searchIndexFeed'
+import { withSearchIndexing } from './searchIndexFeed'
 export type {
   MessageOverlay,
   MessageMutationPatch,
@@ -260,7 +257,6 @@ const GET_MESSAGES_SOURCES = [
   'toggleReaction',
   'sendReload',
   'rpcQuery',
-  'searchBackfill',
   'other'
 ] as const
 export type GetMessagesSource = (typeof GET_MESSAGES_SOURCES)[number]
@@ -307,7 +303,7 @@ export type GroupCollabLoad = { snapshot: GroupCollabSnapshot; identities: Displ
  */
 export class GroupCollabEmptyError extends Error { constructor() { super('Group collab roster is empty for this viewer') } }
 
-export const chatService = {
+export const chatService = withSearchIndexing({
   /** Per-source counter for getMessages — instrumentation hook for SWR smoke tests.
    *  Incremented on every getMessages call, indexed by required `source` argument. */
   _callCountsBySource: Object.fromEntries(
@@ -346,7 +342,6 @@ export const chatService = {
     if (error) throw new Error(error.message)
 
     if (!msgs?.length) return []
-    feedQuietly(feedRows(msgs as RawMessageRow[]))
 
     // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
     // chronological; ascending newer pages are already chronological. The window owner publishes
@@ -362,8 +357,7 @@ export const chatService = {
     chatId: string,
     rootId: string,
     userId: string,
-    limit = 50,
-    beforeSeq?: number
+    limit = 50, beforeSeq?: number
   ): Promise<MessageItem[]> {
     // rootId 直接拼进 PostgREST .or()，仅接受消息 UUID，非法输入 fail loud。
     if (!UUID_RE.test(rootId)) {
@@ -382,7 +376,6 @@ export const chatService = {
     const { data: msgs, error } = await query.order('seq', { ascending: false }).limit(limit)
     if (error) throw new Error(error.message)
     if (!msgs?.length) return []
-    feedQuietly(feedRows(msgs as RawMessageRow[]))
     const items = (msgs as RawMessageRow[])
       .map((row) => messageItemFromRow(row, userId))
       .filter((m): m is MessageItem => m !== null)
@@ -493,8 +486,6 @@ export const chatService = {
     if (!row || typeof row.chat_id !== 'string') {
       throw new Error(`delete_message returned no chat_id for ${messageId}`)
     }
-    // Deleted for everyone or only for me: either way this account can no longer read it.
-    feedQuietly(feedRemoved([messageId]))
 
     return {
       chatId: row.chat_id,
@@ -507,7 +498,6 @@ export const chatService = {
       p_chat_id: chatId
     })
     if (error) throw new Error(error.message)
-    feedQuietly(feedClearChat(chatId))
   },
 
   async setChatPinned(chatId: string, userId: string, pinned: boolean): Promise<void> {
@@ -1042,4 +1032,4 @@ export const chatService = {
       if (error) throw new Error(error.message)
     }
   },
-}
+})

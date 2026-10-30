@@ -53,6 +53,7 @@ import {
 } from './ResizableChatListPaneStorage'
 import { AuthUser } from '../store/auth'
 import { useChatStore } from '../store/chatContext'
+import { SearchIndexWiring } from '../store/searchIndexWiring'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
 import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
@@ -1508,6 +1509,7 @@ export function MainLayout({
       <DevicesProvider active={effectsActive}>
         {/* 批准页的机器移除与设置共用这份设备数据。 */}
         <ServerLoginApproveHost active={effectsActive} />
+        {effectsActive && <SearchIndexWiring userId={user.id} />}
         <InnerLayout
           user={user}
           effectsActive={effectsActive}

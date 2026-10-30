@@ -5,6 +5,7 @@ import type { RawMessageRow } from '@gugu/core/cloud/messageItem'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { readMessageCreatedRevision, readRevisionResourceKey, type AccountRevisionEvent, type AccountRevisionListener } from '../lib/accountRevisionCoordinator'
 import { chatService } from '../lib/chat'
+import { useChatStore } from './chatContext'
 import { startSearchBackfill } from '../lib/searchBackfill'
 import { feedChats, feedRemoved, feedRows } from '../lib/searchIndexFeed'
 import { useGlobalSearchV3 } from '../session/renderer/features/global-search/global-search-flag'
@@ -66,7 +67,7 @@ export function useSearchIndexWiring(options: {
     if (!enabled || !userId || !chatsRead) return
     return startSearchBackfill({
       coverage: () => rpcOn(null).search.coverage(),
-      mainPage: (chatId, beforeSeq, afterSeq) => chatService.getMessages(chatId, userId, 'searchBackfill', 100, beforeSeq, afterSeq),
+      mainPage: (chatId, beforeSeq, afterSeq) => chatService.getMessages(chatId, userId, 'other', 100, beforeSeq, afterSeq),
       threadPage: (chatId, rootId, beforeSeq) => chatService.getThreadMessages(chatId, rootId, userId, 100, beforeSeq),
     }, {
       chats: () => live.current.chats,
@@ -75,4 +76,11 @@ export function useSearchIndexWiring(options: {
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     })
   }, [enabled, userId, chatsRead])
+}
+
+/** Mounted by the signed-in shell: feeds the account's local search index from the chat store it reads. */
+export function SearchIndexWiring({ userId }: { userId: string }): null {
+  const { chats, chatsRead, activeChatId, subscribeAccountRevision } = useChatStore('chats', 'chatsRead', 'activeChatId', 'subscribeAccountRevision')
+  useSearchIndexWiring({ userId, chats, chatsRead, activeChatId, subscribeAccountRevision })
+  return null
 }
