@@ -67,23 +67,23 @@ func TestIdleHelperRespondsToSignalsAndEOF(t *testing.T) {
 	}
 }
 
-func TestFrameEncodingHasItsOwnDeadline(t *testing.T) {
+func TestParentDeadlineAlsoBoundsColdStart(t *testing.T) {
 	path := t.TempDir() + "/stalled-encoder"
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nwhile IFS= read -r line; do :; done\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	config := testEncoderConfig(t)
 	config.Executable = path
-	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-	defer cancel()
-	video, err := StartVideoEncoder(ctx, config, ignoreRTP{})
+	video, err := StartVideoEncoder(context.Background(), config, ignoreRTP{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer video.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 	_, err = video.WriteFrame(ctx, 1, make([]byte, config.Width*config.Height*4))
-	if err == nil || err.Error() != "projection frame encoding timed out" {
-		t.Fatalf("missing per-frame encoding deadline: %v", err)
+	if err == nil || err != context.DeadlineExceeded {
+		t.Fatalf("missing parent deadline during cold start: %v", err)
 	}
 }
 

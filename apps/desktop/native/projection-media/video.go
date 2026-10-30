@@ -28,6 +28,7 @@ type encodingFrame struct {
 }
 
 var errFrameEncodingTimeout = errors.New("projection frame encoding timed out")
+var errEncoderStartupTimeout = errors.New("projection encoder startup timed out")
 
 // VideoEncoder allows one source frame in flight. New source frames cannot be
 // associated with a prior frame merely because the sizes or pixels are equal.
@@ -45,6 +46,7 @@ type VideoEncoder struct {
 	pixels     []byte
 	completed  uint64
 	closed     bool
+	warm       bool
 }
 
 func StartVideoEncoder(ctx context.Context, config EncoderConfig, output RTPWriter) (*VideoEncoder, error) {
@@ -119,13 +121,20 @@ func (v *VideoEncoder) RefreshFrame(ctx context.Context) (EncodedFrame, error) {
 		return EncodedFrame{}, err
 	}
 	v.encoder = encoder
+	v.warm = false
 	receipt, err := v.encode(ctx, v.completed, v.pixels)
 	receipt.Recovery = true
 	return receipt, err
 }
 
 func (v *VideoEncoder) encode(ctx context.Context, sequence uint64, bgra []byte) (EncodedFrame, error) {
-	ctx, cancel := context.WithTimeoutCause(ctx, 3*time.Second, errFrameEncodingTimeout)
+	duration, cause := 3*time.Second, errFrameEncodingTimeout
+	// FFmpeg initialization (also after PLI replacement) is distinct from a
+	// stalled warm frame. The host must allow receipt time beyond this budget.
+	if !v.warm {
+		duration, cause = 8*time.Second, errEncoderStartupTimeout
+	}
+	ctx, cancel := context.WithTimeoutCause(ctx, duration, cause)
 	defer cancel()
 	v.mu.Lock()
 	frame := &encodingFrame{sequence: sequence, finished: make(chan EncodedFrame, 1)}
@@ -136,6 +145,7 @@ func (v *VideoEncoder) encode(ctx context.Context, sequence uint64, bgra []byte)
 	}
 	select {
 	case receipt := <-frame.finished:
+		v.warm = true
 		return receipt, nil
 	case <-v.encoder.done:
 		if cause := context.Cause(ctx); cause != nil {
