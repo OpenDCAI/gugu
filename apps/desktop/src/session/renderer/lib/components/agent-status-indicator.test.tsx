@@ -39,7 +39,10 @@ describe('任务页的状态字形(#7243)', () => {
   it('在跑 = 转圈字形,不是小鸟', () => {
     renderGlyph('working');
     expectNoBird();
-    expect(container.textContent).toMatch(/^[⠀-⣿]$/u);
+    // the running glyph turns as a strip of braille frames (cliSpinner.css); each frame is one glyph
+    const frames = [...container.querySelectorAll('.cli-spinner__strip > span')].map((frame) => frame.textContent);
+    expect(frames.length).toBeGreaterThan(1);
+    for (const frame of frames) expect(frame).toMatch(/^[⠀-⣿]$/u);
     expect(container.querySelector('[data-animate="false"]')).toBeNull();
   });
 

@@ -32,9 +32,10 @@ export function TabCloseButton({
       data-tab-close-floating={floating ? '' : undefined}
     >
       {/* 状态(转圈、脏点、git 图标、角标)与 × 同坑,× 露面时它让开 —— 显隐判据必须与下面的钮逐字对齐。
-          以前只在悬浮时让开:活动页签的 × 是常驻的,于是不悬浮时「运行中」的转圈与 × 叠成一团(owner 实机圈出)。 */}
+          以前只在悬浮时让开:活动页签的 × 是常驻的,于是不悬浮时「运行中」的转圈与 × 叠成一团(owner 实机圈出)。
+          让开的时候也停转:看不见的转圈不该让整窗一直出帧。 */}
       {statusIndicator ? (
-        <span className="flex items-center justify-center transition-opacity group-hover:opacity-0 group-data-[tab-active]:opacity-0">
+        <span className="flex items-center justify-center transition-opacity group-hover:opacity-0 group-data-[tab-active]:opacity-0 group-hover:[--gugu-animation-surface-paused:paused] group-data-[tab-active]:[--gugu-animation-surface-paused:paused]">
           {statusIndicator}
         </span>
       ) : null}
