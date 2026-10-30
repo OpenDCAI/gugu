@@ -73,7 +73,6 @@ const STRINGS = {
     holdBlock: '加入待引用',
     copyBlockLink: '复制这一段的链接',
     findSource: '在源码里定位',
-    linkCopied: '已复制这一段的链接',
     emptyTitle: '这份文档还是空的',
     emptyHint: '直接开始写，或者请 agent 起个草稿',
     emptyWrite: '开始写',
@@ -243,7 +242,6 @@ const STRINGS = {
     holdBlock: 'Keep to cite',
     copyBlockLink: 'Copy a link to it',
     findSource: 'Find in the source',
-    linkCopied: 'Link copied',
     emptyTitle: 'This document is empty',
     emptyHint: 'Start writing, or ask an agent for a draft',
     emptyWrite: 'Start writing',
@@ -1458,9 +1456,10 @@ function showSource(messageId) {
   gugu.showMessage(messageId).catch((error) => showBanner(error.code === 'not-found' ? state.t.sourceGone : fmt(state.t.failed, { e: error.message }), 'error'))
 }
 
-async function copyLink(entry) {
+// A link to the file, or to its lines (`at`, a reading block's: the pill's own place).
+async function copyLink(entry, at) {
   try {
-    await gugu.clipboard.writeText(await gugu.linkTo({ kind: 'file', file: entry }))
+    await gugu.clipboard.writeText(await gugu.linkTo(at ? { kind: 'file', file: entry, at } : { kind: 'file', file: entry }))
     showBanner(state.t.linkCopied, 'info')
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
@@ -2031,19 +2030,9 @@ function blockMenu() {
       state.held.push(refOf(current, pick))
       renderHeld()
     }],
-    [t.copyBlockLink, () => void copyBlockLink(current, span)],
+    [t.copyBlockLink, () => void copyLink(current.entry, placeOf(current.file.text, span[0], span[1]))],
     [t.findSource, () => findInSource(span)],
   ])
-}
-
-async function copyBlockLink(current, [first, last]) {
-  try {
-    await gugu.clipboard.writeText(await gugu.linkTo({ kind: 'file', file: current.entry, at: placeOf(current.file.text, first, last) }))
-    showBanner(state.t.linkCopied, 'info')
-    setTimeout(() => { if ($('banner').textContent === state.t.linkCopied) hideBanner() }, 1500)
-  } catch (error) {
-    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
-  }
 }
 
 // The block's lines marked in the source, as a pill's are: beside the reading when there is room, else the source alone.
