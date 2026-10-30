@@ -59,8 +59,9 @@ beforeEach(async () => {
 describe('a resident page moved to another file (摩擦单 F115)', () => {
   it('captures the real bound App/task and revokes remote signing before asynchronous retarget', async () => {
     const { captureSessionpageProjectionViewer, extensionSurfaceBindingForTests, unbindExtensionSurface } = await import('./extension-bridge');
-    const binding = extensionSurfaceBindingForTests(PAGE)!; binding.sessionId = 'task-a';
-    binding.operator = { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' };
+    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabKind: 'workspace.main', tabId: 'slot-1',
+      sessionId: 'task-a', chatId: CHAT, operator: { kind: 'agent', id: 'user:0a000000-0000-4000-8000-000000000001' } });
+    expect(extensionSurfaceBindingForTests(PAGE)?.sessionId).toBe('task-a');
     const captured = await captureSessionpageProjectionViewer(PAGE);
     expect(captured).toMatchObject({ appId: 'workspace', version: '1.0.0', sessionId: 'task-a', deviceId: 'actual-task-host', id: String(PAGE) });
     let finish!: () => void;

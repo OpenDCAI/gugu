@@ -93,6 +93,11 @@ export const supabase = new Proxy({} as ElectronSupabaseClient, {
   }
 }) as ElectronSupabaseClient
 
+/** A host-owned short-lived connection, with no stored GoTrue session or shared channel objects. */
+export function createElectronRealtimeClient(accessToken: () => Promise<string | null>) {
+  return createGuguSupabaseClient({ accessToken, fetch: electronFetch, realtime: electronRealtime })
+}
+
 // Returns an authenticated identity-schema client using the caller's access token.
 export function makeIdentityClient(accessToken: string) {
   return createGuguSupabaseClient({

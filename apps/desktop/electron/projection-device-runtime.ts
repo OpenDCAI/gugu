@@ -9,7 +9,7 @@ export function createProjectionDeviceRuntime(input: Parameters<typeof createPro
   resources(): string;
   report(error: unknown): void;
   capturePage(webContentsId: number): Promise<ProjectionViewerPage>;
-  openPipe(deviceId: string, asker: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe>;
+  openPipe(deviceId: string, asker: string, handlers: DeviceRpcPipeHandlers, signal: AbortSignal): Promise<DeviceRpcPipe>;
 }) {
   const identity = createProjectionHostIdentity(input);
   const active = new Set<() => Promise<void>>(), draining = new Set<Promise<void>>();

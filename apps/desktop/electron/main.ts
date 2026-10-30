@@ -113,7 +113,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
@@ -507,6 +507,7 @@ import type {
 } from './session/main/core/acp/emdash-mcp-injector'
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
 import { createProjectionDeviceRuntime } from './projection-device-runtime'
+import { openProjectionDevicePipe } from './projection-device-transport'
 import { createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import {
@@ -756,12 +757,10 @@ const projectionDeviceRuntime = createProjectionDeviceRuntime({
     if (!bridge) throw new Error('任务页桥未加载，不能建立投影页面授权')
     return bridge.captureSessionpageProjectionViewer(id)
   },
-  openPipe: (deviceId, asker, handlers) => openCloudDeviceRpcPipe({ supabase, deviceId, asker,
-    userId: async () => {
-      const auth = await desktopAuthProvider().getAuth()
-      if (!auth?.accessToken || !auth.userId) throw new Error('Projection viewer is not signed in')
-      return auth.userId
-    }, ...handlers }),
+  openPipe: (deviceId, asker, handlers, signal) => openProjectionDevicePipe({
+    auth: () => desktopAuthProvider().getAuth(), createClient: createElectronRealtimeClient,
+    report: error => createLogger('projection/device').warn({ error: String(error) }, 'Late projection pipe cleanup failed'),
+  }, deviceId, asker, handlers, signal),
   report: error => createLogger('projection/device').warn({ error: String(error) }, 'Projection device cleanup failed'),
 })
 if (SERVER_MODE) {

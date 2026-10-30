@@ -13,7 +13,7 @@ type Offer = { id: string; offer: { type: 'offer'; sdp: string } };
 export async function createProjectionDeviceClient(options: {
   page: ProjectionViewerPage;
   identity: { capture(signal: AbortSignal): Promise<ProjectionIdentityLease> };
-  openPipe(deviceId: string, asker: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe>;
+  openPipe(deviceId: string, asker: string, handlers: DeviceRpcPipeHandlers, signal: AbortSignal): Promise<DeviceRpcPipe>;
   report(error: unknown): void;
 }) {
   const page = options.page, lifetime = new AbortController();
@@ -35,7 +35,7 @@ export async function createProjectionDeviceClient(options: {
       lifetime.signal.throwIfAborted();
       const pipe = await options.openPipe(device, randomUUID().replaceAll('-', ''), { ...handlers, onClosed(error) {
         lifetime.abort(error); handlers.onClosed(error);
-      } });
+      } }, lifetime.signal);
       if (lifetime.signal.aborted) { pipe.close(); lifetime.signal.throwIfAborted(); }
       return pipe;
     },
