@@ -333,8 +333,8 @@ describe('打开会话的第一帧', () => {
     await act(async () => { select('chatA') })
     await vi.waitFor(() => expect(chatService.getMessages).toHaveBeenCalledWith('chatA', 'user1', 'initialLoad', expect.any(Number)), WAIT)
     expect(vi.mocked(chatService.getMessages).mock.calls.filter(([id]) => id === 'chatA')).toHaveLength(1)
-    // One account-list projection, one search-index feed and one conversation consumer, independent of pane count.
-    expect(revisionListeners.get('message_created')?.size).toBe(3)
+    // One account-list projection and one conversation consumer, independent of pane count.
+    expect(revisionListeners.get('message_created')?.size).toBe(2)
     await act(async () => { network.resolve() })
     await vi.waitFor(() => expect(frames.at(-1)?.messages.map((row) => row.id)).toContain('msgA1'), WAIT)
     expect(frames.at(-1)?.messageWindow).not.toBe(scopedLines.get('chatA')!.messageWindow)

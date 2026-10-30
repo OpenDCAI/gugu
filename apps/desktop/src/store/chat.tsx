@@ -52,7 +52,6 @@ import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
 import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
-import { useSearchIndexWiring } from './searchIndexWiring'
 const revisionLog = rendererLogger('chat/account-revision')
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
@@ -599,7 +598,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }
   useEffect(() => userId ? subscribeAccountRevision('gugu_decision_event', () => loadChats({ acceptEmpty: true, throwOnError: true })) : undefined,
     [userId, loadChats, subscribeAccountRevision])
-  useSearchIndexWiring({ userId, chats, chatsRead: chatsLoad === 'idle', activeChatId, subscribeAccountRevision })
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const setActiveChatId = useCallback((id: string | null) => {
