@@ -49,26 +49,32 @@ describe('phone session status', () => {
   })
 })
 
+const offScreen = () => false
+
 describe('phone alerts speak the same words', () => {
-  it('alerts on needs-you with the wait it names, on error, and on done-unseen', () => {
+  it('alerts only when the agent stops to ask you, with the wait it names (owner 10-30)', () => {
     const before = statusMapOf([session({ status: { status: 'working', detail: 'running' } })])
-    expect(diffAlerts(before, [session({ status: { status: 'needs_user', detail: 'question' } })]))
-      .toEqual([{ sessionId: 'conversation-1', title: '分析下北京经济', kind: 'waiting', label: 'needsAnswer' }])
-    expect(diffAlerts(before, [session({ status: { status: 'error', detail: null } })])[0]).toMatchObject({ kind: 'error', label: 'error' })
-    expect(diffAlerts(before, [session({ status: { status: 'idle', detail: 'done' }, unseen: true })])[0])
-      .toMatchObject({ kind: 'done', label: 'done' })
+    expect(diffAlerts(before, [session({ status: { status: 'needs_user', detail: 'question' } })], offScreen))
+      .toEqual([{ sessionId: 'conversation-1', title: '分析下北京经济', label: 'needsAnswer' }])
+    expect(diffAlerts(before, [session({ status: { status: 'error', detail: null } })], offScreen)).toEqual([])
+    expect(diffAlerts(before, [session({ status: { status: 'idle', detail: 'done' }, unseen: true })], offScreen)).toEqual([])
   })
 
   it('does not alert on parked, and a new wait on the same status is a new thing', () => {
     const running = statusMapOf([session({ status: { status: 'working', detail: 'running' } })])
-    expect(diffAlerts(running, [session({ status: { status: 'working', detail: 'parked' } })])).toEqual([])
+    expect(diffAlerts(running, [session({ status: { status: 'working', detail: 'parked' } })], offScreen)).toEqual([])
     const approval = statusMapOf([session({ status: { status: 'needs_user', detail: 'approval' } })])
-    expect(diffAlerts(approval, [session({ status: { status: 'needs_user', detail: 'approval' } })])).toEqual([])
-    expect(diffAlerts(approval, [session({ status: { status: 'needs_user', detail: 'question' } })])).toHaveLength(1)
+    expect(diffAlerts(approval, [session({ status: { status: 'needs_user', detail: 'approval' } })], offScreen)).toEqual([])
+    expect(diffAlerts(approval, [session({ status: { status: 'needs_user', detail: 'question' } })], offScreen)).toHaveLength(1)
+  })
+
+  it('stays quiet for the session on screen', () => {
+    const before = statusMapOf([session({ status: { status: 'working', detail: 'running' } })])
+    expect(diffAlerts(before, [session({ status: { status: 'needs_user', detail: 'approval' } })], (id) => id === 'conversation-1')).toEqual([])
   })
 
   it('still understands an old host that only writes the old word', () => {
     const before = statusMapOf([session({ agentStatus: 'working' })])
-    expect(diffAlerts(before, [session({ agentStatus: 'needs_approval' })])[0]).toMatchObject({ kind: 'waiting', label: 'needsAction' })
+    expect(diffAlerts(before, [session({ agentStatus: 'needs_approval' })], offScreen)[0]).toMatchObject({ label: 'needsAction' })
   })
 })

@@ -204,10 +204,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       active: true,
       soundEvent: finished ? 'task_complete' : waitAsked ? 'needs_attention' : undefined,
     });
-    // 系统横幅只给 CLI hook 送来的事件(sourceId 只在那条路上有)。
-    const answering = reading.detail === 'question' || reading.detail === 'plan';
-    const notice = finished ? 'finished' : waitAsked ? (answering ? 'needsAnswer' : 'needsApproval') : null;
-    if (notice && meta.event?.sourceId) void maybeShowNotification(meta.event, notice);
+    // 系统横幅只给 CLI hook 送来的事件(sourceId 只在那条路上有);叫不叫人由 shouldNotify 定。
+    if (meta.announceWait && meta.event?.sourceId) void maybeShowNotification(meta.event, previous, reading);
   }
 
   /**

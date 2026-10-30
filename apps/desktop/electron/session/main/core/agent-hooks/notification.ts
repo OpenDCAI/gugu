@@ -1,3 +1,5 @@
+import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
+import { shouldNotify } from '@gugu/core/shared/ui/notificationModels';
 import { eq } from 'drizzle-orm';
 import { app, BrowserWindow, Notification } from 'electron';
 import { getMainWindow } from '@main/app/window';
@@ -33,10 +35,9 @@ export function focusAppFromNotification(): BrowserWindow | null {
  * 而同一个 app 里聊天那条链(main.ts)一直是中文的,同一台机上两种语言。
  * 文案由宿主注入,❌ 别改回 import 宿主的语言 store(它有模块级状态,跨界只会拿到复制品)。
  */
-export type SessionAgentNotice = 'finished' | 'needsApproval' | 'needsAnswer';
-
-function getNotificationBody(notice: SessionAgentNotice): string {
-  return sessionAgentNotificationCopy()[notice];
+function getNotificationBody(reading: AgentStatusView): string {
+  const answering = reading.detail === 'question' || reading.detail === 'plan';
+  return sessionAgentNotificationCopy()[answering ? 'needsAnswer' : 'needsApproval'];
 }
 
 async function getSessionTitle(sessionId: string): Promise<string | null> {
@@ -53,18 +54,19 @@ function getProviderName(providerId: string): string {
 }
 
 /**
- * 该不该发由调用方按**派生出的边**决定(agent-hook-service:回合结束那条边 / 进入等批准),
- * ❌ 不按原始事件类型 —— 没在跑时的 stop、被自动批准的 permission_prompt 都不是用户要知道的事。
+ * 该不该发只看前后两份读数(shouldNotify:停下来等你批准 / 回答才叫人,做完、出错这类纯状态变化不叫),
+ * ❌ 不按原始事件类型 —— 被自动批准的 permission_prompt 不是用户要知道的事。
  */
-export async function maybeShowNotification(event: AgentEvent, notice: SessionAgentNotice): Promise<void> {
+export async function maybeShowNotification(event: AgentEvent, previous: AgentStatusView | null, next: AgentStatusView): Promise<void> {
   try {
     const { enabled, osNotifications } = await appSettingsService.get('notifications');
-    // @@@5301 ❌ 这里**不看窗口聚焦**。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
+    // @@@5301 ❌ 这里**不看窗口聚焦**(onScreen 恒为 false)。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
     // 拿它当「用户已经看见了」的证据,结果就是人离开时该响的不响(owner 2026-09-09 定)。
     // 要不要打扰由用户自己的显式选择决定:上面这两个开关,以及会话级静音。
-    if (!enabled || !osNotifications || !Notification.isSupported()) return;
+    if (!Notification.isSupported()) return;
+    if (!shouldNotify({ kind: 'agent', previous, next }, { enabled: enabled && osNotifications, onScreen: false })) return;
 
-    const body = getNotificationBody(notice);
+    const body = getNotificationBody(next);
 
     const providerName = event.providerId ? getProviderName(event.providerId) : 'Agent';
     const sessionTitle = await getSessionTitle(event.sessionId);

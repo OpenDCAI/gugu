@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, type MutableRefObject } from 'react'
 import { mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
-import { createChatNotificationPayload, shouldNotifyForChat } from '@gugu/core/shared/ui/chatNotificationModels'
+import { createChatNotificationPayload, shouldNotify } from '@gugu/core/shared/ui/notificationModels'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { publishChatSnapshot } from '../lib/chatSnapshotPublication'
 import { replaceEqualDeep } from '@tanstack/react-query'
@@ -78,7 +78,8 @@ export function notifyForRefreshedChats(
   if (!platform.capabilities.notifications) return
   const previousById = new Map(previous.map((chat) => [chat.id, chat]))
   for (const chat of fetched) {
-    if (!shouldNotifyForChat(previousById.get(chat.id), chat, context)) continue
+    if (!shouldNotify({ kind: 'chat', previous: previousById.get(chat.id), next: chat },
+      { enabled: context.notificationsEnabled, onScreen: chat.id === context.activeChatId })) continue
     void platform.showNotification({ ...createChatNotificationPayload({ ...chat, last_message_preview: chatPreviewText(chat) }), silent: !context.soundEnabled })
       .catch((err) => chatListLog.error({ reason: String(err) }, 'show notification failed'))
   }
