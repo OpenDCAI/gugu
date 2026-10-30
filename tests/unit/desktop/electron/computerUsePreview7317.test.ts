@@ -493,7 +493,8 @@ describe('#7317 Computer Use 「电脑」 page', () => {
     expect(on).toEqual([{ extensionId: 'computer-use', name: 'Computer Use', computerUse: true }, { extensionId: 'browser-use', name: 'browser-use' }, { extensionId: 'board', name: 'board' }])
     const block = guguAppsBlock(on, [])
     expect(block).toContain(COMPUTER_USE_LINE)
-    expect(COMPUTER_USE_LINE).toBe('Computer Use is on: to operate the person\'s apps on a computer (open one, see its window, click, type), use device_actions with group computer, then device_call.')
+    expect(COMPUTER_USE_LINE.length).toBeLessThanOrEqual(250)
+    expect(COMPUTER_USE_LINE).toBe('Computer Use is on: use browser_* tools for webpages in this session\'s own browser tabs. Use device_actions with group computer, then device_call, only for the person\'s other desktop apps.')
     expect(SESSION_TOOL_DEFS.find((tool) => tool.name === 'device_actions')?.description)
       .toBe('Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer). Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.')
     // It has no tools in the catalog: not one of the Apps that say "run them with catalog_call".
