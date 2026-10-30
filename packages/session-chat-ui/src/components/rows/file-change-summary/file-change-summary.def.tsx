@@ -7,6 +7,7 @@ import { GenericFileIcon, IconChevronDown } from '@session-chat/components/primi
 import { useChatTranslator } from '@session-chat/localization'
 import { basename } from '@session-chat/lib/path'
 import type { FileChangeSummaryItem } from '@session-chat/model'
+import { readableLabel, rowTranslator } from '../readable-label'
 import * as css from './file-change-summary.css'
 
 /**
@@ -21,9 +22,24 @@ const ROW = 32
 const FOOTER = 32
 const BORDER = 2
 const isSingle = (item: FileChangeSummaryItem) => item.files.length === 1
+function summaryLabel(item: FileChangeSummaryItem, ctx: MeasureCtx) {
+  const t = rowTranslator(ctx)
+  return isSingle(item) ? t('transcript.editedFile', { name: basename(item.files[0].path) }) : t('transcript.editedFiles', { count: item.files.length })
+}
+function headerLayout(item: FileChangeSummaryItem, ctx: MeasureCtx) {
+  const button = !isSingle(item) && !ctx.expanded(item.id) ? 52 : 0
+  const label = readableLabel(summaryLabel(item, ctx), ctx, ctx.width - 78 - button, 14, 20)
+  const stats = item.adds !== null && item.dels !== null ? 18 : 0
+  return { ...label, rowHeight: Math.max(HEADER, label.height + stats + 24) }
+}
+function fileLayout(file: FileChangeSummaryItem['files'][number], ctx: MeasureCtx) {
+  const stats = file.adds !== null && file.dels !== null ? readableLabel(`+${file.adds} −${file.dels}`, ctx).width + 12 : 0
+  const label = readableLabel(file.path, ctx, ctx.width - 26 - stats, 14, 20)
+  return { ...label, rowHeight: Math.max(ROW, label.height + 12) }
+}
 function height(item: FileChangeSummaryItem, ctx: MeasureCtx): number {
-  if (isSingle(item)) return BORDER + HEADER + ROW
-  return BORDER + HEADER + (ctx.expanded(item.id) ? item.files.length * ROW + FOOTER : 0)
+  return BORDER + headerLayout(item, ctx).rowHeight + (isSingle(item) || ctx.expanded(item.id)
+    ? item.files.reduce((sum, file) => sum + fileLayout(file, ctx).rowHeight, 0) + (isSingle(item) ? 0 : FOOTER) : 0)
 }
 
 export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record<string, never>>({
@@ -37,19 +53,16 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
     const single = () => isSingle(props.data)
     const files = () => single() || props.ctx.viewState.isCollapsed(props.data.id)
     const totals = () => ({ adds: props.data.adds, dels: props.data.dels })
-    const label = () =>
-      props.data.files.length === 1
-        ? t('transcript.editedFile', { name: basename(props.data.files[0].path) })
-        : t('transcript.editedFiles', { count: props.data.files.length })
+    const head = () => headerLayout(props.data, props.ctx.measureCtx!())
     return (
       <div data-slot="file-change-summary" data-turn-id={props.data.turnId} class={css.card}>
-        <div class={css.header} style={{ height: `${HEADER}px` }}>
+        <div class={css.header} style={{ height: `${head().rowHeight}px` }}>
           <span class={css.tile}>
             <GenericFileIcon />
           </span>
           <div class={css.title}>
-            <div class={css.ellipsis} title={label()}>
-              {label()}
+            <div class={css.ellipsis} title={summaryLabel(props.data, props.ctx.measureCtx!())}>
+              {head().text}
             </div>
             <Show when={totals().adds !== null && totals().dels !== null}><div class={css.stats}>
               <span class={css.adds}>+{totals().adds}</span>
@@ -71,7 +84,7 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
         <Show when={files()}>
           <For each={props.data.files}>
             {(file) => (
-                <div class={css.row} style={{ height: `${ROW}px` }}>
+                <div class={css.row} style={{ height: `${fileLayout(file, props.ctx.measureCtx!()).rowHeight}px` }}>
                   <button
                     type="button"
                     class={css.path}
@@ -85,7 +98,7 @@ export const fileChangeSummaryUnitDef = defineUnit<FileChangeSummaryItem, Record
                       })
                     }
                   >
-                    {file.path}
+                    {fileLayout(file, props.ctx.measureCtx!()).text}
                   </button>
                   <Show when={file.adds !== null && file.dels !== null}><span class={css.stats}>
                     <span class={css.adds}>+{file.adds}</span>

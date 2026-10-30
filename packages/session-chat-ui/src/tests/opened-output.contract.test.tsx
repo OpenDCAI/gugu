@@ -108,11 +108,12 @@ describe('opened-output card geometry contract', () => {
     expect(reading.inspected.cardHeight).toBe(OPENED_OUTPUT_ROW_H);
   });
 
-  it('a very long name is cut in the middle at phone width: the extension stays, nothing past the card', async () => {
+  it('a very long name wraps in full at phone width, including its extension', async () => {
     const reading = await renderAndMeasureUnit(openedOutputUnitDef, longCard, makeContractCtx({ width: 240 }), insideCard, withMenu);
     expect(reading.spill).toBeLessThanOrEqual(0.5);
     expect(reading.inspected['opened-output-name:overRight']).toBeLessThanOrEqual(0.5);
-    expect(reading.inspected['tail:overRight']).toBeLessThanOrEqual(0.5);
+    expect(reading.dom).toBe(reading.computed);
+    expect(reading.inspected.cardHeight).toBeGreaterThan(OPENED_OUTPUT_ROW_H);
     expect(reading.inspected['opened-output-mode:overRight']).toBeLessThanOrEqual(0.5);
     expect(splitOutputName('codex-参考截图.png', true)).toEqual({ stem: 'codex-参考', tail: '截图.png' });
     expect(splitOutputName('127.0.0.1:4187/zh', false)).toEqual({ stem: '127.0.0.1:4187/zh', tail: '' });

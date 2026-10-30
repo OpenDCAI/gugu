@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js'
+
 /** One read-only entry point. Providers own byte acquisition; callers never select URLs or transports. */
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
 export type FileActor = { accountId: string; actorId: string }
@@ -22,7 +24,9 @@ export interface FileRevision {
   file_name: string
   content_type: string
   size_bytes: number
-  sha256: string
+  sha256: string | null
+  /** Only server-identified historical chat-media messages lack a stored digest. */
+  legacy_object?: { bucket_id: 'chat-media'; object_name: string; message_id: string }
   width?: number | null
   height?: number | null
   host_device_id?: string
@@ -35,7 +39,7 @@ export interface FileRevision {
 }
 export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired'; sha256: string | null }
 export interface FileBytes {
-  /** An immutable, verified snapshot; length is exact. No filesystem path or write capability escapes. */
+  /** An authorized immutable snapshot with exact length; stored digests are verified when present. */
   readonly size: number
   read(offset: number, length: number): Promise<Uint8Array>
   dispose(): Promise<void>
@@ -75,14 +79,17 @@ export function requireFileRange(size: number, offset: number, length: number): 
 
 export function requireFileRevision(revision: FileRevision): void {
   requireFileRange(revision.size_bytes, 0, 0)
-  if (!/^[0-9a-f]{64}$/.test(revision.sha256) || typeof revision.file_name !== 'string' || !revision.file_name || typeof revision.content_type !== 'string' || !revision.content_type ||
+  const legacy = revision.sha256 === null && revision.source === 'managed-object' && !revision.item_id && revision.version == null &&
+    revision.legacy_object?.bucket_id === 'chat-media' && typeof revision.legacy_object.object_name === 'string' && !!revision.legacy_object.object_name &&
+    typeof revision.legacy_object.message_id === 'string' && !!revision.legacy_object.message_id
+  if (!(typeof revision.sha256 === 'string' && /^[0-9a-f]{64}$/.test(revision.sha256) || legacy) || revision.legacy_object && !legacy || typeof revision.file_name !== 'string' || !revision.file_name || typeof revision.content_type !== 'string' || !revision.content_type ||
     !['local', 'managed-object'].includes(revision.source)) throw new Error('Invalid file revision')
   if (revision.source === 'local' && (!revision.item_id || !Number.isSafeInteger(revision.version) || revision.version! < 1 ||
     !revision.host_device_id || !revision.host_project_id || !revision.host_account_id || typeof revision.relative_path !== 'string' || !revision.relative_path ||
     /(^\/|\/\/|\/$|:|\\|\p{Cc}|(^|\/)\.\.?($|\/))/u.test(revision.relative_path))) throw new Error('Invalid local file revision')
 }
 
-/** Resolving metadata never signs or reads. The first byte read opens exactly one verified snapshot. */
+/** Resolving metadata never signs or reads. The first byte read opens exactly one authorized snapshot. */
 export function createFileResolver(providers: FileProviders) {
   function resolveFile(ref: FileRef, actor: FileActor, options: { localOnly: true; purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile | null>
   function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; signal?: AbortSignal }): Promise<ResolvedPreview>
@@ -100,6 +107,7 @@ export function createFileResolver(providers: FileProviders) {
     if (metadata.status !== 'ready') return metadata
     const revision = Object.freeze({ ...metadata.revision })
     requireFileRevision(revision)
+    if (revision.legacy_object && (!('message_id' in context.ref) || context.ref.message_id !== revision.legacy_object.message_id)) throw new Error('Historical file reference changed')
     context.signal = options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal
     let disposed = false
     let opened: Promise<FileBytes> | undefined
@@ -163,7 +171,7 @@ export function createFileResolver(providers: FileProviders) {
   return resolveFile
 }
 
-/** A browser Blob consumes only the verified original capability; previews cannot be passed here. */
+/** A browser Blob consumes only the original capability; previews cannot be passed here. */
 export async function fileBlob(file: FileHandle): Promise<Blob> {
   const chunks = file.stream()[Symbol.asyncIterator]()
   try {
@@ -188,7 +196,20 @@ export async function snapshotBlob(file: FileBytes, contentType: string): Promis
 type FileStageSource = { revision: Pick<FileRevision, 'size_bytes' | 'sha256' | 'content_type'>; stream(): AsyncIterable<Uint8Array>; dispose(): Promise<void> }
 export type FileStageCommand = { op: 'begin'; name: string; revision: FileStageSource['revision'] } | { op: 'chunk'; id: string; bytes: Uint8Array } | { op: 'commit' | 'abort'; id: string }
 /** Existing native caches receive bounded frames, then verify and atomically publish a private file token. */
-export const stageFileHandle = (file: FileHandle, name: string, send: (command: FileStageCommand) => Promise<unknown>) => stageFileSource(file, name, send)
+export async function stageFileHandle(file: FileHandle, name: string, send: (command: FileStageCommand) => Promise<unknown>): Promise<string> {
+  if (file.revision.sha256 !== null) return stageFileSource(file, name, send)
+  // A historical source has no server digest. Bind the native copy to the already-authorized
+  // immutable snapshot with a local checksum; the historical revision itself stays unhashed.
+  const hash = sha256.create()
+  let observedSha: string
+  try {
+    requireFileRevision(file.revision)
+    for await (const bytes of file.stream()) hash.update(bytes)
+    observedSha = Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('')
+  } catch (error) { await file.dispose(); throw error } finally { hash.destroy() }
+  return stageFileSource({ revision: { size_bytes: file.revision.size_bytes, content_type: file.revision.content_type, sha256: observedSha },
+    stream: () => file.stream(), dispose: () => file.dispose() }, name, send)
+}
 /** Generated Blob saves use the same sink protocol, without inventing a message/file authority. */
 export async function stageFileSource(file: FileStageSource, name: string, send: (command: FileStageCommand) => Promise<unknown>): Promise<string> {
   let id: string | undefined, written = 0

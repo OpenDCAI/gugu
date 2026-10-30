@@ -21,6 +21,7 @@
  * 用的还是消息那条既有的 `layoutBlockStack` ⇒ `measure() === offsetHeight` 与
  * 普通助手消息同源，不引入第二套排版。
  */
+import { readableLabel } from '../readable-label';
 import { BlockStackView } from '@session-chat/components/primitives/BlockStackView';
 import { proseLinesHeight } from '@session-chat/components/rows/markdown/html/layout';
 import type { StackLayout } from '@session-chat/core/compose';
@@ -60,7 +61,7 @@ export const HOOK_NOTICE_VARS: HookNoticeVars = {
 
 type NoticeItem = Pick<ChatMessage, 'id' | 'text'>;
 /** 换掉的正文块（缺省 = 纯文本那一块）与卡底（高 + 渲染，缺省没有）；量高与画法读同一份。 */
-export type NoticeExtra = { blocks?: Block[]; footer?: { h: number; render: () => JSX.Element } };
+export type NoticeExtra = { label?: string; blocks?: Block[]; footer?: { h: number; render: () => JSX.Element } };
 
 function innerWidth(width: number, vars: HookNoticeVars): number {
   return Math.max(0, width - 2 * vars.padX);
@@ -82,6 +83,10 @@ function bodyHeight(item: NoticeItem, ctx: MeasureCtx, vars: HookNoticeVars, ext
   return stack.height;
 }
 
+function noticeLabelLayout(label: string, ctx: MeasureCtx, vars: HookNoticeVars) {
+  return readableLabel(label, ctx, innerWidth(ctx.width, vars) - 12, 14, ctx.theme.fonts.body.lineHeight);
+}
+
 export function measureHookNotice(
   item: NoticeItem,
   ctx: MeasureCtx,
@@ -89,7 +94,7 @@ export function measureHookNotice(
   extra?: NoticeExtra
 ): number {
   const lineH = ctx.theme.fonts.body.lineHeight;
-  return 2 * vars.padY + lineH + vars.gap + bodyHeight(item, ctx, vars, extra) + footerSpace(vars, extra);
+  return 2 * vars.padY + (extra?.label ? noticeLabelLayout(extra.label, ctx, vars).height : lineH) + vars.gap + bodyHeight(item, ctx, vars, extra) + footerSpace(vars, extra);
 }
 
 /**
@@ -143,9 +148,10 @@ export function HookNoticeCard(props: {
   });
 
   const lineH = (): number => mCtx()?.theme.fonts.body.lineHeight ?? 20;
+  const header = () => mCtx() ? noticeLabelLayout(props.label, mCtx()!, props.vars) : null;
   const bodyH = (): number => stack()?.height ?? lineH();
   const total = (): number =>
-    2 * props.vars.padY + lineH() + props.vars.gap + bodyH() + footerSpace(props.vars, props.extra);
+    2 * props.vars.padY + (header()?.height ?? lineH()) + props.vars.gap + bodyH() + footerSpace(props.vars, props.extra);
 
   return (
     <div
@@ -159,7 +165,7 @@ export function HookNoticeCard(props: {
           height: total(),
           padY: props.vars.padY,
           padX: props.vars.padX,
-          headerH: lineH(),
+          headerH: header()?.height ?? lineH(),
           bodyH: bodyH(),
           gap: props.vars.gap,
           footerH: props.extra?.footer?.h ?? 0
@@ -174,8 +180,8 @@ export function HookNoticeCard(props: {
       </div>
       <div class={noticeHeader} data-slot="hook-notice-header" aria-hidden="true">
         <span class={noticeDot} />
-        <span class={noticeHook} title={props.label}>
-          {props.label}
+        <span class={noticeHook} style={{ 'line-height': `${lineH()}px` }} title={props.label}>
+          {header()?.text ?? props.label}
         </span>
       </div>
       <div class={noticeBody} data-slot="hook-notice-body">

@@ -4,6 +4,8 @@ import { projectEvents } from '../projects/project-events';
 import { randomUUID } from 'node:crypto';
 import { PROJECTION_NOT_SENT, PROJECTION_UNCONFIRMED, projectionInputOutcome, type ProjectionInputOutcome, type ProjectionHostPacket, type ProjectionSourceEvent } from '@shared/extensions/projection-protocol';
 import { ExtensionProjections, ProjectionInputFailure } from './extension-projections';
+import { ProjectionMediaAccess } from './projection-media-access';
+import { projectionVideoFeed } from './projection-video-feed';
 import { extensionsService } from './extensions-root';
 import type { BridgeCaller } from './extension-bridge';
 
@@ -24,6 +26,7 @@ type SourceCommand = Omit<Extract<ProjectionSourceEvent, { type: 'input' }>, 'id
 export class ExtensionProjectionBridge {
   private lifecycle = 0;
   private readonly resources: ExtensionProjections;
+  private readonly mediaAccess: ProjectionMediaAccess;
   private readonly sources = new Map<string, Source>();
   private readonly inputs = new Map<string, PendingInput>();
   private readonly viewers = new Map<string, Viewer>();
@@ -32,6 +35,16 @@ export class ExtensionProjectionBridge {
 
   constructor(authorize: (extensionId: string) => void, private readonly projectOf: (session: string) => Promise<string>) {
     this.resources = new ExtensionProjections(({ extensionId }) => authorize(extensionId));
+    this.mediaAccess = new ProjectionMediaAccess(this.resources, pageId => this.epochs.get(pageId) ?? 0);
+  }
+
+  /** Internal host adapter; deliberately absent from the App verb dispatcher. */
+  mediaResource(caller: BridgeCaller, sourceId: string) { return this.mediaAccess.open(caller, sourceId); }
+
+  /** Trusted host encoding adapter, not an App verb or a bitmap-over-RPC route. */
+  mediaFeed(caller: BridgeCaller, sourceId: string, context: Parameters<typeof projectionVideoFeed>[2],
+    createDecoder: Parameters<typeof projectionVideoFeed>[3], createMedia: Parameters<typeof projectionVideoFeed>[4]) {
+    return projectionVideoFeed(this.resources, this.mediaResource(caller, sourceId), context, createDecoder, createMedia);
   }
 
   count(pageId: number): number {
@@ -227,6 +240,7 @@ export class ExtensionProjectionBridge {
   /** The actual document/child went away. Other pages of the same App keep their own resources. */
   closePage(pageId: number): void {
     this.epochs.set(pageId, (this.epochs.get(pageId) ?? 0) + 1);
+    this.mediaAccess.closePage(pageId);
     for (const key of this.watches.keys()) if (key.startsWith(`${pageId}:`)) this.watches.delete(key);
     for (const [key, viewer] of this.viewers) {
       if (viewer.pageId === pageId) { viewer.close(); this.viewers.delete(key); }
