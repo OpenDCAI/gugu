@@ -175,13 +175,13 @@ it.each([{ newName: 'Renamed identity', width: WIDTH }, { newName: 'W'.repeat(40
   const [quoteName, setQuoteName] = createSignal('Current quoted identity');
   const notice = ENVELOPE.replace('route="chat"', 'route="system"');
   let initialSender: string | null = null;
-  let initialReply: string | null = null;
+  const initialReply: { text: string | null } = { text: null };
   let initialBody = '';
   let initialHeight = 0;
   const renamed = await mount(DOUBLE, false, notice, (item) => item, null, () => null,
     (host) => {
       initialSender = host.querySelector('[data-slot="delivery-sender"]')?.textContent ?? null;
-      initialReply = host.querySelector('[data-slot="delivery-reply"]')?.textContent ?? null;
+      initialReply.text = host.querySelector('[data-slot="delivery-reply"]')?.textContent ?? null;
       initialBody = host.querySelector('[data-gugu-body]')?.textContent ?? '';
       initialHeight = (host.querySelector('[data-delivery-card]') as HTMLElement).offsetHeight;
       setName(newName);
@@ -189,7 +189,7 @@ it.each([{ newName: 'Renamed identity', width: WIDTH }, { newName: 'W'.repeat(40
     }, false, () => null, () => null, id => id === 'user:alice' ? name() : id === 'user:bob' ? quoteName() : null, width);
   expect(initialSender).toBe('Current identity');
   expect(renamed.sender?.replace(/\n/g, '')).toBe(newName);
-  expect(initialReply?.replace(/\n/g, '')).toContain('Current quoted identity');
+  expect(initialReply.text?.replace(/\n/g, '')).toContain('Current quoted identity');
   expect(renamed.reply?.replace(/\n/g, '')).toContain('Updated quoted identity');
   expect(renamed.computed).toBe(renamed.dom);
   if (width === WIDTH) expect(renamed.dom).toBe(initialHeight);
