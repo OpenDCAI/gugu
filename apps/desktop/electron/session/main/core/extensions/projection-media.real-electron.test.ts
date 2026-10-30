@@ -9,7 +9,8 @@ const electron = process.env.GUGU_BROWSER_REAL_ELECTRON;
 const enabled = electron && process.env.GUGU_TEST_MEDIA_HELPER && process.env.GUGU_PROJECTION_FFMPEG && process.env.GUGU_TEST_CHROMIUM;
 let temporary = '';
 let result: { passed: boolean; reused: boolean; inputCalls: number; paints: unknown[];
-  device: { signedInputs: number; paints: number; retargetClosed: boolean; privateKeysHidden: boolean };
+  device: { signedInputs: number; paints: number; retargetClosed: boolean; privateKeysHidden: boolean;
+    wrongVersionRefused: boolean; wrongSourceRefused: boolean };
   ownership: { lateHelperExited: boolean; concurrentNativeDecoders: number; reusedPerStream: boolean } };
 
 // Real installed App grants, NativeImage, native H264 and browser paint/control.
@@ -58,7 +59,8 @@ describe.skipIf(!enabled)('projection factory through real media with Electron',
     expect(result).toMatchObject({ passed: true, reused: true, inputCalls: 1 });
     expect(result.paints.length).toBeGreaterThanOrEqual(2);
     expect(result.ownership).toEqual({ lateHelperExited: true, concurrentNativeDecoders: 2, reusedPerStream: true });
-    expect(result.device).toMatchObject({ signedInputs: 1, retargetClosed: true, privateKeysHidden: true });
+    expect(result.device).toMatchObject({ signedInputs: 1, retargetClosed: true, privateKeysHidden: true,
+      wrongVersionRefused: true, wrongSourceRefused: true });
     expect(result.device.paints).toBeGreaterThanOrEqual(2);
   });
 });

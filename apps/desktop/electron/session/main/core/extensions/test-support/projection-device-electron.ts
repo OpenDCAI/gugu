@@ -51,13 +51,16 @@ export async function probeDeviceProjection(appId: string) {
       disconnect: async () => { disconnected++; }, close() {}, refresh: async () => { await capture(); },
     });
     // The real main-binding lookup is exercised separately by the retarget behavior test.
-    const page = bridge.viewerPage({ kind: 'page', extensionId: appId, pageId: viewer.webContents.id,
-      binding: { sessionId: 'fixture-task' } } as BridgeCaller);
-    client = await createProjectionDeviceClient({ page: { ...page, deviceId: 'fixture-resource-host', version: '1.0.0' }, identity: viewerIdentity,
+    const page = () => ({ ...bridge.viewerPage({ kind: 'page', extensionId: appId, pageId: viewer.webContents.id,
+      binding: { sessionId: 'fixture-task' } } as BridgeCaller), deviceId: 'fixture-resource-host', version: '1.0.0' });
+    const connect = (bound: ReturnType<typeof page>) => createProjectionDeviceClient({ page: bound, identity: viewerIdentity,
       report: error => faults.push(error), openPipe: async (_device, _asker, handlers) => ({
         send: raw => respond(raw, reply => handlers.onMessage(reply), undefined, asker),
         close: () => { for (const listener of [...detached]) listener(); },
       }) });
+    await assert.rejects(connect({ ...page(), version: 'wrong-version' }), /version or capability changed/);
+    client = await connect(page());
+    await assert.rejects(client.open('missing-source'), /not in this App session/);
     const connection = client, opened = await connection.open(publisher.id);
     assert.deepEqual(Object.keys(opened).sort(), ['id', 'offer']);
     assert.equal('proof' in connection || 'controlKey' in connection, false);
@@ -107,7 +110,8 @@ export async function probeDeviceProjection(appId: string) {
     assert.throws(() => connection.sign(opened.id, '{}'), /page changed/);
     await connection.close(); await host.dispose(); assert.ok(disconnected > 0); assert.equal(inputCalls, 1);
     assert.equal(faults.length, 0, faults.map(String).join('; '));
-    return { signedInputs: inputCalls, paints: paints.length, retargetClosed: true, privateKeysHidden: true };
+    return { signedInputs: inputCalls, paints: paints.length, retargetClosed: true, privateKeysHidden: true,
+      wrongVersionRefused: true, wrongSourceRefused: true };
   } finally {
     try { await client?.close(); await host.dispose(); }
     finally {
