@@ -69,7 +69,7 @@ export function MessageQuoteFrame({ mine, head, text, onClick, preview }: {
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {head}
       </div>
-      {preview ? <SourcePreview text={text} lines={2} /> : <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {preview ? <SourcePreview text={text} lines={2} style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', maxHeight: 'calc(var(--lh-body) * 2)', opacity: 0.55 }} /> : <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {text}
       </div>}
     </div>
