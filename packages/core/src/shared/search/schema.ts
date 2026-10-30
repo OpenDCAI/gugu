@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS chat (
 CREATE TABLE IF NOT EXISTS task (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  project_id TEXT NOT NULL
+  project_id TEXT NOT NULL,
+  agent_user_id TEXT
 );
 CREATE TABLE IF NOT EXISTS task_coverage (
   task_id TEXT PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE,

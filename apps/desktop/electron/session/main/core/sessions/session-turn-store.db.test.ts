@@ -22,6 +22,7 @@ vi.mock('@main/db/client', () => ({
 
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 
+import { sessionEvents } from './session-events';
 import { nativeConversationUnread } from './session-conversation-read';
 import { startNativeConversationInboxHost } from './native-conversation-inbox';
 import { events } from '@main/lib/events';
@@ -63,6 +64,25 @@ describe('conversation-turn-store', () => {
   });
 
   afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+
+  it('publishes source facts only after insert, revision, record append and truncation commit', async () => {
+    const facts: unknown[] = [];
+    const off = sessionEvents.on('session:history-changed', change => {
+      const rows = fixture.sqlite.prepare('SELECT seq,data FROM session_turns WHERE session_id=? ORDER BY seq').all(change.sessionId);
+      facts.push({ change, rows });
+    });
+    try {
+      await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('live', 'first') });
+      await persistCommittedTurn({ sessionId: 'c1', source: 'revision', turn: turn('live', 'revised') });
+      await withStoredTurns('c1', () => appendRecordTurnNow('c1', turn('record', 'record')));
+      await truncateStoredHistory('c1', 1);
+      expect(facts).toHaveLength(4);
+      expect(facts[0]).toMatchObject({ change: { sessionId: 'c1', seq: 0 }, rows: [{ seq: 0 }] });
+      expect(facts[1]).toMatchObject({ rows: [{ data: expect.stringContaining('revised') }] });
+      expect(facts[2]).toMatchObject({ change: { seq: 1 }, rows: [{ seq: 0 }, { seq: 1 }] });
+      expect(facts[3]).toMatchObject({ change: { fromSeq: 1 }, rows: [{ seq: 0 }] });
+    } finally { off(); }
+  });
 
   it('requests the inbox address when a new task records its first real owner exchange', async () => {
     const open = vi.fn(async () => 'canonical-dm');

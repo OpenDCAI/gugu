@@ -5,6 +5,10 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import { appSettingsService, type AppSettings, type AppSettingsKey } from './settings-service';
 
 async function reconcileSettingsRuntimeState(key: AppSettingsKey): Promise<void> {
+  if (key === 'globalSearch' && !(await appSettingsService.get('globalSearch')).v3) {
+    const { accountMessageSearch } = await import('../search/account-message-search');
+    accountMessageSearch.close();
+  }
   if (key === 'resourceMonitor') await reconcileResourceSampler();
   if (key === 'keyboard') {
     // Re-read the effective settings so runtime state observes service-side defaults or merges.

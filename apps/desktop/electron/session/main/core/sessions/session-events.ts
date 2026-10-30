@@ -4,6 +4,9 @@ import { log } from '@main/lib/logger';
 import type { Session } from '@shared/core/sessions/sessions';
 
 export type SessionCrudHooks = {
+  /** Committed source facts, emitted after the SQLite transaction; derived readers cannot reject persistence. */
+  'session:history-changed': (change: { sessionId: string; seq?: number; fromSeq?: number }) => void | Promise<void>;
+  'session:visibility-changed': (sessionId: string) => void | Promise<void>;
   'session:created': (session: Session) => void | Promise<void>;
   'session:renamed': (
     sessionId: string,

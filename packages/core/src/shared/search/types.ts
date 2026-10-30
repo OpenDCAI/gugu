@@ -59,6 +59,7 @@ export interface SearchTask {
   id: string
   title: string
   projectId: string
+  agentUserId?: string | null
 }
 
 export interface SearchTaskDocument {
@@ -67,6 +68,7 @@ export interface SearchTaskDocument {
   reference: string
   seq: number
   role: 'user' | 'assistant'
+  senderId?: string | null
   createdAt: string
   text: string
 }
