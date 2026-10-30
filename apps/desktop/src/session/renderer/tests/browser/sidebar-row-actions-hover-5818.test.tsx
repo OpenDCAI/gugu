@@ -2,8 +2,8 @@ const notice = vi.hoisted(() => vi.fn())
 vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({ ...await importOriginal<typeof import('@renderer/lib/hooks/use-toast')>(), toast: notice }))
 /**
  * #5818 侧栏会话行:行尾的置顶 / 归档**只认指针与真焦点** —— 真 Chromium、真 CSS、真组件。
- * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#7334 起卡上只有
- * 任务名 / agent 名,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
+ * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#898 将任务与
+ * agent 合为同一个当前名,卡上只留名字 / 设备 / 文件夹三行。点一行复制「标签：值」,会话 ID 在右键菜单。
  *
  * 守的是一次回归:#5643 为了修「看不见却能 Enter 触发归档」(#5642),把「这一行是键盘光标」
  * 也加进了显形判据;而点一行,主区就到了这一行、键盘光标就在这一行,于是**选中的那一行
@@ -298,12 +298,12 @@ function stubClipboard() {
 
 /**
  * 复制出去的那一段。测试进程的语言随机器走,两种文案都算;要判的是「标签：值」这个形状、
- * 标签是哪一行的、值是什么 —— 中文「任务名：X」「Agent 名：Y」,英文「Task: X」「Agent: Y」。
+ * 名字行的标签和值是什么 —— 中文「任务名：X」,英文「Task: X」。
  */
 function pairOf(text: string): [string, string] {
-  const m = /^(任务名|Agent 名)：(.*)$/.exec(text) ?? /^(Task|Agent): (.*)$/.exec(text)
+  const m = /^(任务名)：(.*)$/.exec(text) ?? /^(Task): (.*)$/.exec(text)
   expect(m, `复制出去的不是「标签：值」的形状:${JSON.stringify(text)}`).not.toBeNull()
-  return [/^(任务名|Task)$/.test(m![1]) ? 'session' : 'agent', m![2]]
+  return ['session', m![2]]
 }
 
 /** 停够开卡的时长,等卡渲出来。 */
@@ -316,7 +316,7 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设备 / 文件夹四行,不摆两枚 ID;卡上没有多余的线', async () => {
+it('#7334 指针停在行上,右侧弹出身份卡:唯一当前名 / 设备 / 文件夹三行,不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
   sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
@@ -340,14 +340,15 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
   const card = identityCard()!
 
   const keys = Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)
-  expect(keys).toEqual(['sessionName', 'agentName', 'device', 'folder'])
+  expect(keys).toEqual(['sessionName', 'device', 'folder'])
+  expect(card.querySelector('[data-identity-row="agentName"]')).toBeNull()
   // 在哪(owner 2026-10-28):本机会话写「这台电脑」;这里项目没挂上、也没有工作区 ⇒ 文件夹「未知」,且不可复制。
   expect(card.querySelector('[data-identity-row="device"]')!.textContent).toMatch(/这台电脑|This computer/)
   expect(card.querySelector('[data-identity-row="folder"]')!.textContent).toMatch(/未知|Unknown/)
   expect(card.querySelector('[data-identity-row="folder"]')!.tagName).not.toBe('BUTTON')
-  expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('软件更新')
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toContain('Claude 3')
-  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到 agent 名(上一句),读法没坏。
+  expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('Claude 3')
+  expect(card.textContent).not.toContain(TITLE)
+  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的唯一名字行确实读得到当前名,读法没坏。
   expect(card.textContent).not.toContain(AGENT_USER_ID.slice(0, 8))
   expect(card.textContent).not.toContain('conv-1')
   expect(card.textContent).not.toMatch(/Session ID|Agent ID/)
@@ -362,28 +363,26 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
   expect(visibleCard.getBoundingClientRect().left).toBeGreaterThanOrEqual(rowRect.right)
   expect(Math.abs(card.getBoundingClientRect().left - rowRect.right)).toBeLessThanOrEqual(1)
 
-  // 行之间没有分隔线(design.md 线预算):两行都不带 border-top/bottom。
+  // 行之间没有分隔线(design.md 线预算):三行都不带 border-top/bottom。
   for (const el of card.querySelectorAll<HTMLElement>('[data-identity-row]')) {
     const cs = getComputedStyle(el)
     expect(cs.borderTopWidth).toBe('0px')
     expect(cs.borderBottomWidth).toBe('0px')
   }
 
-  // 两行各是一枚复制按钮,各复制各的(owner 2026-10-16:「复制任务名就是复制任务名」)。
+  // 唯一名字行复制当前身份名,设备行的复制反馈不被这次点击改动。
   const sessionRow = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
-  const agentRow = card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!
+  const deviceRow = card.querySelector<HTMLElement>('[data-identity-row="device"]')!
   expect(sessionRow.tagName).toBe('BUTTON')
-  expect(agentRow.tagName).toBe('BUTTON')
+  expect(deviceRow.dataset.copyState).toBe('idle')
 
   // 点一行只复制这一行,带上它的标签;复制不关卡、不打开会话(click 被拦在行内)。
-  await userEvent.click(agentRow)
-  expect(clipboard).toHaveBeenCalledTimes(1)
-  expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['agent', 'Claude 3'])
-  await until('the copied row says so', () => agentRow.dataset.copyState === 'copied')
-  expect(sessionRow.dataset.copyState, '只有被点的那一行说「已复制」').toBe('idle')
-  expect(identityCard()).not.toBeNull()
   await userEvent.click(sessionRow)
-  expect(pairOf(clipboard.mock.calls[1][0])).toEqual(['session', TITLE])
+  expect(clipboard).toHaveBeenCalledTimes(1)
+  expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['session', 'Claude 3'])
+  await until('the copied row says so', () => sessionRow.dataset.copyState === 'copied')
+  expect(deviceRow.dataset.copyState, '只有被点的那一行说「已复制」').toBe('idle')
+  expect(identityCard()).toBe(card)
 
   // 收卡不等(owner 2026-10-08:「应该是立即消失,而不是过一会儿才消失」)。时钟冻着:收不靠任何定时器到点,
   // 离开的那一下就收 —— 一个「宽限 0ms」的定时器在这里也会读成还开着。
@@ -406,21 +405,20 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
   await until('identity card is gone', () => identityCard() === null)
 })
 
-it('#6092 花名册里没有这条会话时,agent 那一行写「未分配」且不可复制;任务名那一行照常复制', async () => {
+it('#6092 花名册里没有这条会话时,只保留可复制的任务名,不造第二个 agent 名字行', async () => {
   const clipboard = stubClipboard()
   mount()
   await mounted()
   const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
   await clickThenPark(row)
   const card = await openCard(row)
-  // 测试进程的语言随机器走,两种文案都算;要判的是「不是标题」。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toMatch(/未分配|Not assigned/)
-  // ❌ 不拿标题冒充人名。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).not.toContain('软件更新')
-
-  // ❌ 把「未分配」当成一个值粘出去:那一行不是按钮。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.tagName).not.toBe('BUTTON')
-  await userEvent.click(card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!)
+  // 没有身份记录时保留原任务名,不把它另画成 agent 名或「未分配」行。
+  expect(Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)).toEqual(['sessionName', 'device', 'folder'])
+  expect(card.querySelector('[data-identity-row="agentName"]')).toBeNull()
+  const sessionRow = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
+  expect(sessionRow.textContent).toContain(TITLE)
+  expect(sessionRow.tagName).toBe('BUTTON')
+  await userEvent.click(sessionRow)
   expect(clipboard).toHaveBeenCalledTimes(1)
   expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['session', TITLE])
 })
@@ -457,7 +455,8 @@ it('#6092 设置里关掉之后,悬浮不再弹卡 —— 开关是真的接着�
     expect(sidebarIdentityCard.activeSessionId).toBeNull()
     vi.useRealTimers()
     expect(identityCard()).toBeNull()
-    expect(row.innerText).toContain('软件更新')
+    expect(row.innerText).toContain('Claude 3')
+    expect(row.innerText).not.toContain(TITLE)
   } finally {
     store.agentNameOnHoverEnabled = true
   }
