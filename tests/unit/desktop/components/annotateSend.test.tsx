@@ -67,6 +67,16 @@ describe('annotation reply destination', () => {
     await act(async () => { await actions.send() })
     expect(calls.send).toHaveBeenCalledWith([expect.any(File)], expect.objectContaining({ isWhisper: false, toUserIds: [] }))
   })
+  it.each([
+    { kind: 'dm', chat: { id: 'group', name: '', kind: 'dm', peer_user_id: 'peer' }, label: '发送到「咕咕」' },
+    { kind: 'group', chat: { id: 'group', name: '实际群', kind: 'group' }, label: '发送到「实际群」' },
+  ])('names a public $kind destination the way the chat list does', async ({ chat, label }) => {
+    calls.store = { ...calls.store, chats: [chat] }
+    calls.read.mockResolvedValue(message({ is_whisper: false, to_user_ids: [] }))
+    await harness.render(createNode(Probe))
+    expect(harness.container.textContent).toContain(label)
+    expect(harness.container.textContent).not.toContain('发送到「」')
+  })
   it('uses a neutral reply label until the original is known, and ignores a late read from another image', async () => {
     let resolveOld!: (value: MessageItem) => void
     calls.read.mockReturnValueOnce(new Promise<MessageItem>(resolve => { resolveOld = resolve }))
