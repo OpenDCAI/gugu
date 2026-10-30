@@ -1,0 +1,108 @@
+import type { RawMessageRow } from '../../cloud/messageItem'
+
+/** Portable search data. Storage IDs are bare; tool-boundary IDs use typedId.mjs. */
+export interface SearchQuery {
+  text: string
+  filters: {
+    in?: { kind: 'chat' | 'topic' | 'session'; id: string; includeTopics?: boolean }[]
+    from?: string[]
+    has?: ('file' | 'image' | 'link')[]
+    is?: ('mention' | 'whisper')[]
+    /** ISO calendar dates (YYYY-MM-DD), interpreted in the device's local time zone. */
+    before?: string
+    after?: string
+    on?: string
+  }
+  sort: 'recent' | 'relevant'
+  /** Navigation only. Never restricts a query or grants access. */
+  origin?: { chatId: string }
+}
+
+/**
+ * One indexed message. Rows come only from the signed-in account's own message reads, which the
+ * server already filtered by its visibility rule; the index stores that result and never re-decides it.
+ */
+export interface SearchDocument {
+  id: string
+  chatId: string
+  threadRootId: string | null
+  seq: number
+  senderId: string | null
+  createdAt: string
+  text: string
+  /** Filter inputs only (is:mention, is:whisper), not access decisions. */
+  toUserIds: string[]
+  isWhisper: boolean
+  hasFile: boolean
+  hasImage: boolean
+  hasLink: boolean
+}
+
+export interface SearchChat {
+  id: string
+  kind: 'dm' | 'group' | 'ai' | 'topic'
+  sourceChatId: string | null
+}
+
+/** Backfill progress of one stream (the main timeline, or one thread). */
+export interface SearchCoverage {
+  chatId: string
+  threadRootId: string | null
+  oldestSeq: number | null
+  newestSeq: number | null
+  /** The oldest page came back empty: everything older than oldestSeq has been read. */
+  exhausted: boolean
+}
+
+export interface SearchCoverageReport {
+  /** Every listed chat's main timeline is exhausted. */
+  complete: boolean
+  chats: SearchCoverage[]
+}
+
+export interface SearchHighlight {
+  /** UTF-16 offsets into the original, unsegmented string; end is exclusive. */
+  start: number
+  end: number
+}
+
+export interface SearchReason {
+  /** A stable key for the caller's translation; not an authorization decision. */
+  code: 'exact' | 'prefix' | 'contains' | 'pinyin' | 'phrase' | 'terms' | 'text-relevance'
+    | 'recent' | 'mention' | 'from-self' | 'chat-affinity' | 'sender-affinity' | 'agent' | 'thread'
+  points: number
+}
+
+export interface SearchRank {
+  score: number
+  reasons: SearchReason[]
+}
+
+/** Data returned by the core query; UI navigation and the MCP response adapt the same row. */
+export interface SearchMessageHit {
+  kind: 'message'
+  id: string
+  chatId: string
+  threadRootId: string | null
+  seq: number
+  senderId: string | null
+  createdAt: string
+  text: string
+  highlights: SearchHighlight[]
+  rank: SearchRank
+}
+
+export interface SearchResults {
+  results: SearchMessageHit[]
+  coverage: SearchCoverageReport
+  nextCursor: string | null
+}
+
+/** The only write vocabulary of a search index; a store applies one list in one transaction. */
+export type SearchIndexOp =
+  | { kind: 'rows'; rows: RawMessageRow[] }
+  | { kind: 'remove'; ids: string[] }
+  /** The authoritative chat list: chats absent from it are no longer readable and are purged. */
+  | { kind: 'chats'; chats: SearchChat[] }
+  | { kind: 'clearChat'; chatId: string }
+  | { kind: 'coverage'; coverage: SearchCoverage }

@@ -2570,6 +2570,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
     pushedHumanAuth = undefined
     pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
     projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
+    loadEmdashBridge()?.messageSearchAccountChanged(pushedHumanAuth.userId)
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
@@ -2579,6 +2580,7 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
     projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
+    loadEmdashBridge()?.messageSearchAccountChanged(null)
     return await clearHumanAuthSession()
   } finally {
     onHumanAuthSessionChanged()
