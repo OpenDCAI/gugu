@@ -2,17 +2,25 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { resolveConversationMessageReference, type ChatView, type TranscriptTurn } from '@gugu/session-chat-ui';
 import { revealSourceMessage, SOURCE_MESSAGE_FLASH_MS } from '@/lib/sourceMessageReveal';
 import { parseMessageQuoteLink } from '@gugu/core/shared/ui/messageQuote';
-import type { AcpChatStore } from './acp-chat-store';
+
+type SourceStore = {
+  sessionId: string;
+  chatState: { transcript: { state: { committedTurns: readonly TranscriptTurn[]; activeTurnSnapshot?: TranscriptTurn | null } } };
+  canLoadOlderHistory: boolean;
+  loadOlderHistory(): Promise<TranscriptTurn[]>;
+  /** A phone host applies fetched pages through its timeline props. */
+  historyManagedByHost?: boolean;
+};
 
 /** The chat reveal controller, with the session's history loader and virtual list. */
-export function useSessionSourceMessage(store: AcpChatStore | null | undefined, view: MutableRefObject<ChatView | null>, onMissing: () => void) {
+export function useSessionSourceMessage(store: SourceStore | null | undefined, view: MutableRefObject<ChatView | null>, onMissing: () => void) {
   const latest = useRef(store);
   latest.current = store;
   const missing = useRef(onMissing);
   missing.current = onMissing;
   const request = useRef(0);
   const mounted = useRef(true);
-  const loading = useRef<{ store: AcpChatStore; promise: Promise<TranscriptTurn[]> } | null>(null);
+  const loading = useRef<{ store: SourceStore; promise: Promise<TranscriptTurn[]> } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null);
   useEffect(() => {
@@ -33,7 +41,7 @@ export function useSessionSourceMessage(store: AcpChatStore | null | undefined, 
     const currentView = view.current;
     const promise = current.loadOlderHistory().then(async turns => {
       if (mounted.current && latest.current === current && view.current === currentView && currentView && turns.length) {
-        currentView.loadOlder(turns);
+        if (!current.historyManagedByHost) currentView.loadOlder(turns);
         // History is committed before the virtual list publishes its rows and height map.
         // Let that layout frame finish before resolving an anchor or starting its flash.
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));

@@ -40,7 +40,7 @@ function answerAll(build: (id: string) => unknown = (id) => presenceEntry(id)) {
   }
 }
 async function settle(): Promise<void> {
-  for (let i = 0; i < 6; i += 1) await Promise.resolve()
+  await vi.dynamicImportSettled()
 }
 let seq = 0
 const openSubscriptions: Array<() => void> = []

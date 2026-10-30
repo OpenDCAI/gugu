@@ -11,7 +11,8 @@ import {
   type SessionTreeNode,
 } from '@/session/renderer/features/sessions/session-tree'
 import { assistantDescendants, isAssistantSession } from '@/session/renderer/features/assistant/assistant-lineage'
-import { remoteAgentStatus, sidebarStateGroup } from '@/session/renderer/features/sidebar/session-groups'
+import { sidebarStateGroup } from '@/session/renderer/features/sidebar/session-groups'
+import { sessionPresentation } from './watch-status'
 import type { SessionDirectoryRow } from '@/session/shared/remote-sessions/session-directory'
 
 export type SessionNode = SessionTreeNode<{
@@ -93,7 +94,7 @@ export function assistantGroupIds(
  *     会话归最后那一格「任务」(所有机器平铺一张,#609),❌ 拿 projectId 当项目名冒充。
  * 树用所有机器的行一起建,一家子跟着根走(familiesByRoot,桌面同):画根所在的那一格,child 可以在别的项目、
  * 别的机器上(owner 2026-10-01 / 10-09)。项目分区按桌面同一条折法收起多出来的闲置家族(foldIdleFamilies),
- * 闲置的读法与桌面画别的机器的会话相同(remoteAgentStatus → sidebarStateGroup);`expanded` 里的格全露。
+ * 闲置的读法与桌面画别的机器的会话相同(sessionPresentation → sidebarStateGroup);`expanded` 里的格全露。
  * `rows` 要带**全部**机器的行(含不列出的云端宿主):助理那组的后代就在里面。
  */
 export function sessionSections(
@@ -125,7 +126,7 @@ export function sessionSections(
         : TASKS_SECTION_KEY
   const families = familiesByRoot(withoutPinnedSubtrees(roots), cellOf)
   const isIdle = (item: SessionNode['item']): boolean =>
-    sidebarStateGroup(remoteAgentStatus(item.session, fold.online(item.deviceId))?.status ?? null) === null
+    sidebarStateGroup(sessionPresentation(item.session, fold.online(item.deviceId))) === null
 
   const cell = (
     key: string,

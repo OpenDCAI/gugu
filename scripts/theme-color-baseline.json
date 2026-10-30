@@ -6,16 +6,6 @@
   },
   {
     "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/react/components/chat-composer/chat-composer.css.ts",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
-    "file": "packages/session-ui/src/react/primitives/dialog/dialog.css.ts",
-    "count": 1
-  },
-  {
-    "rule": "hard-coded-color",
     "file": "packages/session-ui/src/styles/recipes/popup-surface.css.ts",
     "count": 1
   }

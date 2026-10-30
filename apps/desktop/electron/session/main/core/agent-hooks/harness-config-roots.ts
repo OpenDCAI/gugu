@@ -1,3 +1,4 @@
+import { getPlugin } from '@main/core/agents/plugin-registry';
 import { KV } from '@main/db/kv';
 import { log } from '@main/lib/logger';
 
@@ -33,9 +34,12 @@ function mergeRoots(first: readonly string[], then: readonly string[]): string[]
   return [...new Set([...first, ...then].filter((root) => typeof root === 'string' && root.trim()))].slice(0, MAX_ROOTS);
 }
 
-/** harness 在这条会话的 hook 里报了它的配置目录:记下(按会话、按家),家里新出现的才落盘。 */
-export function learnHarnessConfigRoot(input: { sessionId: string; providerId: string; root: string }): void {
-  const root = input.root.trim();
+/**
+ * harness 报来一份带配置目录线索的负载:终端腿是 hook 的 body,聊天面板腿是桥接转来的同一个字段(Claude:`transcript_path`)。
+ * 两条腿都从这里进:按这一家的 `configRootOfHook` 读出配置目录,记下(按会话、按家),家里新出现的才落盘。认不出 = 不记。
+ */
+export function learnHarnessConfigRoot(input: { sessionId: string; providerId: string; report: Record<string, unknown> }): void {
+  const root = getPlugin(input.providerId).behavior.hooks?.presence?.configRootOfHook?.(input.report)?.trim();
   if (!root) return;
   bySession.set(input.sessionId, root);
   const known = byProvider.get(input.providerId) ?? [];

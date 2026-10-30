@@ -41,7 +41,8 @@ export function ConversationProcess(props: {
     return count ? translate(count === 1 ? 'transcript.processStepsOne' : 'transcript.processSteps', { count }) : null;
   };
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
-  const label = () => `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
+  const notice = () => commands().conversationProcessNotice?.(props.process.id);
+  const label = () => notice()?.text ?? `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
   const collapsible = () => props.collapsible !== false && !props.process.empty;
   const liveLabel = () => [translate('transcript.thinkingLive'), summary()].filter(Boolean).join(' · ');
@@ -57,6 +58,7 @@ export function ConversationProcess(props: {
       </svg>
       <Show when={summary()}>{value => <span style={{ 'white-space': 'normal', 'overflow-wrap': 'anywhere', 'min-width': 0, 'line-height': '22px' }}>{value()}</span>}</Show>
     </Show>
+    <Show when={notice()}>{value => <span data-agent-conversation-message={value().id}>{value().text}</span>}</Show>
     <Show when={collapsible()}><span class={conversationProcessChevron} aria-hidden="true">›</span></Show>
   </button>;
 }

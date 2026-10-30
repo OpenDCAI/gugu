@@ -267,12 +267,12 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               className={cn(
                 'truncate font-medium transition-colors select-none',
                 (projectViewKind(getProjectStore(projectId)) === 'bootstrapping' || machineDown) &&
-                  'text-foreground-tertiary-passive'
+                  'text-foreground-muted'
               )}
             >
               <ProjectRowTitle name={isHomeRow ? projectLabel : project.name}>
                 {disambiguationPath ? (
-                  <span title={disambiguationPath} className="text-foreground-tertiary-passive min-w-0 max-w-[40%] shrink-[3] truncate text-xs">
+                  <span title={disambiguationPath} className="text-foreground-muted min-w-0 max-w-[40%] shrink-[3] truncate text-xs">
                     {disambiguationPath}
                   </span>
                 ) : null}

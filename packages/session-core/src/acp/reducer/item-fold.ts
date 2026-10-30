@@ -679,8 +679,8 @@ function foldItemContent(
         const updated: TranscriptMessage = foldMessageContent({
           ...msg,
           ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
-          ...(event.attachments?.length
-            ? { attachments: [...(msg.attachments ?? []), ...event.attachments] }
+          ...(event.attachments && (event.attachments.length || event.attachmentsMode === 'replace')
+            ? { attachments: event.attachmentsMode === 'replace' ? event.attachments : [...(msg.attachments ?? []), ...event.attachments] }
             : {}),
         }, event);
         return normalizeToolStructure(
@@ -929,6 +929,7 @@ function foldItemContent(
     // session-config / meta variants never reach foldItem (router intercepts them),
     // but the extended NormalizedEvent union requires a total switch.
     case 'agent_state':
+    case 'transcript_path':
     case 'ignored':
     // falls through
     default:

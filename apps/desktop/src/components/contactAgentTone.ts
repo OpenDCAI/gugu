@@ -59,7 +59,7 @@ export function agentContactRowToneColorClass(tone: AgentContactTone): string {
 }
 
 export function agentContactRowStatusClass(tone: AgentContactTone | null): string {
-  const base = 'gg-c-st-dot !mt-0.5 flex items-center gap-1 text-[length:var(--font-body)] text-[var(--faint-fg)]'
+  const base = 'gg-c-st-dot !mt-0.5 flex items-center gap-1 text-[length:var(--font-body)] text-[var(--muted-fg)]'
   return tone === 'pending' || tone === 'offline' || tone === 'archived' ? `${base} off` : base
 }
 

@@ -13,23 +13,12 @@ import { popupShadow } from '@session-ui/styles/recipes/popup-surface.css';
 import { vars } from '@session-ui/theme/core/contract/contract.css';
 import { tokenVars } from '@session-ui/theme/tokens.css';
 
-/**
- * 模态遮罩。
- *
- * ⚠️ 这里**故意保留**中性黑 `rgba(0,0,0,0.4)`,没有换成 `color-mix(vars.foreground 40%)`。
- * 遮罩和投影是同一类东西:**压下来的一层暗**,不是一个面的颜色 —— tokens.css 的
- * @@@one-knob 那段对投影写过同一句判断(「投影是投下来的光,不是一个面的颜色 ⇒ 它不在
- * 中性族里,用中性黑是对的」),宿主自己的遮罩族(`--bg-overlay-soft/-modal/-strong`)
- * 也是明暗两侧都用黑、只改不透明度。换成前景色掺透明的话,暗色主题下 `foreground` 近白,
- * 遮罩会变成**一层白纱**,模态反而比底下的页面更亮。
- * design.md 那条「never write `#fff` / `bg-white` / `text-black`」管的是**面色与字色**。
- * ⇒ 这一处列进「规格增补建议」:遮罩该有自己的语义 token,而不是每个浮层各写一个 rgba。
- */
+/** Modal scrims share the host token and its theme-specific opacity. */
 export const overlay = style({
   position: 'fixed',
   inset: 0,
   zIndex: 50,
-  backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  backgroundColor: 'var(--bg-overlay-modal)',
   selectors: {
     '&[data-open]': { animation: `${kfFadeIn} ${durMed} ${easeStandard} both` },
     '&[data-closed]': { animation: `${kfFadeOut} ${durFast} ${easeStandard} both` },

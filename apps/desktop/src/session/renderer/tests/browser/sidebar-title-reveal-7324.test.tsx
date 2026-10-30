@@ -2,6 +2,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cdp, userEvent } from 'vitest/browser';
 import { until } from '../../../../../../../tests/support/awaitCondition';
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
 import { SessionRowShell } from '@renderer/features/sidebar/sidebar-session-row';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -42,7 +43,7 @@ async function mount(title = LONG_TITLE) {
     <SessionLocalizationProvider>
       <SessionRowShell
         sessionId="title-reveal" rowVariant="tree" depth={0} hasChildren={false} expanded={false}
-        needsAttention={false} title={title} harness={null} status="idle" lastInteractedAt={new Date().toISOString()}
+        needsAttention={false} title={title} harness={null} presentation={presentAgentStatus({ reading: { status: 'idle', detail: null } })} lastInteractedAt={new Date().toISOString()}
         doneUnread={false} isActive={false} isCursor={false} isPendingArchive={false}
         quickActions={{ isPinned: false, onSetPinned: () => {}, archiveLabel: 'Archive', onArchive: () => {} }}
         onOpen={onOpen}

@@ -39,7 +39,7 @@ async function renderList(overrides: Partial<MessageListRowProps> = {}) {
   const rows: ChatListRowItem[] = messages.map((msg) => ({ type: 'message', message: msg }))
   const onMentionMember = vi.fn()
   const rowProps: MessageListRowProps = {
-    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isAgentChat: false, isGroupChat: true, memberProfiles,
+    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
     onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember,
     highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
     agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
@@ -121,7 +121,7 @@ describe('group avatar sits on the last message of a run', () => {
     ]
     const rows: ChatListRowItem[] = run.map((msg) => ({ type: 'message', message: msg }))
     const rowProps: MessageListRowProps = {
-      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isAgentChat: false, isGroupChat: true, memberProfiles,
+      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
       onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember: noop,
       highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
       agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
