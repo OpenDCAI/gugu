@@ -4,6 +4,7 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { parseMessageQuoteLink, readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
 import { messageReferenceId } from '@gugu/session-core/acp/client';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
+import { agentSendOf, replyItems } from '@gugu/session-core/session-record/reply-process';
 import { withSentReplies } from './sent-replies';
 import { conversationQuoteText } from './conversation-quote-text';
 
@@ -14,10 +15,14 @@ export function resolveConversationMessageReference(turns: readonly TranscriptTu
   reference = source?.kind === 'session' ? source.itemId : source?.kind === 'chat' ? `msg:${source.messageId}` : reference;
   const id = reference.replace(/^msg:/, '');
   const nativeMatches: string[] = [];
-  for (const turn of turns) for (const item of withSentReplies(turn, { allDestinations: true }).items) {
-    if (item.kind !== 'message') continue;
+  for (const turn of turns) for (const item of replyItems(withSentReplies(turn, { allDestinations: true }))) {
+    if (item.kind !== 'message') {
+      if (source?.kind === 'session' && 'toolCallId' in item && item.status === 'done' && agentSendOf(item, turn)
+        && (messageReferenceId(turn, item.id) ?? item.id) === reference) nativeMatches.push(item.id);
+      continue;
+    }
     if (source?.kind === 'session') {
-      if (messageReferenceId(turn, item.id) === reference) nativeMatches.push(item.id);
+      if ((messageReferenceId(turn, item.id) ?? item.id) === reference) nativeMatches.push(item.id);
       continue;
     }
     if (item.id === reference) return item.id;

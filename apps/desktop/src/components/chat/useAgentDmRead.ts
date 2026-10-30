@@ -61,6 +61,6 @@ export function useAgentDmRead({ chat, shown, messages, ignoredMessageIds, alias
     if (!current.seenEntry && current.first && canonical.includes(current.first)) { current.seenEntry = true; unreadEntry?.onSeen() }
     reportFollowing()
   }, [shown, aliases, messages, current, markMessageVisible, unreadEntry, reportFollowing])
-  return { view, onVisibleItems, onAtBottomChange: (value: boolean) => { atBottom.current = value; reportFollowing() },
+  return { view, onVisibleItems, leaveTail: () => { atBottom.current = false; setFollowingTail(false) }, onAtBottomChange: (value: boolean) => { atBottom.current = value; reportFollowing() },
     onReady: (ready: ChatView) => { view.current = ready; place() } }
 }

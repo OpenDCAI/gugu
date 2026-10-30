@@ -50,6 +50,12 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
     expect(opened.calls).toHaveLength(0);
   });
 
+  it('opens the existing transcript for a search anchor without changing the task runtime', () => {
+    opened.calls = [];
+    openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', transcript: true });
+    expect(opened.calls).toEqual([['acp-chat', { sessionId: 's' }, { preview: false }]]);
+  });
+
   it('点左边一行(不带 onlyIfNoTabs):照旧打开对话', () => {
     opened.calls = [];
     opened.tabs = 2;

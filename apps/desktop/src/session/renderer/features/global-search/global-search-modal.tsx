@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { parseQuery, SearchQueryError } from '@gugu/core/shared/search/query'
-import { SEARCH_FACET_CAP, type SearchMessageHit, type SearchQuery, type SearchResults } from '@gugu/core/shared/search/types'
+import { SEARCH_FACET_CAP, type SearchHit, type SearchQuery, type SearchResults } from '@gugu/core/shared/search/types'
+import { messageForUser } from '@/lib/userFacingError'
+import { searchExcerpt } from '@gugu/core/shared/search/highlight'
 import { CalendarClock, FileText, Globe, Image as ImageIcon, Link as LinkIcon, Search, User, X } from '@/lib/icons'
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge'
@@ -27,25 +29,29 @@ function useIdentities() {
 
 /** Chips and the facet become the structured filters; typed modifiers in the text are parsed by the same core parser. */
 function toQuery(text: string, chips: readonly SearchChip[], facet: SearchFacet, sort: SearchQuery['sort'],
-  kindOf: (chatId: string) => string | null, resolveIn: (value: string) => string[], resolveFrom: (value: string) => string[]): SearchQuery {
+  kindOf: (chatId: string) => string | null, resolveIn: (value: string) => NonNullable<SearchQuery['filters']['in']>, resolveFrom: (value: string) => string[]): SearchQuery {
   const filters: SearchQuery['filters'] = {}
   for (const chip of chips) {
     if (chip.kind === 'in') filters.in = [...(filters.in ?? []), { kind: kindOf(chip.chatId) === 'topic' ? 'topic' : 'chat', id: chip.chatId }]
+    else if (chip.kind === 'in-task') filters.in = [...(filters.in ?? []), { kind: 'session', id: chip.taskId }]
     else if (chip.kind === 'from') filters.from = [...(filters.from ?? []), chip.userId]
     else filters.on = chip.date
   }
-  if (facet !== 'all') filters.has = [facet]
+  if (facet === 'message' || facet === 'task') filters.kind = facet
+  else if (facet !== 'all') filters.has = [facet]
   return parseQuery(text, {
     now: new Date(), filters, sort,
-    resolveIn: (value) => resolveIn(value).map((id) => ({ kind: kindOf(id) === 'topic' ? 'topic' as const : 'chat' as const, id })),
+    resolveIn,
     resolveFrom,
   })
 }
 
-function Highlighted({ text, hit }: { text: string; hit: SearchMessageHit }): ReactNode {
+function Highlighted({ text, hit }: { text: string; hit: SearchHit }): ReactNode {
+  const excerpt = searchExcerpt(text, hit.highlights)
+  text = excerpt.text
   const parts: ReactNode[] = []
   let at = 0
-  for (const { start, end } of hit.highlights) {
+  for (const { start, end } of excerpt.highlights) {
     if (start > at) parts.push(text.slice(at, start))
     parts.push(<mark key={start} className="rounded-[2px] bg-[var(--accent-tint-row)] px-px text-inherit">{text.slice(start, end)}</mark>)
     at = end
@@ -69,6 +75,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
   const { text, chips, facet, sort, selectedId } = session
   const summaries = useChatSummaries()
   const identities = useIdentities()
+  const { data: tasks = [], error: tasksError } = useQuery({ queryKey: ['global-search-tasks'], queryFn: () => rpcOn(null).search.tasks() })
   const [memberPicker, setMemberPicker] = useState(false)
   const [memberQuery, setMemberQuery] = useState('')
   const [showReasons, setShowReasons] = useState(false)
@@ -77,8 +84,13 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
 
   const chatName = (chatId: string) => summaries.get(chatId)?.alias || summaries.get(chatId)?.name || chatId.slice(0, 8)
   const personName = (userId: string | null) => (userId && identities[userId]?.display_name) || '?'
-  const resolveIn = (value: string) => rankPaletteMatches([...summaries].filter(([, chat]) => chat.name), value,
-    ([, chat]) => [chat.name, chat.alias]).slice(0, 2).map(([id]) => id)
+  const resolveIn = (value: string): NonNullable<SearchQuery['filters']['in']> => {
+    const scopes = [
+      ...[...summaries].map(([id, chat]) => ({ id, kind: chat.kind === 'topic' ? 'topic' as const : 'chat' as const, name: chat.name, alias: chat.alias })),
+      ...tasks.map(task => ({ id: task.id, kind: 'session' as const, name: task.title, alias: null })),
+    ]
+    return rankPaletteMatches(scopes, value, scope => [scope.name, scope.alias, scope.id]).slice(0, 2).map(({ id, kind }) => ({ id, kind }))
+  }
   const people = Object.entries(identities)
   const resolveFrom = (value: string) => rankPaletteMatches(people, value, ([, identity]) => [identity.display_name]).slice(0, 2).map(([id]) => id)
 
@@ -92,7 +104,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
     queryInvalid = true
   }
   const runnable = query && (query.text.trim() || Object.keys(query.filters).length > 0) ? query : null
-  const { data } = useQuery<{ query: SearchQuery; page: SearchResults }>({
+  const { data, error } = useQuery<{ query: SearchQuery; page: SearchResults }>({
     queryKey: ['global-search', runnable],
     queryFn: async () => ({ query: runnable!, page: await rpcOn(null).search.global({ query: runnable!, limit: SEARCH_PAGE }) }),
     enabled: runnable !== null,
@@ -106,13 +118,21 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
   }, [data, hasQuery])
   const results = session.results
 
-  const scoped = chips.filter((chip) => chip.kind === 'in').length === 1
+  const scoped = chips.filter((chip) => (chip.kind === 'in' || chip.kind === 'in-task')).length === 1
   const groups = useMemo(() => {
-    if (scoped) return [{ chatId: null as string | null, hits: results }]
-    const byChat = new Map<string, SearchMessageHit[]>()
-    for (const hit of results) byChat.set(hit.chatId, [...(byChat.get(hit.chatId) ?? []), hit])
-    return [...byChat].map(([chatId, hits]) => ({ chatId: chatId as string | null, hits }))
-  }, [results, scoped])
+    const bySource = new Map<string, { key: string; label: string; taskId?: string; hits: SearchHit[] }>()
+    for (const hit of results) {
+      const key = hit.kind === 'task' ? `task:${hit.taskId}` : hit.chatId
+      let group = bySource.get(key)
+      if (!group) {
+        group = { key, label: hit.kind === 'task' ? `${hit.title} · ${translate('globalSearch.task')}` : summaries.get(hit.chatId)?.alias || summaries.get(hit.chatId)?.name || hit.chatId.slice(0, 8),
+          ...(hit.kind === 'task' ? { taskId: hit.taskId } : {}), hits: [] }
+        bySource.set(key, group)
+      }
+      group.hits.push(hit)
+    }
+    return [...bySource.values()]
+  }, [results, summaries, translate])
   const ordered = groups.flatMap((group) => group.hits)
   const selected = ordered.find((hit) => hit.id === selectedId) ?? ordered[0] ?? null
 
@@ -129,7 +149,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
   const setChips = (next: SearchChip[]) => updateSearchSession({ chips: next, sort: defaultSort(next), selectedId: null })
   const removeChip = (index: number) => setChips(chips.filter((_, at) => at !== index))
   // The jump sets focus itself (the entered chat's composer): the modal must not hand it back to its opener first.
-  const open = (hit: SearchMessageHit) => { modalStore.closeWithoutFocusReturn(); onClose(); showHit(hit) }
+  const open = (hit: SearchHit) => { modalStore.closeWithoutFocusReturn(); onClose(); showHit(hit) }
   const move = (direction: 1 | -1) => {
     if (ordered.length === 0) return
     const at = selected ? ordered.indexOf(selected) : -1
@@ -154,7 +174,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
         <Search className="h-4 w-4 shrink-0 text-foreground/45" />
         {chips.map((chip, index) => (
           <span key={`${chip.kind}:${index}`} className="flex h-6 shrink-0 items-center gap-1 rounded-md border border-foreground/10 bg-foreground/[0.04] pl-2 pr-1 font-mono text-xs text-foreground/70">
-            {chip.kind === 'in' ? `in: ${chatName(chip.chatId)}` : chip.kind === 'from' ? `from: ${personName(chip.userId)}` : `on: ${chip.date}`}
+            {chip.kind === 'in' ? `in: ${chatName(chip.chatId)}` : chip.kind === 'in-task' ? `in: ${chip.title}` : chip.kind === 'from' ? `from: ${personName(chip.userId)}` : `on: ${chip.date}`}
             <button type="button" aria-label={translate('globalSearch.removeChip')} onClick={() => removeChip(index)}
               className="grid h-4 w-4 place-items-center rounded text-foreground/45 hover:bg-foreground/10 hover:text-foreground"><X className="h-3 w-3" /></button>
           </span>
@@ -204,6 +224,8 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
           <input type="date" className="absolute inset-0 cursor-pointer opacity-0"
             onChange={(event) => { if (event.target.value) setChips([...chips.filter((chip) => chip.kind !== 'on'), { kind: 'on', date: event.target.value }]) }} />
         </label>
+        {facetButton('message', translate('globalSearch.facetChats'), null, facets?.messages)}
+        {facetButton('task', translate('globalSearch.facetTasks'), null, facets?.tasks)}
         {facetButton('file', translate('globalSearch.facetFile'), <FileText size={14} />, facets?.file)}
         {facetButton('image', translate('globalSearch.facetImage'), <ImageIcon size={14} />, facets?.image)}
         {facetButton('link', translate('globalSearch.facetLink'), <LinkIcon size={14} />, facets?.link)}
@@ -219,16 +241,19 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
           const list = event.currentTarget
           if (list.scrollTop + list.clientHeight >= list.scrollHeight - 48) void loadMoreHits()
         }}>
+        {(error || tasksError) && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(error ?? tasksError)}</div>}
         {queryInvalid && <div className="px-3 py-6 text-center text-sm text-[var(--em-foreground-destructive)]">{translate('globalSearch.queryInvalid')}</div>}
         {!queryInvalid && runnable && data && results.length === 0 && (
           <div className="px-3 py-8 text-center text-sm text-foreground/40">{translate('globalSearch.empty')}</div>
         )}
         {groups.map((group) => (
-          <Fragment key={group.chatId ?? 'scope'}>
-            {group.chatId && <div className="px-3 pb-1 pt-3 text-xs font-medium text-foreground/45">{chatName(group.chatId)}</div>}
+          <Fragment key={group.key}>
+            {!scoped && <button type="button" className="px-3 pb-1 pt-3 text-xs font-medium text-foreground/45"
+              onClick={() => setChips([...chips, group.taskId ? { kind: 'in-task', taskId: group.taskId, title: group.hits[0]!.kind === 'task' ? group.hits[0]!.title : group.label } : { kind: 'in', chatId: group.key }])}>{group.label}</button>}
             {group.hits.map((hit) => {
               const isSelected = hit.id === selected?.id
               const isFile = hit.attachment !== null
+              const sender = hit.kind === 'task' && !hit.senderId ? translate(hit.role === 'assistant' ? 'globalSearch.agent' : 'globalSearch.user') : personName(hit.senderId)
               return (
                 <button type="button" role="option" aria-selected={isSelected} data-selected={isSelected} key={hit.id}
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
@@ -236,11 +261,11 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
                   className={cn('relative flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left',
                     isSelected && 'bg-foreground/[0.05] before:absolute before:-left-2 before:bottom-1 before:top-1 before:w-[2px] before:rounded-full before:bg-[var(--accent)]')}>
                   <span className="mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-foreground/[0.06] text-[length:var(--font-caption)] text-foreground/60">
-                    {isFile ? (hit.text.split('\n')[0]!.match(/\.([a-z0-9]{1,4})$/i)?.[1] ?? 'FILE').toUpperCase() : Array.from(personName(hit.senderId))[0]}
+                    {isFile ? (hit.text.split('\n')[0]!.match(/\.([a-z0-9]{1,4})$/i)?.[1] ?? 'FILE').toUpperCase() : Array.from(sender)[0]}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">{isFile ? <Highlighted text={hit.text} hit={hit} /> : personName(hit.senderId)}</span>
+                      <span className="truncate text-sm font-medium text-foreground">{isFile ? <Highlighted text={hit.text} hit={hit} /> : sender}</span>
                       <span className="ml-auto shrink-0 text-xs text-foreground/40">{formatWhen(hit.createdAt)}</span>
                     </span>
                     <span className="mt-1 line-clamp-2 text-[length:var(--font-body)] leading-5 text-foreground/70">
@@ -258,7 +283,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
           </Fragment>
         ))}
         {scoped && (facets?.otherChats ?? 0) > 0 && (
-          <button type="button" onClick={() => setChips(chips.filter((chip) => chip.kind !== 'in'))}
+          <button type="button" onClick={() => setChips(chips.filter((chip) => chip.kind !== 'in' && chip.kind !== 'in-task'))}
             className="mx-1 mt-2 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg border border-foreground/10 px-3 py-2 text-left text-xs text-foreground/60 hover:bg-foreground/[0.03]">
             <Globe size={14} className="shrink-0" />
             <span className="flex-1">{translate('globalSearch.otherChats', { count: countLabel(facets!.otherChats) })}</span>

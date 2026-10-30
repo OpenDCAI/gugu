@@ -39,6 +39,7 @@ import { useLocale } from '@/i18n'
 import { useTheme } from '@/store/theme'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { ConversationErrorBoundary } from './ConversationErrorBoundary'
+import { useAgentDmSourceMessage } from './useAgentDmSourceMessage'
 import { useAgentDmRead } from './useAgentDmRead'
 import { useConversationVisibility } from './useConversationVisibility'
 
@@ -100,6 +101,12 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
   const reading = useAgentDmRead({ chat, shown, messages: visibleMessages, ignoredMessageIds, aliases, unreadEntry, loadMessageAnchor, markMessageVisible, setFollowingTail,
     onError: error => toast(messageForUser(error), 'error') })
   const view = reading.view
+  const [viewReady, setViewReady] = useState(false)
+  const source = useAgentDmSourceMessage({ chatId: chat.id, shown, ready: viewReady && (!target || read.phase === 'ready'), view,
+    sessionId: target?.sessionId, turns, aliases, messageIds: visibleMessages.map(message => message.id), oldestTurnId: read.timeline.turns[0]?.id ?? null,
+    hasOlder: Boolean(target && read.timeline.hasOlder), loadMessageAnchor,
+    loadOlder: read.loadOlder, leaveTail: reading.leaveTail,
+    onMissing: () => toast({ title: translateSessionMessage('transcript.originalMessageMissing'), variant: 'destructive' }) })
   useEffect(() => { view.current?.find(searchQuery) }, [searchQuery, view])
   const error = messagesError ?? (read.phase === 'error' ? new Error(read.error ?? '') : null)
   const openAttachment = (href: string) => {
@@ -133,7 +140,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
       leading={onBack ? <IconButton aria-label={t('chatArea.backToList')} onClick={onBack}><ArrowLeft /></IconButton> : undefined} />}
     {options.confirmation}
     <SessionTranscriptView uri={`dm:${chat.id}`} turns={turns} mobile={mobile} shown={shown}
-      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: id => view.current?.scrollToItem(id, { align: 'center' }),
+      commands={{ ...(target ? outputs.handlers : {}), onOpenFile: target ? ({ path }) => outputs.openFile(path) : undefined, classifyLink: classifyFileLink, onOpenLink: openAttachment, conversationAgentName: () => name, conversationAgentSession: () => target?.sessionId ?? null, conversationAgentUserId: () => chat.peer_user_id ?? null, onOpenSender: openMessageSender, onConversationReply: source.reveal, flashMessageId: source.flashMessageId,
         conversationProcessNotice: processId => {
           const notice = visibleMessages.find(message => message.content_type === 'system' && processId === `im:${message.id}:process`)
           return notice ? { id: notice.id, text: notice.content ?? '' } : null
@@ -143,7 +150,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
         resolveToolImage: target ? async (itemId, index) => toolImageUrl(await client.fetchToolImage(target.deviceId, target.sessionId, itemId, index)) : undefined,
         onViewImages: ({ urls, index, thumb }) => openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index),
         onStop: target ? () => { void read.cancel() } : undefined }}
-      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={reading.onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { reading.onReady(ready); ready.find(searchQuery) }}
+      activeTurnId={target && !read.timeline.turns.at(-1)?.outcome ? read.timeline.turns.at(-1)?.id ?? null : null} onVisibleItems={reading.onVisibleItems} composerContent={composer} backgroundTasks={background} onReady={ready => { reading.onReady(ready); setViewReady(true); ready.find(searchQuery) }}
       onAtBottomChange={reading.onAtBottomChange}
       onReachStart={() => { if (target) void read.loadOlder(); else void loadOlderMessages() }}
       className="relative min-h-0 flex-1" />

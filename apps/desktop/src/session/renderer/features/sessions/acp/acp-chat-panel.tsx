@@ -40,6 +40,8 @@ import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismi
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
+import { useAskedSourceMessage } from '@/hooks/useSourceMessageReveal';
+import { SearchResultsBar } from '@/components/chat/SearchResultsBar';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
 import { createPortal } from 'react-dom';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
@@ -1859,6 +1861,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     onReady: bindReadyView,
     onGone: bindGoneView,
   } = useBoundChatView(store);
+  useAskedSourceMessage({ activeChatId: store ? `task:${store.sessionId}` : null,
+    enabled: visibility.shown, ready: Boolean(chatView) && Boolean(store && !store.historyLoading),
+    reveal: (reference, query) => { sourceMessage.reveal(reference); if (query) viewRef.current?.find(query); } });
   const handleReady = useCallback(
     (view: ChatView) => {
       viewRef.current = view;
@@ -2461,6 +2466,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       className={`relative h-full overflow-hidden bg-background-secondary-1 outline-none ${nativeChatAppearance}`}
     >
       <div className="flex h-full min-h-0 flex-col">
+        <SearchResultsBar chatId={`task:${store.sessionId}`} />
         <div className="relative min-h-0 flex-1">
           <ChatTranscript
             context={store.chatContext}

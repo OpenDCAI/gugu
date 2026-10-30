@@ -27,3 +27,17 @@ export function highlight(text: string, query: string): SearchHighlight[] {
   }
   return merged
 }
+
+/** A view excerpt around the first match; the indexed body and its identity stay complete. */
+export function searchExcerpt(text: string, highlights: readonly SearchHighlight[], radius = 120): { text: string; highlights: SearchHighlight[] } {
+  let start = Math.max(0, (highlights[0]?.start ?? 0) - radius)
+  let end = Math.min(text.length, Math.max(start + radius * 2, highlights[0]?.end ?? 0))
+  // A UTF-16 excerpt must not split a surrogate pair at either edge.
+  if (start > 0 && /[\uDC00-\uDFFF]/u.test(text[start])) start--
+  if (end < text.length && /[\uDC00-\uDFFF]/u.test(text[end])) end++
+  const prefix = start ? '…' : ''
+  return { text: prefix + text.slice(start, end) + (end < text.length ? '…' : ''),
+    highlights: highlights.filter(range => range.start < end && range.end > start).map(range => ({
+      start: Math.max(start, range.start) - start + prefix.length, end: Math.min(end, range.end) - start + prefix.length,
+    })) }
+}
