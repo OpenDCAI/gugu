@@ -5,7 +5,7 @@ import { CHAT_SLOT_PREFIX } from '../lib/shellSlots'
 import { markChatsReadAndRefresh } from '../lib/chatUnreadLocator'
 import { rendererLogger } from '../lib/log'
 import { useChatStore } from '../store/chatContext'
-import { readChatRows } from '../lib/imRepository'
+import { readChatRows, type AccountImRepository } from '../lib/imRepository'
 import { isAppActive, useAppActive } from '../lib/onScreenChat'
 import { useAuth } from '../store/auth'
 
@@ -20,15 +20,16 @@ export function topicsReadOnOpen(chats: readonly ChatItem[], groupId: string): C
   return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && unreadForYou(chat) > 0)
 }
 
-type Opening = { accountId: string; chats?: ChatItem[]; handled: boolean }
+type TopicsSnapshot = { chats: ChatItem[]; repository: AccountImRepository }
+type Opening = { accountId: string; snapshot?: TopicsSnapshot; handled: boolean }
 
 /** 每次打开取一次权威快照,后台到达的结果留到前台。快照以后的消息不进入本次水位。 */
 function useReadTopicsOnOpening(
   shown: ReadonlySet<string>,
   active: boolean,
   accountId: string | null,
-  readChats: () => Promise<ChatItem[]>,
-  markRead: (topics: ChatItem[]) => void,
+  readChats: () => Promise<TopicsSnapshot>,
+  markRead: (topics: ChatItem[], canMarkRead: (chatId: string) => boolean) => void,
 ): void {
   const openings = useRef(new Map<string, Opening>())
   const shownRef = useRef(shown)
@@ -36,10 +37,21 @@ function useReadTopicsOnOpening(
   const accountRef = useRef(accountId)
   accountRef.current = accountId
   const flush = useCallback((id: string, opening: Opening) => {
-    if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || opening.handled || !opening.chats || !shownRef.current.has(id) || !isAppActive()) return
+    if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || opening.handled || !opening.snapshot || !shownRef.current.has(id) || !isAppActive()) return
     opening.handled = true
-    const topics = topicsReadOnOpen(opening.chats, id)
-    if (topics.length > 0) markRead(topics)
+    const { chats, repository } = opening.snapshot
+    // 水位冻结,人工意图不冻结:后台等待期间同步进来的手动未读/新读状态不能被旧请求盖掉。
+    // repository 不持久化 read_state_version,用保留的成员更新时间和已读水位核对同一份读意图。
+    const candidates = new Map(topicsReadOnOpen(chats, id).map(chat => [chat.id, chat]))
+    const canMarkRead = (chatId: string) => {
+      if (openings.current.get(id) !== opening || opening.accountId !== accountRef.current || !shownRef.current.has(id) || !isAppActive()) return false
+      const captured = candidates.get(chatId)
+      const current = readChatRows(repository).find(chat => chat.id === chatId)
+      return !!captured && !!current && !current.is_marked_unread
+        && current.last_read_seq === captured.last_read_seq && current.member_updated_at === captured.member_updated_at
+    }
+    const topics = [...candidates.values()].filter(chat => canMarkRead(chat.id))
+    if (topics.length > 0) markRead(topics, canMarkRead)
   }, [markRead])
   // 只按账号换属主;通知偏好也会重建 refresh 回调,不代表群重新打开了。
   useEffect(() => () => openings.current.clear(), [accountId])
@@ -51,7 +63,7 @@ function useReadTopicsOnOpening(
       if (pending) { flush(id, pending); continue }
       const opening: Opening = { accountId, handled: false }
       openings.current.set(id, opening)
-      void readChats().then((chats) => { opening.chats = chats; flush(id, opening) }).catch((error: unknown) => {
+      void readChats().then((snapshot) => { opening.snapshot = snapshot; flush(id, opening) }).catch((error: unknown) => {
         opening.handled = true // 失败留到下次打开重试,不因列表更新反复触发。
         log.error({ error: String(error), groupId: id }, 'refresh project topics on open failed')
       })
@@ -89,7 +101,7 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
   const shown = useShownProjectGroups(entries, projectGroupChats)
   const active = useAppActive()
   const readChats = useMemo(() => {
-    let inFlight: Promise<ChatItem[]> | null = null
+    let inFlight: Promise<TopicsSnapshot> | null = null
     return () => {
       if (inFlight) return inFlight
       const request = (async () => {
@@ -97,7 +109,7 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
         // chatsRead 可能只是缓存已可展示。refresh 成功后权威投影已落进同一 repository,
         // 立即读那份快照,不等 React 下一帧,也不另开一条会话列表拉取路。
         await refreshChats({ acceptEmpty: true, throwOnError: true })
-        return readChatRows(repository)
+        return { chats: readChatRows(repository), repository }
       })()
       inFlight = request
       const clear = () => { if (inFlight === request) inFlight = null }
@@ -105,8 +117,8 @@ export function useMarkProjectTopicsReadOnOpen(entries: ReadonlyMap<string, HTML
       return request
     }
   }, [refreshChats, getImRepository])
-  const markRead = useCallback((topics: ChatItem[]) => {
-    void markChatsReadAndRefresh({ chats: topics, refresh: refreshChats })
+  const markRead = useCallback((topics: ChatItem[], canMarkRead: (chatId: string) => boolean) => {
+    void markChatsReadAndRefresh({ chats: topics, refresh: refreshChats, preserveManualUnread: true, canMarkRead })
       .then(({ failedChats, error }) => {
         if (failedChats > 0) log.error({ error: String(error), failedChats }, 'mark project topics read partially failed')
       })

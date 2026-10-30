@@ -9,7 +9,7 @@ import { openImRepository, replaceChatRows, type AccountImRepository } from '../
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 
-const write = vi.hoisted(() => vi.fn<(deps: { chats: readonly ChatItem[]; refresh: () => Promise<void> }) => Promise<{ failedChats: number }>>().mockResolvedValue({ failedChats: 0 }))
+const write = vi.hoisted(() => vi.fn<(deps: { chats: readonly ChatItem[]; refresh: () => Promise<void>; preserveManualUnread?: boolean; canMarkRead?: (chatId: string) => boolean }) => Promise<{ failedChats: number }>>().mockResolvedValue({ failedChats: 0 }))
 const host = vi.hoisted(() => ({
   listener: null as null | ((active: boolean) => void),
   subscribeAppActive: undefined as undefined | ((listener: (active: boolean) => void) => () => void),
@@ -110,6 +110,7 @@ describe('project-slot lifecycle', () => {
     expect(refreshChats).toHaveBeenCalledWith({ acceptEmpty: true, throwOnError: true })
     expect(chatOnScreen(), 'a foreground project slot needs no primary-chat reporter').toBeNull()
     expect(write.mock.calls[0][0].chats.map(c => c.id)).toEqual(['topic-17', 'topic-2'])
+    expect(write.mock.calls[0][0].preserveManualUnread).toBe(true)
   })
 
   it('keeps a visible opening pending when its list arrives in the background, then reads on return', async () => {
@@ -164,6 +165,38 @@ describe('project-slot lifecycle', () => {
     await visible('visible')
     expect(write).toHaveBeenCalledTimes(1)
     expect(write.mock.calls[0][0].chats[0].next_message_seq).toBe(31)
+  })
+
+  it('preserves a manual unread mark synchronized after the pending snapshot was captured', async () => {
+    const captured = topic('topic-17', 30, 17, { member_updated_at: '2026-10-30T00:00:01Z' })
+    await render([captured])
+    await intersect(true)
+    await visible('hidden')
+    await act(async () => { await replaceChatRows(repository, [captured]); finishRefresh() })
+    await act(async () => { await replaceChatRows(repository, [{ ...captured, is_marked_unread: true, member_updated_at: '2026-10-30T00:00:02Z' }]) })
+    await visible('visible')
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite a newer read-state intent even if its manual mark has since been cleared', async () => {
+    const captured = topic('topic-17', 30, 17, { member_updated_at: '2026-10-30T00:00:01Z' })
+    await render([captured])
+    await intersect(true)
+    await visible('hidden')
+    await act(async () => { await replaceChatRows(repository, [captured]); finishRefresh() })
+    await act(async () => { await replaceChatRows(repository, [{ ...captured, member_updated_at: '2026-10-30T00:00:03Z' }]) })
+    await visible('visible')
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('rechecks current manual intent while the unread-locator request is pending', async () => {
+    await render(CHATS)
+    await intersect(true)
+    await act(async () => { await replaceChatRows(repository, CHATS); finishRefresh() })
+    const pendingWrite = write.mock.calls[0][0]
+    expect(pendingWrite.canMarkRead?.('topic-17')).toBe(true)
+    await act(async () => { await replaceChatRows(repository, [topic('topic-17', 30, 17, { is_marked_unread: true })]) })
+    expect(pendingWrite.canMarkRead?.('topic-17')).toBe(false)
   })
 
   it('does not treat a refreshed action callback as another opening', async () => {

@@ -36,16 +36,22 @@ export function markManualUnreadAndRefresh(
 export async function markChatsReadAndRefresh(deps: {
   chats: readonly ChatItem[]
   refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
+  /** 自动清除保留当前服务端人工标记;显式「全部标已读」默认仍清除它。 */
+  preserveManualUnread?: boolean
+  /** 取未读流期间用户可能更新读意图,自动写入前再核对一次。 */
+  canMarkRead?: (chatId: string) => boolean
 }): Promise<{ failedChats: number; error?: unknown }> {
   const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
   const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
   if (error) throw new Error(error.message)
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  const manuallyUnread = new Set(deps.preserveManualUnread ? rows.filter(row => row.is_marked_unread === true).map(row => String(row.chat_id)) : [])
   const failedChatIds = new Set<string>()
   let failure: unknown
-  await Promise.all(((data ?? []) as Array<Record<string, unknown>>).map(async (row) => {
+  await Promise.all(rows.map(async (row) => {
     const chatId = String(row.chat_id)
     const seq = seenSeq.get(chatId)
-    if (seq === undefined || Number(row.message_seq) > seq) return
+    if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
     const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
     try {
       if (rootId) await markStreamRead(chatId, String(row.stream_id), seq, rootId)
