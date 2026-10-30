@@ -35,6 +35,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
     approvedManifest: (id: string) => list().extensions.find((entry: {manifest: {id: string}}) => entry.manifest.id === id).manifest,
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
+    get: (id: string) => list().extensions.find((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     // One publisher throughout these cases: a first install is one not installed yet.
     isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
@@ -1348,6 +1349,18 @@ describe('app_install: what comes next', () => {
     // 集体记忆对账第 6 条:进群只指 app_install 带 chat_id 这一条路。
     expect(groupUnchecked.next).toMatch(/"chat_id":"<the chat>"\} again sends it into the chat/);
   });
+
+  // 5-minute game rounds 2-3 (10-29): a group App made in another chat is installed here; app_install { app } sends it on.
+  it('an App installed here (app): nothing is installed again, its tabs come back, the next says it is in the chat', async () => {
+    installFromDirectory.mockClear();
+    list.mockReturnValue({ extensions: [{ manifest: inspectedOf([groupTab]).manifest, rootDir: '/installed/dinner-vote' }], invalid: [] });
+    const result = await runExtensionAgentAction({ action: 'install', app: 'dinner-vote', chat_id: 'chat-1' }, {}) as { installed: boolean; id: string; tabs: unknown; next?: string };
+    expect(result).toMatchObject({ installed: true, id: 'dinner-vote', tabs: [{ name: 'main', tab_kind: 'dinner-vote.main', chat_files: ['.dinner-vote.json'] }] });
+    expect(result.next).toMatch(/has it installed, and it is in the chat as a card now/);
+    expect(installFromDirectory).not.toHaveBeenCalled();
+    await expect(runExtensionAgentAction({ action: 'install', app: 'not-here', chat_id: 'chat-1' }, {}))
+      .rejects.toThrow('App not-here is not installed on this computer');
+  });
 });
 
 // App 市场方案 10-07: an agent installs from the market the way the Apps page's 安装 does — this machine's version fetched,
@@ -1522,11 +1535,13 @@ describe('app_install { market }', () => {
     expect(requestInstallConsent).toHaveBeenCalledTimes(1);
   });
 
-  it('takes exactly one of a folder or a market App', async () => {
+  it('takes exactly one of a folder, a market App or an installed App', async () => {
     await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/x', market: 'reader' }, quietly))
-      .rejects.toThrow(/exactly one of source_dir, source_message_id or market/);
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
+    await expect(runExtensionAgentAction({ action: 'install', market: 'reader', app: 'reader', chat_id: 'chat-1' }, quietly))
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
     await expect(runExtensionAgentAction({ action: 'install' }, quietly))
-      .rejects.toThrow(/exactly one of source_dir, source_message_id or market/);
+      .rejects.toThrow(/exactly one of source_dir, source_message_id, market or app/);
   });
 
   it('a group App from the market: the call that sends it into the chat names the market, never a folder', async () => {

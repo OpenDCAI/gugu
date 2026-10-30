@@ -50,7 +50,7 @@ const page = vi.hoisted(() => ({
 }))
 vi.mock('../../../../apps/desktop/src/components/appSlot/phoneApps', () => ({ phoneApps: { market: { entries: page.entries } } }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: page.ranking } }))
-const { readPhoneMarketPage, phoneMarketRows } = await import('../../../../apps/desktop/src/components/settings/phoneMarketPage')
+const { readPhoneMarketPage, phoneMarketRows, keptPhoneMarketPage } = await import('../../../../apps/desktop/src/components/settings/phoneMarketPage')
 
 describe('the phone calls the shared home selection with its catalog and ranking', () => {
   const ids = (items: { manifest: { id: string } }[]) => items.map((item) => item.manifest.id)
@@ -87,5 +87,23 @@ describe('the phone calls the shared home selection with its catalog and ranking
     await entries()
     page.ranking.mockRejectedValueOnce(new Error('offline'))
     expect((await readPhoneMarketPage()).home.popular).toBeNull()
+  })
+
+  // 重启后第一帧(owner 10-30):上次画出来的那一页从 localStorage 同步读回来,❌ 先等排名那一趟网络、画骨架。
+  it('keeps the page it drew for the next start, each App stored once', async () => {
+    const stored = new Map<string, string>()
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => void stored.set(key, value) })
+    try {
+      expect(keptPhoneMarketPage()).toBeUndefined()
+      await entries()
+      page.ranking.mockResolvedValue({ data: [{ app_id: 'other', score: 4 }], error: null })
+      const drawn = await readPhoneMarketPage()
+      expect(keptPhoneMarketPage()).toEqual(drawn)
+      // 推荐那几排只记 id:每个 App 的 manifest 在存下的那一份里只出现一次。
+      const [kept] = [...stored.values()]
+      expect(kept!.split('"name":"Other"').length - 1).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

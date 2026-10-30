@@ -5,6 +5,8 @@ import type { ResourceContext } from '@/session/shared/resource-actions'
 import { savedFileName } from '@/session/shared/extensions/app-runtime-protocol'
 
 export interface ImageViewerItem {
+  /** Actual origin, never inferred from whichever conversation is behind the viewer. */
+  source?: { chatId: string; messageId?: string }
   resource?: ResourceContext
   url: string
   alt: string
@@ -19,9 +21,9 @@ export interface ImageViewerItem {
 }
 
 /** 缩略图 <img> → 取它原图的办法(附件进群文件夹 ③:气泡用 CDN 缩略图,原图到看的时候才下)。 */
-const fullImageLoaders = new WeakMap<HTMLImageElement, Pick<ImageViewerItem, 'full' | 'resource' | 'file'>>()
-export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>, resource?: ResourceContext, file?: ImageViewerItem['file']): () => void {
-  const entry = { full: load, resource, file }
+const fullImageLoaders = new WeakMap<HTMLImageElement, Pick<ImageViewerItem, 'full' | 'resource' | 'file' | 'source'>>()
+export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>, resource?: ResourceContext, file?: ImageViewerItem['file'], source?: ImageViewerItem['source']): () => void {
+  const entry = { full: load, resource, file, ...(source ? { source } : {}) }
   fullImageLoaders.set(thumb, entry)
   return () => {
     if (fullImageLoaders.get(thumb) === entry) fullImageLoaders.delete(thumb)

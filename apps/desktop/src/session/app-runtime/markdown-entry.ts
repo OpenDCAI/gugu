@@ -1,3 +1,4 @@
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import type { ChatHighlighter, HighlightResult } from '@gugu/session-chat-ui/highlight';
 import { documentToHtml } from '@gugu/session-chat-ui/markdown-html';
 import type { MarkdownTrust } from '@gugu/session-shared/markdown/dialect';
@@ -12,7 +13,8 @@ import { guguError } from './host';
  * Not a second renderer: the dialect (grammar, sanitize schema, KaTeX), the `.gg-md` look, the code highlighter and the
  * mermaid renderer are the very modules the host's surfaces use, built into the runtime with this gugu; the HTML is the
  * transcript's (`documentToHtml`: image chips, table scroll boxes). An App ships no markdown library and no typography
- * of its own.
+ * of its own. An image naming a file (`gugu-file://<id>`, or a path beside the document) is read through this page's own
+ * `gugu.files` — the host's resolver and the App's grants — and drawn in its chip (`paintImages`).
  *
  * One verb, `render`: the sanitized markup goes into the page here and nowhere else — no HTML string is handed out for
  * an App to put through `innerHTML` itself. Links follow one policy here too (`followLink`).
@@ -20,12 +22,21 @@ import { guguError } from './host';
 
 type Density = 'compact' | 'comfortable';
 type RenderOptions = { trust: MarkdownTrust; density: Density; frontmatter: boolean; sourceLines: boolean; file: unknown };
-/** What a link needs of `gugu` (create-gugu.ts hands its own object). */
+type FileChange = { kind: string; entries?: { id: string; version?: number | null }[]; gone?: string[] };
+/** What a link, an image and a code block's copy button need of `gugu` (create-gugu.ts hands its own object). */
 type LinkVerbs = {
   openLink(url: string): Promise<unknown>;
   reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
-  files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
+  /** A code block's copy button goes through the host's clipboard (the platform's one exit; a phone's sandboxed page has
+   *  none of its own). A page without it draws no copy button. */
+  clipboard?: { writeText(text: string): Promise<unknown> };
+  files: {
+    openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown>;
+    open(file: unknown): Promise<unknown>;
+    readVersion(file: unknown, n: number): Promise<unknown>;
+    onChanged(place: unknown, handler: (change: FileChange) => void): () => void;
+  };
 };
 
 const TRUSTS: readonly MarkdownTrust[] = ['chat', 'document'];
@@ -114,9 +125,12 @@ function drawDiagrams(root: HTMLElement): void {
 
 // ── links: one policy for every App page, the host's ──
 
-/** A relative link in a file (`plan.md`, `./notes/a.md`, `../b.md`) names a file in the same place, beside it. */
+/**
+ * A relative link in a file (`plan.md`, `./notes/a.md`, `../b.md`) names a file in the same place, beside it: from the
+ * folder the file is in (its `path`; a chat file's `name` is its name alone). Above the top of the place is no file.
+ */
 function siblingOf(file: unknown, href: string): { chat: string; name: string } | { session: string; name: string } | { project: string; name: string } | null {
-  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; session?: unknown; project?: unknown; name?: unknown } | null;
+  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; session?: unknown; project?: unknown; name?: unknown; path?: unknown } | null;
   if (!entry || typeof entry !== 'object' || href.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(href)) return null;
   let path: string;
   try {
@@ -124,11 +138,11 @@ function siblingOf(file: unknown, href: string): { chat: string; name: string } 
   } catch {
     return null;
   }
-  const from = typeof entry.name === 'string' ? entry.name : '';
+  const from = typeof entry.path === 'string' ? entry.path : typeof entry.name === 'string' ? entry.name : '';
   const parts: string[] = [];
   for (const part of `${from.slice(0, from.lastIndexOf('/') + 1)}${path}`.split('/')) {
-    if (part === '..') parts.pop();
-    else if (part && part !== '.') parts.push(part);
+    if (part === '..' && parts.pop() === undefined) return null;
+    else if (part && part !== '.' && part !== '..') parts.push(part);
   }
   if (parts.length === 0) return null;
   const name = parts.join('/');
@@ -158,9 +172,103 @@ function followLink(root: HTMLElement, gugu: LinkVerbs, file: unknown, href: str
   else void gugu.openLink(href).catch(failed);
 }
 
+// ── images: a file the document names, read through this page's `gugu.files` (its grants, the host's resolver) ──
+
+/** An image's file: a group file's link (`?v=` that kept version), or a file beside the document. Anything else is none. */
+function imageOf(file: unknown, src: string): { ref: object; version?: number } | null {
+  const link = parseGroupFileLink(src);
+  if (link) return { ref: { id: link.itemId }, ...(link.version === undefined ? {} : { version: link.version }) };
+  const sibling = siblingOf(file, src);
+  return sibling && { ref: sibling };
+}
+
+/** `url` once read; `failed` the host's reason; neither once settled: not a picture (a text file), the chip it was. */
+type Picture = { settled: boolean; url?: string; failed?: string; chat?: string; id?: string; version?: number | null };
+const MAX_PICTURES = 100;
+/** Per file named: read once for the page however often its documents render, so a re-render paints it at once. */
+const pictures = new Map<string, Picture>();
+const watched = new Set<string>();
+
+function forget(key: string): void {
+  const url = pictures.get(key)?.url;
+  if (url) URL.revokeObjectURL(url);
+  pictures.delete(key);
+}
+
+async function readPicture(gugu: LinkVerbs, { ref, version }: { ref: object; version?: number }): Promise<Omit<Picture, 'settled'>> {
+  if (version !== undefined) {
+    const kept = await gugu.files.readVersion(ref, version);
+    return kept instanceof Blob && kept.type.startsWith('image/') ? { url: URL.createObjectURL(kept) } : {};
+  }
+  const opened = (await gugu.files.open(ref)) as { type?: string; entry?: { id?: string; chat?: string; version?: number | null; contentType?: string }; blob?(): Promise<Blob>; close?(): void };
+  if (opened.type !== 'binary' || !opened.entry?.contentType?.startsWith('image/') || !opened.blob) {
+    opened.close?.();
+    return {};
+  }
+  const { id, chat, version: current } = opened.entry;
+  return { url: URL.createObjectURL(await opened.blob()), id, chat, version: current };
+}
+
+/** A new version of a picture's file, or the file gone: read it again where it is shown (`files.onChanged`, its chat). */
+function watchChat(gugu: LinkVerbs, chat: string): void {
+  if (watched.has(chat)) return;
+  watched.add(chat);
+  gugu.files.onChanged({ chat }, (change) => {
+    const now = new Map((change.entries ?? []).map((entry) => [entry.id, entry.version]));
+    const stale = [...pictures].filter(([, p]) => p.chat === chat && p.id && (change.gone?.includes(p.id) || (now.has(p.id) && now.get(p.id) !== p.version)));
+    for (const [key] of stale) forget(key);
+    if (stale.length > 0) repaint();
+  });
+}
+
+const entryOf = (file: unknown) => (((file as { entry?: unknown } | null)?.entry ?? file) as { id?: unknown } | null)?.id;
+
+function fill(slot: HTMLElement, picture: Picture | undefined): void {
+  if (!picture?.settled) slot.dataset.ggImage = 'loading';
+  else if (picture.url) {
+    slot.dataset.ggImage = 'shown';
+    slot.replaceChildren(Object.assign(document.createElement('img'), { className: 'gg-md-img', src: picture.url, alt: slot.textContent ?? '' }));
+  } else if (picture.failed) {
+    slot.dataset.ggImage = 'failed';
+    slot.append(` — ${picture.failed}`);
+  } else slot.removeAttribute('data-gg-image');
+}
+
+/** Each chip naming a file gets its picture, or says why not; one read per file, then every chip of it is painted. */
+function paintImages({ root, gugu, options }: Rendered): void {
+  for (const slot of root.querySelectorAll<HTMLElement>('a[data-gg-image=""], a[data-gg-image="loading"]')) {
+    const image = imageOf(options.file, slot.getAttribute('href') ?? '');
+    if (!image) {
+      slot.removeAttribute('data-gg-image');
+      continue;
+    }
+    const key = JSON.stringify(image);
+    if (!pictures.has(key)) {
+      if (pictures.size >= MAX_PICTURES) forget(pictures.keys().next().value!);
+      const picture: Picture = { settled: false };
+      pictures.set(key, picture);
+      void readPicture(gugu, image)
+        .catch((error: unknown): Omit<Picture, 'settled'> => ({ failed: error instanceof Error ? error.message : String(error) }))
+        .then((read) => {
+          if (pictures.get(key) !== picture) {
+            if (read.url) URL.revokeObjectURL(read.url);
+            return;
+          }
+          Object.assign(picture, read, { settled: true });
+          if (picture.chat) watchChat(gugu, picture.chat);
+          for (const root of document.querySelectorAll(`[${ROOT_MARK}]`)) {
+            const entry = byRoot.get(root);
+            if (entry) paintImages(entry);
+          }
+        });
+    }
+    fill(slot, pictures.get(key));
+  }
+}
+
 // ── render ──
 
-type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions };
+type Rendered = { target: Element; root: HTMLElement; text: string; options: RenderOptions; gugu: LinkVerbs };
 /** Per element rendered into, and back from its root: weak, so a page that renders into many elements keeps none alive. */
 const byTarget = new WeakMap<Element, Rendered>();
 const byRoot = new WeakMap<Element, Rendered>();
@@ -169,25 +277,39 @@ const ROOT_MARK = 'data-gugu-markdown';
 function paint(entry: Rendered): void {
   const { target, root, text, options } = entry;
   root.className = `gg-md gg-md--${options.density}`;
-  // Images stay nodes, painted as link chips (nothing loads on render); the transcript's HTML, sanitized once.
+  // Images stay nodes, painted as link chips (the HTML loads nothing; `paintImages` fills those naming a file); the
+  // transcript's HTML, sanitized once.
   // `sourceLines`: each block says the text's lines it came from (`data-line="3-5"`): a page finds a line's block by it.
   root.innerHTML = documentToHtml(text, { trust: options.trust, frontmatter: options.frontmatter, keepImageNodes: true, sourceLines: options.sourceLines });
+  const copyLabel = /^zh\b/i.test(document.documentElement.lang) ? '复制' : 'Copy';
+  for (const button of root.querySelectorAll('[data-gg-copy]')) {
+    if (!entry.gugu.clipboard) {
+      button.remove();
+      continue;
+    }
+    button.setAttribute('aria-label', copyLabel);
+    button.setAttribute('title', copyLabel);
+  }
   // Only when it is not there yet: taking the root out and back would drop the scroll position of a scrolling target.
   if (root.parentNode !== target || target.childNodes.length !== 1) target.replaceChildren(root);
   colourCode(root);
   drawDiagrams(root);
+  paintImages(entry);
+}
+
+/** Every document on the page, drawn again. */
+function repaint(): void {
+  for (const root of document.querySelectorAll(`[${ROOT_MARK}]`)) {
+    const entry = byRoot.get(root);
+    if (entry) paint(entry);
+  }
 }
 
 let themeWatch: MutationObserver | null = null;
 /** A diagram is drawn for the page's theme: when the person switches it, the documents on the page are drawn again. */
 function watchTheme(): void {
   if (themeWatch) return;
-  themeWatch = new MutationObserver(() => {
-    for (const root of document.querySelectorAll(`[${ROOT_MARK}]`)) {
-      const entry = byRoot.get(root);
-      if (entry) paint(entry);
-    }
-  });
+  themeWatch = new MutationObserver(repaint);
   themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-gugu-theme'] });
 }
 
@@ -201,8 +323,21 @@ export function renderer(gugu: LinkVerbs) {
     if (!entry) {
       const root = document.createElement('div');
       root.setAttribute(ROOT_MARK, '');
-      const made: Rendered = { target, root, text, options: given };
+      const made: Rendered = { target, root, text, options: given, gugu };
       root.addEventListener('click', (event) => {
+        const copy = (event.target as Element | null)?.closest?.('[data-gg-copy]');
+        const clipboard = gugu.clipboard;
+        if (copy && clipboard && root.contains(copy)) {
+          const code = copy.closest('.gg-md-code')?.querySelector('pre')?.textContent ?? '';
+          void clipboard.writeText(code).then(
+            () => {
+              copy.setAttribute('data-copied', '');
+              setTimeout(() => copy.removeAttribute('data-copied'), 1500);
+            },
+            (error: unknown) => gugu.reportError(error instanceof Error ? error.message : String(error))
+          );
+          return;
+        }
         const link = (event.target as Element | null)?.closest?.('a[href]');
         if (!link || !root.contains(link)) return;
         event.preventDefault();
@@ -212,6 +347,8 @@ export function renderer(gugu: LinkVerbs) {
       byRoot.set(root, made);
       entry = made;
     }
+    // Another document here: a picture that could not be read is tried again (its holder may be back), not every keystroke.
+    if (entryOf(given.file) !== entryOf(entry.options.file)) for (const [key, picture] of pictures) if (picture.failed) forget(key);
     entry.text = text;
     entry.options = given;
     paint(entry);

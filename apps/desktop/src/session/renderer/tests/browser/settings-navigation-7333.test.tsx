@@ -66,7 +66,9 @@ describe('settings navigation hierarchy and interaction (#7333)', () => {
     const scroll = pane.querySelector<HTMLElement>('.gg-settings-nav-scroll')!;
     const rows = pane.querySelectorAll<HTMLElement>('[data-testid^="settings-nav-"]');
     expect(pane.getBoundingClientRect().width).toBe(216);
-    expect(rows).toHaveLength(16);
+    expect(rows).toHaveLength(15);
+    expect(pane.querySelector('[data-testid="settings-nav-activity"]')).toBeNull();
+    expect(pane.querySelectorAll('[data-testid="settings-nav-usage"]')).toHaveLength(1);
     expect(pane.querySelector('[data-testid="settings-nav-resource-monitor"]')?.textContent).toBe('资源监视器');
     expect(scroll.clientHeight).toBeGreaterThan(600);
     expect(scroll.scrollHeight).toBeLessThanOrEqual(scroll.clientHeight + 1);

@@ -220,10 +220,12 @@ img.details-picture { object-fit: contain; }
 .host-opened .doc-title:not(:has(.rename-input)) { display: none; }
 .doc-actions { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--em-spacing-sm); min-width: 0; }
 .modes { margin: 0; flex-wrap: nowrap; }
-.peers { display: flex; gap: var(--em-spacing-xs); min-width: 0; overflow: hidden; }
-.peer { font-size: var(--em-font-caption); padding: 1px 7px; border-radius: var(--em-radius-capsule); border: 1.5px solid var(--peer); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peers { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; padding: 4px; }
+.peer::part(face) { border-radius: 50%; box-shadow: 0 0 0 2px var(--em-background), 0 0 0 3.5px var(--peer); }
 .status { font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); white-space: nowrap; }
-.more-toggle:not([hidden]) { display: inline-block; margin-left: auto; }
+.more-toggle:not([hidden]) { display: inline-block; }
+/* Who is here and what state the file is in sit right, beside ⋯; the modes left. */
+.doc-actions > .status { margin-left: auto; }
 .menu { position: fixed; z-index: 10; min-width: 180px; margin: 0; padding: var(--em-spacing-xs); box-shadow: var(--em-shadow-lift); }
 .menu .destructive { color: var(--em-foreground-destructive); }
 .json-actions { display: none; gap: var(--em-spacing-sm); }
@@ -233,6 +235,12 @@ img.details-picture { object-fit: contain; }
 body:not(.has-selection) .sel-bar, body:not([data-state='doc']) .sel-bar { display: none; }
 .sel-bar button { border: 0; }
 .sel-bar button + button { border-left: 1px solid var(--em-border); }
+/* The marks a selection in the source can be wrapped in, before Copy · Cite · ＋ (not for the reading page's or a JSON file's). */
+.fmt-bar { display: flex; border-right: 1px solid var(--em-border); }
+.sel-bar .fmt { min-width: 0; padding-inline: var(--em-spacing-sm); color: var(--em-foreground-muted); }
+.sel-bar .fmt gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
+.sel-bar .fmt + .fmt { border-left: 0; }
+body.picks-in-preview .fmt-bar, body[data-kind='json'] .fmt-bar { display: none; }
 body[data-kind='json'] #hold-sel { display: none; }
 .held-bar { position: fixed; z-index: 10; left: 50%; bottom: var(--em-spacing-lg); transform: translateX(-50%); display: flex; align-items: center; gap: var(--em-spacing-xs); padding: var(--em-spacing-xs) var(--em-spacing-xs) var(--em-spacing-xs) var(--em-spacing-md); border-radius: var(--em-radius-capsule); background: var(--em-foreground); color: var(--em-background); box-shadow: var(--em-shadow-lift); }
 body:not([data-state='doc']) .held-bar { display: none; }
@@ -255,7 +263,29 @@ body:not([data-state='doc']) .held-bar { display: none; }
 .editor { min-width: 0; min-height: 0; overflow: hidden; }
 body[data-mode='split'] .editor { border-right: 1px solid var(--em-border); }
 .editor .cm-editor { height: 100%; }
-.preview { min-width: 0; overflow: auto; padding: var(--em-spacing-lg) var(--em-spacing-2xl); }
+/* Reading (owner 10-30, folder-docs): a column of about 70 characters, centred, with room around it; the document's
+   opening h1 is its title, 30/38, on this page only (the host's #7333 scale stays 24 for every other surface). */
+.preview { min-width: 0; overflow: auto; padding: 40px 56px 96px; }
+.preview > .gg-md { max-width: 720px; margin-inline: auto; }
+.preview > .gg-md > h1:first-child, .preview > .gg-md > .gg-md-props:first-child + h1 { font-size: 30px; line-height: 38px; letter-spacing: -0.01em; }
+body[data-mode='split'] .preview { padding: 32px 40px 96px; }
+/* Who made and last changed it, over the reading column's left edge. */
+body[data-mode='preview'] .doc-info { width: 100%; max-width: calc(720px + 112px); margin-inline: auto; padding: 16px 56px 0; box-sizing: border-box; }
+@media (max-width: 640px) { body[data-mode='preview'] .doc-info { padding: 12px 18px 0; } }
+@media (max-width: 640px) { .preview { padding: 16px 18px 80px; } }
+/* Writing: no line numbers or folds while only the source is shown; side by side keeps them to read lines against. */
+body[data-mode='edit'] .editor .cm-gutters { display: none; }
+body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: auto; padding: 32px 40px 96px; box-sizing: border-box; }
+@media (max-width: 640px) { body[data-mode='edit'] .editor .cm-content { padding: 16px 18px 80px; } }
+/* An empty document: where its reading would be, what can be done (write, or ask an agent for a draft). */
+.doc-empty { min-height: 0; overflow: auto; }
+.doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }
+body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json'] .doc-empty { display: none; }
+/* The reading block under the pointer: its ⋯ in the left margin. */
+.block-handle { position: fixed; z-index: 9; width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
+.block-handle:hover, .block-handle[aria-expanded='true'] { background: var(--em-hover); color: var(--em-foreground); }
+.block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
+body:not([data-state='doc']) .block-handle, body[data-mode='edit'] .block-handle { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }
@@ -263,8 +293,10 @@ body[data-kind='json'] .editor { display: block; }
 body.json-dirty[data-kind='json'] .json-actions { display: flex; }
 body[data-state='message'] .panes, body[data-state='message'] .modes, body[data-state='message'] .status { display: none; }
 body[data-state='doc'] .doc-message, body.gone .modes { display: none; }
+/* Download and Open with… are in ⋯ at every width (owner 10-30, folder-docs); side by side needs room. */
+.fold { display: none; }
 @media (max-width: 640px) {
   .doc-title { flex-basis: 100%; }
-  #mode-split, .fold { display: none; }
+  #mode-split { display: none; }
 }
 [hidden] { display: none; }

@@ -11,6 +11,8 @@
   --gg-viewer-control-bg-hover: color-mix(in oklab, var(--bg-overlay-modal), var(--color-white) 16%);
 }
 
+.pswp.gg-image-viewer[data-annotating] .pswp__scroll-wrap { visibility: hidden; pointer-events: none; }
+
 .pswp.gg-image-viewer .pswp__error-msg {
   font-size: var(--font-body);
   line-height: var(--lh-body);

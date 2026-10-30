@@ -54,9 +54,16 @@ article.subscription-service {
   .subscription-service-actions { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   .subscription-service-notice, .subscription-service-details { grid-column: 1 / -1; }
 }
-@container gg-settings (max-width: 320px) {
+@container gg-settings (max-width: 440px) {
   .subscription-quota-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .subscription-reading-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; color: var(--muted-fg); font-size: var(--font-caption); line-height: 1.6; }
 .subscription-reading-footer > div { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+
+.subscription-credit-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.subscription-credit-label { color: var(--muted-fg); font-size: var(--font-body); }
+.subscription-credit-value { color: var(--fg); font-family: var(--font-mono); font-size: calc(var(--font-size-xl) * 1.4); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.subscription-credit-summary .subscription-note { margin: 0; }
+.subscription-credit-actions { display: flex; justify-content: flex-start; margin-top: 20px; }
+.subscription-credit-scope { font-size: var(--font-caption); }

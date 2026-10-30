@@ -190,7 +190,8 @@ export function createGugu(
     api.bind = Object.freeze({
       codemirror(view: unknown, file: unknown) {
         if (!editor) throw guguError('invalid', 'Load the editor with await gugu.codemirror() and build the view from it first');
-        return editor.bindCodemirror(view, file);
+        // A picture pasted or dropped in goes in through this page's own upload (its grants, its gesture rules).
+        return editor.bindCodemirror(view, file, { upload: files.upload, reportError: host.reportError });
       },
       /** A text file on a `<textarea>` / `<input>`, or on a view the App draws (摩擦单 F59): `text-binding.ts`. */
       text(view: unknown, file: unknown) {

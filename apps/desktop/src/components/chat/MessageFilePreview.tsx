@@ -82,13 +82,13 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     setRead(null)
     const source = file.source
     const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage) : readPreview(file, kind)).then(
+    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage, message ? { chatId: message.chat_id, messageId: message.id } : undefined) : readPreview(file, kind)).then(
       (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
       (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') }),
     )
     return () => { live = false; void release?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes
-  }, [key, kind, file.document, t])
+  }, [key, kind, file.document, message?.id, message?.chat_id, t])
   const renewVideo = async (video: HTMLVideoElement) => {
     const current = read
     if (video.dataset.renewing) return

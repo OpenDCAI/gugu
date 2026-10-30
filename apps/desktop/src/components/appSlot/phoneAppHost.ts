@@ -235,6 +235,11 @@ const files = createAppFiles({
   },
 })
 
+/** Human tools save with the renderer's same workspace publisher and membership contract. */
+export function saveFilesToChatFolder(chatId: string, picked: readonly AppFileUpload[], sourceMessageIds?: string[]) {
+  return files.upload(chatId, picked, { sourceMessageIds })
+}
+
 /** The phone's own picker, inside the person's gesture. Cancelled is an empty list. */
 function pickFiles(): Promise<AppFileUpload[]> {
   return new Promise((resolve, reject) => {
