@@ -24,7 +24,8 @@ describe('project removal archives tasks', () => {
     expect(m.detach).toHaveBeenCalledWith('project', 'folder');
     expect(m.archive.mock.invocationCallOrder[0]).toBeLessThan(m.detach.mock.invocationCallOrder[0]);
     expect(m.remove).not.toHaveBeenCalled();
-    expect(m.emit).not.toHaveBeenCalled();
+    expect(m.emit).toHaveBeenCalledWith('project:deleted', 'project');
+    expect(m.detach.mock.invocationCallOrder[0]).toBeLessThan(m.emit.mock.invocationCallOrder[0]);
   });
   it('keeps the project attached if archival fails', async () => {
     m.archive.mockRejectedValueOnce(new Error('stop failed'));

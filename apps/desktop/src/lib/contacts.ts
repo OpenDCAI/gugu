@@ -546,7 +546,11 @@ export const contactsService = {
   },
 
   async removeOwnedAgent(agentUserId: string): Promise<void> {
-    await permanentlyRemove({ client: identityDb, agentId: agentUserId })
+    try {
+      await permanentlyRemove({ client: identityDb, agentId: agentUserId })
+    } catch (error) {
+      throw new Error(messageForUser(error), { cause: error })
+    }
   },
 
   // #1228: update an owned agent's profile (name + bio) in one write. RLS path:

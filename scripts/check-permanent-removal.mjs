@@ -7,17 +7,50 @@ import { PERMANENT_REMOVAL_RPCS } from '../packages/core/src/cloud/agentIdentity
 
 const entry = 'packages/core/src/cloud/agentIdentityRemoval.ts'
 const rpcs = new Set(Object.values(PERMANENT_REMOVAL_RPCS))
+// Existing explicit deletion and non-identity GC are the only roster-removal callers.
+const removalCallers = {
+  permanentlyRemove: {
+    'apps/desktop/src/lib/contacts.ts': 'removeOwnedAgent',
+    'apps/desktop/src/lib/agentProvision.ts': 'defaultRemoveOwnedAgent',
+    'packages/core/src/cloud/devices.ts': 'removeDevice',
+  },
+  removeAgents: {
+    'apps/desktop/electron/sessionpage/agent-local-footprint.ts': 'releaseAgentLocalFootprint',
+    'apps/desktop/electron/sessionpage/emdash-agent-provisioning.ts': 'startCloudProvision',
+    'packages/core/src/cloud/deviceRuntimeHost.ts': 'dropLocalAgentByGuguUserId',
+    'packages/core/src/local/agent/deviceCommandRuntime.ts': 'pruneDeadGuestRecords',
+  },
+}
+function enclosingFunction(node) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if ((ts.isFunctionDeclaration(parent) || ts.isMethodDeclaration(parent)) && parent.name) return parent.name.getText()
+    if ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) && ts.isVariableDeclaration(parent.parent)) return parent.parent.name.getText()
+  }
+}
 
 export function removalViolations(file, text) {
   if (file === entry) return []
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
   const failures = []
+  const bindings = new Map(Object.keys(removalCallers).map(name => [name, name]))
+  const collectBindings = node => {
+    if (ts.isImportSpecifier(node) || ts.isBindingElement(node)) {
+      const original = node.propertyName?.getText(source) ?? node.name.getText(source)
+      if (bindings.has(original)) bindings.set(node.name.getText(source), bindings.get(original))
+    }
+    ts.forEachChild(node, collectBindings)
+  }
+  collectBindings(source)
   const flag = node => failures.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`)
   const visit = node => {
     // Catch indirect RPC operands at their declaration as well as direct calls.
     const literal = ts.isStringLiteralLike(node) || node.kind === ts.SyntaxKind.TemplateHead || node.kind === ts.SyntaxKind.TemplateMiddle || node.kind === ts.SyntaxKind.TemplateTail
     if (literal && !ts.isLiteralTypeNode(node.parent) && (rpcs.has(node.text) || /\bdelete\s+from\s+(?:[\w"]+\.)?["]?sessions\b/i.test(node.text))) flag(node)
     if (ts.isIdentifier(node) && node.text === 'deleteSession') flag(node)
+    if (ts.isIdentifier(node) && bindings.has(node.text) && !ts.isImportSpecifier(node.parent) && !ts.isExportSpecifier(node.parent) && !ts.isBindingElement(node.parent) && !(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) {
+      const operation = bindings.get(node.text)
+      if (!removalCallers[operation][file] || removalCallers[operation][file] !== enclosingFunction(node)) flag(node)
+    }
     if (ts.isCallExpression(node)) {
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'delete' && /(?:^|\.)sessions$/.test(node.arguments[0]?.getText(source) ?? '')) flag(node)
     }

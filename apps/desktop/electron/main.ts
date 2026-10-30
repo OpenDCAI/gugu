@@ -3972,9 +3972,9 @@ async function applyAgentModelSelectionOnDevice(input: {
 }
 
 /**
- * #7199 个人助理搬去了别的设备(agent.retire):这台拆它的运行时 —— 停会话、删会话行、撤它排的已安排、摘花名册与缓存、
+ * #7199 个人助理搬去了别的设备(agent.retire):这台归档它的任务和名册、停运行时、撤它排的已安排、
  * 作废发给它的卡。❌ 删文件(工作目录、记忆都留着:搬坏了还有退路)。幂等:这台上本来就没有它 = `found:false`。
- * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再拆会话,最后摘名册记录(它是「这个绑定还看得见」的开关,留到最后让失败的一轮可重试)。
+ * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再归档名册与任务,保留绑定和历史以便恢复。
  */
 async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boolean; schedulesRemoved: number }> {
   const roster = await listAgents(process.env, { includeGuests: true })
@@ -3990,7 +3990,7 @@ async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boo
   )
   // 等它写完(它是 async):不等的话下面拆会话时登记表里这个 agent 还在,投递可能又落到刚要停的会话上。
   await unregisterSessionpageDeliveryOwners(agentUserId)
-  // 先摘花名册(云端 presence 的周期写只遍历花名册),再停会话:停会话时冒出来的状态变化不会再被写成云端的「离线」。
+  // 先归档名册(云端 presence 的周期写只遍历活动视图),再停任务:停会话时冒出来的状态变化不会再被写成云端的「离线」。
   // 身份已经属于新家 —— 旧家 ❌ 报 offline、❌ 删云端身份(运行态按时间单调,后写的赢,旧家后写的 offline 会盖掉新家的 online)。
   await releaseAgentLocalFootprint({ agentUserId, identityRemoved: false, env: process.env })
   await disposeSessionpageAgentFromRoster(agent)
@@ -5192,11 +5192,8 @@ app.whenReady().then(async () => {
       tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
       return renamed
     })
-    const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
+    const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
-        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
-        // detach 不点名(会话还活着)。
-        deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
         getAuth: getSessionpageAuth,
         resolveDeviceId: localDeviceId,
         getInventory: () => emdash.emdashSessionpageInventory(),

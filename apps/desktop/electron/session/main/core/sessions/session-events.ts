@@ -10,7 +10,6 @@ export type SessionCrudHooks = {
     projectId: string,
     newTitle: string
   ) => void | Promise<void>;
-  'session:deleted': (sessionId: string) => void | Promise<void>;
   /**
    * spec session-graph:归档 = 这条会话离开会话列表。搜索面必须跟着走 —— 一条列表里点不到的会话
    * 还能从命令面板搜出来,那「归档」只做了一半。

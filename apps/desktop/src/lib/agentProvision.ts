@@ -1,4 +1,4 @@
-import { rpcOn } from '@/session/renderer/lib/ipc'
+import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -227,14 +227,9 @@ export async function defaultStopAgentRuntime(agentUserId: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
-/** Reuse the host's manual task archive; cloud cancellation settlement remains authoritative. */
-export async function defaultArchiveOwnedAgent(member: AgentProvision): Promise<void> {
-  const device = (await listDevicesOnceIdentified()).find((row) => row.device_id === member.device_id)
-  const host = rpcOn(device?.is_current_device ? null : member.device_id)
-  for (const session of (await host.sessionTimeline.sessionsList()).sessions) {
-    if (session.agent?.userId !== member.provisioned_agent_user_id) continue
-    await host.sessions.archiveSession(session.projectId, session.conversationId)
-  }
+/** Explicit provision cancellation uses the same permanent identity removal as Delete Agent. */
+export async function defaultRemoveOwnedAgent(agentUserId: string): Promise<void> {
+  await permanentlyRemove({ client: identityDb, agentId: agentUserId })
 }
 
 // ── read / rediscovery helpers (owner-scoped by RLS SELECT) ─────────────────────────────────────────────

@@ -226,7 +226,7 @@ describe('run-interval-recorder', () => {
     expect(intervals()[0]).toMatchObject({ started_at: at(23, 10), ended_at: at(23, 10, 3) });
   });
 
-  it('装上之后,agent:status 与 conversation:deleted 都进得来;订阅方抛错不会传回状态管道', () => {
+  it('装上之后,agent:status 与 session:archived 都进得来;订阅方抛错不会传回状态管道', () => {
     const handlers: Record<string, (arg: never) => void> = {};
     const source = {
       on: (name: string, handler: (arg: never) => void) => {
@@ -245,7 +245,7 @@ describe('run-interval-recorder', () => {
         reading: { status: 'working' },
       });
       clock += MIN;
-      (handlers['session:deleted'] as (id: string) => void)('c1');
+      (handlers['session:archived'] as (id: string) => void)('c1');
       expect(intervals()[0]).toMatchObject({ session_id: 'c1', ended_at: at(23, 10, 1) });
 
       // 库坏了:只记一笔日志,不抛。

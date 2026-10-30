@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 import { app } from 'electron';
 import { db } from '@main/db/client';
 import { and, desc, eq } from 'drizzle-orm';
@@ -22,7 +22,7 @@ import {
  * 连「点开」那一下都要给 `AppService.openPath` 的 home jail 开口子。
  *
  * 落进 `<userData>/task-attachments/<会话 id>/` 之后两件事一起没了:userData 本来就在 home 里,
- * jail 一行都不用改;寿命挂在会话上,会话删了附件跟着删。
+ * jail 一行都不用改;附件跟随任务历史保留,归档不删附件。
  *
  * 根目录名 `task-attachments` 是磁盘路径,不随概念改名。库里每一行记着自己的绝对路径 `stored_path`,
  * 归属只认这一列:迁移前的附件还在按旧 id 起名的子目录里,照样能用。
@@ -195,42 +195,11 @@ function insideRoot(root: string, path: string): boolean {
 }
 
 /**
- * 删会话时清掉它拥有的那些文件。**必须在删会话行之前调**:要按行找文件。
- *
- * ⚠️ 行是被 FK cascade 连坐删的,**盘上的文件不会跟着走** —— 少了这一步,会话删干净了,
- * 字节还留在 userData 里,而且再没有任何一行记录指向它们(连 GC 的线索都没了)。
- *
- * 两部分:
- * - 按会话 id 起名的那个目录整个删掉:新建页先落盘、后登记,用户在发送前把某枚 chip 点掉的话,
- *   那一件就只剩文件没有行;这个目录里只可能有我们自己拷的字节。
- * - 每一行自己的 `stored_path`(只认附件根目录里的、`copy` 的):迁移前的附件住在按旧 id 起名的
- *   目录里,只有行知道它们是谁的。删完把空了的父目录也收掉。`reference` 指着用户自己盘上的文件,
- *   从来不碰。
- */
-export async function deleteSessionAttachmentFiles(
-  sessionId: string,
-  userDataDir?: string
-): Promise<void> {
-  const root = sessionAttachmentsRoot(userDataDir);
-  await rm(sessionAttachmentDirectory(sessionId, userDataDir), { recursive: true, force: true });
-  const rows = await db
-    .select({ storedPath: sessionAttachments.storedPath })
-    .from(sessionAttachments)
-    .where(and(eq(sessionAttachments.sessionId, sessionId), eq(sessionAttachments.origin, 'copy')));
-  for (const { storedPath } of rows) {
-    if (!insideRoot(root, storedPath)) continue;
-    await rm(storedPath, { force: true });
-    // 还有别人的文件就留着(ENOTEMPTY);已经没了也不要紧。
-    await rmdir(dirname(storedPath)).catch(() => undefined);
-  }
-}
-
-/**
  * 启动时清掉「没有主人的」附件目录。
  *
  * 一个子目录有主 = 它的名字是一条还在的会话(新建页按会话 id 落盘的),或者库里有行的 `stored_path`
  * 落在它里面(迁移前按旧 id 起名的目录)。两样都不是,这一目录的字节就再没有任何东西指向它:
- * 新建页落好盘却没建成会话(用户中途走开、创建失败),或删会话时 `deleteSessionAttachmentFiles` 没跑成。
+ * 新建页落好盘却没建成任务(用户中途走开、创建失败),或旧版本删除任务后留下了副本。
  * ❌ 不用「超过 N 天」这种时间启发式 —— 归属是确定的,不需要猜。
  *
  * ⚠️ **只在启动时跑。** 运行中跑会误删一个正在被输入框攒着、会话还没建出来的草稿目录 ——

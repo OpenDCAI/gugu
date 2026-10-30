@@ -1,12 +1,12 @@
 // #7350 关闭咕咕(住在这台电脑上的那一位;product spec「关闭咕咕」)。
 //
 // 一份确认、一个按钮:它的记忆、性格、交给它的文件和定时任务清掉,和它的聊天不再显示;它开过的会话删不删由人在确认框里选
-// (owner 10-18「要不要删是用户选的」,默认保留)。删完咕咕那一格回到「认识咕咕」,再开通的是全新的一位。
+// (owner 10-18「要不要删是用户选的」,默认归档保留)。删完咕咕那一格回到「认识咕咕」,再开通的是全新的一位。
 //
 // 顺序是硬的:
 //   1. 定时任务先撤 —— 在删任何东西之前。正好有一条在启动(automation_runs_active)= 整个停下,让人稍等再关;
 //      ❌ 先删它再撤定时任务:撤不掉的那几条会照点往一个已经不在的会话里投。
-//   2. (勾了)它开过的会话:有身份的先删身份,再把会话收起来(停掉进程)。
+//   2. 它开过的任务走现有归档;勾了永久删除时先删这些任务的身份。
 //   3. 删它自己的身份(同一个「删除 agent」:撤掉正在跑的那一轮、放掉本机的登记;服务端把和它的私聊收起来)。
 //   4. 收起它自己的会话(停掉进程)。
 //   5. 清掉它在这台电脑上的家(主进程算路径)。
@@ -72,7 +72,7 @@ export async function closeLocalAssistant(
   plan: LocalClosePlan,
   deps: LocalCloseDeps,
 ): Promise<void> {
-  const started = input.deleteStarted ? plan.started : []
+  const started = plan.started
   const step = async (name: AssistantCloseStep, run: () => Promise<void>) => {
     try {
       await run()
@@ -92,6 +92,9 @@ export async function closeLocalAssistant(
   })
   await step('started', async () => {
     for (const session of started) {
+      if (input.deleteStarted && session.agent?.userId && session.agent.userId !== input.assistantId) {
+        await deps.removeAgent(session.agent.userId)
+      }
       await deps.archiveSession(session.projectId, session.conversationId)
     }
   })

@@ -63,7 +63,6 @@ import {
 import {
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
   type AgentStatusChange,
 } from '@shared/core/sessions/sessionEvents';
 import {
@@ -1188,7 +1187,7 @@ const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
 const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId'];
 function changesSessionList(channel: string, data: unknown): boolean {
-  if (channel === sessionCreatedChannel.name || channel === sessionDeletedChannel.name) {
+  if (channel === sessionCreatedChannel.name) {
     return true;
   }
   // 行上那枚定时标记:排上、取消、到点、没送到都经这两条(automations-service)。

@@ -20,7 +20,7 @@ import { normalizeAgentType, type AgentType } from '../../agentTypes'
 import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
-import { getAgent, listAgents, archiveAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
+import { getAgent, listAgents, archiveAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
 import { agentOwnerUserId, agentsForOwner } from '../state/agentOwner'
 import { normalizeAgentModelSelection, type AgentModelSelection } from './modelAccess'
 import { engineIdForAgentType } from '../../shared/agentModelSelection'
@@ -945,7 +945,7 @@ async function pruneDeadGuestRecords(
 ): Promise<void> {
   const now = Date.now()
   const known = new Set(agents)
-  await archiveAgents((agent) => {
+  await removeAgents((agent) => {
     if (!known.has(agent)) return false
     if (agent.status !== 'guest' || agent.gugu_user_id) return false
     // 完全没有 session id 的 guest 永远无法被身份解析,直接清掉。

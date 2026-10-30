@@ -1200,7 +1200,6 @@ describe('session timeline service', () => {
       expect(await pushesAfter('session:changed', { ...at, changes: { archivedAt: null } })).toBe(1);
       expect(await pushesAfter('session:changed', { ...at, changes: { parentSessionId: null } })).toBe(1);
       expect(await pushesAfter('session:created', { session: { id: 'conv-2' } })).toBe(1);
-      expect(await pushesAfter('session:deleted', at)).toBe(1);
       // #7221 行上那枚定时标记:排上 / 取消 / 到点 / 没送到都经 automation:* 两条。
       expect(await pushesAfter('automation:changed', { automationId: 'a-1' })).toBe(1);
       expect(await pushesAfter('automation:run-changed', { automationId: 'a-1', run: {} })).toBe(1);

@@ -4,7 +4,7 @@ import {
   buildTeamBlueprint,
   cancelProvisionOperation,
   claimProvisionSlots,
-  defaultArchiveOwnedAgent,
+  defaultRemoveOwnedAgent,
   defaultStopAgentRuntime,
   clientSourceDigest,
   defaultEnsureDeviceOnline,
@@ -229,7 +229,7 @@ export async function resumeTeam(record: ProvisionResumeRecord, deps: TeamProvis
 }
 
 // Governed cancel — phase-based operation/member cancel + compare-and-delete of pending create commands. The
-// Cancellation retains created identities and archives their existing host tasks.
+// Explicit cancellation removes created identities so the backend can settle the operation.
 export interface CancelTeamProvisionResult {
   operation: AgentProvisionOperation
   /** true only when the DB advanced EVERY member (and the operation) to `cancelled`. */
@@ -240,14 +240,14 @@ export interface CancelTeamProvisionResult {
    * A 'stop' entry does NOT by itself mean the member failed to converge — settle's DB postconditions decide that
    * (`fullyCancelled`). It exists so a failed stop stays diagnosable instead of vanishing.
    */
-  cleanupErrors: { provisionId: string; agentUserId: string; stage: 'stop' | 'archive'; error: string }[]
+  cleanupErrors: { provisionId: string; agentUserId: string; stage: 'stop' | 'remove'; error: string }[]
 }
 
 export interface CancelTeamProvisionDeps {
   resumeStore?: ProvisionResumeStore
   getOwnerUserId?: () => Promise<string>
   stopAgentRuntime?: (agentUserId: string) => Promise<void>
-  archiveAgent?: (member: AgentProvision) => Promise<void>
+  removeOwnedAgent?: (agentUserId: string) => Promise<void>
 }
 
 async function clearCancelledRecovery(
@@ -264,7 +264,7 @@ async function clearCancelledRecovery(
 //   ① cancel_agent_provision_operation — phase-based: every not-yet-cancelled member (INCLUDING completed ones,
 //      or terminal cancel would be impossible) → `cancelling`, operation → `cleaning_up`, pending create commands
 //      compare-and-deleted, raw memory scrubbed, exact agent snapshotted.
-//   ② per member that reached identity creation: courtesy runtime stop, then the existing host archive.
+//   ② per member that reached identity creation: courtesy runtime stop, then permanent identity removal.
 //      A member that never bound an agent (queued-only) is NEVER removed — there is nothing to reclaim and settle
 //      terminals it directly. Per-member BEST-EFFORT: one member's failure is recorded and the rest still proceed,
 //      so a partial cleanup stays visible (`fullyCancelled=false`) and replay-recoverable rather than aborting.
@@ -274,7 +274,7 @@ export async function cancelTeamProvision(
   deps: CancelTeamProvisionDeps = {},
 ): Promise<CancelTeamProvisionResult> {
   const stopRuntime = deps.stopAgentRuntime ?? defaultStopAgentRuntime
-  const archiveAgent = deps.archiveAgent ?? defaultArchiveOwnedAgent
+  const removeOwnedAgent = deps.removeOwnedAgent ?? defaultRemoveOwnedAgent
 
   await cancelProvisionOperation(operationId)
 
@@ -316,12 +316,12 @@ export async function cancelTeamProvision(
       })
     }
     try {
-      await archiveAgent(member)
+      await removeOwnedAgent(agentUserId)
     } catch (err) {
       cleanupErrors.push({
         provisionId: member.id,
         agentUserId,
-        stage: 'archive',
+        stage: 'remove',
         error: err instanceof Error ? err.message : String(err),
       })
     }

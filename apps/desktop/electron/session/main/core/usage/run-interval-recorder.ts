@@ -262,16 +262,16 @@ type StatusSource = {
     handler: (input: { sessionId: string; reading: { status: string } & RunFacts }) => void
   ): unknown;
 };
-type DeletionSource = {
-  on(name: 'session:deleted', handler: (sessionId: string) => void): unknown;
+type ArchivalSource = {
+  on(name: 'session:archived', handler: (sessionId: string) => void): unknown;
 };
 
 let installed = false;
 
-/** 开机时装一次:订状态、订删除、起心跳。重复调用是空操作。 */
+/** 开机时装一次:订状态、订归档、起心跳。重复调用是空操作。 */
 export function installRunIntervalRecorder(sources: {
   agentStatus: StatusSource;
-  sessionEvents: DeletionSource;
+  sessionEvents: ArchivalSource;
   recorder?: RunIntervalRecorder;
   heartbeatMs?: number;
 }): () => void {
@@ -281,7 +281,7 @@ export function installRunIntervalRecorder(sources: {
   sources.agentStatus.on('agent:status', ({ sessionId, reading }) =>
     recorder.observeStatus(sessionId, reading.status, { running: reading.running, background: reading.background })
   );
-  sources.sessionEvents.on('session:deleted', (sessionId) =>
+  sources.sessionEvents.on('session:archived', (sessionId) =>
     recorder.observeDeleted(sessionId)
   );
   recorder.reconcile();

@@ -162,8 +162,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const proof = input.inputDataProof
     let admitted = input
     if (proof && !store.state.jobs[input.id]) {
-      const agent = agents().find((row) => row.agentUserId === input.agentUserId)
-      if (!agent) throw new Error('同机委派的目标任务已不存在')
+      const agent = target
       // Queued input is already part of the readable record, even if it never reaches Pi.
       // Bind it before saving; a cancelled first input must not remain a legacy, epochless row.
       agent.contextEpoch ??= randomUUID()

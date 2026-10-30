@@ -45,11 +45,8 @@ class SearchService {
       const [row] = db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
       if (row) void this.upsertSession(mapSessionRowToSession(row));
     });
-    // 归档与删除对搜索索引同效:列表里点不到的会话不该还能被搜出来。
+    // 已归档任务离开活动搜索,历史仍保留。
     sessionEvents.on('session:archived', (sessionId) =>
-      this.removeByType('session', sessionId)
-    );
-    sessionEvents.on('session:deleted', (sessionId) =>
       this.removeByType('session', sessionId)
     );
 

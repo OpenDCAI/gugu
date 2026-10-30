@@ -12,7 +12,7 @@ export async function rollbackAgentSessionStartup(input: {
   if (input.started) await stopExactSessionpageSession(input).catch(() => false)
   if (!input.created) return
   // Provision can throw after writing the binding. Read its SSOT even on failure;
-  // deleting that row would emit session:deleted and reclaim the existing identity.
+  // Failed startup retains the task and its existing identity for Restore.
   if (await localAgentForSession(input.sessionId, process.env)) return
   await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
 }

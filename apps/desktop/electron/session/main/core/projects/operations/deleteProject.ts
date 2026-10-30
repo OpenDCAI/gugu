@@ -28,6 +28,7 @@ export async function deleteProject(id: string): Promise<void> {
     }
     await db.update(automations).set({ projectId: null }).where(eq(automations.projectId, id));
     void viewStateService.del(`project:${id}`);
+    projectEvents._emit('project:deleted', id);
     return;
   }
   const deleted = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });

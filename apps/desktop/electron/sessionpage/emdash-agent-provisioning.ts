@@ -36,6 +36,7 @@ import {
   createAgent,
   findReapedAgentForSession,
   listAgents,
+  removeAgents,
   updateAgent,
   writeAgentRuntimeSession,
 } from '@gugu/core'
@@ -74,7 +75,7 @@ import {
 /** Roster-record cache keys binding a gugu agent to its session-page conversation, its project + task, and
  *  (project-scoped conversations only) the gugu group mirroring its project. Projectless conversations store
  *  empty project/group → they are plain DM agent-contacts, not group members (spec ⑨). project+task ids let
- *  a task/project cascade-delete reap this agent (cascade fires no per-conversation delete event). */
+ *  task/project reconciliation archive this binding without deleting its identity. */
 // 这三格另有一个读者:会话页会话自己的 MCP 面(`@main/core/sessionpage/sessionpage-session-agent`,
 // spawn 回执据此说出对话该落在哪个项目群)。写者在这边、读者在那边,键名各写一份就会在改名时
 // 无声分家 —— 读者查不到、回执悄悄退回点对点,正是 #4566 的病灶形状。所以键名只有一处定义。
@@ -875,7 +876,7 @@ async function provisionLockedBody(
       }
     }
     await updateAgent({ guguUserId: existing.gugu_user_id }, {
-      status: 'idle',
+      ...(existing.status === 'archived' ? { status: 'idle' } : {}),
       cache: {
         ...(existing.cache ?? {}),
         [DIRECT_CHAT_CACHE_KEY]: directChatId,
@@ -1267,6 +1268,8 @@ function startCloudProvision(job: {
           // identityRemoved:false —— 云端那一行**从来没存在过**,这不是删除,不立碑:
           // 这条会话下次起来照常重新开户(「随后落地被接纳」的另一支)。
           await releaseAgentLocalFootprint({ agentUserId: job.guguAgentUserId, identityRemoved: false, env: job.env })
+          // No cloud identity was created; withdraw the provisional binding rather than retaining it for Restore.
+          await removeAgents((agent) => agent.gugu_user_id === job.guguAgentUserId, job.env)
           withdrawnIdentityBySession.set(job.sessionId, job.guguAgentUserId)
         } else {
           const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)

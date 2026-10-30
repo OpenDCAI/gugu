@@ -59,10 +59,10 @@ describe('close the assistant that lives on this computer (#7350)', () => {
     expect(plan.started.map((s) => s.conversationId).sort()).toEqual(['s-child', 's-grandchild'])
   })
 
-  it('box unticked: its schedules go first, then it, its session, its home; the sessions it started are kept', async () => {
+  it('box unticked: its schedules go first, then it, its session, its home; started tasks are archived with identities kept', async () => {
     const { calls, deps } = rig()
     await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps)
-    expect(calls).toEqual(['schedule:a-gugu', `agent:${GUGU}`, 'archive:s-gugu', 'wipe', 'reset'])
+    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'archive:s-gugu', 'wipe', 'reset'])
   })
 
   it('box ticked: the started sessions (and their schedules) go too, before it does; a session without an identity is only put away', async () => {
@@ -89,14 +89,14 @@ describe('close the assistant that lives on this computer (#7350)', () => {
     const { calls, deps } = rig({ removeAgent: vi.fn(async () => { throw new Error('rpc down') }) })
     const error = await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps).catch((e: unknown) => e)
     expect(error).toMatchObject({ step: 'identity', kind: 'failed' })
-    expect(calls).toEqual(['schedule:a-gugu'])
+    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild'])
   })
 
   it('it is deleted but its home could not be cleared: say so, and still reset this computer back to "meet Gugu"', async () => {
     const { calls, deps } = rig({ wipeHome: vi.fn(async () => { throw new Error('EBUSY') }) })
     const error = await closeLocalAssistant({ assistantId: GUGU, deleteStarted: false }, await planLocalClose(GUGU, deps), deps).catch((e: unknown) => e)
     expect(error).toMatchObject({ step: 'home', kind: 'failed' })
-    expect(calls).toEqual(['schedule:a-gugu', `agent:${GUGU}`, 'archive:s-gugu', 'reset'])
+    expect(calls).toEqual(['schedule:a-gugu', 'schedule:a-child', 'archive:s-child', 'archive:s-grandchild', `agent:${GUGU}`, 'archive:s-gugu', 'reset'])
   })
 
   it('deleting it from contacts / agent settings opens this close instead of the generic delete, only when it really is the assistant', () => {

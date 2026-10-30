@@ -1,28 +1,5 @@
-// @@@4526 AGENT 的本机足迹 —— 一个 agent 停止存在时,这台机器上要跟着消失的东西。
-//
-// 一个 agent 有两半:云端身份(identity.users,归 agent-identity)与**本机足迹**——花名册记录、runtime
-// session/activity 文件、投递注册、以及会话页会话到它的绑定。云端那半有两条删除驱动:
-//
-//   · 会话页那边没了这条会话 ⇒ [[cascade-reap]] 的 diff 收回它;
-//   · owner 自己在通讯录/设置里按了删除 ⇒ 渲染层直接调 `remove_owned_agent`。
-//
-// 本机这半在此之前**只有第一条驱动**。第二条压根没有本机侧的对应动作 —— 不是漏了一步,是整条路
-// 不存在。于是 owner 删完之后花名册仍留着它,而 provisioning 的幂等键就是花名册里那条 conversation
-// 绑定:下一次切回会话页,它按"这条会话还没供给过"重新开户,那个被删掉的联系人就带着 Online 回来了。
-//
-// 所以本模块把「本机足迹的释放」抽成**一个**动作,给两条驱动共用。❌ 不为 owner 删除单开一套并行清理:
-// 两条驱动释放的是同一批东西,分两份实现只会让下一次改动只改到其中一份。
-//
-// 顺序沿用 cascade-reap 已经写死的那条(它的理由在这里同样成立):
-//   ① 先摘投递注册 —— 不能让投递打进一个正要被抹掉的绑定;
-//   ② 再删 runtime session 文件;
-//   ③ 最后才删花名册记录 —— 它本身就是"这个绑定还看得见"的东西,留到最后让失败的一轮可重试;
-//   ④ 花名册确实摘掉之后才立碑。
-//
-// ⚠️ 本模块只**释放足迹**:不终止 provider 进程,不 dispose 运行时会话,也不取消在飞的回合。
-// 「owner 删除 ⇒ 先取消那一轮」是删除**驱动**的语义(它才是"停下它"的意思),所以那一步在调用方
-// (owner-delete 的 IPC)按顺序做,而不是塞进这个两条驱动共用的函数里 —— 会话页那条驱动的会话
-// 本来就没了,它要的是 dispose/teardown,不是 cancel。两条驱动语义不同的那一段就不该共用。
+// Local runtime and delivery cleanup is shared by explicit identity removal, provisional
+// identity withdrawal and automatic archival. Only confirmed cloud removal records a tombstone.
 import {
   archiveAgents,
   listAgents,
@@ -58,19 +35,8 @@ export interface ReleaseAgentLocalFootprintInput {
   agentUserId: string
   /** 墓碑上的展示名。留空时从花名册记录取——删除提示要说得出「谁」被删了。 */
   name?: string
-  /**
-   * 云端身份是否**确认**已删。only-true 才立碑、才摘 local-session 投递目标:
-   * not-homed(身份在别的设备上活着)不是删除,本机记录照摘,但它并没有永久不可达。
-   */
+  /** Confirmed cloud removal deletes the binding; automatic cleanup archives it. */
   identityRemoved: boolean
-  /**
-   * 墓碑要不要按**会话**记账(默认要)。按会话记账的意思是「这条会话此后不再有身份」—— 那是 owner 在通讯录
-   * 亲手删 agent 时要的(#4526:会话照跑,但别把他删掉的联系人再造回来)。
-   * #4277 回收器因「会话归档 / 删除」收 agent 时**不能**这样记:归档的会话再打开、或取消归档,按 spec 该
-   * 重新开户(「驱动过的会话在就在」);按会话记了碑就永远开不了,真机:归档的「何丽丽」换号后报「还没有
-   * 咕咕身份」。回收器传 false ⇒ 碑只记 agent id(指名投递照旧报「已删除」),会话可再开户。
-   */
-  tombstoneSession?: boolean
   env?: NodeJS.ProcessEnv
 }
 
@@ -121,7 +87,7 @@ export async function releaseAgentLocalFootprint(
         gugu_user_id: agentUserId,
         name,
         reaped_at: new Date().toISOString(),
-        ...(sessionId && input.tombstoneSession !== false ? { conversation_id: sessionId } : {}),
+        ...(sessionId ? { conversation_id: sessionId } : {}),
         ...(ownerUserId ? { owner_user_id: ownerUserId } : {}),
       }],
       env,

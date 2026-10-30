@@ -32,12 +32,6 @@ export interface SessionpageReapDeps {
    *  module doesn't depend on the pty provisioning module. */
   disposeSession?: (sessionId: string) => Promise<void>
   /**
-   * Sessions the trigger KNOWS are gone: only `session:deleted`, fired after the
-   * row op. A runtime teardown never names a session — app quit tears mounts down with `terminate` while the
-   * sessions still exist (#6168). Naming the session lets that pass reap without depending on when rows disappear.
-   */
-  deadSessionIds?: readonly string[]
-  /**
    * #7341 归档项目群之前问一句:群里还有没有别的机器上的 agent(`identity.users.device_id` ≠ 本机)。
    * 返回那些 agent 的 id;缺席 ⇒ 走 supabase(listGroupAgentsOnOtherDevices)。测试注入用。
    */
@@ -70,7 +64,7 @@ interface UsersQuery {
 /**
  * #7341 这个群里家在**别的机器**上的 agent(product spec:一台机器上的项目没了,❌ 连带把还有别的机器在用的
  * 项目群归档)。成员行 RLS 是「我也在这个群里」,群主读得到全部成员;identity.users 的 id/type/device_id 对已登录者可读。
- * 人不算(只看 type=agent);本机的 agent 不算(它们这一轮会被收掉、群座位随之腾空)。任何一步读失败都抛 ——
+ * 人不算(只看 type=agent);本机的 agent 不算(它们的本机运行态会归档,群成员保留)。任何一步读失败都抛 ——
  * 调用方据此「不归档」,❌ 当成「没人在用」。
  */
 export async function listGroupAgentsOnOtherDevices(input: {
@@ -191,24 +185,18 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       },
       'session list came back EMPTY while bound agents exist and this process has never read a ' +
         'non-empty inventory — refusing to reap by absence this round (#3969). An empty reading from an ' +
-        'instrument never proven able to read non-empty is not evidence of deletion; sessions the trigger ' +
-        'named dead are still reaped.',
+        'instrument never proven able to read non-empty is not evidence for archival.',
     )
   }
 
-  // 被点名的死会话是阳性读数(session:deleted 在行操作之后才发),不靠清单,
-  // 归档不在 deadSessionIds 中:它的行和身份都仍然存在。
-  const deadSessions = new Set((deps.deadSessionIds ?? []).filter(Boolean))
-  const stale = bound.filter((a) =>
-    deadSessions.has(a.sessionId) || (reapAuthorized && !liveSessions.has(a.sessionId)))
+  const stale = bound.filter((a) => reapAuthorized && !liveSessions.has(a.sessionId))
 
-  // 开机那一刻 authProvider 往往还没建好(#5025):这一轮读不到令牌,群段与删身份都留给 main.ts 在归属定下来之后那一轮。
+  // 开机那一刻 authProvider 往往还没建好(#5025):这一轮读不到令牌,归档留给 main.ts 在归属定下来之后那一轮。
   const auth = await deps.getAuth()
   const deviceId = auth?.accessToken ? await deps.resolveDeviceId() : null
 
-  // Groups whose PROJECT is gone (read before reaping — the roster records carry the project→group mapping,
-  // so once they're removed the mapping is gone too). A project group whose project still exists is kept
-  // even when one of its conversations was deleted: only that conversation's agent leaves the group.
+  // Read project→group mappings before marking stale local bindings; identities and group seats stay intact.
+  // A project group whose project still exists is kept even when a task is missing.
   //
   // TRUSTWORTHINESS GUARD: every conversation belongs to a project, so "no projects but some conversations"
   // is an inconsistent read, not the world state. Treating it as truth would archive live projects' groups —
@@ -328,9 +316,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
 
   let reapedAgents = 0
   for (const agent of stale) {
-    // #4277 别家账号的行**不动**,留给主人:云端那行只有主人的令牌删得动,这里摘掉本机这行等于把指针
-    // 弄丢,主人的 agent 从此成了永远的孤儿(owner 09-04 的例子:B 建的会话被 A 归档)。行留着,主人下次
-    // 在这台机器登录,回收器以它的身份扫到「行在、会话没了」再删。没记 owner 的老行照旧当自己的处理。
+    // Foreign-owner rows stay untouched; their owner reconciles them through the same archival path.
     if (agent.ownerUserId && agent.ownerUserId !== auth.userId) {
       reapLogger().info(
         { agent: agent.guguUserId, name: agent.name, owner: agent.ownerUserId, sessionId: agent.sessionId },
@@ -339,7 +325,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       continue
     }
     try {
-      await reapAgent(agent, { chat, deviceId, accessToken: auth.accessToken, ownerUserId: auth.userId, env, deps })
+      await reapAgent(agent, { env, deps })
       reapedAgents++
       console.log(
         `[sessionpage-reap] reaped agent ${agent.name} (${agent.guguUserId}) — session-page session ${agent.sessionId} is gone`,
@@ -363,17 +349,13 @@ async function reapAgent(
     chatId: string
   },
   ctx: {
-    chat: ReturnType<typeof makeChatClient>
-    deviceId: string | null
-    accessToken: string
-    ownerUserId: string
     env: NodeJS.ProcessEnv
     deps: SessionpageReapDeps
   },
 ): Promise<void> {
   // 1. Stop routing, then tear down the runtime session. Session-direct rows live in the same
   //    conversation outbox as chat messages; removing the owner stops future reads, while pending
-  //    rows remain durable until the session is recreated or the conversation is deleted.
+  //    rows remain durable with the retained task history.
   emdashAgentRegistry.unregister(agent.guguUserId)
   await ctx.deps.disposeSession?.(agent.sessionId)
 
