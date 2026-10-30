@@ -14,6 +14,10 @@ it('yields within one v1 stdout chunk while preserving all updates in order', as
     const request = JSON.parse(bytes.toString());
     if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
       result: { protocolVersion: 1, agentCapabilities: {} } }) + '\n');
+    if (request.method === 'session/load') stdout.write(Array.from({ length: 100 }, (_, i) => JSON.stringify({
+      jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `part-${i}` } } },
+    })).join('\n') + '\n' + JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }) + '\n');
   });
   const api = connectStdioAcp({ stdin, stdout }, () => ({
     sessionEvent: ({ event }) => {
@@ -27,10 +31,8 @@ it('yields within one v1 stdout chunk while preserving all updates in order', as
   let elapsed = performance.now();
   const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 10);
   try {
-    stdout.write(Array.from({ length: 100 }, (_, i) => JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
-      sessionId: 's', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `part-${i}` } },
-    } })).join('\n') + '\n');
-    await vi.waitFor(() => expect(received).toHaveLength(100));
+    await api.loadSession!({ sessionId: 's', cwd: '/w', mcpServers: [] });
+    expect(received).toHaveLength(100); // The load reply cannot overtake the replay it finishes.
     await otherTask;
     expect(seenByOtherTask).toBeLessThan(100);
     expect(received).toEqual(Array.from({ length: 100 }, (_, i) => `part-${i}`));

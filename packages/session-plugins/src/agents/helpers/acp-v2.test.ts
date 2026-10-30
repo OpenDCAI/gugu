@@ -86,6 +86,9 @@ describe('connectStdioAcpV2', () => {
       const request = JSON.parse(bytes.toString());
       if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
         result: { protocolVersion: 2, info: { name: 'fixture', version: '1' }, capabilities: {}, authMethods: [] } }) + '\n');
+      if (request.method === 'session/resume') stdout.write(updates.map(update => JSON.stringify({
+        jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update },
+      })).join('\n') + '\n' + JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }) + '\n');
     });
     const api = connectStdioAcpV2({ stdin, stdout }, () => ({
       sessionEvent: ({ trace }) => {
@@ -99,8 +102,8 @@ describe('connectStdioAcpV2', () => {
     const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 10);
     const updates = Array.from({ length: 100 }, (_, i) => ({ sessionUpdate: 'terminal_update', terminalId: `t${i}`, command: `echo ${i}` }));
     try {
-      stdout.write(updates.map(update => JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update } })).join('\n') + '\n');
-      await vi.waitFor(() => expect(received).toHaveLength(100));
+      await api.loadSession!({ sessionId: 's1', cwd: '/w', mcpServers: [] });
+      expect(received).toHaveLength(100); // The resume reply cannot overtake its preceding updates.
       await otherTask;
       expect(seenByOtherTask).toBeLessThan(100);
       expect(received).toEqual(updates);
