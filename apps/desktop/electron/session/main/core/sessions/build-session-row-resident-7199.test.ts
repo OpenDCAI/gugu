@@ -27,4 +27,17 @@ describe('a resident agent waits for its first message (#7199)', () => {
     expect(row.agentStatus).toBe('working');
     expect(row.agentStatusDetail).toBe('running');
   });
+
+  it.each(['acp', 'pty'] as const)('keeps an explicit creation name as both task and identity on %s', (runtime) => {
+    const row = buildSessionRow({ ...base, runtime, provider: 'codex', title: 'Derived prompt title',
+      agentDisplayName: 'Explicit choice', initialPrompt: 'Review the patch' });
+    expect(row.title).toBe('Explicit choice');
+    expect(row.config).toMatchObject({ agentDisplayName: 'Explicit choice', titleSource: 'manual', identityNameManaged: true });
+  });
+
+  it('does not impose the linked-task name limit on an independent resident', () => {
+    const row = buildSessionRow({ ...base, provider: 'pi', origin: { kind: 'resident' }, agentDisplayName: 'x'.repeat(60) });
+    expect(row.config?.agentDisplayName).toBe('x'.repeat(60));
+    expect(row.config).not.toHaveProperty('identityNameManaged');
+  });
 });

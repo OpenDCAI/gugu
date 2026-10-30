@@ -70,6 +70,7 @@ export interface LocalSessionPeerIdentity {
   id: string
   gugu_number: number | null
   display_name: string | null
+  name_serial?: number | null
   session_archived_at?: string | null
 }
 
@@ -86,9 +87,9 @@ export interface LocalSessionFacts {
 
 export interface LocalSessionPeer {
   /** gugu_number is display-only and lazily minted (only once the agent is made public) — null until then. */
-  identity: { users: { id: string; gugu_number: number | null; display_name: string; session_archived_at?: string | null } }
+  identity: { users: { id: string; gugu_number: number | null; display_name: string; name_serial?: number | null; session_archived_at?: string | null } }
   sessionId: string
-  /** The exact session-page sidebar title for this session, separate from the contact display name. */
+  /** The task title is the canonical linked identity name. */
   title: string
   /** The session-page project the session sits in. */
   project: string
@@ -159,17 +160,16 @@ export function resolveLocalSessionPeers(
     if (!session) {
       throw new Error(`local peers session title lookup: no sidebar title for ${binding.sessionId}`)
     }
-    // The contact display name is the canonical identity label; the sidebar title is carried separately
-    // above. The gugu number is lazily minted (public agents only) and may legitimately be null — it is
-    // display-only here.
+    // Both task and contact names come from the canonical identity. The public gugu number remains display-only.
     if (!row.display_name?.trim() || (row.gugu_number !== null && !Number.isInteger(row.gugu_number))) {
       throw new Error(`local peers identity lookup: incomplete identity for ${row.id}`)
     }
     return {
       identity: { users: { id: row.id, gugu_number: row.gugu_number, display_name: row.display_name,
+        ...(row.name_serial != null ? { name_serial: row.name_serial } : {}),
         ...(row.session_archived_at != null ? { session_archived_at: row.session_archived_at } : {}) } },
       sessionId: binding.sessionId,
-      title: session.title,
+      title: row.display_name,
       project: isImplicitSessionHomeProjectId(session.projectId) ? '' : session.projectName,
       status: session.status?.status ?? null,
       detail: session.status?.detail ?? null,

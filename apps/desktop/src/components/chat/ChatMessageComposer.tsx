@@ -81,7 +81,10 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const projectMemberIds = projectMembers.get(chats.find((chat) => chat.id === chatId)?.source_chat_id ?? chatId ?? '')
   const members = useMemo<MentionCandidate[]>(() => isGroupChat ? [
     { id: '__all__', name: t('composer.mentionAll'), type: 'all' },
-    ...groupMembers.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
+    ...groupMembers.filter((member) => member.id !== currentUserId).map((member) => {
+      const contact = contacts.find((contact) => contact.id === member.id)
+      return { ...member, alias: contact?.alias, harness: contact?.agent_type ?? member.harness }
+    }),
   ] : [], [isGroupChat, groupMembers, currentUserId, contacts, t])
   const activeTargets = activeMentionPicks(text, mentionTargets, members)
   const { sending, handleSend } = useChatMessageSend({ ...deliveryProps, disabled, disabledReason }, draft, members, activeTargets, inputRef, mobile)

@@ -118,14 +118,12 @@ const ptyConfigV1 = z.object({
   model: z.string().optional(),
   /** Reasoning-effort level for the model above. Absent = the CLI's own default for it. */
   effort: z.string().optional(),
-  /**
-   * spec session-graph:起这条会话的一方**显式**给的名字(`gugu_session spawn` 的 `title`)。
-   * 它同时是这个 agent 在咕咕通讯录里的显示名(spec agent-provisioning「命名即寻址名」)。
-   * 缺席 = 没人显式命名过,显示名回落到「<引擎 label> <序号>」自增约定。
-   * ❌ 不许改读 `sessions.title` 代替它:那个字段「显式给的」与「从首轮推出来的」同形,
-   * 读它等于把一整行提示词当成人名。Additive optional,两种形态口径一致。
+  /** Canonical linked identity name: supplied by an explicit creator, then mirrored by the host.
+   * Before provisioning, absence means the identity will receive its serial placeholder.
    */
   agentDisplayName: z.string().optional(),
+  /** Linked identity owns the task name; harness titles stay metadata. */
+  identityNameManaged: z.boolean().optional(),
   titleSource: sessionTitleSourceSchema.optional(),
   providerSessionState: providerSessionStateSchema.optional(),
   pendingRestart: pendingRestartSchema.optional(),
@@ -196,14 +194,11 @@ const acpConfigV1 = z.object({
   model: z.string().optional(),
   /** Reasoning-effort level for the model above. Absent = the CLI's own default for it. */
   effort: z.string().optional(),
-  /**
-   * spec session-graph:起这条会话的一方**显式**给的名字(`gugu_session spawn` 的 `title`)。
-   * 它同时是这个 agent 在咕咕通讯录里的显示名(spec agent-provisioning「命名即寻址名」)。
-   * 缺席 = 没人显式命名过,显示名回落到「<引擎 label> <序号>」自增约定。
-   * ❌ 不许改读 `sessions.title` 代替它:那个字段「显式给的」与「从首轮推出来的」同形,
-   * 读它等于把一整行提示词当成人名。Additive optional,两种形态口径一致。
+  /** Canonical linked identity name: supplied by an explicit creator, then mirrored by the host.
+   * Before provisioning, absence means the identity will receive its serial placeholder.
    */
   agentDisplayName: z.string().optional(),
+  identityNameManaged: z.boolean().optional(),
   titleSource: sessionTitleSourceSchema.optional(),
   providerSessionState: providerSessionStateSchema.optional(),
   pendingRestart: pendingRestartSchema.optional(),

@@ -60,6 +60,14 @@ describe('@ 弹层读会话目录', () => {
     expect(items.map((item) => item.id)).toEqual(['aid:agent-local', 'not-read:dev-c']);
   });
 
+  it('matches the harness invisibly and shows only the canonical task identity name', async () => {
+    directory.mockReturnValueOnce({ peers: [{ ...REMOTE, identity: { users: { ...REMOTE.identity.users, display_name: 'Reviewer' } } }], notRead: [] });
+    const items = await createLocalSessionMentionProvider().search('codex');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: 'aid:agent-remote', name: 'Reviewer' });
+    expect(items[0].description).toBeUndefined();
+  });
+
   it('中文名按拼音全拼、首字母、混拼都能筛到;咕咕号只认全等或前缀', async () => {
     const HAN = { sessionId: 'local-2', identity: { users: { id: 'agent-han', display_name: '咕咕助手', gugu_number: 52013 } }, engine: 'claude' };
     const ids = async (query: string) => {

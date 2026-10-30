@@ -3,7 +3,6 @@ import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
 import type { LocalAgentCreationTool } from '@/lib/agentCreationTools';
 import { filterMentionCandidates } from '@/lib/mentionMatch';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { shellPort } from '@renderer/lib/shell-port';
@@ -68,9 +67,6 @@ function candidatesFromRows(
       name,
       ...(users.session_archived_at != null ? { session_archived_at: users.session_archived_at } : {}),
       number: users.gugu_number == null ? '' : String(users.gugu_number),
-      title: session
-        ? formatSessionTitleForDisplay(session.providerId, session.title).trim() || undefined
-        : undefined,
       engine: engine || undefined,
       iconUrl: iconUrl || undefined,
     }];
@@ -87,7 +83,7 @@ function mentionItemsFromLocalSessionCandidates(
     name: candidate.name,
     type: 'agent' as const,
     session_archived_at: candidate.session_archived_at,
-    alias: candidate.title,
+    harness: candidate.engine,
     guguNumber: candidate.number ? Number(candidate.number) : null,
   }));
   return filterMentionCandidates(searchable, query)
@@ -100,7 +96,6 @@ function mentionItemsFromLocalSessionCandidates(
       kind: 'custom' as const,
       role: 'agent' as const,
       engine: candidate.engine,
-      description: candidate.title,
     }));
 }
 

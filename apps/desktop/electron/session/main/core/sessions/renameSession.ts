@@ -10,6 +10,15 @@ import { sessionTitleFromPrompt } from '@shared/core/sessions/session-title';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import { sessionEvents } from './session-events';
+import { taskAgentName, taskAgentNameLength, MAX_AUTOMATIC_TASK_AGENT_NAME_GRAPHEMES } from '@gugu/core/shared/taskAgentName';
+
+type IdentityRename = (sessionId: string, name: string, source: 'manual' | 'generated') => Promise<boolean | null>;
+let renameIdentity: IdentityRename | undefined;
+
+/** The host owns the task → identity binding and the authenticated cloud write. */
+export function setTaskIdentityRename(rename: IdentityRename | undefined): void {
+  renameIdentity = rename;
+}
 
 type TitleRow = {
   title: string;
@@ -19,6 +28,8 @@ type TitleRow = {
 
 /** 人或 agent 在咕咕里显式改名(侧栏、手机、页签)。显式命名是最高档:此后自动起的名不再盖它。 */
 export async function renameSession(sessionId: string, name: string) {
+  name = taskAgentName(name);
+  if (renameIdentity && await renameIdentity(sessionId, name, 'manual') !== null) return;
   writeSessionTitle(sessionId, name, 'manual', () => true);
 }
 
@@ -29,6 +40,7 @@ export async function renameSession(sessionId: string, name: string) {
  */
 export function applyHarnessTitle(sessionId: string, title: string): boolean {
   return writeSessionTitle(sessionId, title, 'harness', (row, next) => {
+    if (row.config?.identityNameManaged) return false;
     const source = titleSourceOf(row);
     return source !== 'manual' && source !== 'generated' && !isFirstPromptEcho(next, row.config?.firstUtterance);
   });
@@ -39,10 +51,33 @@ export function applyHarnessTitle(sessionId: string, title: string): boolean {
  * 自动名先到先得、只起一次。判断与写入在同一个同步事务里,模型回来的那一刻才看,❌ 在发请求时看
  * (请求在路上的几秒里,人可能刚改了名)。返回这一次是否真的改了标题。
  */
-export function applyGeneratedTitle(sessionId: string, title: string): boolean {
+export function applyGeneratedTitle(sessionId: string, title: string): boolean | Promise<boolean> {
+  title = title.trim();
+  if (!title || taskAgentNameLength(title) > MAX_AUTOMATIC_TASK_AGENT_NAME_GRAPHEMES) return false;
+  const state = sessionTitleIsFallback(sessionId);
+  if (!state.fallback || isFirstPromptEcho(title, state.firstUtterance)) return false;
+  if (renameIdentity) return renameIdentity(sessionId, title, 'generated').then((applied) =>
+    applied ?? writeSessionTitle(sessionId, title, 'generated', (row) => titleSourceOf(row) === undefined));
   return writeSessionTitle(sessionId, title, 'generated', (row, next) =>
     titleSourceOf(row) === undefined && !isFirstPromptEcho(next, row.config?.firstUtterance)
   );
+}
+
+/** Adopt a canonical identity name on its host, without renaming the identity again. */
+export function mirrorTaskIdentityName(sessionId: string, name: string, source?: SessionTitleSource): void {
+  const written = db.transaction((tx) => {
+    const row = tx.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!row) return null;
+    const config = row.config ?? { version: '1' as const, type: row.runtime };
+    const titleSource = source ?? (config.identityNameManaged && config.agentDisplayName && row.title !== name ? 'manual' : config.titleSource);
+    if (row.title === name && config.agentDisplayName === name && config.identityNameManaged && config.titleSource === titleSource) return null;
+    tx.update(sessions).set({ title: name, config: { ...config, agentDisplayName: name, identityNameManaged: true, titleSource } })
+      .where(eq(sessions.id, sessionId)).run();
+    return row;
+  });
+  if (!written || written.title === name) return;
+  sessionEvents._emit('session:renamed', sessionId, written.projectId, name);
+  events.emit(sessionChangedChannel, { sessionId, projectId: written.projectId, changes: { title: name, agentDisplayName: name } });
 }
 
 /**
@@ -73,7 +108,7 @@ function writeSessionTitle(
   source: SessionTitleSource,
   accept: (row: TitleRow, title: string) => boolean
 ): boolean {
-  const title = collapse(rawTitle).slice(0, MAX_SESSION_TITLE_LENGTH);
+  const title = source === 'manual' ? rawTitle.trim() : collapse(rawTitle).slice(0, MAX_SESSION_TITLE_LENGTH);
   if (!title) return false;
 
   const written = db.transaction((tx) => {
@@ -93,7 +128,8 @@ function writeSessionTitle(
 
     // 老会话的 config 可能是 null:那一行记不下来历,由 `titleSourceOf` 按标题形状判。
     tx.update(sessions)
-      .set({ title, ...(row.config && { config: { ...row.config, titleSource: source } }) })
+      .set({ title, ...(row.config && { config: { ...row.config, titleSource: source,
+        ...(source === 'manual' ? { agentDisplayName: title } : {}) } }) })
       .where(eq(sessions.id, sessionId))
       .run();
     return row;
@@ -115,6 +151,7 @@ function writeSessionTitle(
  * 分叉名都长在同一列里,❌ 升级之后被 harness 起的名盖掉。
  */
 function titleSourceOf(row: TitleRow): SessionTitleSource | undefined {
+  if (row.config?.identityNameManaged) return row.config.titleSource;
   const recorded = row.config?.titleSource;
   if (recorded) return recorded;
   return isDerivedFallbackTitle(row.title, row.config?.firstUtterance, row.provider) ? undefined : 'manual';

@@ -10,7 +10,7 @@ import { Hint } from '../ui/Tooltip'
 
 /**
  * The agent's name line: its owner renames it in place from a pencil beside the name (the assistant's name in
- * Settings has the same shape). Edits the agent identity, independently of task titles, local aliases and group roles.
+ * Settings has the same shape). Edits the canonical identity name; a linked task mirrors that name on its host.
  */
 export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membership, className, children }: {
   agentId: string

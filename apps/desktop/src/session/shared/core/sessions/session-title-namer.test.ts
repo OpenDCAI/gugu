@@ -80,8 +80,8 @@ describe('起名要求(设置里追加的风格偏好)', () => {
 
 describe('parseGeneratedSessionTitle', () => {
   it('收 JSON 的 title,包在代码块里也认', () => {
-    expect(parseGeneratedSessionTitle('{"title": "verifyLoginOtp 登录后跳回首页"}')).toBe('verifyLoginOtp 登录后跳回首页');
-    expect(parseGeneratedSessionTitle('```json\n{"title": "agents.json ENOENT 启动崩溃"}\n```')).toBe('agents.json ENOENT 启动崩溃');
+    expect(parseGeneratedSessionTitle('{"title": "登录后跳回首页"}')).toBe('登录后跳回首页');
+    expect(parseGeneratedSessionTitle('```json\n{"title": "agents.json 启动崩溃"}\n```')).toBe('agents.json 启动崩溃');
   });
 
   it('只回了一行名字的也收,清掉引号与结尾标点', () => {
@@ -90,8 +90,9 @@ describe('parseGeneratedSessionTitle', () => {
 
   it('太长(在写句子)、空、像标签、坏 JSON 的不收', () => {
     expect(parseGeneratedSessionTitle(`{"title": "${'很长'.repeat(31)}"}`)).toBeNull();
-    // 阳控:英文名天然更长,53 个字符的正常名字要收(用英文起名实测撞过 50 的旧上限)。
-    expect(parseGeneratedSessionTitle('{"title": "Mobile bottom tab blocked by iPhone SE home indicator"}')).toBe('Mobile bottom tab blocked by iPhone SE home indicator');
+    expect(parseGeneratedSessionTitle('{"title": "Mobile bottom tab blocked by iPhone SE home indicator"}')).toBeNull();
+    expect(parseGeneratedSessionTitle(`{"title": "${'👨‍👩‍👧‍👦'.repeat(20)}"}`)).toBe('👨‍👩‍👧‍👦'.repeat(20));
+    expect(parseGeneratedSessionTitle(`{"title": "${'👨‍👩‍👧‍👦'.repeat(21)}"}`)).toBeNull();
     expect(parseGeneratedSessionTitle('{"title": ""}')).toBeNull();
     expect(parseGeneratedSessionTitle('{"title": "<gugu_delivery from=x>"}')).toBeNull();
     expect(parseGeneratedSessionTitle('{"title": ')).toBeNull();

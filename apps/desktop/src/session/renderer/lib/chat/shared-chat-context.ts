@@ -4,7 +4,7 @@ import { installedExtensionsStore } from '@renderer/features/extensions/installe
 import { readSelfIdentityBridge } from '@/lib/selfIdentityBridge';
 import { rpc } from '@renderer/lib/ipc';
 import { advertisedCommandProvider } from './advertised-command-provider';
-import { senderAvatarUrl, subscribeSenderAvatars } from './sender-avatar';
+import { senderAvatarUrl, senderDisplayName, subscribeSenderAvatars } from './sender-avatar';
 import { SESSION_CHAT_FONT_STACK } from './font-stack';
 import { chatMentionProvider, registerIssueMentionIcons } from './chat-mention-provider';
 import { subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
@@ -57,6 +57,7 @@ export function createSessionChatContext(): ChatContext {
     // #6306 投递卡头像:读咕咕壳的本地身份缓存(与聊天页同一份、同一个投影),桥由咕咕壳在会话页 bundle 之前装上。
     // session:<id> 画这条会话的属主 agent(宿主花名册回答会话 → agent),所以两张表变了都要重读。
     senderAvatar: (fromId) => senderAvatarUrl(fromId),
+    senderName: (fromId) => senderDisplayName(fromId),
     subscribeSenderAvatars,
     // App 代发的投递卡写 App 的名字:这台装着的 App、界面语言(store 的 appName);没装就是 null,卡上写 id。
     appName: (appId) => installedExtensionsStore.appName(appId) ?? null,

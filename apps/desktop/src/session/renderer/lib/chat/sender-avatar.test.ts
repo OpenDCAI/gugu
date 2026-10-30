@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { dicebearAvatarDataUri, displayAvatarUrl } from '@/lib/dicebearAvatar';
 import type { DisplayIdentity } from '@/lib/displayIdentity';
 import type { IdentityDirectoryBridge, IdentityDirectorySnapshot } from '@/lib/identityDirectoryBridge';
-import { senderAvatarUrl } from './sender-avatar';
+import { senderAvatarUrl, senderDisplayName } from './sender-avatar';
 
 // #6306 投递卡头像 = 聊天页同一份身份缓存、同一个投影。
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -29,6 +29,15 @@ function bridge(snapshot: IdentityDirectorySnapshot | null) {
 
 describe('senderAvatarUrl (#6306)', () => {
   const cache = { [ALICE]: identity(ALICE, PHOTO), [BOB]: identity(BOB, null) };
+
+  it('resolves historical user and session sender names from the current identity', () => {
+    const identities = { [ALICE]: { ...identity(ALICE, PHOTO, 'agent'), display_name: 'Original' } };
+    const { b } = bridge(identities);
+    expect(senderDisplayName(`user:${ALICE}`, b)).toBe('Original');
+    identities[ALICE] = { ...identities[ALICE], display_name: 'Current name' };
+    expect(senderDisplayName(`user:${ALICE}`, b)).toBe('Current name');
+    expect(senderDisplayName('session:task-1', b, () => ALICE)).toBe('Current name');
+  });
 
   it('an uploaded avatar is drawn as-is', () => {
     expect(senderAvatarUrl(`user:${ALICE}`, bridge(cache).b)).toBe(PHOTO);

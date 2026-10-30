@@ -1,5 +1,4 @@
 import { computed, makeAutoObservable, observable, runInAction } from 'mobx';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import {
   buildSessionTree,
   familiesByRoot,
@@ -753,7 +752,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             ? new Date(session.data.lastInteractedAt).getTime()
             : 0,
           group: sidebarStateGroup(session.groupStatus),
-          title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
+          title: sessionAgentNames.displayNameFor(session.data.id, session.data.providerId, session.data.title),
         });
       }
     }
@@ -786,7 +785,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         time: session.lastInteractedAt ? new Date(session.lastInteractedAt).getTime() : 0,
         // 不是此刻的读数(底稿 / 离线):「在跑」不算数,与手机同一口径(remoteAgentStatus)。
         group: sidebarStateGroup(remoteAgentStatus(session, listed.live)?.status ?? null),
-        title: formatSessionTitleForDisplay(session.harness, session.title),
+        title: sessionAgentNames.displayNameFor(session.conversationId, session.harness, session.title),
       });
     }
     entries.sort((a, b) => b.time - a.time);
@@ -929,7 +928,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
               ? new Date(session.data.lastInteractedAt).getTime()
               : 0,
             group: sidebarStateGroup(session.groupStatus),
-            title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
+            title: sessionAgentNames.displayNameFor(session.data.id, session.data.providerId, session.data.title),
           });
         }
       }

@@ -4,7 +4,6 @@ import { IntegrationSetupModal } from '@renderer/features/integrations/integrati
 import { PromptModal } from '@renderer/features/library/prompts/prompt-modal'
 import { McpServerModal } from '@renderer/features/mcp/components/mcp-server-modal'
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal'
-import { RenameAgentModal } from '@renderer/features/sessions/rename-agent-modal'
 import { CreateProjectNameModal } from '@renderer/features/projects/components/create-project-name-modal'
 import { LocalFolderProjectModal } from '@renderer/features/projects/components/local-folder-project-modal'
 import { AgentSignInModal } from '@renderer/features/settings/agents-page/AgentSignInModal'
@@ -33,7 +32,6 @@ export const modalRegistry = {
   mcpServerModal: createModal(McpServerModal, { size: 'lg' }),
   createPrModal: createModal(CreatePrModal, { size: 'md' }),
   renameSessionModal: createModal(RenameSessionModal, { size: 'xs' }),
-  renameAgentModal: createModal(RenameAgentModal, { size: 'xs' }),
   integrationSetupModal: createModal(IntegrationSetupModal, { size: 'md' }),
   githubConnectModal: createModal(GithubConnectModal, { size: 'md' }),
   agentSignInModal: createModal(AgentSignInModal, { size: 'lg' }),

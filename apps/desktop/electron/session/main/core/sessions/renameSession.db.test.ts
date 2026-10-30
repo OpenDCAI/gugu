@@ -24,7 +24,7 @@ vi.mock('./session-events', () => ({
   sessionEvents: { _emit: mocks.renamed },
 }));
 
-import { applyGeneratedTitle, applyHarnessTitle, renameSession, sessionTitleIsFallback } from './renameSession';
+import { applyGeneratedTitle, applyHarnessTitle, renameSession, sessionTitleIsFallback, mirrorTaskIdentityName, setTaskIdentityRename } from './renameSession';
 
 // 优先级:显式命名(人/agent)> harness 自己拟的名 > 首轮兜底。
 describe('conversation title precedence', () => {
@@ -38,6 +38,7 @@ describe('conversation title precedence', () => {
   };
 
   beforeEach(async () => {
+    setTaskIdentityRename(undefined);
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
     mocks.emit.mockReset();
@@ -66,6 +67,7 @@ describe('conversation title precedence', () => {
   });
 
   afterEach(() => {
+    setTaskIdentityRename(undefined);
     fixture.close();
     mocks.db = undefined;
   });
@@ -194,6 +196,39 @@ describe('conversation title precedence', () => {
   it('blank or missing targets write nothing', () => {
     expect(applyHarnessTitle('fallback', '   ')).toBe(false);
     expect(applyHarnessTitle('missing', 'Title')).toBe(false);
+    expect(mocks.emit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the canonical serial until one automatic identity name is accepted, then freezes it', async () => {
+    fixture.sqlite.prepare("UPDATE sessions SET config = json_set(config, '$.identityNameManaged', json('true')) WHERE id = ?").run('fallback');
+    mirrorTaskIdentityName('fallback', 'Claude 12');
+    expect(rowOf('fallback')).toEqual({ title: 'Claude 12', titleSource: undefined });
+    expect(applyHarnessTitle('fallback', 'Another harness name')).toBe(false);
+    const writes: string[] = [];
+    setTaskIdentityRename(async (id, name, source) => {
+      if (source === 'generated' && !sessionTitleIsFallback(id).fallback) return false;
+      writes.push(name);
+      mirrorTaskIdentityName(id, name, source);
+      return true;
+    });
+    expect(await applyGeneratedTitle('fallback', 'Login repair')).toBe(true);
+    expect(await applyGeneratedTitle('fallback', 'Later automatic')).toBe(false);
+    expect(applyHarnessTitle('fallback', 'Harness update')).toBe(false);
+    expect(writes).toEqual(['Login repair']);
+    await renameSession('fallback', 'Owner choice');
+    expect(writes).toEqual(['Login repair', 'Owner choice']);
+    expect(rowOf('fallback')).toEqual({ title: 'Owner choice', titleSource: 'manual' });
+  });
+
+  it('adopts remote names on the host without changing identity or archive/Restore bindings', () => {
+    mirrorTaskIdentityName('named', 'Canonical creation');
+    mirrorTaskIdentityName('named', 'Changed while offline');
+    expect(rowOf('named')).toEqual({ title: 'Changed while offline', titleSource: 'manual' });
+    const config = JSON.parse((fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get('named') as { config: string }).config);
+    expect(config.agentDisplayName).toBe('Changed while offline');
+    expect(config.identityNameManaged).toBe(true);
+    mocks.emit.mockReset();
+    mirrorTaskIdentityName('named', 'Changed while offline');
     expect(mocks.emit).not.toHaveBeenCalled();
   });
 });

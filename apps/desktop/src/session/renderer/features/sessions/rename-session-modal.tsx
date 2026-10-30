@@ -11,6 +11,7 @@ import {
 } from '@renderer/lib/ui/dialog';
 import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
+import { MAX_TASK_AGENT_NAME_GRAPHEMES, taskAgentNameLength } from '@gugu/core/shared/taskAgentName';
 import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { sessionRegistry } from './stores/session-registry';
@@ -31,10 +32,7 @@ type RenameSessionModalArgs = {
 
 type Props = BaseModalProps<void> & RenameSessionModalArgs;
 
-/**
- * spec session-graph「会话页菜单只动它点名的那条会话」:标题行写的是会话标题,所以这里改的也是会话标题
- * —— 与侧栏右键「重命名」落到同一个字段。❌ 改任务名:那是用户从没见过的内部 slug,改了标题行纹丝不动。
- */
+/** Local and remote task menus share this dialog and the canonical identity rename operation. */
 export const RenameSessionModal = observer(function RenameSessionModal({
   sessionId,
   currentTitle,
@@ -49,7 +47,8 @@ export const RenameSessionModal = observer(function RenameSessionModal({
   const [error, setError] = useState<string | null>(null);
 
   const normalized = title.trim();
-  const isValid = normalized.length > 0 && normalized !== currentTitle;
+  const withinLimit = labels ? normalized.length <= MAX_SESSION_TITLE_LENGTH : taskAgentNameLength(normalized) <= MAX_TASK_AGENT_NAME_GRAPHEMES;
+  const isValid = normalized.length > 0 && withinLimit && normalized !== currentTitle;
 
   const handleSubmit = async () => {
     if (!isValid || isSubmitting) return;
@@ -77,6 +76,7 @@ export const RenameSessionModal = observer(function RenameSessionModal({
             <FieldLabel>{labels?.field ?? translate('task.renameNameLabel')}</FieldLabel>
             <Input
               value={title}
+              maxLength={labels ? MAX_SESSION_TITLE_LENGTH : undefined}
               onChange={(e) => {
                 setTitle(e.target.value);
                 setError(null);
@@ -84,7 +84,6 @@ export const RenameSessionModal = observer(function RenameSessionModal({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleSubmit();
               }}
-              maxLength={MAX_SESSION_TITLE_LENGTH}
               data-autofocus
               autoFocus
             />

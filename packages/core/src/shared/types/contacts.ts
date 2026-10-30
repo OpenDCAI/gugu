@@ -5,6 +5,7 @@ export type FriendRequestStatus = 'pending' | 'accepted' | 'rejected'
 export interface ContactUser {
   id: string
   gugu_number?: number | null
+  name_serial?: number | null
   display_name: string
   avatar: string | null
   // @@@no-peer-email (#635) - email is never fetched for peers (PII; see contacts CONTACT_USER_SELECT).

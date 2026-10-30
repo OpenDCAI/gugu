@@ -9,7 +9,7 @@ import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { isSelfAddress, shownSender, useSelfIdentity } from '@session-chat/lib/self-identity';
-import { useSenderAvatar } from '@session-chat/lib/sender-avatar';
+import { useSenderAvatar, useSenderName } from '@session-chat/lib/sender-avatar';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
@@ -257,6 +257,7 @@ function SingleDelivery(props: {
   const commands = useCommands();
   const self = useSelfIdentity();
   const senderAvatar = useSenderAvatar();
+  const senderName = useSenderName();
   const namers: Namers = { appName: useAppName(), chatName: useChatName() };
   const mCtx = () => props.ctx.measureCtx?.();
   const factsId = () => deliveryFactsId(props.data.id);
@@ -283,7 +284,7 @@ function SingleDelivery(props: {
   const namedSender = () => {
     const f = facts();
     if (!f) return null;
-    return isSelfAddress(f.fromId, self()) ? translate('transcript.deliveryFromMe') : shownSender(f.from, f.fromId, self());
+    return isSelfAddress(f.fromId, self()) ? translate('transcript.deliveryFromMe') : senderName(f.fromId) ?? shownSender(f.from, f.fromId, self());
   };
 
   const sender = () => {

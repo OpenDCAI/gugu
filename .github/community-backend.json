@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e968187519872e5f5df34be69c4a8799f2e936af",
-  "status": "merged in OpenDCAI/gugu-supabase#80; includes project-file version handoffs and settled upload reservations"
+  "ref": "a8a19db021dfb5ab1fce7fab7bffe25d431a8ff2",
+  "status": "merged in OpenDCAI/gugu-supabase#88; includes task-agent serial metadata and explicit task names"
 }

@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { useSenderName } from '@session-chat/lib/sender-avatar';
 import { For, Show } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { useSelfIdentity, shownSender, isSelfAddress } from '@session-chat/lib/self-identity';
@@ -97,6 +98,7 @@ export function ConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; 
 }
 
 function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+  const senderName = useSenderName();
   const self = useSelfIdentity();
   const commands = useCommands();
   const translate = useChatTranslator();
@@ -107,7 +109,7 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     const sender = facts();
     if (!sender) return self()?.displayName ?? translate('transcript.deliveryUnknownSender');
     if (isSelfAddress(sender.fromId, self()) && self()?.displayName?.trim()) return self()!.displayName!.trim();
-    return shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
+    return senderName(sender.fromId) ?? shownSender(sender.from, sender.fromId, self()) ?? translate('transcript.deliveryUnknownSender');
   };
   const chatName = useChatName();
   const senderTarget = (): MessageSenderTarget | null => {

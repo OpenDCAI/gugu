@@ -7,7 +7,6 @@ import { makeAutoObservable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { getPortalContainer } from '@renderer/lib/portal-container';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
@@ -204,7 +203,7 @@ export function useSidebarIdentityCardTrigger(sessionId: string, enabled: boolea
 }
 
 type RowSpec = {
-  key: 'sessionName' | 'agentName' | 'device' | 'folder';
+  key: 'sessionName' | 'device' | 'folder';
   label: string;
   /** null = 这一格没有(agent 未分配 / 文件夹不知道):写 missing 那句且不可复制。 */
   value: string | null;
@@ -231,11 +230,9 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
   onDismiss: () => void;
 }) {
   const { translate } = useSessionMessages();
-  const identity = sessionAgentNames.identityFor(sessionId);
 
   const rows: RowSpec[] = [
     { key: 'sessionName', label: translate('identityCard.sessionName'), value: title },
-    { key: 'agentName', label: translate('identityCard.agentName'), value: identity?.displayName ?? null },
   ];
   // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
   const machine = machineRegistry.machineOf(projectId);

@@ -15,6 +15,8 @@ export interface MentionSearchable {
   /** owner 给这个人起的备注(联系人 alias)。 */
   alias?: string | null
   guguNumber?: number | null
+  /** Search metadata only; it is never appended to the visible name. */
+  harness?: string | null
 }
 
 const IGNORED = /[\s\p{P}\p{S}]+/gu
@@ -77,7 +79,7 @@ export function mentionMatchScore(candidate: MentionSearchable, query: string): 
     ? (String(candidate.guguNumber) === key ? 4 : String(candidate.guguNumber).startsWith(key) ? 3 : 0)
     : 0
   const textScore = (text: string | null | undefined) => matchText(text, query)?.score ?? 0
-  return Math.max(textScore(candidate.name), textScore(candidate.alias), numberScore)
+  return Math.max(textScore(candidate.name), textScore(candidate.alias), textScore(candidate.harness), numberScore)
 }
 
 /** 过滤并按匹配度排序;同分保持原顺序(名册顺序本身有意义,如话题成员在前)。 */

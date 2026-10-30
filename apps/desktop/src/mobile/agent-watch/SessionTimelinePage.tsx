@@ -1,3 +1,4 @@
+import { resolveSessionDisplayName } from '@/session/shared/core/sessions/session-display-name'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { showPhoneAppView } from '@/components/appSlot/phoneAppState'
 import { reaction } from 'mobx'
@@ -99,18 +100,16 @@ export function SessionTimelinePage({
   const presentation = sessionPresentation(session, online)
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
-  const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
+  const title = resolveSessionDisplayName({ identityName: agent?.displayName, title: session.title, providerId: session.harness }) ?? ''
   const taskHeader = {
-    title: agent && !distinctAgentName ? <span data-testid="agent-watch-agent-name">{session.title}</span> : session.title,
+    title: agent ? <span data-testid="agent-watch-agent-name">{title}</span> : title,
     titleLeading: (
       <span className="gg-aw-title-avatar">
         <SessionAvatar agentId={agent?.agentUserId ?? session.agent?.userId} sessionId={session.conversationId} presentation={presentation} />
       </span>
     ),
-    subtitle: distinctAgentName || presentation ? (
+    subtitle: presentation ? (
       <span className="gg-aw-head-status">
-        {distinctAgentName ? <span className="gg-aw-head-agent" data-testid="agent-watch-agent-name">{distinctAgentName}</span> : null}
-        {distinctAgentName && presentation ? <span aria-hidden="true">·</span> : null}
         {presentation ? (
           <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
             {agentStatusText(presentation.label)}

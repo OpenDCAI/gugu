@@ -80,6 +80,7 @@ export type ChatContextOptions = {
    * not known yet). Omitted = no avatars.
    */
   senderAvatar?: (fromId: string | null) => string | null;
+  senderName?: (fromId: string | null) => string | null;
   /** Optional change source so mounted cards re-read `senderAvatar` when the host's cache changes. */
   subscribeSenderAvatars?: (listener: () => void) => () => void;
   /**
@@ -114,6 +115,7 @@ export type ChatContext = {
   readonly selfIdentity: () => SelfIdentity | null;
   /** Reactive accessor for a delivery sender's avatar URL; `null` = draw no avatar. */
   readonly senderAvatar: (fromId: string | null) => string | null;
+  readonly senderName: (fromId: string | null) => string | null;
   /** Reactive accessor for an App's name by id; `null` = not known here. */
   readonly appName: (appId: string) => string | null;
   /** Reactive accessor for a group's name by chat id; `null` = not known here. */
@@ -155,6 +157,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
   let translate!: ChatTranslator;
   let selfIdentity!: () => SelfIdentity | null;
   let senderAvatar!: (fromId: string | null) => string | null;
+  let senderName!: (fromId: string | null) => string | null;
   let appName!: (appId: string) => string | null;
   let chatName!: (chatId: string) => string | null;
   let disposeRoot!: () => void;
@@ -190,6 +193,10 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
     senderAvatar = (fromId) => {
       avatarEpoch();
       return readAvatar(fromId);
+    };
+    senderName = (fromId) => {
+      avatarEpoch();
+      return opts.senderName?.(fromId) ?? null;
     };
     const [appNameEpoch, setAppNameEpoch] = createSignal(0);
     bumpAppNames = () => setAppNameEpoch((value) => value + 1);
@@ -240,6 +247,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
     translate,
     selfIdentity,
     senderAvatar,
+    senderName,
     appName,
     chatName,
     sharedCaches,

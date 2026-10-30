@@ -53,6 +53,15 @@ function fakeSource(options: { all?: SessionShellAgentName[]; remote?: SessionSh
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('sessionAgentNames 覆盖别的机器上的会话 (#6264)', () => {
+  it('uses the current canonical identity for task labels and follows the existing rename event', () => {
+    const fake = fakeSource();
+    const names = new SessionAgentNames(fake.source);
+    names.start();
+    names.note('task', 'Canonical name', 'agent');
+    expect(names.displayNameFor('task', 'codex', 'Old local title')).toBe('Canonical name');
+    fake.push({ conversationId: 'task', displayName: 'Renamed identity', agentUserId: 'agent' });
+    expect(names.displayNameFor('task', 'codex', 'Old local title')).toBe('Renamed identity');
+  });
   it('那台机器的会话列表到了 ⇒ 从会话目录收进来,远端会话的身份卡有名字与 ID', async () => {
     const fake = fakeSource({ all: [LOCAL] });
     const names = new SessionAgentNames(fake.source);

@@ -11,6 +11,10 @@ import {
 } from './agentAvatar'
 import type { GroupAvatarMember, GroupMemberRole } from '@gugu/core/shared/types/chat'
 import { i18n } from '@/i18n'
+import { updateOwnedAgentIdentity } from '@gugu/core/cloud/ownedAgent'
+import { taskAgentName } from '@gugu/core/shared/taskAgentName'
+import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { isMyAssistant } from './myAssistant'
 import { buildLookUrl, lookObjectPath, type AgentLook } from '@/components/agentAvatar/look'
 
 import { DISPLAY_IDENTITY_SELECT, readAgentProfileTypes, readDisplayIdentities, readOwnedDisplayIdentities, readRequiredDisplayIdentities } from './identityReadAdapter'
@@ -35,10 +39,6 @@ const FRIEND_REQUEST_HISTORY_LIMIT = 100
 const identity = () => dataClient.schema('identity')
 const chat = () => dataClient.schema('chat')
 
-/** Update an owned agent's editable identity fields. */
-function updateOwnedAgentRow(agentUserId: string, payload: Record<string, unknown>) {
-  return identity().from('users').update(dbPayload(payload)).eq('id', agentUserId).eq('type', 'agent').select(DISPLAY_IDENTITY_SELECT)
-}
 // @@@no-email-select (#635) - email is PII and MUST NOT be fetched for peers. identity.users RLS is
 // @@@1761 device_id:云 agent 判定(isCloudAgentMarked)需要——好友的云 agent 无 agent_type 富化,只有 'cloud:' 前缀可判
 const GROUP_CHAT_SELECT = 'id, public_id, kind, name, avatar_url'
@@ -560,28 +560,32 @@ export const contactsService = {
     fields: { display_name?: string; bio?: string; avatar?: string | null },
   ): Promise<ContactUser> {
     const payload: { display_name?: string; bio?: string | null; avatar?: string | null } = {}
+    const ownerId = await getCurrentAuthUserId()
     let previousAvatar: string | null = null
-    if (fields.avatar !== undefined) {
+    let linkedTask = false
+    if (fields.avatar !== undefined || fields.display_name !== undefined) {
       const { data: current, error: currentError } = await identity()
         .from('users')
-        .select('avatar')
+        .select('avatar,name_serial')
         .eq('id', agentUserId)
         .eq('type', 'agent')
         .single()
       if (currentError) throw new Error(messageForUser(currentError), { cause: currentError })
       previousAvatar = (current as { avatar?: string | null }).avatar ?? null
+      linkedTask = !isMyAssistant(ownerId, agentUserId) && (current.name_serial != null || Object.values(liveDeviceSessions())
+        .some((directory) => directory.sessions.some((session) => session.agent?.userId === agentUserId)))
     }
     if (fields.display_name !== undefined) {
       const display_name = fields.display_name.trim()
       if (!display_name) throw new Error(i18n.t('errors.nameRequired', { ns: 'contacts' }))
-      payload.display_name = display_name
+      payload.display_name = linkedTask ? taskAgentName(display_name) : display_name
     }
     if (fields.bio !== undefined) {
       const bio = fields.bio.trim()
       payload.bio = bio === '' ? null : bio
     }
     if (fields.avatar !== undefined) payload.avatar = fields.avatar
-    const { data, error } = await updateOwnedAgentRow(agentUserId, payload).single()
+    const { data, error } = await updateOwnedAgentIdentity(identity(), agentUserId, payload, DISPLAY_IDENTITY_SELECT, ownerId).single()
     if (error) throw new Error(messageForUser(error), { cause: error })
     const updated = data as ContactUser
     const previousPath = managedAgentAvatarPath(previousAvatar)

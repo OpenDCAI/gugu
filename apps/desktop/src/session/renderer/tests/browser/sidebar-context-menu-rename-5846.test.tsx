@@ -74,6 +74,7 @@ vi.mock('@renderer/lib/layout/navigation-provider', () => ({
 }))
 
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names'
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener'
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
@@ -92,6 +93,7 @@ beforeEach(() => {
   document.body.append(host)
   root = createRoot(host)
   renameSession.mockClear()
+  sessionAgentNames.identities.clear()
   modalStore.closeModal()
 })
 
@@ -130,6 +132,7 @@ async function 右键改名(): Promise<void> {
     document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')
   )
   const item = items.find((el) => /重命名|Rename/.test(el.textContent ?? ''))
+  expect(items.filter((el) => /重命名|Rename/.test(el.textContent ?? ''))).toHaveLength(1)
   expect(
     item,
     `菜单里该有「重命名」这一格,实际:${items.map((i) => i.textContent).join(' | ')}`
@@ -145,6 +148,14 @@ it('#5846 右键「重命名」:打开统一弹窗并保持可交互', async () 
   await until('rename modal input renders', () => renameInput() !== null)
   expect(renameInput(), 'rename modal must remain mounted').not.toBeNull()
   expect(modalStore.activeModalId).toBe('renameSessionModal')
+})
+
+it('uses the canonical name and offers only one task/agent rename entry', async () => {
+  sessionAgentNames.note('conv-1', 'Canonical identity', 'agent-1')
+  mount()
+  sessionNavigationFocus.focusLayer = 'nav'
+  await 右键改名()
+  expect(modalStore.activeModalArgs).toMatchObject({ sessionId: 'conv-1', currentTitle: 'Canonical identity' })
 })
 
 it('#5846 改的是右键那一行 —— 与键盘光标 / 主区停在哪条会话无关', async () => {

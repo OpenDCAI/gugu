@@ -11,6 +11,7 @@ import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { findMentionSpans } from '@gugu/core/shared/mentionToken.mjs'
 import { markdownMentionReferences } from '@gugu/session-shared/markdown/dialect'
 import { i18n } from '@/i18n'
+import { identityDisplayName } from './displayIdentity'
 
 export interface MentionCandidate {
   id: string
@@ -21,19 +22,20 @@ export interface MentionCandidate {
   /** 只用于 @ 候选搜索(lib/mentionMatch):咕咕号与 owner 给的备注。插入与投递仍用 name。 */
   guguNumber?: number | null
   alias?: string | null
+  harness?: string | null
   session_archived_at?: string | null
 }
 
 export type GroupRosterCandidate = MentionCandidate & { type: 'human' | 'agent' }
 
-type RosterIdentity = { display_name: string; avatar?: string | null; owner_user_id?: string | null; gugu_number?: number | null; session_archived_at?: string | null }
+type RosterIdentity = { display_name: string; name_serial?: number | null; avatar?: string | null; owner_user_id?: string | null; gugu_number?: number | null; session_archived_at?: string | null; agent_type?: string | null }
 
 // 名册条目的附加字段:agent 的主人名(候选里显示「· 某某的」)与咕咕号(候选搜索用)。
 function rosterExtras(type: MentionCandidate['type'], identity: RosterIdentity, identities: Readonly<Record<string, RosterIdentity>>) {
   const ownerDisplayName = type === 'agent' && identity.owner_user_id
     ? identities[identity.owner_user_id]?.display_name
     : undefined
-  const guguNumber = { avatar: identity.avatar, ...(identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}),
+  const guguNumber = { avatar: identity.avatar, ...(identity.agent_type ? { harness: identity.agent_type } : {}), ...(identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}),
     ...(type === 'agent' && identity.session_archived_at != null ? { session_archived_at: identity.session_archived_at } : {}) }
   return ownerDisplayName?.trim() ? { ownerDisplayName, ...guguNumber } : guguNumber
 }
@@ -48,9 +50,13 @@ export function buildGroupRosterCandidates(
   // 「约 @ 3点」就把消息静默投给了这个成员,是 agent 的话还会白跑一轮任务。#1624 已写明解析失败绝不用
   // 占位值冒充,而这里的值比显示更严重 —— 它是投递依据。身份的来源见 replaceGroupRoster(名册与身份同事务发布)。
   const members = [...snapshot.humans, ...snapshot.agents.filter((agent) => agent.account_status !== 'removed')]
+  const named = members.flatMap((member) => identities[member.id] ? [{ id: member.id, ...identities[member.id] }] : [])
   return members.flatMap((member) => {
-    const name = identities[member.id]?.display_name
-    return name && name.trim() !== '' ? [{ id: member.id, name, type: member.type, ...rosterExtras(member.type, identities[member.id], identities) }] : []
+    const identity = identities[member.id]
+    const name = identity && identityDisplayName({ id: member.id, ...identity }, named)
+    const harness = snapshot.agents.find((agent) => agent.id === member.id)?.client
+    return name && name.trim() !== '' ? [{ id: member.id, name, type: member.type, ...rosterExtras(member.type, identities[member.id], identities),
+      ...(harness ? { harness } : {}) }] : []
   })
 }
 
@@ -78,7 +84,11 @@ export function withSourceLineCandidates(
     const name = identity?.display_name
     return name && name.trim() !== '' ? [{ id, name, type: identity.type, ...rosterExtras(identity.type, identity, identities) }] : []
   })
-  return extra.length ? [...topicCandidates, ...extra] : topicCandidates
+  const combined = [...topicCandidates, ...extra]
+  const named = combined.flatMap((member) => identities[member.id] ? [{ id: member.id, ...identities[member.id] }] : [])
+  return combined.map((member) => identities[member.id]
+    ? { ...member, name: identityDisplayName({ id: member.id, ...identities[member.id] }, named, member.alias) }
+    : member)
 }
 
 /** Sentinel user id the DB @-branch treats as "@all" (broadcast). */

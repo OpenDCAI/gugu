@@ -1,4 +1,3 @@
-import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
 import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks'
 import {useAuth} from '@/store/auth'
@@ -49,7 +48,7 @@ function SubAgents({ assistant, askInChat }: PhonePageProps) {
       onClick={() => askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</Button>} /></AssistantSection>
     : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket}
       title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-      {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
+      {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={task.title}
         trailing={<StatusGlyph presentation={presentAgentStatus({ reading: task.status,unseen: task.unseen })} />}
         chevron onClick={() => openAssistantPanelTask({assistantId:assistant.id},task)} />)}
     </AssistantSection>)}</AssistantWorkTaskRead>

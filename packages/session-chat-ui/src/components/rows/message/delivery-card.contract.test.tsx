@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { deliveryFactsId } from './DeliveryCard';
 import { messageUnitDef, normalizeMessage } from './message.def';
 import { SelfIdentityProvider, type SelfIdentity } from '@session-chat/lib/self-identity';
-import { SenderAvatarProvider } from '@session-chat/lib/sender-avatar';
+import { SenderAvatarProvider, SenderNameProvider } from '@session-chat/lib/sender-avatar';
 import { AppNameProvider } from '@session-chat/lib/app-name';
 import { ChatNameProvider } from '@session-chat/lib/chat-name';
 import { createSignal } from 'solid-js';
@@ -67,6 +67,7 @@ async function mount(
   bodyExpanded = false,
   appName: (appId: string) => string | null = () => null,
   chatName: (chatId: string) => string | null = () => null,
+  senderName: (fromId: string | null) => string | null = () => null,
 ): Promise<Reading> {
   const raw: ChatMessage = { kind: 'message', id: 'd1', seq: 0, role: 'user', text };
   const item = patch(normalizeMessage(raw));
@@ -95,6 +96,7 @@ async function mount(
     () => (
       <SelfIdentityProvider value={() => self}>
        <SenderAvatarProvider value={senderAvatar}>
+       <SenderNameProvider value={senderName}>
        <AppNameProvider value={appName}>
        <ChatNameProvider value={chatName}>
         <ThemeContext.Provider value={() => theme}>
@@ -109,6 +111,7 @@ async function mount(
         </ThemeContext.Provider>
        </ChatNameProvider>
        </AppNameProvider>
+       </SenderNameProvider>
        </SenderAvatarProvider>
       </SelfIdentityProvider>
     ),
@@ -165,6 +168,18 @@ async function mount(
 
 const SINGLE: ChatLayout = { preset: 'single', userGutter: 0 };
 const DOUBLE: ChatLayout = { preset: 'double', userGutter: 72 };
+
+it('updates historical sender labels from the host identity without changing the delivery', async () => {
+  const [name, setName] = createSignal('Current identity');
+  const initial = await mount(DOUBLE, false, ENVELOPE, (item) => item, null, () => null,
+    () => {}, false, () => null, () => null, () => name());
+  expect(initial.sender).toBe('Current identity');
+  const renamed = await mount(DOUBLE, false, ENVELOPE, (item) => item, null, () => null,
+    () => setName('Renamed identity'), false, () => null, () => null, () => name());
+  expect(renamed.sender).toBe('Renamed identity');
+  expect(renamed.computed).toBe(renamed.dom);
+  expect(renamed.bodyText).toBe(initial.bodyText);
+});
 
 describe('plain session delivery contract', () => {
   it.each([SINGLE, DOUBLE])('renders only the received words in $preset, with exact measured geometry', async (layout) => {

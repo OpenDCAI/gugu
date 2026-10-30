@@ -443,14 +443,14 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
     {
       label: 'repeated explicit names',
       entries: [['codex', '小弟'], ['codex', '小弟'], ['codex', '小弟']],
-      expected: ['小弟', '小弟 2', '小弟 3'],
+      expected: ['小弟', '小弟', '小弟'],
     },
     {
       label: 'cross-engine collision',
       entries: [['codex', '小弟'], ['claude', '小弟']],
-      expected: ['小弟', '小弟 2'],
+      expected: ['小弟', '小弟'],
     },
-  ] as const)('display names stay unique: $label', async ({ entries, expected }) => {
+  ] as const)('serial placeholders advance and explicit names remain unchanged: $label', async ({ entries, expected }) => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     for (const [index, [providerId, displayName]] of entries.entries()) {
       await provisionSessionpageAgentForSession({
@@ -463,7 +463,7 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
       }, deps)
     }
     expect(roster.map((r) => r.name)).toEqual(expected)
-    expect(new Set(roster.map((r) => r.name)).size).toBe(expected.length)
+    expect(new Set(roster.map((r) => r.gugu_user_id)).size).toBe(expected.length)
   })
   it('claude / codex 无论 GUI 还是 TUI,都拿到身份', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)

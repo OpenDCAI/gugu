@@ -9,6 +9,7 @@ import { subscribeDeviceSessions } from '@/session/shared/remote-sessions/sessio
 import { readIdentityDirectoryBridge, type IdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { agentNamesFromPeers, type SessionShellAgentName } from '@shared/lib/ipc/shell-port';
 import { log } from '@renderer/utils/logger';
+import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 
 /** 一条会话背后的咕咕身份:名字 + agent id。两格同源(本机花名册同一行),❌ 拆成两张表各自过期。 */
 export interface SessionAgentIdentity {
@@ -65,6 +66,10 @@ export class SessionAgentNames {
 
   nameFor(sessionId: string): string | undefined {
     return this.identities.get(sessionId)?.displayName;
+  }
+
+  displayNameFor(sessionId: string, providerId: string, title: string): string {
+    return resolveSessionDisplayName({ identityName: this.nameFor(sessionId), providerId, title }) ?? '';
   }
 
   identityFor(sessionId: string): SessionAgentIdentity | undefined {

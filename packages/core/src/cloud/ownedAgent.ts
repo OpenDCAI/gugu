@@ -1,4 +1,18 @@
 import type { AgentType } from '../agentTypes'
+import { dbPayload, type createGuguSupabaseClient } from './supabase'
+
+/** All owned-agent name/profile edits use the canonical identity row and its existing RLS. */
+export function updateOwnedAgentIdentity<Columns extends string>(
+  client: Pick<ReturnType<typeof createGuguSupabaseClient>, 'from'>,
+  agentUserId: string,
+  fields: Record<string, unknown>,
+  columns: Columns,
+  ownerUserId?: string,
+) {
+  let write = client.from('users').update(dbPayload(fields)).eq('id', agentUserId).eq('type', 'agent')
+  if (ownerUserId) write = write.eq('owner_user_id', ownerUserId)
+  return write.select(columns)
+}
 
 // @@@owned-agent-rest - provision an agent identity owned by the current human via the identity-schema
 export interface ProvisionOwnedAgentInput {
@@ -80,6 +94,8 @@ export interface ProvisionSessionpageAgentOneTripInput {
    *            这个前缀的账本往上占号(「Claude 29」被占 ⇒ 下一个没用过的 Claude 号;「小弟」被占 ⇒ 小弟 2、3 …)。
    */
   nameMode: 'serial' | 'explicit'
+  /** Linked tasks allocate a stable serial independently of their chosen name. */
+  nameSerialBase?: string
   agentType: AgentType
   deviceId: string
   localPath?: string | null
@@ -131,7 +147,8 @@ export async function provisionSessionpageAgentOneTrip(
       p_local_path: input.localPath ?? null,
       p_group_chat_id: input.priorGroupChatId || null,
       p_new_group_id: input.newGroupChatId || null,
-      p_group_name: input.groupName ?? null
+      p_group_name: input.groupName ?? null,
+      ...(input.nameSerialBase ? { p_name_serial_base: input.nameSerialBase } : {})
     })
   })
   if (!response.ok) {

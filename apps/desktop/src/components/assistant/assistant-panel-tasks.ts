@@ -5,11 +5,13 @@ import {assistantWorkPresence as getAgentPresenceSnapshot,subscribeAssistantWork
 import { OPEN_ASSISTANT_TASK_CHAT,type AssistantTaskChat } from '../../lib/assistantTaskChat'
 import { assistantWorkTasks,assistantWorkStatus } from './assistant-work-projection'
 import {useAssistantWorkRecords} from './assistant-work-records'
+import {readIdentityDirectoryBridge} from '../../lib/identityDirectoryBridge'
 
 type Scope = { ownerId:string;assistantId:string;assertCurrent?:()=>void }
 const rows = (records:readonly AssistantWorkTask[]) => assistantWorkTasks(records).map(task => {
   const presence=task.agentId ? getAgentPresenceSnapshot(task.agentId) : null
-  return { ...task,status:assistantWorkStatus(task.outcome,presence?.reading ?? null),
+  const identity=task.agentId ? readIdentityDirectoryBridge()?.getSnapshot()?.[task.agentId] : null
+  return { ...task,title:identity?.display_name ?? task.title,status:assistantWorkStatus(task.outcome,presence?.reading ?? null),
     harness:presence?.payload?.agentType ?? null,unseen:presence?.local?.unseen ?? false }
 })
 /** Both shells share this cloud read; no home readiness or observed session directory participates. */
@@ -32,8 +34,11 @@ export function useAssistantWorkTasks(ownerId:string|null|undefined,assistantId:
   const records=current?.records??[]
   const agents=JSON.stringify([...new Set(records.flatMap(work=>work.executors.flatMap(executor=>executor.agent_user_id ? [executor.agent_user_id] : [])))].sort())
   useEffect(()=>{
+    const directory=readIdentityDirectoryBridge()
+    const offNames=directory?.subscribe(()=>revision(n=>n+1))
+    directory?.ensure(JSON.parse(agents) as string[])
     const stops=(JSON.parse(agents) as string[]).map(agentId=>subscribeAgentPresence(agentId,()=>revision(n=>n+1)))
-    return ()=>{for(const stop of stops) stop()}
+    return ()=>{offNames?.();for(const stop of stops) stop()}
   },[agents])
   const read:AssistantWorkTasksRead=!current ? {state:'loading'} : current.error ? {state:'error',error:current.error,data:rows(records)} : {state:'ok',data:rows(records)}
   return {...read,reload}

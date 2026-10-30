@@ -18,9 +18,19 @@ import type {
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { listAgents, provisionSessionpageAgentOneTrip } from '@gugu/core'
+import { updateAgent, type LocalAgentRecord } from '@gugu/core/local/state/agents'
+import { normalizeAgentType } from '@gugu/core/agentTypes'
+import { getAgentTypeLabel } from '@gugu/core/shared/enums/agentTypeModels'
+import { getSupabaseUrl, getSupabaseAnonKey } from '@gugu/core/cloud/config'
+import { agentNameSerial } from '../../src/lib/agentDefaultName'
+import { updateOwnedAgentIdentity } from '@gugu/core/cloud/ownedAgent'
+import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
+import { taskAgentName } from '@gugu/core/shared/taskAgentName'
 import { electronFetch, makeIdentityClient } from '../supabase'
 import {
   SESSION_CACHE_KEY,
+  awaitSessionpageCloudIdentity,
+  withSessionpageProvisionLock,
   isSessionpageAddressable,
   openOwnerDirectChatForAgent,
   provisionSessionpageAgentForSession,
@@ -55,6 +65,12 @@ export interface SessionpageIdentityHostDeps {
   sessionFacts: (target: SessionShellAgentAddressInput) => Promise<SessionpageSessionFacts | null>
   /** 这台机器侧栏上的会话(名册 session_peers 拿它对标题;名字表是那份名册的投影)。 */
   listSessionFacts: () => Promise<readonly LocalSessionFacts[]>
+  taskNames?: {
+    installRename: (rename: (sessionId: string, name: string, source: 'manual' | 'generated') => Promise<boolean | null>) => void
+    mirror: (sessionId: string, name: string, source?: 'manual' | 'generated') => void
+    state: (sessionId: string) => { fallback: boolean }
+  }
+  onRenamed?: (renamed: SessionShellAgentName) => void
   env?: NodeJS.ProcessEnv
 }
 
@@ -82,6 +98,8 @@ export interface SessionpageIdentityHost {
    * 只改自己名下的 agent;没身份 / 不归当前账号 / 空名 / 云端拒绝 → 抛,❌ 静默改一半。
    */
   renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
+  adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null>
+  synchronizeNames(): Promise<void>
   /** 「这条会话的地址是什么」—— 与桌面版 `sessionpage:ensure-agent-address` 同一条逻辑,逐字搬来。 */
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>
   /** 会话启动即开账号(幂等,按 conversationId 收敛);运行时分叉 / 不可寻址的引擎返回 null。 */
@@ -98,12 +116,35 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
-  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => resolveSessionpageSessionPeers({
-    sessionId,
-    listRoster: () => listAgents(env, { includeGuests: true }),
-    ownerUserId: auth.userId,
-    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
-    listSessionFacts: deps.listSessionFacts,
+  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => withSessionpageProvisionLock('task identity names', async () => {
+    const roster = await listAgents(env, { includeGuests: true })
+    return resolveSessionpageSessionPeers({
+      sessionId,
+      listRoster: async () => roster,
+      ownerUserId: auth.userId,
+      lookupIdentities: async (agentUserIds) => {
+        const identities = await loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId))
+        if (deps.taskNames) for (const identity of identities) {
+          const agent = roster.find((row) => row.gugu_user_id === identity.id)
+          if (!agent) continue
+          // Only the host can attest a legacy task binding. Reuse the backend's exact-placeholder
+          // migration; renamed historical identities deliberately keep an unproven serial as null.
+          const agentType = normalizeAgentType(agent.agent_type)
+          const label = getAgentTypeLabel(agentType)
+          if (identity.name_serial == null && agentNameSerial(identity.display_name, label) !== null) {
+            const deviceId = await deps.resolveDeviceId()
+            if (!deviceId) throw new Error('Task name migration requires the host device identity')
+            const migrated = await provisionDeps.provisionOneTrip({ supabaseUrl: getSupabaseUrl(), anonKey: getSupabaseAnonKey(),
+              accessToken: auth.accessToken, agentId: identity.id, displayName: identity.display_name,
+              nameMode: 'serial', nameSerialBase: label, agentType, deviceId })
+            identity.display_name = migrated.displayName
+          }
+          await adoptRecordName(agent, identity.display_name)
+        }
+        return identities
+      },
+      listSessionFacts: deps.listSessionFacts,
+    })
   })
   const provisionDeps: SessionpageProvisionDeps = {
     getAuth: deps.getAuth,
@@ -133,7 +174,55 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     },
     env,
   }
-  return {
+  async function adoptRecordName(agent: LocalAgentRecord, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
+    const sessionId = agent.cache?.[SESSION_CACHE_KEY]
+    if (typeof sessionId === 'string' && sessionId) deps.taskNames?.mirror(sessionId, name, source)
+    const changed = agent.name !== name
+    if (changed) await updateAgent({ guguUserId: agent.gugu_user_id }, { name }, env)
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    const renamed = { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name }
+    if (changed) deps.onRenamed?.(renamed)
+    return renamed
+  }
+
+  async function adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
+    const auth = await deps.getAuth()
+    if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
+    const agent = (await listAgents(env, { includeGuests: true }))
+      .find((row) => row.gugu_user_id === agentUserId && agentMayBelongTo(row, auth.userId))
+    return agent ? adoptRecordName(agent, name, source) : null
+  }
+
+  async function renameBoundAgent(sessionId: string, value: string, source: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
+    const name = taskAgentName(value, source === 'generated')
+    const auth = await deps.getAuth()
+    if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
+    const agent = await localAgentForSession(sessionId, env, auth.userId)
+    if (!agent?.gugu_user_id) return null
+    await awaitSessionpageCloudIdentity(agent.gugu_user_id)
+    if (source === 'generated' && !deps.taskNames?.state(sessionId).fallback) return null
+    const client = makeIdentityClient(auth.accessToken)
+    let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
+    // A remote manual rename received while the automatic name was in flight wins too.
+    if (source === 'generated') write = write.eq('display_name', agent.name)
+    const { data, error } = await write.maybeSingle()
+    if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
+    if (!data) {
+      if (source === 'generated') return null
+      throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
+    }
+    return adoptAgentName(agent.gugu_user_id, name, source)
+  }
+
+  deps.taskNames?.installRename((sessionId, name, source) => withSessionpageProvisionLock('task identity rename', async () => {
+    const auth = await deps.getAuth()
+    if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
+    const agent = await localAgentForSession(sessionId, env, auth.userId)
+    if (!agent?.gugu_user_id) return null
+    return Boolean(await renameBoundAgent(sessionId, name, source))
+  }))
+
+  const host: SessionpageIdentityHost = {
     provisionDeps,
     async agentCard(sessionId) {
       // 名片按当下登录的账号解析(#4277):网页版换账号不重启宿主,不收紧就会把上一个账号的号递给现在这位。
@@ -158,40 +247,17 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       return peersForAuth(auth, sessionId)
     },
     async renameAgent(input) {
-      const row = input as Partial<SessionShellRenameAgentInput> | null
-      const sessionId = typeof row?.sessionId === 'string' ? row.sessionId.trim() : ''
-      const name = typeof row?.name === 'string' ? row.name.trim() : ''
+      const sessionId = input?.sessionId?.trim()
       if (!sessionId) throw new Error('Session-page agent rename requires sessionId')
-      // 空名不是「不改」,是一个会把花名册与通讯录同时写坏的值 —— 响亮拒绝。
-      if (!name) throw new Error('Session-page agent rename requires a non-empty name')
+      const renamed = await withSessionpageProvisionLock('task identity rename', () => renameBoundAgent(sessionId, input.name, 'manual'))
+      if (!renamed) throw new Error(`Session-page session ${sessionId} has no agent identity to rename`)
+      return renamed
+    },
+    adoptAgentName: (agentUserId, name, source) => withSessionpageProvisionLock('task identity rename', () => adoptAgentName(agentUserId, name, source)),
+    async synchronizeNames() {
+      if (!deps.taskNames) return
       const auth = await deps.getAuth()
-      if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
-      const agent = await localAgentForSession(sessionId, env, auth.userId)
-      const agentUserId = agent?.gugu_user_id
-      if (!agent || !agentUserId) {
-        throw new Error(`Session-page session ${sessionId} has no agent identity to rename`)
-      }
-      // 云端那半:与 lib/contacts.ts updateOwnedAgentProfile 同一条 RLS 路(authenticated 对 display_name
-      // 有列级 UPDATE);多加 owner_user_id 一格是让「不归我」在这里就以 0 行结束,❌ 不靠错误文案猜。
-      const { data, error } = await makeIdentityClient(auth.accessToken)
-        .from('users')
-        .update({ display_name: name })
-        .eq('id', agentUserId)
-        .eq('type', 'agent')
-        .eq('owner_user_id', auth.userId)
-        .select('id')
-        .maybeSingle()
-      if (error) throw new Error(`Session-page agent rename failed for ${agentUserId}: ${error.message}`)
-      if (!data) throw new Error(`Session-page agent ${agentUserId} is not owned by the current account`)
-      // 本机元数据仍要跟上运行时身份上下文与恢复路径；会话页显示面不再从这格读取名字。
-      const { updateAgent } = await import('@gugu/core/local/state/agents')
-      await updateAgent({ guguUserId: agentUserId }, { name }, env)
-      const boundSessionId = agent.cache?.[SESSION_CACHE_KEY]
-      return {
-        conversationId: typeof boundSessionId === 'string' && boundSessionId ? boundSessionId : sessionId,
-        agentUserId,
-        displayName: name,
-      }
+      if (auth) await peersForAuth(auth)
     },
     async ensureAgentAddress(input) {
       const target = requireAddressInput(input)
@@ -231,5 +297,5 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       return provisionSessionpageAgentForSession(info, provisionDeps)
     },
   }
+  return host
 }
-

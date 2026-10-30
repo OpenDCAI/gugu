@@ -3,6 +3,7 @@ import { archiveSessionNow } from '@renderer/features/sessions/archive-session-f
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { focusedSessionId } from '@renderer/features/sessions/pane-selectors';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { showModal } from '@renderer/lib/modal/modal-provider';
@@ -339,7 +340,7 @@ class SessionKeyboardNavStore {
     withMountedSession(node.projectId, node.sessionId, (session) =>
       showModal('renameSessionModal', {
         sessionId: node.sessionId,
-        currentTitle: session.data.title,
+        currentTitle: sessionAgentNames.displayNameFor(node.sessionId, session.data.providerId, session.data.title),
       })
     );
     return true;

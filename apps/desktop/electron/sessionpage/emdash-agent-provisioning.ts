@@ -60,7 +60,8 @@ import {
   type SessionpageDeliveryOwnerKind,
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
-import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
+import { agentNameSerial, nextAgentDefaultName } from '../../src/lib/agentDefaultName'
+import { taskAgentName } from '@gugu/core/shared/taskAgentName'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -1062,7 +1063,7 @@ async function provisionFreshLocalFirst(
   const requested = info.displayName?.trim() || ''
   const label = getAgentTypeLabel(agentType)
   const displayName = requested
-    ? uniqueAgentDisplayName(rosterNames, requested)
+    ? taskAgentName(requested)
     : nextAgentDefaultName(rosterNames, label, { floor: serialFloor(ownerAuth.userId, label) })
   noteAgentName(ownerAuth.userId, displayName, label)
   refreshSerialFloors(ownerAuth, deps.listAgentNameSerials)
@@ -1173,6 +1174,7 @@ function startCloudProvision(job: {
           agentId: job.guguAgentUserId,
           displayName: job.displayName,
           nameMode: job.nameMode,
+          nameSerialBase: getAgentTypeLabel(job.agentType),
           agentType: job.agentType,
           deviceId,
           localPath: job.localPath,

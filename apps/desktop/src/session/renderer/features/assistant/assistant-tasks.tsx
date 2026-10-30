@@ -1,7 +1,6 @@
 import {AssistantWorkTaskRead} from '@/components/assistant/AssistantWorkTaskRead';
 import {useAssistantWorkOwnerId} from '@/lib/assistantWorkReadBridge';
 import { messageForUser } from '@/lib/userFacingError';
-import { formatSessionTitleForDisplay } from '@shared/core/sessions/session-title-utils';
 import { rendererLogger } from '@/lib/log';
 import { isAssistantPanelReadRetryable, retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
 import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
@@ -95,7 +94,7 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
   return <AssistantWorkTaskRead read={read} failedTitle={t('tasks.loadFailed')}>{children=>children.length === 0 ? <AssistantSection bare><AssistantEmpty title={t('tasks.emptyTitle')}
       action={<button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('tasks.createPrompt'))}>{t('tasks.create')}</button>} /></AssistantSection>
       : groupByDay(children,item => item.lastInteractedAt,new Date()).map(group => <AssistantSection key={group.bucket} title={t(`tasks.day.${group.bucket}`)} testId={`assistant-tasks-${group.bucket}`}>
-        {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={formatSessionTitleForDisplay(task.harness ?? '',task.title)}
+        {group.items.map(task => <AssistantRow key={task.key} testId={`assistant-subagent-${task.id}`} title={task.title}
           trailing={task.status && task.status.status !== 'idle' ? <AgentStatusIndicator status={task.status.status} detail={task.status.detail} /> : task.unseen ? <span className="ta-unseen" aria-label={t('tasks.unseen')} /> : null}
           chevron={false} onClick={() => openAssistantPanelTask({assistantId:context.assistant.id},task)} />)}
       </AssistantSection>)}

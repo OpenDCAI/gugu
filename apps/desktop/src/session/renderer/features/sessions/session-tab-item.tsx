@@ -6,9 +6,8 @@ import {
 } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
-import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import type { SessionTabResource } from './session-tab-resource';
-import { formatSessionTitleForDisplay } from './session-title-utils';
+import { sessionAgentNames } from './stores/session-agent-names';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useSessionTabCommands } from './view/session-actions';
 
@@ -20,9 +19,9 @@ export const SessionTabBarItem = observer(function SessionTabBarItem({
   const { translate } = useSessionMessages();
   const store = tab.resource.store;
   const title = store
-    ? formatSessionTitleForDisplay(store.data.providerId, store.data.title)
+    ? sessionAgentNames.displayNameFor(store.data.id, store.data.providerId, store.data.title)
     : translate('chat.loading');
-  const rawTitle = store?.data.title ?? '';
+  const rawTitle = title;
   // 会话的名字在这枚页签上,它的动作(置顶 / 重命名 / 重启 / 换展示 / 归档)就在它的右键里(#7052)。
   const sessionCommands = useSessionTabCommands(tab.resource.sessionId, () => host.requestRename(tab.tabId));
 
@@ -50,7 +49,6 @@ export const SessionTabBarItem = observer(function SessionTabBarItem({
             ]
       }
       renameValue={rawTitle}
-      renameMaxLength={MAX_SESSION_TITLE_LENGTH}
     />
   );
 });
@@ -64,7 +62,7 @@ export const SessionTabBarItemDragPreview = observer(
     const { translate } = useSessionMessages();
     const store = tab.resource.store;
     const label = store
-      ? formatSessionTitleForDisplay(store.data.providerId, store.data.title)
+      ? sessionAgentNames.displayNameFor(store.data.id, store.data.providerId, store.data.title)
       : translate('chat.loading');
     return (
       <GenericTabDragPreview

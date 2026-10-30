@@ -1,3 +1,4 @@
+import { identityDisplayName } from '@/lib/displayIdentity'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, GroupCollabSnapshot, GroupMemberRole, ListenMode } from '@gugu/core/shared/types/chat'
@@ -69,10 +70,11 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
     if (!snapshot) return null
     const identity = identities[memberId]
     if (!identity) return null
+    const name = identityDisplayName(identity, [...snapshot.humans, ...snapshot.agents].flatMap((member) => identities[member.id] ? [identities[member.id]] : []))
     const human = snapshot.humans.find((member) => member.id === memberId)
-    if (human) return toHumanProfile(human, identity)
+    if (human) return { ...toHumanProfile(human, identity), displayName: name }
     const agent = snapshot.agents.find((member) => member.id === memberId)
-    if (agent) return toAgentProfile(agent, identity, shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses)), agentOwnerDisplayName(identity, identities))
+    if (agent) return { ...toAgentProfile(agent, identity, shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses)), agentOwnerDisplayName(identity, identities)), displayName: name }
     return null
   }, [agentStatuses, identities, shownAgent, snapshot])
 

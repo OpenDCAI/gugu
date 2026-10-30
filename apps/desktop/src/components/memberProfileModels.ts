@@ -1,5 +1,6 @@
 import type { AgentDisplayStatus, GroupAgentItem, GroupCollabSnapshot, GroupMemberItem, GroupMemberRole } from '@gugu/core/shared/types/chat'
 import type { DisplayIdentity } from '../lib/displayIdentity'
+import { identityDisplayName } from '../lib/displayIdentity'
 import type { MemberProfileCardModel } from './MemberProfileCard'
 
 export type MemberProfileSide = 'left' | 'right'
@@ -56,5 +57,7 @@ export function buildMemberProfileMap(
   for (const member of snapshot.humans) if (identities[member.id]) profiles[member.id] = toHumanProfile(member, identities[member.id])
   for (const agent of snapshot.agents) if (identities[agent.id]) profiles[agent.id] = toAgentProfile(agent, identities[agent.id], agentStatuses[agent.id], agentOwnerDisplayName(identities[agent.id], identities))
   for (const id of senderIds) if (id && !profiles[id] && identities[id]) profiles[id] = { ...toIdentityProfile(identities[id], 'member', 'group', undefined, undefined, agentOwnerDisplayName(identities[id], identities)), membership: 'former' }
+  const members = Object.keys(profiles).map((id) => identities[id])
+  for (const id of Object.keys(profiles)) profiles[id].displayName = identityDisplayName(identities[id], members)
   return profiles
 }

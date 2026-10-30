@@ -1,3 +1,5 @@
+import { resolveSessionDisplayName } from '@/session/shared/core/sessions/session-display-name'
+import { taskAgentNameLength, MAX_TASK_AGENT_NAME_GRAPHEMES } from '@gugu/core/shared/taskAgentName'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -98,13 +100,12 @@ export function SessionActions({
             <Field.Input
               value={draftTitle}
               autoFocus
-              maxLength={120}
               data-testid="agent-watch-session-rename-input"
               onChange={(e: { target: { value: string } }) => setDraftTitle(e.target.value)}
               onKeyDown={(e: { key: string }) => { if (e.key === 'Enter' && draftTitle.trim()) rename() }}
             />
           </Field.Root>
-          <Button variant="primary" size="lg" className="gg-aw-actions-item" disabled={busy || !draftTitle.trim() || draftTitle.trim() === renaming.session.title} data-testid="agent-watch-session-rename-save" onClick={rename}>
+          <Button variant="primary" size="lg" className="gg-aw-actions-item" disabled={busy || !draftTitle.trim() || taskAgentNameLength(draftTitle.trim()) > MAX_TASK_AGENT_NAME_GRAPHEMES || draftTitle.trim() === renaming.session.title} data-testid="agent-watch-session-rename-save" onClick={rename}>
             {t('agentWatch.sessions.renameSave')}
           </Button>
           <Button variant="secondary" size="lg" className="gg-aw-actions-item" disabled={busy} onClick={() => setRenaming(null)}>
@@ -160,8 +161,10 @@ export function SessionRow({
   const { t } = useTranslation('main')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
   const presentation = sessionPresentation(session, statusAvailable ?? session.supported)
+  const title = resolveSessionDisplayName({ identityName: agentName, title: session.title, providerId: session.harness }) ?? ''
+  const namedSession = { ...session, title }
   const wrapRef = useRef<HTMLDivElement>(null)
-  const longPress = useLongPress(() => { if (wrapRef.current) onMenu?.(session, wrapRef.current) })
+  const longPress = useLongPress(() => { if (wrapRef.current) onMenu?.(namedSession, wrapRef.current) })
   const when = formatRelativeTime(session.lastInteractedAt)
   /*
    * 打不开的行分两种,说的不是同一件事:
@@ -169,16 +172,8 @@ export function SessionRow({
    *   · 没有 —— 整台机器离线,页顶横幅已经说过一次,行只说它自己的(agent / 时间)。点不动由灰掉的样式表达,
    *     ❌ 不必 11 行重复同一句话。机器离线时状态由图标说(presentation 为 null ⇒ 灰点,❌ 替连不上的机器说「在跑」)。
    */
-  /*
-   * owner 10-09:一行里塞「agent 名 · 状态 · harness · 时间」四样,手机宽度放不下,处处省略号。
-   *   · 状态不写成字:左边的图标已经是它(StatusGlyph,同一份 presentation);
-   *   · 有 agent 名就不写 harness:名字(Claude 1 / Codex 3)本来就说了是哪家;
-   *   · agent 名与标题说的是一件事(带标题起的 agent 名字就是标题,或标题的开头)不再说一遍。
-   * 打不开 / 没起来的行照旧写它自己的那句话(下面 rowMeta)。
-   */
-  const named = agentName && !session.title.startsWith(agentName) && !agentName.startsWith(session.title) ? agentName : undefined
   const agentKind = phoneHost ? tFlow('phoneAgent') : session.harness
-  const ownMeta = [named ? null : agentKind, when].filter((x): x is string => !!x)
+  const ownMeta = [agentName ? null : agentKind, when].filter((x): x is string => !!x)
   /*
    * 没有记录可读的会话,新宿主照样打得开(spec session-always-openable,#6264):转录里是第一句话,
    * 为什么没起来说在那台机器那边。老宿主(不带 recordState)打不开,说一句「这里打不开」——
@@ -194,7 +189,7 @@ export function SessionRow({
         : session.unsupportedReason
           ? [t('agentWatch.sessions.cannotOpen')]
           : ownMeta
-  const meta = [...(tags ?? []), named, ...rowMeta].filter((x): x is string => !!x)
+  const meta = [...(tags ?? []), ...rowMeta].filter((x): x is string => !!x)
 
   return (
     <div
@@ -214,10 +209,10 @@ export function SessionRow({
       data-session-id={session.conversationId}
       data-supported={session.supported ? 'true' : 'false'}
       {...(onMenu ? longPress : {})}
-      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(session, event.currentTarget) } : undefined}
-      onClick={openable ? () => onOpen(session) : undefined}
+      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(namedSession, event.currentTarget) } : undefined}
+      onClick={openable ? () => onOpen(namedSession) : undefined}
     >
-      <ListRowContent title={session.title} leading={
+      <ListRowContent title={title} leading={
         <SessionAvatar
           agentId={session.agent?.userId}
           sessionId={session.conversationId}
@@ -251,7 +246,7 @@ export function SessionRow({
         className="gg-aw-item-menu"
         aria-label={t('agentWatch.sessions.menu')}
         data-testid="agent-watch-session-menu"
-        onClick={(event) => onMenu(session, event.currentTarget)}
+        onClick={(event) => onMenu(namedSession, event.currentTarget)}
       >
         <MoreHorizontal />
       </IconButton>

@@ -5,9 +5,8 @@ import { registeredTabView } from '@renderer/features/tabs/core/tab-views';
 import type { SessionTabContext } from '@renderer/features/tabs/core/session-tab-context';
 import { GenericTabDragPreview, GenericTabItem } from '@renderer/features/tabs/tab-bar/generic-tab-item';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
-import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import { SessionAgentIcon } from '../session-agent-icon';
-import { formatSessionTitleForDisplay } from '../session-title-utils';
+import { sessionAgentNames } from '../stores/session-agent-names';
 import { sessionRegistry } from '../stores/session-registry';
 import { acpChatResources } from './acp-chat-resources';
 import { confirmCloseSessionTab } from '../close-session-tab-flow';
@@ -34,9 +33,8 @@ export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
     .get(store.sessionId)
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
-  const rawTitle = session?.data.title ?? '';
   const label = session
-    ? formatSessionTitleForDisplay(session.data.providerId, session.data.title)
+    ? sessionAgentNames.displayNameFor(store.sessionId, session.data.providerId, session.data.title)
     : 'ACP Chat';
   // 会话的名字在这枚页签上,它的动作(置顶 / 重命名 / 重启 / 换展示 / 归档)就在它的右键里(#7052)。
   const sessionCommands = useSessionTabCommands(store.sessionId, () => host.requestRename(tab.tabId));
@@ -66,8 +64,7 @@ export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
               },
             ]
       }
-      renameValue={rawTitle}
-      renameMaxLength={MAX_SESSION_TITLE_LENGTH}
+      renameValue={label}
     />
   );
 });
@@ -83,7 +80,7 @@ export const AcpChatTabBarItemDragPreview = observer(function AcpChatTabBarItemD
     ?.sessions.get(store.sessionId);
   const providerId = session?.data.providerId ?? '';
   const label = session
-    ? formatSessionTitleForDisplay(session.data.providerId, session.data.title)
+    ? sessionAgentNames.displayNameFor(store.sessionId, session.data.providerId, session.data.title)
     : 'ACP Chat';
 
   return (

@@ -130,11 +130,13 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
 
   it('#6726 行的第二行带这条会话背后的 agent 名(行上只有 id,名字按 id 对上通讯录);还没有身份的行不编一个', async () => {
     await renderOnline([summary('named', 1, { agent: { userId: 'agent-1' } }), summary('bare', 2, { agent: null })])
-    expect(row(projectSection(), 'named')?.querySelector('.gg-aw-item-meta')?.textContent).toContain('Codex 3')
+    expect(row(projectSection(), 'named')?.textContent).toContain('Codex 3')
+    expect(row(projectSection(), 'named')?.textContent).not.toContain('title-named')
+    expect(row(projectSection(), 'named')?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('Codex 3')
     expect(row(projectSection(), 'bare')?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('Codex 3')
   })
 
-  it('owner 10-09 第二行只留 agent 名与时间:不写状态词(图标就是它)、有名字不写 harness、名字就是标题不重复', async () => {
+  it('shows the canonical name once and leaves only time in the second line', async () => {
     contacts.list = [...contacts.list, { id: 'agent-echo', display_name: 'title-echo' }]
     await renderOnline([
       summary('named', 1, { agentStatus: 'working', agent: { userId: 'agent-1' } }),
@@ -142,11 +144,11 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
       summary('echo', 3, { agent: { userId: 'agent-echo' } }),
     ])
     const parts = (id: string) => [...(row(projectSection(), id)?.querySelectorAll('.gg-aw-item-part') ?? [])].map((el) => el.textContent)
-    expect(parts('named')).toHaveLength(2)
-    expect(parts('named')[0]).toBe('Codex 3')
+    expect(parts('named')).toHaveLength(1)
+    expect(parts('named')).not.toContain('Codex 3')
     expect(parts('bare')).toHaveLength(2)
     expect(parts('bare')[0]).toBe('codex')
-    expect(parts('echo')).toHaveLength(2)
+    expect(parts('echo')).toHaveLength(1)
     expect(parts('echo')).not.toContain('title-echo')
   })
 
@@ -223,7 +225,8 @@ describe('ProjectsPage — 置顶分区与父子树(对齐桌面侧栏)', () => 
     const child = row(projectSection(), 'lane')
     expect(child?.closest('.gg-aw-item-wrap')?.getAttribute('data-depth')).toBe('1')
     expect(child?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('ThinkPad')
-    expect(child?.querySelector('.gg-aw-item-meta')?.textContent).toContain('Claude 7')
+    expect(child?.textContent).toContain('Claude 7')
+    expect(child?.querySelector('.gg-aw-item-meta')?.textContent).not.toContain('Claude 7')
     await act(async () => (child as HTMLButtonElement).click())
     expect(opened).toEqual([['thinkpad', 'lane']])
 

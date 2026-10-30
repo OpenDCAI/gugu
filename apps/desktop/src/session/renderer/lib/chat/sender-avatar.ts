@@ -16,6 +16,21 @@ export type SessionOwnerLookup = (sessionId: string) => string | undefined;
  */
 const rosterOwner: SessionOwnerLookup = (sessionId) => sessionAgentNames.identityFor(sessionId)?.agentUserId;
 
+/** Historical sender labels follow today's identity, using the same cache and subscription as avatars. */
+export function senderDisplayName(
+  fromId: string | null,
+  bridge: IdentityDirectoryBridge | undefined = readIdentityDirectoryBridge(),
+  ownerOf: SessionOwnerLookup = rosterOwner,
+): string | null {
+  if (!fromId || !bridge) return null;
+  const userId = fromId.startsWith('user:') ? decodeTypedId('user', fromId, 'delivery from_id')
+    : fromId.startsWith('session:') ? ownerOf(decodeTypedId('session', fromId, 'delivery from_id')) : undefined;
+  if (!userId) return null;
+  const identity = bridge.getSnapshot()?.[userId];
+  if (!identity) bridge.ensure([userId]);
+  return identity?.display_name ?? null;
+}
+
 /**
  * 投递卡发信人的头像(#6306):与聊天页**同一个来源、同一个投影**。
  *

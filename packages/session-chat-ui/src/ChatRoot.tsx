@@ -45,7 +45,7 @@ import type { ChatContext } from './chat-context';
 import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
-import { SenderAvatarProvider } from './lib/sender-avatar';
+import { SenderAvatarProvider, SenderNameProvider } from './lib/sender-avatar';
 import { AppNameProvider } from './lib/app-name';
 import { ChatNameProvider } from './lib/chat-name';
 import { CHAT_COMPOSER_EDGE_FADE_PX, CHAT_PIN_FADE_HEIGHT_PX } from './layout-geometry';
@@ -1997,6 +1997,7 @@ export function ChatRoot(props: ChatRootProps) {
     <ChatTranslationProvider value={props.context.translate}>
       <SelfIdentityProvider value={props.context.selfIdentity}>
       <SenderAvatarProvider value={props.context.senderAvatar}>
+      <SenderNameProvider value={props.context.senderName}>
       <AppNameProvider value={props.context.appName}>
       <ChatNameProvider value={props.context.chatName}>
       <DebugContext.Provider value={debugValue}>
@@ -2144,6 +2145,7 @@ export function ChatRoot(props: ChatRootProps) {
       </DebugContext.Provider>
       </ChatNameProvider>
       </AppNameProvider>
+      </SenderNameProvider>
       </SenderAvatarProvider>
       </SelfIdentityProvider>
     </ChatTranslationProvider>

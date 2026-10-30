@@ -11,7 +11,6 @@ import { useAssistantShell } from '@renderer/features/assistant/assistant-shell'
 import { when } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useRef } from 'react';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow';
 import { moveSessionUnder } from '@renderer/features/sessions/set-session-parent-flow';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
@@ -43,7 +42,6 @@ import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
-import { showModal } from '@renderer/lib/modal/modal-provider';
 import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { RemoteSidebarSession } from './sidebar-store';
 import { remoteAgentStatus } from './session-groups';
@@ -106,7 +104,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const rowAnchor = useCallback(() => rowRef.current, []);
   const identityCard = useSidebarIdentityCardTrigger(sessionId, identityCardEnabled);
   const identityCardOpen = identityCardEnabled && sidebarIdentityCard.activeSessionId === sessionId;
-  const agentIdentity = sessionAgentNames.identityFor(sessionId);
   const nestDrop = useSessionDropTarget();
 
   // 挂着的会话读它自己的 store;别的机器上还没挂的读会话目录那一行(列出不挂载,见 sidebar-store)。
@@ -139,7 +136,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     row.status === null &&
     harness !== undefined &&
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
-  const title = formatSessionTitleForDisplay(providerId, row.title);
+  const title = sessionAgentNames.displayNameFor(sessionId, providerId, row.title);
 
   // spec session-fork-share: 父会话标题可能是一整条长消息 → tooltip 里截断,否则在窄侧栏竖成一条。
   const forkedFromTitle = row.forkedFromTitle;
@@ -435,18 +432,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       <Pencil className="size-4" />
       {translate('task.renameSession')}
     </ContextMenuItem>
-    {/* #6091 「重命名 Agent」与「重命名会话」是两件事、两个入口(owner:「他们是独立的」)。只有已经有咕咕
-        身份的会话才有这一格:没身份就没有可改的名字,❌ 摆一个点进去改不了的入口。 */}
-    {agentIdentity ? (
-      <ContextMenuItem
-        onClick={() => {
-          showModal('renameAgentModal', { sessionId, currentName: agentIdentity.displayName });
-        }}
-      >
-        <Pencil className="size-4" />
-        {translate('task.renameAgent')}
-      </ContextMenuItem>
-    ) : null}
     <ContextMenuItem onClick={() => void copySessionId()}>
       <Copy className="size-4" />
       {translate('sidebar.copySessionId')}

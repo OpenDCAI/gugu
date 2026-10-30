@@ -8,8 +8,11 @@
 import { createContext, useContext } from 'solid-js';
 
 const SenderAvatarContext = createContext<(fromId: string | null) => string | null>(() => null);
+const SenderNameContext = createContext<(fromId: string | null) => string | null>(() => null);
 
 export const SenderAvatarProvider = SenderAvatarContext.Provider;
+export const SenderNameProvider = SenderNameContext.Provider;
+export const useSenderName = () => useContext(SenderNameContext);
 
 /** Reactive accessor; returns `null` when the host declared no resolver. */
 export function useSenderAvatar(): (fromId: string | null) => string | null {

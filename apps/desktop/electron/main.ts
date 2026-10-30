@@ -340,7 +340,7 @@ import { release as releaseVoiceNoteTicket, transcribeVoiceNoteSegment, upcoming
 import { createSessionTitleNamer } from './session-title-namer'
 import { SESSION_TITLE_MODELS_CHANNEL } from '../src/session/shared/core/sessions/session-title-namer'
 import { sessionEvents } from './session/main/core/sessions/session-events'
-import { applyGeneratedTitle, sessionTitleIsFallback } from './session/main/core/sessions/renameSession'
+import { applyGeneratedTitle, sessionTitleIsFallback, setTaskIdentityRename, mirrorTaskIdentityName } from './session/main/core/sessions/renameSession'
 import { appSettingsService } from './session/main/core/settings/settings-service'
 import { platformWebSearchForSession } from './sessionpage/sessionpage-platform-search'
 import {
@@ -2575,7 +2575,10 @@ ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
 ipcMain.on('owned-agents:changed', () => {
   void authProvider?.getAuth()
     .then((auth) => {
-      if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
+      if (auth?.accessToken && auth.userId) {
+        refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
+        return sessionpageIdentityHost?.synchronizeNames()
+      }
     })
     .catch((error: unknown) => {
       createLogger('sessionpage/provision').warn(
@@ -2633,20 +2636,8 @@ ipcMain.handle('owned-agent:rename-local-footprint', async (_e, arg: unknown) =>
   if (!agentUserId) throw new Error('owned-agent rename 缺 agentUserId')
   // 空名不是「不改」,是一个会把花名册写坏的值 —— 调用方本就不该发出来,发出来就响亮拒绝。
   if (!name) throw new Error('owned-agent rename 缺 name')
-  const { listAgents, updateAgent } = await import('@gugu/core/local/state/agents')
-  // includeGuests:会话页会话的身份可能还挂在 guest 记录上,漏掉它就等于「这台机器上没有」而静默不改。
-  const roster = await listAgents(process.env, { includeGuests: true })
-  const existing = roster.find((agent) => agent.gugu_user_id === agentUserId)
-  if (!existing) return false
-  await updateAgent({ guguUserId: agentUserId }, { name }, process.env)
-  // 分享按钮 / 侧栏身份卡的名字是查一次存下来的,不播这一下就还挂着旧名。按 conversationId 认领(同一个 task 里
-  // N 条会话 N 个 agent,按 agent 认领会让兄弟会话跟着改名);花名册上没记会话绑定(还没起会话)就没人要听,不播。
-  const sessionId = existing.cache?.[SESSION_CACHE_KEY]
-  if (typeof sessionId === 'string' && sessionId) {
-    sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, { conversationId: sessionId, agentUserId, displayName: name })
-    if (existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
-  }
-  return true
+  if (!sessionpageIdentityHost) throw new Error('Task identity host is not ready')
+  return Boolean(await sessionpageIdentityHost.adoptAgentName(agentUserId, name, 'manual'))
 })
 
 
@@ -3478,6 +3469,7 @@ function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return out
 }
 let emdashBridge: EmdashBridgeModule | null = null
+let sessionpageIdentityHost: ReturnType<typeof createSessionpageIdentityHost> | null = null
 let reconcileSessionpagePlatformOnResume: (() => Promise<void>) | null = null
 let sessionpagePlatformRecovery: SessionpagePlatformRecoveryCoordinator | null = null
 let sessionpagePlatformRecoveryHooks: SessionpagePlatformHooks | null = null
@@ -4083,8 +4075,8 @@ function sendSessionpageIdentityEvent(event: EventDefinition<SessionShellAgentNa
   sendUiEvent(event, payload)
   emdashBridge?.broadcastDeviceSessionHostEvent(event.name, payload)
 }
-// #7337 咕咕给新会话起名:建会话时记下,这条会话拿到 agent 身份(签票要挂在它名下)时以它的名义找设置里的模型要一个短名。
-// 自动名先到先得:harness 先起了名 / 人先改了名,落库那一刻就不收(applyGeneratedTitle)。
+// New tasks retain their serial through the first turn, then accept one short identity name.
+// Explicit names and subsequent manual changes always take precedence.
 const sessionTitleNamer = createSessionTitleNamer({
   authProvider: () => desktopAuthProvider(),
   awaitAgentIdentity: awaitSessionpageCloudIdentity,
@@ -4096,10 +4088,10 @@ const sessionTitleNamer = createSessionTitleNamer({
   applyTitle: applyGeneratedTitle,
 })
 sessionEvents.on('session:created', (session) => sessionTitleNamer.sessionCreated(session))
+sessionEvents.on('session:deleted', (sessionId) => sessionTitleNamer.sessionDeleted(sessionId))
 onSessionpageAgentProvisioned((event) => {
-  void sessionTitleNamer.agentProvisioned(event.sessionId, event.agentUserId).catch((error: unknown) => {
-    createLogger('session-title-namer').error({ sessionId: event.sessionId, err: error }, 'session title: namer crashed')
-  })
+  void awaitSessionpageCloudIdentity(event.agentUserId).then(() => sessionpageIdentityHost?.synchronizeNames())
+    .catch((error: unknown) => createLogger('sessionpage/provision').warn({ err: error }, 'Task identity name synchronization failed'))
 })
 
 onSessionpageAgentProvisioned((event) => {
@@ -4952,7 +4944,7 @@ app.whenReady().then(async () => {
       inventory: () => emdash.emdashSessionpageInventory(), subscribe: (listener) => emdash.onEmdashSessionpageReapTrigger(listener) }))
     // @@@task-shell-port (#5012) 「给会话开账号」的口与网页版无头宿主共用(sessionpage-identity-host.ts);
     // 这里只喂它桌面版的四样:登录态、设备 id、项目名、会话事实。
-    const sessionpageIdentityHost = createSessionpageIdentityHost({
+    const identityHost = createSessionpageIdentityHost({
       getAuth: getSessionpageAuth,
       // #4320② 锁内解析:localDeviceId 不起 tick,不会派发要同一把锁的设备命令。
       resolveDeviceId: localDeviceId,
@@ -4960,8 +4952,22 @@ app.whenReady().then(async () => {
       takeBirthGroup: (sessionId: string) => emdash.emdashTakeBirthGroup(sessionId),
       sessionFacts: (target) => emdash.emdashSessionProvisionInput(target),
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
+      taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, state: sessionTitleIsFallback },
+      onRenamed: (renamed) => {
+        sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
+        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
+        tellRenamedAgentsSession(renamed)
+      },
     })
-    const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    sessionpageIdentityHost = identityHost
+    emdash.onAgentStatus(change => {
+      if (change.reading?.status === 'idle' && change.unseen) {
+        void guguAgentUserIdForSession(change.sessionId, process.env)
+          .then((agentId) => agentId && sessionTitleNamer.firstTurnCompleted(change.sessionId, agentId))
+          .catch((error: unknown) => createLogger('session-title-namer').warn({ err: error }, 'Task automatic naming failed'))
+      }
+    })
+    const sessionpageIdentityDeps = identityHost.provisionDeps
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
     const assistantPanel = createAssistantPanelRuntime({
@@ -5184,12 +5190,9 @@ app.whenReady().then(async () => {
     // 认领)与 gugu 渲染层的通讯录(它缓存着 display_name,不叫它刷新,聊天页就还挂着旧名)。
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.renameAgent)
     handleShellChannel(SESSION_SHELL_CHANNELS.renameAgent, async (_event, input: unknown) => {
-      const renamed = await sessionpageIdentityHost.renameAgent(
-        input as Parameters<typeof sessionpageIdentityHost.renameAgent>[0],
+      const renamed = await identityHost.renameAgent(
+        input as Parameters<typeof identityHost.renameAgent>[0],
       )
-      sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
-      sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
       return renamed
     })
     const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
