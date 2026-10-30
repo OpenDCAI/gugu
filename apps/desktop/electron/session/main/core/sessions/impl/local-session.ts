@@ -16,8 +16,8 @@ import {
   assertSessionSurfaceDeclared,
   harnessSelfUpdateLaunch,
   HarnessStartupError,
-  providerConsumesStartupPrompt,
   providerStartupTurnViaLocalSession,
+  providerTakesMessageStartupInPty,
   resolveSessionRuntimeCompatible,
   SessionRuntimeCompatibilityError,
 } from '@gugu/session-core/agents/plugins';
@@ -433,10 +433,13 @@ export class LocalSessionProvider implements SessionProvider {
         plugin.capabilities.prompt,
         plugin.capabilities.sessionBundle.sessionpage['tui']?.messageTransport,
       );
+      // 判据与新任务框锁「终端」那一头同一个函数(`providerTakesMessageStartupInPty`):框里给得出的,这里起得来。
       if (
         chatPageFirstTurn
-        && !providerConsumesStartupPrompt(plugin.capabilities.prompt, 'pty')
-        && !startupTurnViaLocalSession
+        && !providerTakesMessageStartupInPty(
+          plugin.capabilities.prompt,
+          plugin.capabilities.sessionBundle.sessionpage['tui']?.messageTransport,
+        )
       ) {
         throw new Error(
           `chat-page first turn for ${session.id} carries a startup message id, but provider `

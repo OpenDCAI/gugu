@@ -489,12 +489,18 @@ export const enUSSessionWorkflowMessages = {
   'taskConfig.grokPermissionFullAccess': 'Full Access only',
   'taskConfig.grokPermissionWarning':
     'Grok 1.0.13 executes tools directly with full access; it does not provide per-action approval. Full Access maps to always-approve, while approval-required is rejected.',
-  // 两种展示的产品词「编程 | 通用」(owner 2026-09-03 拍板;手动切换已删,账号页说「哪条腿还要登录」时仍用这两个词)。
+  // 两种展示的产品词「终端 | 通用」(owner 10-30):新任务框里的选择(设置开着「允许以终端（TUI）模式启动 agent」时)
+  // 与账号页说「哪条腿还要登录」用的是同两个词。
   // "Chat UI" / "TUI" / pty / acp 这类实现术语不见用户(product spec)。
   // ⚠️ 这一层是**产品的词**,底下那条轴的**值的词**仍是 pty / acp(落库字段与测试锚点)——
   // 两套词的分工写在 conversation-type-control.tsx 抬头,改文案不该动到测试。
-  'taskConfig.sessionViewCode': 'Code',
-  'taskConfig.sessionViewGeneral': 'Work',
+  'taskConfig.sessionView': 'Mode',
+  'taskConfig.sessionViewCode': 'Terminal',
+  'taskConfig.sessionViewGeneral': 'General',
+  'taskConfig.sessionViewGeneralOnly': '{name} only offers General mode',
+  'taskConfig.sessionViewGeneralRequiredHere': 'Started from here, {name} runs in General mode',
+  'taskConfig.sessionViewRemoteNeedsSsh': 'General only here. For Terminal, add this machine with Remote SSH in Settings → Devices.',
+  'taskConfig.sessionViewCodeOnly': "{name}'s General mode isn't wired up yet, so it runs in Terminal mode",
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   // 「没装 / 没配默认 / id 退役」三条已于 2026-09-17 退成空态,不再有文案 —— 理由见
   // `provider-selection.ts` 的 `resolveSessionProviderSelection` 抬头。
@@ -1096,8 +1102,13 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskConfig.grokPermissionFullAccess': '仅完全访问',
   'taskConfig.grokPermissionWarning':
     'Grok 1.0.13 会直接执行工具，结构上始终是完全访问，不提供逐次审批。完全访问会映射为 always-approve；需审批的模式会被拒绝。',
-  'taskConfig.sessionViewCode': '编程',
+  'taskConfig.sessionView': '模式',
+  'taskConfig.sessionViewCode': '终端',
   'taskConfig.sessionViewGeneral': '通用',
+  'taskConfig.sessionViewGeneralOnly': '{name} 只提供通用模式',
+  'taskConfig.sessionViewGeneralRequiredHere': '从这里发起时，{name} 只能用通用模式',
+  'taskConfig.sessionViewRemoteNeedsSsh': '这里仅支持「通用」。要用「终端」，请在 设置 → 设备 中用远程 SSH 添加这台机器。',
+  'taskConfig.sessionViewCodeOnly': '{name} 的通用模式尚未接通，先用终端模式',
   // 选择闸只剩这一类失败还要出声,人话直说(product spec:19:实现术语不见用户)。
   'providerSelection.noTaskpageSession': '{name} 还不能在这里开会话,请换一个智能体。',
 
