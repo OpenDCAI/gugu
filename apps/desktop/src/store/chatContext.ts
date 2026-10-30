@@ -47,6 +47,7 @@ export type SendMessageOptions = {
 }
 
 export type SendAttachmentOptions = {
+  replyToMessageId?: string | null
   toUserIds?: string[] | null
   isWhisper?: boolean
   caption?: string

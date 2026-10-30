@@ -32,6 +32,18 @@ function arrange() {
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 describe('sendAttachmentBatch', () => {
+  it('sends an annotated PNG and numbered caption as a reply while preserving private recipients', async () => {
+    const { appendMessage } = arrange()
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:annotation-preview', revokeObjectURL: vi.fn() })
+    const annotation = new File(['png'], 'annotated.png', { type: 'image/png' })
+    await sendAttachmentBatch({ files: [annotation], chatId: 'group-1', senderId: 'user-1', toUserIds: ['agent-1'],
+      isWhisper: true, replyToMessageId: 'original-image', caption: '① Move this', appendMessage, removePlaceholder: vi.fn() })
+    expect(appendMessage.mock.calls[0][0]).toMatchObject({ reply_to_message_id: 'original-image', is_whisper: true, to_user_ids: ['agent-1'] })
+    expect(commitMock.mock.calls[0][1]).toMatchObject({ reply_to_message_id: 'original-image', caption: '① Move this',
+      is_whisper: true, to_user_ids: ['agent-1'], content_type: 'image/png' })
+    expect(uploadMock).toHaveBeenCalledOnce()
+    expect(commitMock).toHaveBeenCalledOnce()
+  })
   it('happy path: per-file onSent after verified insert, returns first inserted id', async () => {
     const { onSent, appendMessage, run } = arrange()
     const [a, b] = [file('a.txt'), file('b.txt')]
