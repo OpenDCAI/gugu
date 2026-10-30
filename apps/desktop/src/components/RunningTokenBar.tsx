@@ -1,8 +1,8 @@
 // @@@1696 统一运行态运行条：单聊/群聊共用同一「运行 token」= [头像]{名}{流光状态词}。
-// DM = 1 个 token（退化态）；群聊 = 多 token 单行，手机横滚，桌面排不下 → +N。
+// DM = 1 个 token（退化态）；群聊 = 多 token 单行，手机和桌面一样：排不下 → +N（owner 10-30：平时最多一行）。
 // 消除 DM 三跳点 vs GroupAgentStatusBar(群聊竖排文字+工具名) 双轨(两者都已删)。
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TextShimmer } from '@gugu/session-ui/react/text-shimmer'
 import type { MouseEvent } from 'react'
@@ -25,6 +25,8 @@ export interface RunningToken {
   /** 本回合工具调用次数；DM=liveStream.toolCount，群聊=近 5 分钟 actions.length（近似）；0=不显计数行。 */
   toolCount: number
   lastActiveAt: string | null
+  /** The viewer owns this agent: +N groups its panel into Mine / Others. */
+  mine?: boolean
 }
 
 export interface RunningTokenBarProps {
@@ -38,10 +40,7 @@ export interface RunningTokenBarProps {
 
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
-.rtb-bar{position:relative;display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
-.rtb-bar[data-mobile=false]{padding:var(--spacing-sm) 0}
-.rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
-.rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
+.rtb-bar{position:relative;display:flex;align-items:center;gap:8px;padding:var(--spacing-sm) 0;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
 .rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;min-width:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-tok[data-clickable=true]{cursor:pointer}
 .rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);box-shadow:var(--shadow-lift);color:inherit;font-weight:inherit}
@@ -54,8 +53,10 @@ const STYLE = `
 /* @@@float-one-edge (Refs #6104) — 浮条去掉 1px 描边:浮层只留 lift 那一层。 */
 .rtb-mp{outline:none}
 .rtb-more{color:var(--text-tertiary);flex-shrink:0;border:0;padding:0;background:transparent;font:inherit;cursor:pointer}
-.rtb-ov{pointer-events:auto;white-space:nowrap;display:flex;align-items:center;gap:16px;background:var(--bg-elevated);border-radius:var(--radius-xl);box-shadow:var(--shadow-lift);padding:8px 12px}
-.rtb-otok{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
+.rtb-ov{pointer-events:auto;display:flex;flex-direction:column;gap:8px;width:var(--anchor-width);max-width:var(--available-width);max-height:min(40dvh,var(--available-height));overflow-y:auto;overscroll-behavior:contain;background:var(--popover);border-radius:var(--radius-surface);box-shadow:var(--shadow-lift);padding:8px;font-size:var(--font-caption);color:var(--faint-fg)}
+.rtb-og{display:flex;flex-wrap:wrap;gap:8px}
+.rtb-oh{width:100%;padding:0 4px;color:var(--text-tertiary)}
+.rtb-otok{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;min-width:0;max-width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-otok[data-clickable=true]{cursor:pointer}
 .rtb-otok .rtb-v{color:var(--text-secondary)}
 .rtb-tok,.rtb-otok{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
@@ -66,7 +67,8 @@ const STYLE = `
 /**
  * 运行条那一行(owner 10-25:「running pill 还是在下面,但是预先留空,它的出现和消失任何情况下不改变 layout」)。
  * 在可能有 agent 跑的会话里它始终占同一个高度、完全透明:里面有没有 pill、有几个、名字多长,都不改变它的高度。
- * 单行不换行:pill 最宽 168px(.rtb-pill),名字截断;桌面按这一行的宽度算放几个,其余进 +N。
+ * 单行不换行:pill 最宽 168px(.rtb-pill),名字截断;按这一行的宽度算放几个,其余进 +N。
+ * +N 的浮层与这一行同宽,按「我的 / 别人的」分组,高度封顶后内部滚动。
  */
 const PILL_GAP_PX = 8
 export function RunningBarSlot({ children }: { children: ReactNode }) {
@@ -139,51 +141,61 @@ function RunningTokenItem({
   )
 }
 
-// +N 溢出：Base UI Popover 负责 click/键盘/Escape/点外关闭；hover-intent 仍保留桌面效率。
+// +N 溢出：Base UI Popover 负责悬停意图/点按(触屏)/Escape/点外关闭；键盘焦点落到 +N 也展开。
 function MoreOverflow({
+  anchor,
   tokens,
   onTokenClick,
   preview,
 }: {
+  anchor: RefObject<HTMLDivElement | null>
   tokens: RunningToken[]
   onTokenClick?: (id: string) => void
   preview: PreviewControl
 }) {
   const { t } = useTranslation('agents')
   const [open, setOpen] = useState(false)
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const openNow = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current)
-    setOpen(true)
+  const popup = useRef<HTMLDivElement | null>(null)
+  const groups = [
+    { label: t('runtime.groupMine'), tokens: tokens.filter((token) => token.mine) },
+    { label: t('runtime.groupOthers'), tokens: tokens.filter((token) => !token.mine) },
+  ].filter((group) => group.tokens.length > 0)
+  // 只有一组时组名是废话,不画。
+  const labeled = groups.length > 1
+  const closeUnlessInside = (event: FocusEvent) => {
+    if (!popup.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
   }
-  const closeSoon = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current)
-    closeTimer.current = setTimeout(() => setOpen(false), 200)
-  }
-  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
   return (
     <Popover.Root open={open} modal={false} onOpenChange={setOpen}>
       <Popover.Trigger
         className="rtb-more"
+        openOnHover
+        delay={0}
+        closeDelay={200}
         aria-label={t('runtime.viewMore', { count: tokens.length })}
-        onMouseEnter={openNow}
-        onMouseLeave={closeSoon}
+        onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) setOpen(true) }}
+        onBlur={closeUnlessInside}
       >
         <Chip appearance="filled" className="rtb-pill" data-chat-dock-obstacle="">+{tokens.length}</Chip>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="top" align="end" sideOffset={8} collisionPadding={8}>
+        <Popover.Positioner anchor={anchor} positionMethod="fixed" side="top" align="start" sideOffset={8} collisionPadding={8}>
           <Popover.Popup
+            ref={popup}
             className="rtb-ov"
             initialFocus={false}
             finalFocus={false}
             role="dialog"
             aria-label={t('runtime.more')}
-            onMouseEnter={openNow}
-            onMouseLeave={closeSoon}
+            onBlur={closeUnlessInside}
           >
-            {tokens.map((token) => (
-              <RunningTokenItem key={token.id} token={token} overflow onTokenClick={onTokenClick} preview={preview} />
+            {groups.map((group) => (
+              <div key={group.label} className="rtb-og" role="group" aria-label={labeled ? group.label : undefined}>
+                {labeled && <div className="rtb-oh">{group.label}</div>}
+                {group.tokens.map((token) => (
+                  <RunningTokenItem key={token.id} token={token} overflow onTokenClick={onTokenClick} preview={preview} />
+                ))}
+              </div>
             ))}
           </Popover.Popup>
         </Popover.Positioner>
@@ -194,14 +206,13 @@ function MoreOverflow({
 
 export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
-  const mobile = useMobileShell()
   const boxRef = useRef<HTMLDivElement | null>(null)
   const [fitted, setFitted] = useState(Number.POSITIVE_INFINITY)
   const empty = tokens.length === 0
-  const visible = mobile ? tokens.length : fitted
+  const visible = fitted
   useLayoutEffect(() => {
     const el = boxRef.current
-    if (!el || mobile) return
+    if (!el) return
     const pills = [...el.querySelectorAll<HTMLElement>('.rtb-bar > [data-message-preview-trigger]')]
     const more = el.querySelector<HTMLElement>('.rtb-more')
     const report = () => setFitted(fitCount(el.clientWidth, pills.map(pill => pill.offsetWidth), more?.offsetWidth ?? 0))
@@ -211,7 +222,7 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
     if (more) observer.observe(more)
     report()
     return () => observer.disconnect()
-  }, [tokens, mobile, visible]) // Re-measure after +N mounts or its digit count changes.
+  }, [tokens, visible]) // Re-measure after +N mounts or its digit count changes.
   if (empty) return null
   const overflow = tokens.slice(visible)
   return (
@@ -222,11 +233,11 @@ export function RunningTokenBar({ tokens, onTokenClick, testId, previewChatId }:
         if (details.reason === 'trigger-press') details.cancel()
       }}>
         {({ payload: token }) => <>
-          <div className="rtb-bar" data-mobile={mobile}>
+          <div className="rtb-bar">
             {tokens.map((t, i) => (
               <RunningTokenItem key={t.id} token={t} index={i} folded={i >= visible} onTokenClick={onTokenClick} preview={handle} />
             ))}
-            {overflow.length > 0 && <MoreOverflow tokens={overflow} onTokenClick={onTokenClick} preview={handle} />}
+            {overflow.length > 0 && <MoreOverflow anchor={boxRef} tokens={overflow} onTokenClick={onTokenClick} preview={handle} />}
           </div>
           {previewChatId && token ? <Popover.Portal>
             <Popover.Positioner positionMethod="fixed" side="top" align={overflow.some((item) => item.id === token.id) ? 'center' : 'start'} sideOffset={8} collisionPadding={8}>

@@ -190,6 +190,8 @@ export default {
     "unavailable": "This Agent does not exist or is not shared publicly"
   },
   "runtime": {
+    "groupMine": "Mine",
+    "groupOthers": "Others",
     "justNow": "just now",
     "messagePreview": {
       "connecting": "Connecting…",
