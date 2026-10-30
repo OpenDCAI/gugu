@@ -154,7 +154,7 @@ function cloudTable(rows: Row[], writes: Record<string, unknown>[] = []): Heartb
 
 async function heartbeat(env: NodeJS.ProcessEnv, client: HeartbeatClient): Promise<string> {
   const deviceId = await resolveLocalDeviceId({ env, userId: USER_A, heartbeatClient: client, deviceIdCacheWriter: noCache })
-  await syncDeviceHeartbeat(client, { userId: USER_A, deviceId, capabilities: {}, hostInfo: () => ({}) as never,
+  await syncDeviceHeartbeat(client, { userId: USER_A, deviceId, capabilities: { terminals: [], runtimes: [] }, hostInfo: () => ({}) as never,
     nowIso: () => new Date().toISOString() }, env)
   return deviceId
 }
