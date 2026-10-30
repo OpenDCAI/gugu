@@ -1,3 +1,4 @@
+import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const warn = vi.hoisted(() => vi.fn())
@@ -465,6 +466,14 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
 
     expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith(sessionId, text, { steerIfBusy: true })
     expect(receipt).toMatchObject({ turnId: `turn-${providerId}` })
+  })
+
+  it('queues a verified human DM without steering the active agent turn', async () => {
+    const { injectEmdashPromptDetached } = bridgeFor('codex')
+    const text = renderDeliveryEnvelope({ route: 'chat', chat: 'dm-1', chatKind: 'ai', from: 'Owner',
+      fromId: 'user:owner', fromType: 'human', messageId: 'msg:human-dm', at: '2026-10-28', content: 'next request' })
+    await emdashAgentRegistry.tryInjectSessionMessage('conv-codex-acp', { id: 'human-dm', text, kind: 'ordinary' })
+    expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith('conv-codex-acp', text, undefined)
   })
 
   it('preserves the deferred queue claim marker across the host bridge without another context claim', async () => {

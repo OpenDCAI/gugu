@@ -19,11 +19,23 @@ const segmenters = Object.fromEntries(['day-separator', 'message', 'turn-process
 } satisfies ItemSegmenter]));
 const context = (active: boolean, toggles: string[] = []): SegmentCtx => ({ caches: {}, expanded: () => false, active,
   foldTurnProcess: true, agentConversation: true, translate: defaultChatTranslator, plan: () => null,
-  pendingToolCallIds: () => new Set(), terminalOutputText: () => null, terminalExitStatus: () => null,
+  pendingToolCallIds: () => new Set(), terminalSnapshot: () => null,
   isTurnProcessExpanded: (id: string) => toggles.includes(id),
 } as unknown as SegmentCtx);
 
 describe('replay conversation segment boundaries', () => {
+  it('uses attachment labels in an explicit native quote without changing the input or its anchor', () => {
+    const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const input = { ...message('u', 'user'), text };
+    const target = { kind: 'session' as const, sessionId: 's', itemId: 'u' };
+    const answer = { ...message('answer', 'assistant'), text: messageQuoteText(target, text, 'Peer') + 'answer' };
+    const record = turn([input, answer]);
+    const rows = flattenTier([record], context(false), segmenters);
+    const reply = rows.find(row => row.itemId === 'answer')!.data as ChatMessage;
+    expect(reply.conversationReply).toMatchObject({ itemId: messageQuoteLink(target), text: '看下文件\ntri19-file.txt' });
+    expect(input.text).toBe(text);
+  });
+
   it('starts a new Stop segment at the authentic hook clock, preserving both replies', () => {
     const hook: ChatItem = { kind: 'session-notice', id: 'stop', seq: 3, code: 'provider-notice', title: 'Stop says: Check.', detail: 'Stop says: Check.', at: 4000 };
     const blocks = planConversationSegments(turn([message('u', 'user', 1000), call('one'), message('before', 'assistant', 3000), hook, call('two'), message('after', 'assistant', 7000)]), false);

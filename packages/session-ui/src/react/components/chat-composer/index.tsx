@@ -383,7 +383,7 @@ export interface ChatComposerProps {
   onEditQueuedPrompt?: (id: string, text: string) => void;
   /** Controlled runtime reservation; omission keeps the component's local queue editor. */
   queuedPromptEdit?: ComposerQueuedPromptEdit | null;
-  onBeginEditQueuedPrompt?: (id: string) => void;
+  onBeginEditQueuedPrompt?: (id: string, originalDraftText?: string) => void;
   onChangeQueuedPromptEdit?: (text: string) => void;
   onFinishQueuedPromptEdit?: (text: string | null) => void;
   onDeleteQueuedPrompt?: (id: string) => void;
@@ -505,7 +505,7 @@ export function ChatComposer({
 
   const beginQueueEdit = (id: string, text: string) => {
     if (queueEdit) return;
-    if (onBeginEditQueuedPrompt) { onBeginEditQueuedPrompt(id); return; }
+    if (onBeginEditQueuedPrompt) { onBeginEditQueuedPrompt(id, editorRef.current?.getText() ?? ''); return; }
     setLocalQueueEdit({ id, text, originalDraftText: editorRef.current?.getText() ?? '' });
   };
   const changeQueueEdit = (text: string) => {

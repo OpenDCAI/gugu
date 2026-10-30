@@ -9,6 +9,8 @@
 import { useSyncExternalStore } from 'react'
 
 export type ChatSummary = {
+  readonly peerUserId?: string | null
+  readonly firstUnreadMessageId?: string | null
   readonly alias?: string | null
   readonly publicId?: number
   readonly unreadCount: number
@@ -28,11 +30,13 @@ type Summaries = ReadonlyMap<string, ChatSummary>
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
 export function publishChatSummaries(chats: readonly {
-  id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
+  peer_user_id?: string | null; unread_locator?: { message_id: string | null } | null; id: string; kind: string; unread_count: number; is_marked_unread?: boolean; name?: string | null; alias?: string | null; public_id?: number | null; last_message_at?: string | null; last_message_preview?: string | null; source_chat_id?: string | null
 }[]): void {
   const next: Summaries = new Map(chats.map((chat) => [chat.id, {
     ...(chat.alias ? { alias: chat.alias } : {}),
     ...(typeof chat.public_id === 'number' && Number.isSafeInteger(chat.public_id) && chat.public_id > 0 ? { publicId: chat.public_id } : {}),
+    peerUserId: chat.peer_user_id ?? null,
+    firstUnreadMessageId: chat.unread_locator?.message_id ?? null,
     unreadCount: chat.unread_count,
     isMarkedUnread: chat.is_marked_unread === true,
     hasMessages: Boolean(chat.last_message_at),

@@ -103,14 +103,20 @@ describe('watchSessionState', () => {
 
   it('hydrates terminals independently of tool references and clears them with the runtime session', async () => {
     const seen: unknown[] = [];
-    const watch = await watchSessionState('terminal', (_requests, _queue, _reply, terminals) => seen.push(terminals));
+    const activeTurns: unknown[] = [];
+    const watch = await watchSessionState('terminal', (_requests, _queue, _reply, terminals, activeTurn) => { seen.push(terminals); activeTurns.push(activeTurn ?? null); });
     push('list', { terminal: summary('terminal') });
     await Promise.resolve();
     const terminal = { terminalId: 'orphan', owner: 'agent', canKill: false, command: 'echo', args: [], cwd: '/w', output: 'complete', truncated: false, exitStatus: { exitCode: 0, signal: null } };
     push('terminals:terminal', [terminal]);
     expect(seen.at(-1)).toEqual([terminal]);
+    const active = { id: 'live-turn', seq: 1, initiator: 'user', items: [] };
+    push('active:terminal', active);
+    expect(activeTurns.at(-1)).toEqual(active);
+    expect(seen.at(-1)).toEqual([terminal]);
     push('list', { terminal: summary('terminal', 'closed') });
     expect(seen.at(-1)).toEqual([]);
+    expect(activeTurns.at(-1)).toBeNull();
     watch.dispose();
     expect(replicas.every(replica => replica.disposed)).toBe(true);
   });

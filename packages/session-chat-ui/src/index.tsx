@@ -161,3 +161,6 @@ export { generateMockTranscript, mockMentionProvider } from './mock-transcript';
 export type { ChatCaches, SharedCaches, ParseCaches } from './core/caches';
 export { createChatCaches } from './core/caches';
 export { messageSenderTarget, type MessageSenderTarget } from './lib/sender-target';
+
+export type { DeliveryMessagePresentation } from './state/delivery-presentation';
+export { hasAttachmentDeliveryHints } from './state/delivery-presentation';

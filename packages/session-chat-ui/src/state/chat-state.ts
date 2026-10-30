@@ -46,6 +46,7 @@ import type {
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
 import type { ViewState } from './view-state';
@@ -91,6 +92,7 @@ export type ChatSessionState = {
    * 转录把它画成列表末尾的一行,见 `BackgroundTasksItem`。
    */
   setBackgroundTasks(tasks: BackgroundTasks): void;
+  setDeliveredMessages(messages: ReadonlyMap<string, DeliveryMessagePresentation>): void;
 };
 
 export type ChatSessionSnapshot = {
@@ -111,6 +113,7 @@ export type ChatSessionSnapshot = {
   readonly condition: SessionCondition | null;
   /** 见 `setBackgroundTasks`。 */
   readonly backgroundTasks: BackgroundTasks;
+  readonly deliveredMessages?: ReadonlyMap<string, DeliveryMessagePresentation>;
   terminalSnapshot(terminalId: string): TerminalState | null;
 };
 
@@ -307,6 +310,7 @@ function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
 }
 
 function createSessionState(transcript: TranscriptApi): ChatSessionState {
+  const [deliveredMessages, setDeliveredMessages] = createSignal<ReadonlyMap<string, DeliveryMessagePresentation>>(new Map());
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
@@ -347,6 +351,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     get condition() {
       return condition();
     },
+    get deliveredMessages() { return deliveredMessages(); },
     get backgroundTasks() {
       return backgroundTasks();
     },
@@ -363,6 +368,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     setGenerating,
     setCondition,
     setBackgroundTasks,
+    setDeliveredMessages,
     setTerminals: (next) => setTerminals(new Map(next.map(terminal => [terminal.terminalId, terminal]))),
   };
 }

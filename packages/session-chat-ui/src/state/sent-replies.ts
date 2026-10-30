@@ -1,4 +1,5 @@
-import { agentSendOf, replyItems, replySend, replySource, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
+import { agentSendOf, replyItems, replySend, replySource, sourceChatMatches, sentMessageId, successfulMessageSend } from '@gugu/session-core/session-record/reply-process';
+import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment';
 import type { TranscriptTurn } from '@session-chat/model';
 
 /** Keep successfully delivered replies readable when their tool process is folded. */
@@ -7,20 +8,21 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
   if (!source && !options.allDestinations) return turn;
   const items = replyItems(turn);
   const texts = new Set(items.filter(item => item.kind === 'message' && item.role === 'assistant').map(item => item.kind === 'message' ? item.text.trim() : ''));
-  const seen = new Set<string>();
+  const seen = new Set(items.flatMap(item => item.kind === 'message' ? /:sent:([^:]+)$/.exec(item.id)?.slice(1) ?? [] : []));
   const replies: TranscriptTurn['items'] = [];
   const after = new Map<string, TranscriptTurn['items']>();
   for (const item of items) {
     if (item.kind !== 'mcp-tool-call' || item.status !== 'done') continue;
-    const send = options.allDestinations ? successfulMessageSend(item) : source ? replySend(item, source) : null;
-    const id = sentMessageId(item);
+    const attachment = options.allDestinations ? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments) : null;
+    const send = attachment ? { id: attachment.messageId, text: attachment.name } : options.allDestinations ? successfulMessageSend(item) : source ? replySend(item, source) : null;
+    const id = attachment?.messageId ?? sentMessageId(item);
     // 对话布局(allDestinations):发到群里的那一句和这一轮最后说的话撞了字也是两条输出,❌ 当成同一条丢掉 ——
     // 丢了它就既不是气泡、又在过程里画成一张「Claude 1 · 完成」(MBP 验收 10-28 第六轮)。
     if (!send || !id || !send.text.trim() || (!options.allDestinations && texts.has(send.text.trim())) || seen.has(id)) continue;
     seen.add(id);
     const replyTo = 'replyTo' in send ? send.replyTo : undefined;
     const chat = 'chat' in send ? send.chat : undefined;
-    const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text,
+    const reply = { kind: 'message' as const, id: `${item.id}:sent:${id}`, seq: item.seq, role: 'assistant' as const, text: send.text, ...(attachment ? { sentAttachment: attachment } : {}),
       ...(item.completedAt !== undefined ? { at: item.completedAt } : {}),
       ...(replyTo ? { sentReplyTo: replyTo } : {}), ...(chat ? { sentChat: chat } : {}) };
     // 对话布局:气泡下面常驻一小段「发到 群名」(管家 10-28),去向与会话页那一行同一个读法。
@@ -33,5 +35,16 @@ export function withSentReplies(turn: TranscriptTurn, options: { allDestinations
     }
   }
   if (!replies.length) return turn;
-  return { ...turn, items: options.allDestinations ? turn.items.flatMap(item => [item, ...(after.get(item.id) ?? [])]) : [...turn.items, ...replies] };
+  // An injected private conversation is answered on its source line. Keep the
+  // provider record intact, but do not paint a second task summary after that send.
+  const lastReply = options.allDestinations && source?.chatKind === 'dm'
+    ? items.findLastIndex(item => {
+      if (item.kind !== 'mcp-tool-call') return false;
+      if (successfulMessageSend(item) && replySend(item, source)) return true;
+      if (!sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)) return false;
+      try { return sourceChatMatches(source, (JSON.parse(item.rawInput ?? '{}') as { chat_id?: unknown }).chat_id); } catch { return false; }
+    }) : -1;
+  const summaries = new Set(lastReply < 0 ? [] : items.slice(lastReply + 1).filter(item => item.kind === 'message' && item.role === 'assistant' && !/:sent:/.test(item.id)).map(item => item.id));
+  const original = summaries.size ? turn.items.filter(item => !summaries.has(item.id)) : turn.items;
+  return { ...turn, items: options.allDestinations ? original.flatMap(item => [item, ...(after.get(item.id) ?? [])]) : [...original, ...replies] };
 }

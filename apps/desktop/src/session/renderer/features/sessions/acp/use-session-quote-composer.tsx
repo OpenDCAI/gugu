@@ -3,7 +3,6 @@ import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
 import type { PromptEditorRef } from '@gugu/session-ui/react/components';
 import { MessageQuotePreview } from '@/components/chat/ChatComposerContextBands';
 import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens';
-import type { AcpChatStore } from './acp-chat-store';
 import { getSessionQuote, quotedSessionPrompt, restoreSessionQuote, setSessionQuote, subscribeSessionQuote, type SessionQuoteDraft } from './session-quote-draft';
 
 const quoteOf = (text: string): SessionQuoteDraft | null => {
@@ -13,7 +12,10 @@ const quoteOf = (text: string): SessionQuoteDraft | null => {
 const previewOf = (quote: SessionQuoteDraft | null, onClear?: () => void) => quote
   ? <MessageQuotePreview quote={{ senderName: quote.sender, content: quote.text }} onClear={onClear} /> : null;
 
-export function useSessionQuoteComposer(store: AcpChatStore, editor: MutableRefObject<PromptEditorRef | null>) {
+export function useSessionQuoteComposer<Edit extends { text: string }>(store: {
+  sessionId: string; draftText: string; chatState: { uri?: string | null }; queuedPromptEdit: Edit | null;
+  setDraftText(text: string): void; changeQueuedPromptEdit(text: string): void; finishQueuedPromptEdit(text: string | null): unknown;
+}, editor: MutableRefObject<PromptEditorRef | null>) {
   const subscribe = useCallback((listener: () => void) => subscribeSessionQuote(store, listener), [store]);
   const snapshot = useCallback(() => getSessionQuote(store), [store]);
   const quote = useSyncExternalStore(subscribe, snapshot, snapshot);

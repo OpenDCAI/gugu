@@ -17,6 +17,12 @@ import { publishChatSummaries } from '../../../../apps/desktop/src/lib/chatSumma
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
 
+// Solid's DOM renderer runs in the Chromium project; keep the React host/providers real here.
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/src/session/renderer/lib/chat/chat-transcript')>(),
+  ChatTranscript: () => null,
+}))
+
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
@@ -55,6 +61,7 @@ let actions: HTMLElement
 let title: HTMLElement
 
 beforeEach(async () => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
   repository = await openImRepository('user-1', { adapter: createMemoryLocalSyncDb() })
   getImRepositoryMock.mockReset()
@@ -64,6 +71,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   repository.close()
   harness.cleanup()
   actions.remove()
@@ -77,8 +85,8 @@ async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTM
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'group-1',
-      activeChat: chat({ id: 'group-1', kind, name: '设计评审' }),
-      identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2') },
+      activeChat: chat({ id: 'group-1', kind, name: '设计评审', ...(kind === 'ai' ? { peer_user_id: 'agent-1' } : {}) }),
+      identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2'), 'agent-1': displayIdentity('agent-1', { type: 'agent', display_name: '设计评审' }) },
       messages: [],
     },
   })
@@ -251,7 +259,7 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
 
   // owner 10-25:运行条那一行在可能有 agent 跑的会话里始终占位(固定高、没有底),所以运行条出现、消失不改变布局;
   // 底部那一摞浮在消息流上,消息从它后面滚过。和真人的私聊没有运行条,不留这一行。
-  it.each([['group', true], ['ai', true], ['dm', false]] as const)('reserves the running bar row in a %s chat: %s', async (kind, reserved) => {
+  it.each([['group', true], ['dm', false]] as const)('reserves the running bar row in a %s chat: %s', async (kind, reserved) => {
     await renderPanel(undefined, kind)
     const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
     expect(dock.classList.contains('absolute!')).toBe(true)
@@ -264,9 +272,44 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
   // 留着就是输入框上面一条 42px 的空带。
   it('reserves no running bar row when the chat hides running status (assistant)', async () => {
     await renderPanel(undefined, 'ai', false, false, true)
-    const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
-    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
-    expect(dock.querySelector('[data-chat-composer]')).not.toBeNull()
+    const conversation = harness.container.querySelector<HTMLElement>('[data-testid="agent-dm-conversation"]')!
+    expect(conversation).not.toBeNull()
+    expect(conversation.querySelector('[data-running-bar-slot]')).toBeNull()
+  })
+
+  it.each(['header', 'block', 'phone'] as const)('%s: agent DM uses the shared conversation without the legacy header or running bar', async layout => {
+    await renderPanel(layout === 'block' ? { actions, title, tabs: null } : undefined, 'ai', layout === 'phone')
+    expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-chat-bottom-dock]')).toBeNull()
+    expect(harness.container.querySelector('[data-running-bar-slot]')).toBeNull()
+    expect(harness.container.textContent).not.toContain('在任务中打开')
+  })
+
+  it('keeps the agent avatar, title, folder and More in the block strip without a second content header', async () => {
+    const slot = document.body.appendChild(document.createElement('div'))
+    installShellSlots()
+    let folder: string | undefined
+    try {
+      await renderPanel({ actions, title, tabs: null }, 'ai')
+      expect(title.textContent).toBe('设计评审')
+      expect(title.querySelector('[data-agent]'), 'the tab keeps the agent avatar').not.toBeNull()
+      expect(header(), 'the strip is the only header').toBeNull()
+      const conversation = harness.container.querySelector('[data-testid="agent-dm-conversation"]')!
+      expect(conversation.querySelector('header')).toBeNull()
+      expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
+      await clickElement(actions.querySelector<HTMLElement>('button[aria-label="文件夹"]')!)
+      const shown = shownPanelTab('group-1')!
+      folder = shown.tabId
+      expect(isFolderItem(shown.item)).toBe(true)
+      await act(async () => { readShellSlots()!.setSlot(chatTabSlotKey('group-1', folder!), slot) })
+      expect(slot.querySelector('[data-testid="group-app-slot"]'), 'the folder button opens its real tab').not.toBeNull()
+      expect(harness.container.contains(conversation), 'opening a tab keeps the shared conversation mounted').toBe(true)
+    } finally {
+      await act(async () => {
+        if (folder) { readShellSlots()?.setSlot(chatTabSlotKey('group-1', folder), null); closeChatTab('group-1', folder) }
+      })
+      slot.remove()
+    }
   })
 
   it('in a block「+」opens the folder as a tab beside the chat, drawn into the slot its strip left (第 ⑥ 步)', async () => {

@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
       },
       activeTurn: { set: vi.fn((turn: { id: string } | null, status?: string) => ops.push(`active:${turn?.id ?? 'none'}:${status ?? ''}`)) },
     },
-    session: { setBackgroundTasks: vi.fn() },
+    session: { setBackgroundTasks: vi.fn(), setPendingPrompt: vi.fn() },
     dispose: vi.fn(),
   })
   return {
@@ -36,6 +36,8 @@ vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/shared-chat-cont
   createSessionChatContext: () => { const c = { dispose: vi.fn() }; mocks.contexts.push(c); return c },
   getSharedChatContext: mocks.shared,
 }))
+
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/chat/use-session-chat-layout', () => ({ useSessionChatLayout: () => ({ preset: 'double', userGutter: 0 }) }))
 
 import { SessionTranscriptView } from '../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui'
 

@@ -4,6 +4,32 @@ import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { messageQuoteLink, messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
 
 describe('conversation reply references', () => {
+  it('quotes an attached file by label while preserving the original input and exact anchor', () => {
+    const text = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const turns: TranscriptTurn[] = [{ id: 't', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'input', seq: 0, role: 'user', text },
+      { kind: 'message', id: 'answer', seq: 1, role: 'assistant', text: '收到', sentReplyTo: 'input' },
+    ] as ChatMessage[] as TranscriptTurn['items'] }];
+    const result = conversationMessages(turns)[0]!.items as ChatMessage[];
+    expect(result[1]!.conversationReply).toMatchObject({ itemId: 'input', text: '看下文件\ntri19-file.txt' });
+    expect(result[0]!.text).toBe(text);
+    expect(turns[0]!.items[0]).toMatchObject({ id: 'input', text });
+  });
+
+  it('keeps a native file quote source while hiding its machine path in the preview', () => {
+    const source = { kind: 'session' as const, sessionId: 'session-a', itemId: 'source:file:message:input' };
+    const excerpt = '看下文件\n@[tri19-file.txt](/Users/host/task-attachments/c/tri19-file.txt)';
+    const text = messageQuoteText(source, excerpt, 'Agent') + '继续';
+    const turns: TranscriptTurn[] = [{ id: 'turn', seq: 0, initiator: 'user', items: [
+      { kind: 'message', id: 'reply', seq: 0, role: 'user', text },
+    ] }];
+    const projected = conversationMessages(turns);
+    expect(projected[0]!.items[0]).toMatchObject({ text: '继续', conversationReply: {
+      itemId: messageQuoteLink(source), text: '看下文件\ntri19-file.txt', from: 'Agent',
+    } });
+    expect(turns[0]!.items[0]).toHaveProperty('text', text);
+  });
+
   it('keeps a live quote bound to its original turn after storage renumbers display IDs', () => {
     const live: TranscriptTurn = { id: 's:turn:0', referenceId: 'source:first-run', seq: 0, initiator: 'user', items: [
       { kind: 'message', id: 's:turn:0:message:auto:0', seq: 0, role: 'assistant', text: 'same words' },
