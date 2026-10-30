@@ -11,6 +11,7 @@ import { partialQuotedContent } from './messageQuoteContent'
 import { quoteSummary } from './quoteSummary'
 import { ChatReplyQuote, type ReplyQuoteDisclosure } from './ChatReplyQuote'
 import { SourcePreview } from '@/components/markdown/SourcePreview'
+import { imSourcePreview } from './messageQuote.css'
 
 /**
  * 气泡里引的那一条:谁说的 + 原话,点一下跳到被引用的消息。
@@ -69,7 +70,7 @@ export function MessageQuoteFrame({ mine, head, text, onClick, preview }: {
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {head}
       </div>
-      {preview ? <SourcePreview text={text} lines={2} style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', maxHeight: 'calc(var(--lh-body) * 2)', opacity: 0.55 }} /> : <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {preview ? <SourcePreview text={text} lines={2} className={imSourcePreview} /> : <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {text}
       </div>}
     </div>
