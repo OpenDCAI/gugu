@@ -14,6 +14,7 @@ import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptItem, TranscriptTurn } from '@session-chat/model';
+export { isEmptyAgentTurn } from './turn-visibility';
 
 /** Returns true when the item is a user-role message (boundary seam sentinel). */
 export function itemIsUser(item: ChatItem): boolean {
@@ -395,7 +396,7 @@ export function planTurnFoldRuns(
    */
   live = false,
   /**
-   * 对话布局:跑着的那一轮 agent 自己起的(后台跑完、定时、群投递)也给过程行,写清在干什么(管家 10-28),
+   * 对话布局:跑着的那一轮 agent 自己起的(后台跑完、定时、群投递)也给过程行,只写执行状态、用时和步数,
    * ❌ 一句话还没说就不折、行平铺在上一轮回复底下、只露出后台药丸(MBP 验收 #733)。见 `turnFoldView`。
    */
   headLiveAgentTurn = false
@@ -532,7 +533,7 @@ export function turnFoldView(
   // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
   // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
-  // 对话布局例外:跑着就套头,过程行写「执行中 · 后台任务」(管家 10-28 推翻上面「跑着不套头」:主人手打的消息
+  // 对话布局例外:跑着就套头,过程行只写可观测的执行状态、用时和步数。主人手打的消息
   // 不能看着像被不是他发起的事挡住)。代价是跑完一句没说的那一轮(`[NO_REPLY]`)头会撤掉。
   const headed = userRun || (!active && fold.spoke) || (active && headLiveAgentTurn);
   return {

@@ -6,7 +6,7 @@
  * dependency through the package entry point.
  */
 
-import type { ChatAttachment, OpenedOutput } from './model';
+import type { ChatAttachment, ChatMessage, OpenedOutput } from './model';
 
 export type ChatViewCommandId = 'chat.scrollToTop' | 'chat.scrollToBottom';
 
@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
+  onMessageTextMount?: (target: { root: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
   conversationAgentSession?: () => string | null;
   /** External agents may expose only their public identity, with no readable session. */
@@ -47,6 +49,8 @@ export type ChatCommands = {
   /** Exact source row receiving the shared chat source-message flash. */
   flashMessageId?: string | null;
   onCopyError?: (error: unknown) => void;
+  /** The host owns clipboard access; shared transcript components never fall back to a WebView API. */
+  writeClipboardText?: (text: string) => Promise<void>;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
   /** Host-owned draft: virtual row reuse must not move it to another message. */

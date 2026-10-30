@@ -4,6 +4,11 @@ import type { AgentTerminalHooks } from '../agent-ports/terminal-manager';
 type TerminalRecord = {
   state: Omit<TerminalState, 'output'>;
   bytes: Buffer;
+  /**
+   * 上一次给出去的那份快照,状态或输出一变就作废(#994)。没变的终端每次给同一个对象:下游按身份就知道它没变,
+   * ❌ 每来一次会话更新就把整条会话全部终端的输出重新解码一遍、再逐轮编码比对。
+   */
+  snapshot?: TerminalState;
 };
 
 /** Session-owned presentation, independent of tool references and process handles.
@@ -11,6 +16,8 @@ type TerminalRecord = {
  */
 export class TerminalLiveRegistry {
   private readonly bySession = new Map<string, Map<string, TerminalRecord>>();
+  /** 每条会话上一次给出去的那一组;其中任一终端变了就作废。 */
+  private readonly snapshots = new Map<string, TerminalState[]>();
 
   constructor(private readonly onSessionChanged?: (sessionId: string) => void) {}
 
@@ -22,6 +29,7 @@ export class TerminalLiveRegistry {
       const record = this.bySession.get(sessionId)?.get(terminalEntityId(scope, terminalId));
       if (!record) return;
       record.state = { ...record.state, canKill: false };
+      this.invalidate(sessionId, record);
       this.onSessionChanged?.(sessionId);
     },
   };
@@ -32,6 +40,7 @@ export class TerminalLiveRegistry {
       state: { ...state, terminalId: terminalEntityId(scope, state.terminalId) },
       bytes: Buffer.from(output, 'utf8'),
     });
+    this.snapshots.delete(sessionId);
     this.onSessionChanged?.(sessionId);
   }
 
@@ -57,7 +66,13 @@ export class TerminalLiveRegistry {
       record.state = { ...record.state, _meta: patchEntityMeta(record.state._meta, update._meta) };
     }
     session.set(terminalId, record);
+    this.invalidate(sessionId, record);
     if (event.kind !== 'terminal_chunk') this.onSessionChanged?.(sessionId);
+  }
+
+  private invalidate(sessionId: string, record: TerminalRecord): void {
+    record.snapshot = undefined;
+    this.snapshots.delete(sessionId);
   }
 
   private session(sessionId: string): Map<string, TerminalRecord> {
@@ -66,16 +81,25 @@ export class TerminalLiveRegistry {
     return session;
   }
 
+  /** 只读:没变时同一组原样再给下一位,❌ 原地改。 */
   snapshotSession(sessionId: string): TerminalState[] {
-    return [...(this.bySession.get(sessionId)?.values() ?? [])].map(({ state, bytes }) => ({
-      ...state,
+    const cached = this.snapshots.get(sessionId);
+    if (cached) return cached;
+    const session = this.bySession.get(sessionId);
+    // 没有终端的会话不记:关掉之后迟到的一次同步不该替一条已经拆掉的会话留下一格。
+    if (!session) return [];
+    const snapshots = [...session.values()].map((record) => record.snapshot ??= {
+      ...record.state,
       // Incomplete trailing UTF-8 stays invisible until another chunk or exit arrives.
-      output: new TextDecoder().decode(bytes, { stream: state.exitStatus === null }),
-    }));
+      output: new TextDecoder().decode(record.bytes, { stream: record.state.exitStatus === null }),
+    });
+    this.snapshots.set(sessionId, snapshots);
+    return snapshots;
   }
 
   disposeSession(sessionId: string): void {
     this.bySession.delete(sessionId);
+    this.snapshots.delete(sessionId);
   }
 
   route(sessionId: string, connectionKey: string, providerSessionId: string, event: NormalizedEvent): NormalizedEvent | null {

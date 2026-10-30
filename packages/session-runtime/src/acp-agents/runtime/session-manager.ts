@@ -861,6 +861,11 @@ export class SessionManager implements InboundRouter {
         // ❌ 不去问状态机——`endReplay()` 先切 phase 后发变更,那一刻问 phase 会把最后一回合报错。
         record.replaying = true;
         record.cell.beginReplay();
+        // #980 不重放 ⇒ 补投去重的那份「agent 收到过什么」由宿主从记录里读好带进来;没带 = 读不出来。
+        if (input.replayHistory === false) {
+          record.cell.useRecordedDeliveries(input.recordedDeliveryIds ?? null);
+          record.cell.continueTurnIndexAt(input.turnIndexBase ?? 0);
+        }
 
         try {
           const loadingCell = record.cell;
@@ -2257,16 +2262,7 @@ export class SessionManager implements InboundRouter {
       live: createSessionLiveModels(this.sessionHost, input.sessionId, cell.sessionState),
       transcriptTick: null,
       transcriptPending: false,
-      lastSynced: {
-        sessionState: cell.sessionState,
-        config: cell.config,
-        usage: cell.usage,
-        plan: null,
-        agents: [],
-        activeTurn: null,
-        draft: null,
-        terminals: [],
-      },
+      lastSynced: initialLastSynced(cell),
     });
     this.cells.set(input.sessionId, record);
     if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
@@ -2300,6 +2296,9 @@ export class SessionManager implements InboundRouter {
 
   private restoreLostRecord(record: Extract<SessionRecord, { phase: 'lost' }>): void {
     record.live = createSessionLiveModels(this.sessionHost, record.input.sessionId, record.cell.sessionState);
+    // 新的活模型从初值开始:「上一次推过什么」要一起回到初值,❌ 拿旧模型推过的那份比 —— 没变的就一样都不推,
+    // 新模型就一直停在初值(#994 起终端那一组没变时是同一个数组,这一跳必然命中)。
+    record.lastSynced = initialLastSynced(record.cell);
     this.cells.set(record.input.sessionId, record);
     this.syncRecord(record);
   }
@@ -2839,11 +2838,15 @@ export class SessionManager implements InboundRouter {
    * 首轮一切正常,最难被发现。(矩阵 L3-CUI 格真机复验这一条。)
    */
   private buildLoadSessionRequest(input: AcpStartInput, providerSessionId: string): LoadSessionRequest {
+    const { _meta } = sessionOpenMeta(input);
+    // #980 不重放 = ACP v2 的「不带 replayFrom」。v1 适配器没有这一格,`_meta.history.replay` 是两边都认的那根线
+    // (v2 通道据它决定带不带 replayFrom,Codex 适配器也认它)。
+    const meta = input.replayHistory === false ? { ..._meta, history: { replay: false } } : _meta;
     return {
       cwd: input.cwd,
       sessionId: providerSessionId,
       mcpServers: (input.mcpServers ?? []) as LoadSessionRequest['mcpServers'],
-      ...sessionOpenMeta(input),
+      ...(meta ? { _meta: meta } : {}),
     };
   }
 
@@ -3015,4 +3018,18 @@ function startFailureMessage(
   return abandoned
     ? `Start cancelled while ${where}, after ${waited}.`
     : `Start failed while ${where}, after ${waited}: ${reason}`;
+}
+
+/** 刚建好的活模型里各格的初值;「上一次推过什么」从这里起算。 */
+function initialLastSynced(cell: Pick<SessionCell, 'sessionState' | 'config' | 'usage'>): SessionRecordBase['lastSynced'] {
+  return {
+    sessionState: cell.sessionState,
+    config: cell.config,
+    usage: cell.usage,
+    plan: null,
+    agents: [],
+    activeTurn: null,
+    draft: null,
+    terminals: [],
+  };
 }

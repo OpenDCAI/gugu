@@ -1,8 +1,11 @@
+import { useMessageTextSelection } from '../../hooks/useMessageTextSelection'
+import { MessageSelectionToolbar } from './MessageSelectionToolbar'
+import { messageSelectionActionItems } from './messageActionItems'
 import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
-import { Avatar } from '../Avatar'
+import { Avatar } from '../Avatar'; import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -20,6 +23,7 @@ import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
 import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
+import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
 import { DirectMessageQuote, MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
@@ -30,27 +34,6 @@ import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { AgentAnswerActions } from './AgentAnswerActions'
 import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
-
-/** The composer's quote (`> [SenderName]: QuotedText\nReplyText`, InputArea) into quote + reply parts. Any other `> `
- *  start is a markdown blockquote (one put in by a gugu.dispatch draft, an agent quoting): rendered as markdown, not taken apart. */
-function parseQuotedContent(
-  content: string,
-): { senderName: string; quoteText: string; replyText: string } | null {
-  if (!content.startsWith('> ')) return null
-  const lines = content.split('\n')
-  const quoteLines: string[] = []
-  let i = 0
-  while (i < lines.length && lines[i].startsWith('> ')) {
-    quoteLines.push(lines[i].slice(2))
-    i++
-  }
-  while (i < lines.length && lines[i].trim() === '') i++
-  const rawQuote = quoteLines.join('\n')
-  const replyText = lines.slice(i).join('\n').trim()
-
-  const nameMatch = rawQuote.match(/^\[([^\]]*)\]: (.*)$/s)
-  return nameMatch ? { senderName: nameMatch[1]!, quoteText: nameMatch[2]!, replyText } : null
-}
 
 // @@@send-outbox (#1762 洞③) — 传输瞬态指示(sending/failed)整体搬去 MessageSendStatus.tsx:
 // failed 从纯装饰红圈升级为「未送达」可见文字 + 重试/丢弃 popover(#1941 fail-loud)。
@@ -181,7 +164,7 @@ interface BubbleProps {
   // @@@1313 点开已读名单（谁读谁没读）：稳定回调，父层（持 roster+profiles）弹名单，避免把 reader 列表作对象 prop 传进破 memo。
   onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
   highlight?: string
-  onQuote: (msg: MessageItem) => void; onShowMessage?: (id: string) => void
+  onQuote: (msg: MessageItem, selection?: QuoteSelection) => void; onShowMessage?: (id: string) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   isAgent?: boolean; hideAvatar?: boolean; streaming?: boolean // Live IM text shares the settled bubble's layout.
@@ -241,7 +224,7 @@ export const MessageBubble = memo(function MessageBubble({
   const { toast } = useToast()
   const handleCopyText = async (content = msg.content ?? '') => {
     try {
-      await navigator.clipboard.writeText(content)
+      await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
     } catch (error) {
       toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
@@ -278,12 +261,12 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
-  const messageActions = (close: () => void) => ({
+  const messageActions = (close: () => void, selectedText = menuSelection) => ({
     isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
-    onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
-    onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
+    onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
+    onCopy: (content = selectedText || undefined) => { void handleCopyText(content); close() },
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() }, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
@@ -318,6 +301,15 @@ export const MessageBubble = memo(function MessageBubble({
 
   // @@@mobile-message-menu - Android users need the same message menu without a desktop right-click.
   const longPress = useLongPress(({ x, y }) => openMenuAt(x, y))
+  const textSelection = useMessageTextSelection({
+    enabled: compactMobile && msg.content_type === 'text' && !msg.retracted_at,
+    onQuote: (content, selectionId) => onQuote({ ...msg, content }, { originalContent: msg.content, selectionId }),
+    onClearQuote: selectionId => onQuote(msg, { originalContent: msg.content, selectionId, clear: true }),
+    actions: text => messageSelectionActionItems({ ...messageActions(() => {}, text), onShowReactions: openEmojiPickerFromButton }, t),
+  })
+  const nativeTextTarget = (target: EventTarget | null) => compactMobile && target instanceof Node
+    && !!textSelection.root?.contains(target)
+    && !(target instanceof Element ? target : target.parentElement)?.closest('a[href]')
 
   const isRetracted = !!msg.retracted_at
 
@@ -476,8 +468,10 @@ export const MessageBubble = memo(function MessageBubble({
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
             style={bubbleStyle} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
+            onPointerDown={e => { if (!nativeTextTarget(e.target)) longPress.onPointerDown(e) }}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
+              if (nativeTextTarget(e.target)) return
               e.preventDefault()
               e.stopPropagation()
               openMenuAt(e.clientX, e.clientY)
@@ -524,10 +518,11 @@ export const MessageBubble = memo(function MessageBubble({
                   ) : (
                     <span style={{ color: 'var(--text-link)' }}>{t('message.attachment')}</span>
                   )
-                ) : (() => {
-                  const raw = msg.content ?? ''
+                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
+                  const partial = partialQuotedContent(msg)
+                  const raw = partial?.replyText ?? msg.content ?? ''
                   if (highlight) return <span className="msg-time-room-inline">{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
-                  const quoted = parseQuotedContent(raw)
+                  const quoted = partial ? null : parseQuotedContent(raw)
                   if (quoted && quoted.replyText) {
                     return (
                       // flex column + alignItems:flex-start → each child shrinks to its own content width
@@ -561,13 +556,14 @@ export const MessageBubble = memo(function MessageBubble({
                   // #1515 段内 Shift+Enter 软换行渲成 <br> 仅对人类手打消息;agent/LLM 内容保持 CommonMark(软换行=空格)。
                   // @@@2017 群内定向消息:渲染注入 nonce marker 后的正文(mentionRender.content),并把本次 marker 传下 →
                   // 只有被 to_user_ids 背书的 @Name 才渲成 mention;非群/whisper → content=undefined 用原始 raw、marker 空。
-                  return <Markdown trust="chat" content={mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={(href) => { const link = classifyFileLink(href); if (!isAgent || !onOpenLocalFileLink || link.kind !== 'workspace-file') return false; onOpenLocalFileLink(link.path); return true }} />
-                })()}
+                  return <Markdown trust="chat" content={partial ? raw : mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={(href) => { const link = classifyFileLink(href); if (!isAgent || !onOpenLocalFileLink || link.kind !== 'workspace-file') return false; onOpenLocalFileLink(link.path); return true }} />
+                })()}</div>}
               </div>
             )}
             {showTime && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} />}
           </div>
         </MessageHoverTrigger>
+        {textSelection.selection && textSelection.root && <MessageSelectionToolbar root={textSelection.root} actions={textSelection.actions} />}
 
         {/* 表情回应与气泡同侧(#6428):这一层是整列宽,我方气泡行靠 marginLeft:auto 贴右,回应条不跟着贴右就留在整列最左。 */}
         {msg.reactions.length > 0 && (
@@ -592,7 +588,7 @@ export const MessageBubble = memo(function MessageBubble({
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
       {showEmojiPicker && (
         <DeferredEmojiQuickPicker
-          anchor={reactButtonRef}
+          anchor={compactMobile ? bubbleRef : reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
         />

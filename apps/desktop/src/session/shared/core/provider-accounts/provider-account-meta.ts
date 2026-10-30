@@ -23,7 +23,10 @@ const v1Schema = z.object({
   host: z.string().optional(),
   /** The provider's own id for the account, e.g. a numeric GitHub user id. */
   providerAccountId: z.string().optional(),
-  /** How the credential was obtained, e.g. 'form' | 'oauth' | 'device_flow' | 'cli'. */
+  /**
+   * How the credential was obtained, e.g. 'form' | 'oauth' | 'device_flow' | 'cli'.
+   * `PLATFORM_CREDENTIAL_SOURCE`: the Gugu platform keeps it (#921); the row carries no secret.
+   */
   credentialSource: z.string().optional(),
   /** Harness credentials belong to this device; removed connections remain available to bound sessions. */
   harnessConnection: z.object({
@@ -32,6 +35,18 @@ const v1Schema = z.object({
     removed: z.boolean().optional(),
   }).optional(),
 });
+
+/**
+ * #921 `credentialSource` of an account whose credential the Gugu platform keeps for the person: the row
+ * mirrors the platform's answer on this device and has nothing behind its credentialRef.
+ */
+export const PLATFORM_CREDENTIAL_SOURCE = 'platform';
+
+/**
+ * #921 `credentialSource` of an account whose #649 key the provider rejected when it was moved to the platform: the
+ * key is gone, the row stays (nothing behind its credentialRef) so the connection page asks for a key again.
+ */
+export const REJECTED_KEY_SOURCE = 'platform-rejected-key';
 
 // ---------------------------------------------------------------------------
 // Versioned schema

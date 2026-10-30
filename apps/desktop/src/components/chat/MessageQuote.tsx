@@ -7,6 +7,7 @@ import { displayAgentReferences } from '@/lib/mentionMdast'
 import { Reply } from '@/lib/icons'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { ComposerCardHead } from './ComposerCardView'
+import { partialQuotedContent } from './messageQuoteContent'
 import { quoteSummary } from './quoteSummary'
 
 /**
@@ -20,7 +21,8 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
   quoterIsAgent: boolean
   memberProfiles?: Record<string, MemberProfileCardModel>
 }) {
-  const quotedCard = composerCardPreview(msg.reply_to_content)
+  const quotedContent = partialQuotedContent(msg)?.quoteText ?? msg.reply_to_content
+  const quotedCard = composerCardPreview(quotedContent)
   const showQuoted = (event: MouseEvent) => {
     event.stopPropagation()
     if (msg.reply_to_message_id) onShowMessage?.(msg.reply_to_message_id)
@@ -31,7 +33,7 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
       onClick={onShowMessage ? showQuoted : undefined}
       head={quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
         : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
-      text={displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`)}
+      text={displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`)}
     />
   )
 }
@@ -81,10 +83,11 @@ export function DirectMessageQuote({ msg, quoterIsAgent, memberProfiles, onShowM
   onShowMessage?: (id: string) => void
 }) {
   const { t } = useTranslation('messaging')
-  const quotedCard = composerCardPreview(msg.reply_to_content)
+  const quotedContent = partialQuotedContent(msg)?.quoteText ?? msg.reply_to_content
+  const quotedCard = composerCardPreview(quotedContent)
   const sender = quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
     : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)
-  const summary = quoteSummary(displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`))
+  const summary = quoteSummary(displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`))
   const showQuoted = (event: MouseEvent) => {
     event.stopPropagation()
     if (msg.reply_to_message_id) onShowMessage?.(msg.reply_to_message_id)

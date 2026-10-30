@@ -105,22 +105,20 @@ export class AcpLiveSession {
     }
     const session = new AcpLiveSession(sessionId, client);
     try {
-      await withTimeout(
-        Promise.all([
-          session.sessionState.ready,
-          session.config.ready,
-          session.usage.ready,
-          session.plan.ready,
-          session.activeTurn.ready,
-          session.draft.ready,
-          session.terminals.ready,
-          session.agents.ready,
-        ]),
-        'Timed out connecting ACP live models'
-      );
+      // Like startSession above, model attachment waits for its result. A busy
+      // runtime delivering snapshots slowly has not failed to start the engine.
+      await Promise.all([
+        session.sessionState.ready,
+        session.config.ready,
+        session.usage.ready,
+        session.plan.ready,
+        session.activeTurn.ready,
+        session.draft.ready,
+        session.terminals.ready,
+        session.agents.ready,
+      ]);
     } catch (error) {
-      // @@@replica-failed-ready — 副本里拒掉的那一份会自己放掉 attach,可已经接上的另外几份(以及超时时
-      // 还在接的全部)只有这个对象拿着,而调用方收到的是错误、拿不到它 ⇒ 在这里整份拆掉再抛。
+      // @@@replica-failed-ready — 副本里拒掉的那一份会自己放掉 attach,可已经接上的另外几份只有这个对象拿着,而调用方收到的是错误、拿不到它 ⇒ 在这里整份拆掉再抛。
       session.dispose();
       throw error;
     }
@@ -170,22 +168,26 @@ export class AcpLiveSession {
   }
 
   uploadAttachment(input: {
+    uploadId?: string;
     data?: Uint8Array;
     source?: BlobSource;
     size?: number;
     mimeType: AttachmentMimeType;
     name?: string;
     originalPath?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: { sent: number; total?: number }) => void;
   }): Promise<Result<AttachmentRef, unknown>> {
     return this.client.uploadAttachment(
-      { originalPath: input.originalPath },
+      { originalPath: input.originalPath, uploadId: input.uploadId },
       {
         name: input.name ?? 'attachment',
         mimeType: input.mimeType,
         size: input.size ?? input.data?.byteLength,
         source:
           input.source ?? (input.data ? singleChunk(input.data) : singleChunk(new Uint8Array())),
-      }
+      },
+      { signal: input.signal, onProgress: input.onProgress }
     );
   }
 
@@ -286,21 +288,5 @@ function createReplicaState<T>(handle: LiveClientHandle<T>, schema: z.ZodType<T>
   return new ReplicaState(handle, {
     schema,
     store: createImmutableMobxStore(),
-  });
-}
-
-function withTimeout<T>(promise: Promise<T>, message: string, ms = 10_000): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error(message)), ms);
-    promise.then(
-      (value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error: unknown) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      }
-    );
   });
 }

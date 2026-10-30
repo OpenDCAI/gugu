@@ -14,6 +14,8 @@ import { createLogger } from './lib/logger'
 import type { ExtensionPrograms, NativeAppProgram } from './session/main/core/extensions/extension-programs'
 import type { ExtensionAgentStatus } from '../src/session/shared/extensions/agent-status'
 
+import { awaitBrowserCall, withBrowserCall, withoutBrowserCall } from './session/main/core/browser/browser-call-scope'
+
 const log = createLogger('browser-agent-mcp')
 
 /**
@@ -22,7 +24,7 @@ const log = createLogger('browser-agent-mcp')
  *
  * - **连到哪个页签**:Playwright 经 `connectOverCDP(transport)` 连上来,transport 由会话页那一侧给
  *   (`emdashAgentBrowser.openTransport`,只报这条会话的一个页签,见 agent-browser.ts)。不开任何调试端口。
- * - **跟随 Agent 的调用生命周期**:取消时终止这一份连接的未完成动作,保留人的网页。浏览器没有独立暂停锁。
+ * - **跟随 Agent 的调用生命周期**:取消只停止该调用的后续动作,保留并发调用、连接和人的网页。浏览器没有独立暂停锁。
  * - **每条会话一份**:Playwright 的状态(快照里的 ref、当前页)是一条会话的,❌ 会话之间共用。
  *
  * 递给会话的只有 Browser Use App 这一条路(App 的宿主程序 `host: 'browser-use'`,经扩展网关 / catalog):桌面驱动会话页的
@@ -81,7 +83,7 @@ export class SessionBrowserTools {
   private closeServer: (() => Promise<void>) | null = null
   private transport: { close(): void } | null = null
   /**
-   * 调用取消、会话结束或连接作废时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
+   * 会话结束或连接作废时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
    * ❌ 半截连上的一份留在页签上(之后重连会和它抢同一个 debugger 的消息)。
    */
   private readonly lifetime = new AbortController()
@@ -110,7 +112,7 @@ export class SessionBrowserTools {
     const workspace = await this.bridge().workspaceRoot(this.sessionId)
     const server = await createConnection(
       { ...PLAYWRIGHT_CONFIG, outputDir },
-      async () => {
+      () => withoutBrowserCall(async () => {
         signal.throwIfAborted()
         const transport = await this.bridge().openTransport(this.sessionId, signal)
         if (signal.aborted) transport.close()
@@ -124,7 +126,7 @@ export class SessionBrowserTools {
         const context = browser.contexts()[0]
         if (!context) throw new Error('the browser tab has no page to drive')
         return context
-      },
+      }),
     )
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
     await server.connect(serverSide)
@@ -226,24 +228,15 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   const url = params.name === 'browser_navigate' ? params.arguments?.url : initialUrl === 'about:blank' ? undefined : initialUrl
   if (typeof url === 'string' && url) bridge().setInitialUrl(sessionId, url)
   const tools = toolsFor(sessionId, bridge)
-  const cancel = () => {
-    if (sessionTools.get(sessionId) === tools) sessionTools.delete(sessionId)
-    void tools.close().catch((error: unknown) => {
-      log.warn({ sessionId, error: (error as Error).message }, 'could not close cancelled browser tools')
-    })
-  }
-  signal.addEventListener('abort', cancel, { once: true })
   try {
-    if (signal.aborted) cancel()
     signal.throwIfAborted()
-    const client = await tools.client()
+    const client = await awaitBrowserCall(tools.client(), signal)
     signal.throwIfAborted()
-    return await client.callTool(params, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS }) as CallToolResult
+    return await withBrowserCall(signal, () => client.callTool(params, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS })) as CallToolResult
   } catch (error) {
     log.warn({ sessionId, tool: params.name, error: (error as Error).message }, 'browser tool failed')
     return refused(`The browser tool could not run: ${(error as Error).message}`)
   } finally {
-    signal.removeEventListener('abort', cancel)
     bridge().setInitialUrl(sessionId, null)
     bridge().toolFinished(sessionId)
   }

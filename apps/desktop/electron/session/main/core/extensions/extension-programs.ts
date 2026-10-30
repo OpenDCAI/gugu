@@ -9,6 +9,7 @@ import type { ExtensionAgentStatus, ExtensionProgramFailure } from '@shared/exte
 import { log } from '@main/lib/logger';
 import { OwnedStdioTransport, lastStderrLine } from '@main/core/mcp/owned-stdio-transport';
 import { extensionsService } from './extensions-root';
+import { revokeExtensionProgramAccess, withExtensionProgramAccess } from './extension-program-access';
 import { programRuntimePath } from './app-runtime-dir';
 import { PROGRAM_CALL_META_KEY } from '@shared/extensions/app-runtime-protocol';
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
@@ -74,7 +75,7 @@ export interface ExtensionPrograms {
    * by which calls hold the same file or chat at the moment.
    */
   call(program: ExtensionProgram, params: CallToolRequest['params'],
-    options: { signal: AbortSignal; onprogress?: (progress: Progress) => void; agent?: string; handed?: readonly ExtensionHandedFile[];
+    options: { signal: AbortSignal; onprogress?: (progress: Progress) => void; agent?: string; sessionId?: string; handed?: readonly ExtensionHandedFile[];
       handedChats?: readonly ExtensionHandedChat[] }): Promise<CallToolResult>;
   /** Which group each file is in, read as this agent; throws, naming the file, when the agent cannot open one. */
   handedFiles(agentUserId: string, itemIds: readonly string[]): Promise<ExtensionHandedFile[]>;
@@ -313,7 +314,7 @@ class ProgramTransport extends OwnedStdioTransport {
         if (program.onGuguNode) this.surface = attachProgramSurface(program.extensionId, child);
       },
       onClosed: () => {
-        this.surface?.close();
+        void Promise.resolve(this.surface?.close(true)).catch((error: unknown) => log.warn('App resources did not close cleanly', { error: String(error) }));
         this.surface = null;
       },
     });
@@ -328,6 +329,7 @@ interface Instance {
   calls: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
+  stopped?: Promise<void>;
   /** Settles once the program has exited: what an uninstall waits for before it takes the App's files. */
   gone: Promise<void>;
   exited: () => void;
@@ -387,15 +389,28 @@ function recordFailure(program: ExtensionProgram, transport: ProgramTransport, e
 }
 
 function stop(instance: Instance): Promise<void> {
+  if (instance.stopped) return instance.stopped;
   instance.stopping = true;
   if (instance.idleTimer) clearTimeout(instance.idleTimer);
   if (live.get(instance.key) === instance) live.delete(instance.key);
-  return instance.client.close().catch((error: unknown) =>
-    log.warn('extension program did not stop cleanly', { key: instance.key, error: String(error) })).finally(() => {
+  const stopTransport = () => instance.client.close().catch((error: unknown) =>
+    log.warn('extension program did not stop cleanly', { key: instance.key, error: String(error) }));
+  const surface = instance.transport.surface;
+  // Every exit path, including a drained upgrade, releases native held input
+  // before the process carrying its driver can disappear.
+  let stopping: Promise<void>;
+  if (surface) {
+    let cleanup: Promise<void>;
+    try { cleanup = Promise.resolve(surface.close()); }
+    catch (error) { cleanup = Promise.reject(error); }
+    stopping = cleanup.finally(() => { instance.transport.surface = null; return stopTransport(); });
+  } else stopping = stopTransport();
+  instance.stopped = stopping.finally(() => {
     // Stopping takes the whole tree (OwnedStdioTransport.close), whether or not the client heard the close.
     instances.delete(instance);
     instance.exited();
   });
+  return instance.stopped;
 }
 
 async function start(program: ExtensionProgram): Promise<Instance> {
@@ -408,8 +423,11 @@ async function start(program: ExtensionProgram): Promise<Instance> {
   });
   const instance: Instance = { key, client, transport, calls: 0, idleTimer: null, stopping: false, gone, exited };
   instances.add(instance);
-  client.setNotificationHandler(ToolListChangedNotificationSchema, async () => void toolLists.delete(versionKeyOf(program)));
+  client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+    if (!instance.stopping) toolLists.delete(versionKeyOf(program));
+  });
   client.fallbackNotificationHandler = async (notification) => {
+    if (instance.stopping) return;
     for (const listener of notificationListeners) listener(program.extensionId, program.server, notification);
   };
   spawned.add(transport);
@@ -425,11 +443,12 @@ async function start(program: ExtensionProgram): Promise<Instance> {
   instructionsOf.delete(key);
   try {
     await client.connect(transport);
+    if (instance.stopping) throw new Error('App program access was revoked');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const said = lastStderrLine(transport.stderrTail);
-    recordFailure(program, transport, message, transport.owned?.child.pid === undefined);
-    await transport.close().catch(() => undefined);
+    if (!instance.stopping) recordFailure(program, transport, message, transport.owned?.child.pid === undefined);
+    await (instance.stopped ?? transport.close()).catch(() => undefined);
     spawned.delete(transport);
     instances.delete(instance);
     exited();
@@ -452,11 +471,11 @@ async function start(program: ExtensionProgram): Promise<Instance> {
 /** Out of the pool: no new calls reach it; it stops now if idle, else when its last call finishes. */
 function retire(instance: Instance): void {
   if (live.get(instance.key) === instance) live.delete(instance.key);
-  if (instance.calls === 0 && !instance.stopping) void stop(instance);
+  if (instance.calls === 0 && !instance.stopping) void stop(instance).catch(reportStopFailure);
 }
 
 /**
- * An upgrade was installed, or the App uninstalled: its programs leave the pool — each stops now if idle (a chat file it
+ * An upgrade or settings change: its programs leave the pool — each stops now if idle (a chat file it
  * holds open does not keep it), else when its last call finishes. Settles once every one of them has exited.
  */
 export async function retireExtensionPrograms(extensionId: string): Promise<void> {
@@ -465,7 +484,20 @@ export async function retireExtensionPrograms(extensionId: string): Promise<void
   const native = [...nativePrograms.values()].map((provider) => provider.retire(extensionId));
   const own = [...instances].filter((instance) => instance.key.startsWith(`${extensionId}/`));
   for (const instance of own) retire(instance);
-  await Promise.all([...native, ...own.map((instance) => instance.gone)]);
+  await Promise.all([...native, ...own.map(async (instance) => { await instance.gone; await instance.stopped; })]);
+}
+
+/** Off, agents:tools withdrawn, or uninstalled: no old call or starting process may outlive that authorization. */
+export async function revokeExtensionPrograms(extensionId: string): Promise<void> {
+  revokeExtensionProgramAccess(extensionId);
+  for (const key of [...toolLists.keys()]) if (key.startsWith(`${extensionId}/`)) toolLists.delete(key);
+  for (const key of [...instructionsOf.keys()]) if (key.startsWith(`${extensionId}/`)) instructionsOf.delete(key);
+  for (const key of [...starting.keys()]) if (key.startsWith(`${extensionId}/`)) starting.delete(key);
+  const own = [...instances].filter((instance) => instance.key.startsWith(`${extensionId}/`));
+  const stopped = own.map(stop);
+  const settled = await Promise.allSettled([...stopped, ...[...nativePrograms.values()].map((provider) => provider.retire(extensionId))]);
+  const failed = settled.find((result) => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
 }
 
 /**
@@ -476,17 +508,18 @@ function armIdle(instance: Instance): void {
   instance.idleTimer = setTimeout(() => {
     if (instance.calls > 0 || instance.stopping) return;
     if ((instance.transport.surface?.openFiles() ?? 0) > 0) armIdle(instance);
-    else void stop(instance);
+    else void stop(instance).catch(reportStopFailure);
   }, IDLE_MS);
   instance.idleTimer.unref?.();
 }
 
-async function use<T>(program: ExtensionProgram, work: (client: Client) => Promise<T>,
-  call?: { id: string; agent?: string; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
+async function use<T>(program: ExtensionProgram, signal: AbortSignal, work: (client: Client) => Promise<T>,
+  call?: { id: string; agent?: string; sessionId?: string; callerKind?: 'person'; handed: readonly ExtensionHandedFile[]; handedChats: readonly ExtensionHandedChat[] }): Promise<T> {
   const key = versionKeyOf(program);
+  signal.throwIfAborted();
   let pending = live.has(key) ? Promise.resolve(live.get(key)!) : starting.get(key);
   if (!pending) {
-    pending = start(program).finally(() => starting.delete(key));
+    pending = start(program).finally(() => { if (starting.get(key) === pending) starting.delete(key); });
     starting.set(key, pending);
   }
   const instance = await pending;
@@ -495,14 +528,17 @@ async function use<T>(program: ExtensionProgram, work: (client: Client) => Promi
   // The call's agent, and what it handed for this call only: taken back (and what was opened on it alone) when it ends.
   // The answer goes back to the agent once the program let go of them: its writes handed to the file service in order,
   // ahead of the Close — not yet confirmed by the service, a millisecond window no agent's next step reaches (F106).
-  const release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats) : undefined;
+  let release: (() => Promise<void>) | undefined;
   try {
+    signal.throwIfAborted();
+    if (instance.stopping) throw new Error('App program access was revoked');
+    release = call ? instance.transport.surface?.hand(call.id, call.agent ?? null, call.handed, call.handedChats, call.sessionId, call.callerKind ?? 'agent') : undefined;
     return await work(instance.client);
   } finally {
     await release?.();
     instance.calls -= 1;
     if (instance.calls === 0 && !instance.stopping) {
-      if (live.get(instance.key) !== instance) void stop(instance);
+      if (live.get(instance.key) !== instance) void stop(instance).catch(reportStopFailure);
       else armIdle(instance);
     }
   }
@@ -525,28 +561,39 @@ export const extensionPrograms: ExtensionPrograms = {
     return null;
   },
   async tools(program) {
-    const dataChanged = await dataChangedAt(program.dataDir);
-    const cached = toolLists.get(versionKeyOf(program));
-    if (cached?.dataChanged === dataChanged) return cached.tools;
-    const { tools } = program.native ? { tools: await nativeProgram(program).tools() } : await use(program, (client) => client.listTools());
-    toolLists.set(versionKeyOf(program), { tools, dataChanged });
-    return tools;
+    return withExtensionProgramAccess(program.extensionId, undefined, async (signal) => {
+      const refusal = extensionPrograms.agentToolsRefusal(program.extensionId);
+      if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
+      const dataChanged = await dataChangedAt(program.dataDir);
+      signal.throwIfAborted();
+      const cached = toolLists.get(versionKeyOf(program));
+      if (cached?.dataChanged === dataChanged) return cached.tools;
+      const { tools } = program.native ? { tools: await nativeProgram(program).tools() } : await use(program, signal, (client) => client.listTools(undefined, { signal }));
+      signal.throwIfAborted();
+      toolLists.set(versionKeyOf(program), { tools, dataChanged });
+      return tools;
+    });
   },
   instructions(program) {
     return instructionsOf.get(versionKeyOf(program));
   },
-  call(program, params, { signal, onprogress, agent, handed = [], handedChats = [] }) {
-    const id = randomUUID();
-    const stamped = { ...params, _meta: { ...params._meta, [PROGRAM_CALL_META_KEY]: id } };
-    const call = program.native ? nativeProgram(program).call(program, stamped, signal)
-      : use(program, (client) => client.callTool(stamped, undefined, { signal, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>, { id, agent, handed, handedChats });
-    return call.then((result) => {
-      if (result.isError) {
-        const detail = result.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
-        failures.set(program.extensionId, { kind: 'tool', server: program.server, at: new Date().toISOString(),
-          said: detail, stderrTail: detail, notStarted: false, code: null, command: program.command });
-      } else lastWorked.set(program.extensionId, new Date().toISOString());
-      return result;
+  call(program, params, { signal: parent, onprogress, agent, sessionId, handed = [], handedChats = [] }) {
+    return withExtensionProgramAccess(program.extensionId, parent, async (signal) => {
+      const refusal = extensionPrograms.agentToolsRefusal(program.extensionId);
+      if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
+      const id = randomUUID();
+      const stamped = { ...params, _meta: { ...params._meta, [PROGRAM_CALL_META_KEY]: id } };
+      const call = program.native ? nativeProgram(program).call(program, stamped, signal)
+        : use(program, signal, (client) => client.callTool(stamped, undefined, { signal, onprogress, timeout: NO_TIMEOUT_MS }) as Promise<CallToolResult>, { id, agent, sessionId, handed, handedChats });
+      return call.then((result) => {
+        signal.throwIfAborted();
+        if (result.isError) {
+          const detail = result.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
+          failures.set(program.extensionId, { kind: 'tool', server: program.server, at: new Date().toISOString(),
+            said: detail, stderrTail: detail, notStarted: false, code: null, command: program.command });
+        } else lastWorked.set(program.extensionId, new Date().toISOString());
+        return result;
+      });
     });
   },
   handedFiles: handedFilesAs,
@@ -561,43 +608,48 @@ export const extensionPrograms: ExtensionPrograms = {
     return programSource();
   },
   async callFromPage(extensionId, { server, name, arguments: args, from }) {
-    // The program runs only while the person lets this extension run programs at all.
-    const refusal = extensionPrograms.agentToolsRefusal(extensionId);
-    if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
-    const own = programSource().filter((program) => program.extensionId === extensionId);
-    const program = server === undefined ? (own.length === 1 ? own[0] : undefined) : own.find((p) => p.server === server);
-    if (!program) {
-      throw Object.assign(new Error(server !== undefined ? `this App has no program named ${server}`
-        : own.length === 0 ? 'this App has no MCP program' : `this App runs ${own.length} programs; name one`), { code: 'invalid' });
-    }
-    const tool = (await extensionPrograms.tools(program)).find((candidate) => candidate.name === name);
-    if (!tool) throw Object.assign(new Error(`program ${program.server} has no tool ${name}`), { code: 'invalid' });
-    if (!toolVisibleTo(tool, 'app')) throw Object.assign(new Error(`tool ${name} is for agents only (its _meta.ui.visibility has no "app")`), { code: 'invalid' });
-    // Written here, never taken from the page: a page must not pass for an agent (`gugu/agent` is main's binding's).
-    // A page has no harness to cancel for it: the MCP client's own default request timeout bounds the call.
-    if (!('agent' in from)) {
-      // A page in a session: the program is told that session and its working copy on this machine (`gugu/workspaceRoot`),
-      // as an agent's call is — a page on another machine knows neither the path nor this machine's layout.
+    return withExtensionProgramAccess(extensionId, undefined, async (signal) => {
+      // The program runs only while the person lets this extension run programs at all.
+      const refusal = extensionPrograms.agentToolsRefusal(extensionId);
+      if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
+      const own = programSource().filter((program) => program.extensionId === extensionId);
+      const program = server === undefined ? (own.length === 1 ? own[0] : undefined) : own.find((p) => p.server === server);
+      if (!program) {
+        throw Object.assign(new Error(server !== undefined ? `this App has no program named ${server}`
+          : own.length === 0 ? 'this App has no MCP program' : `this App runs ${own.length} programs; name one`), { code: 'invalid' });
+      }
+      const tool = (await extensionPrograms.tools(program)).find((candidate) => candidate.name === name);
+      if (!tool) throw Object.assign(new Error(`program ${program.server} has no tool ${name}`), { code: 'invalid' });
+      if (!toolVisibleTo(tool, 'app')) throw Object.assign(new Error(`tool ${name} is for agents only (its _meta.ui.visibility has no "app")`), { code: 'invalid' });
+      // Written here, never taken from the page: a page must not pass for an agent (`gugu/agent` is main's binding's).
+      // A page has no harness to cancel for it: the MCP client's own default request timeout bounds the call.
+      if (!('agent' in from)) {
+        // A page in a session: the program is told that session and its working copy on this machine (`gugu/workspaceRoot`),
+        // as an agent's call is — a page on another machine knows neither the path nor this machine's layout.
+        const { agentSessionContext } = await import('./extension-agent-context');
+        const root = from.sessionId ? (await agentSessionContext(from.sessionId))?.workspaceRoot : undefined;
+        const id = randomUUID();
+        const _meta = {
+          'gugu/caller': 'app',
+          [PROGRAM_CALL_META_KEY]: id,
+          ...(from.sessionId ? { [SESSION_META_KEY]: from.sessionId } : {}),
+          ...(root ? { [WORKSPACE_META_KEY]: root } : {}),
+        };
+        if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal, sessionId: from.sessionId });
+        return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
+          { id, sessionId: from.sessionId, callerKind: 'person', handed: [], handedChats: [] });
+      }
+      // Worked by an agent (owner 10-14): its call, as the agent's own tool call is — stamped the same (its session, working
+      // copy, model), what it hands checked as that agent, and what the program does in it done as that agent (`gugu/call`).
       const { agentSessionContext } = await import('./extension-agent-context');
-      const root = from.sessionId ? (await agentSessionContext(from.sessionId))?.workspaceRoot : undefined;
-      const _meta = {
-        'gugu/caller': 'app',
-        ...(from.sessionId ? { [SESSION_META_KEY]: from.sessionId } : {}),
-        ...(root ? { [WORKSPACE_META_KEY]: root } : {}),
-      };
-      if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal: new AbortController().signal });
-      return use(program, (client) => client.callTool({ name, arguments: args, _meta }) as Promise<CallToolResult>);
-    }
-    // Worked by an agent (owner 10-14): its call, as the agent's own tool call is — stamped the same (its session, working
-    // copy, model), what it hands checked as that agent, and what the program does in it done as that agent (`gugu/call`).
-    const { agentSessionContext } = await import('./extension-agent-context');
-    const stamp = await callerMeta({ agentId: from.agentSession, agentUserId: from.agent }, agentSessionContext);
-    const given = await handedAs(extensionPrograms, from.agent.slice('user:'.length), tool, name, args);
-    const id = randomUUID();
-    const _meta = { 'gugu/caller': 'app', ...stamp, [PROGRAM_CALL_META_KEY]: id };
-    if (program.native) return extensionPrograms.call(program, { name, arguments: given.args, _meta }, { signal: new AbortController().signal });
-    return use(program, (client) => client.callTool({ name, arguments: given.args, _meta }) as Promise<CallToolResult>,
-      { id, agent: from.agent.slice('user:'.length), handed: given.handed, handedChats: given.handedChats });
+      const stamp = await callerMeta({ agentId: from.agentSession, agentUserId: from.agent }, agentSessionContext);
+      const given = await handedAs(extensionPrograms, from.agent.slice('user:'.length), tool, name, args);
+      const id = randomUUID();
+      const _meta = { 'gugu/caller': 'app', ...stamp, [PROGRAM_CALL_META_KEY]: id };
+      if (program.native) return extensionPrograms.call(program, { name, arguments: given.args, _meta }, { signal, sessionId: from.agentSession });
+      return use(program, signal, (client) => client.callTool({ name, arguments: given.args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
+        { id, agent: from.agent.slice('user:'.length), sessionId: from.agentSession, handed: given.handed, handedChats: given.handedChats });
+    });
   },
 };
 
@@ -615,5 +667,9 @@ export function extensionProgramStatus(extensionId: string): ExtensionAgentStatu
 /** At quit: every program tree goes with gugu. */
 export async function stopAllExtensionPrograms(): Promise<void> {
   await Promise.allSettled(starting.values());
-  await Promise.allSettled([...live.values()].map(stop));
+  await Promise.allSettled([...instances].map(stop));
+}
+
+function reportStopFailure(error: unknown): void {
+  log.warn('App program resource cleanup failed', { error: String(error) });
 }

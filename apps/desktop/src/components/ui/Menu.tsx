@@ -208,12 +208,15 @@ const submenuPositionerStyle: CSSProperties = { zIndex: 'var(--z-menu)' }
 const submenuPopupStyle: CSSProperties = { minWidth: 160, maxWidth: 320, padding: menuSurfacePadding, maxHeight: 'var(--available-height)', overflowY: 'auto' }
 
 /** A row that opens a nested menu beside it (header ⋯ →「话题」); the nested popup uses the same surface and rows. */
-export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
+export function MenuSubmenu({ icon, label, 'data-testid': testId, popupStyle, popupClassName, children }: {
   icon?: ReactNode
   label: ReactNode
+  popupStyle?: CSSProperties
+  popupClassName?: string
   'data-testid'?: string
   children: ReactNode
 }) {
+  const style = { ...submenuPopupStyle, ...popupStyle }
   return (
     <MenuPrimitive.SubmenuRoot>
       <MenuPrimitive.SubmenuTrigger className={cn('group/menu-item', menuItem)} style={submenuRowStyle} data-testid={testId}>
@@ -223,7 +226,7 @@ export function MenuSubmenu({ icon, label, 'data-testid': testId, children }: {
       </MenuPrimitive.SubmenuTrigger>
       <MenuPrimitive.Portal>
         <MenuPrimitive.Positioner className="gg-menu-positioner window-no-drag-region" positionMethod="fixed" collisionPadding={8} style={submenuPositionerStyle}>
-          <MenuPrimitive.Popup className={menuPopup} style={submenuPopupStyle}>{children}</MenuPrimitive.Popup>
+          <MenuPrimitive.Popup className={cn(menuPopup, popupClassName)} style={style}>{children}</MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
     </MenuPrimitive.SubmenuRoot>

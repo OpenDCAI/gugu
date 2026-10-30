@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../../sessions/gugu-reason';
 import { log } from '@renderer/utils/logger';
@@ -252,7 +253,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
   };
   const copySummary = async () => {
     try {
-      await navigator.clipboard.writeText(summaryBody(data?.summary ?? ''));
+      await platform.writeClipboardText(summaryBody(data?.summary ?? ''));
       toast({ title: t('summaryCopied') });
     } catch (error) {
       log.error({ error }, 'voice note summary copy failed');

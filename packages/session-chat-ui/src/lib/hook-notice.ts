@@ -32,7 +32,8 @@
  * （斜杠命令输出之类）不被认出、照旧当正文渲染 —— 那正是保守的那一边。
  */
 
-import { hookSpeakerOfLine } from '@gugu/session-core/acp';
+import { hookSpeakerOfLine, hookSpeakerOfNotice } from '@gugu/session-core/acp';
+import type { ChatItem } from '@session-chat/model';
 
 /** 桥会折进正文的三档。`info` 不折（本就该素面），所以这里读不到、也不该读到。 */
 export type HookNoticeLevel = 'notice' | 'suggestion' | 'warning';
@@ -76,4 +77,18 @@ export function parseHookNotice(text: string): HookNotice | null {
 
   const strip = `${speaker} says: `.length;
   return { level, hookName: speaker, body: lines.map((line) => line.slice(strip)).join('\n') };
+}
+
+/** Decode only the provider's known hook envelopes; ordinary notices remain ordinary notices. */
+export function processHookNotice(item: ChatItem): HookNotice | null {
+  if (item.kind === 'message') return item.role === 'assistant' ? ('hookNotice' in item ? item.hookNotice : null) ?? parseHookNotice(item.text) : null;
+  if (item.kind !== 'session-notice') return null;
+  const speaker = hookSpeakerOfNotice(item);
+  if (!speaker) return null;
+  const title = item.title ?? '';
+  const lines = hookSpeakerOfLine(title) === speaker
+    ? item.detail === title ? [title] : [title, ...item.detail.split('\n')]
+    : item.detail.split('\n');
+  const prefix = `${speaker} says: `;
+  return { hookName: speaker, level: 'notice', body: lines.map(line => line.startsWith(prefix) ? line.slice(prefix.length) : line).join('\n') };
 }

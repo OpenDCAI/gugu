@@ -44,7 +44,8 @@ More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
 - \`apps-agents\` — app state and agents.
 - \`apps-sessions\` — external CLI history and context (API 17).
-- \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
+- \`apps-programs\` — agent tools and skills.
+- \`apps-projection\` — local picture/input.
 - \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
@@ -392,9 +393,49 @@ can tell any of the person's agents. A sheet pick needs no capability.
   person uninstalls you.
 `;
 
+export const EXTENSION_GUIDE_PROJECTION = `# Local App picture and input resources
+
+Needs \`agents:tools\`
+
+API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
+
+- In your Node program's task tool call, \`gugu.projection.create(driver)\` returns \`{ id, publish, close }\`.
+  Main stamps the App and calling task; arguments cannot choose a different task, window, or webContents.
+  \`driver\` supplies \`driver.refresh()\`, \`driver.input(event, { viewer, frame, signal })\`, \`driver.disconnect(viewer)\`, and \`driver.close()\`.
+  Your App owns capture, target selection, permissions, and native input code. The host supplies transport and lifetime.
+  \`resource.publish({ width, height, mime, data })\` takes a PNG/JPEG/WebP base64 picture, at most 512 KiB decoded;
+  dimensions describe the source's input coordinates. It resolves with the runtime-assigned sequence.
+  Keep that receipt mapped to the captured target. Before applying any input (including keys/text), check that
+  \`frame.sequence\` still names the active target; reject target changes even when dimensions are unchanged.
+  \`input\` receives normalized pointer/wheel coordinates, key down/up, or committed text (Chinese/clipboard once).
+  Text carries \`source: 'typing' | 'ime' | 'paste'\`; \`paste\` names the local event, not proof of a remote clipboard
+  or paste event. Your driver must distinguish plain text insertion from native paste and reject unsupported content.
+  Finish or clean up native work before resolving it, including on \`signal.abort\`. A resolved void means applied;
+  return \`{ status: 'rejected', reason }\` only if nothing was applied, or \`{ status: 'unknown', reason }\` when uncertain.
+  A thrown error after dispatch is uncertain. No input is automatically replayed.
+  \`driver.disconnect(viewer)\` releases that viewer's held keys/buttons before another viewer's input; \`driver.close()\` stops capture
+  and input, and resolves after cleanup. Only one viewer drives at a time; others can still watch. App revocation,
+  task archive/deletion, project deletion or withdrawn App access closes resources. An active task keeps its resources even without viewers.
+- In the same App's task page, \`gugu.projection.mount(element, id, { state?, error? })\` returns \`{ close, pendingText, discardPendingText }\`.
+  It draws the picture and accepts input there, with no extra text form. State is \`connecting\`, \`live\`, \`input-paused\`, or \`closed\`;
+  input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.
+  For the local preview feed, only one unacknowledged picture and the newest pending picture are retained.
+  Focus loss invalidates the old input generation and releases its held input before fresh input is admitted.
+  Rejection drops that operation and leaves the viewer usable. Unknown outcomes require a fresh generation.
+  \`view.pendingText()\` returns \`{ id, text, state: 'not-sent' | 'unconfirmed', reason? }\` records.
+  Read them before disposal if keeping a draft; explicitly discard one with \`view.discardPendingText(id)\`.
+  Move/wheel events coalesce within the same frame and generation; discrete operations remain ordered.
+  Your App decides where to mount a mirror; original local Browser pages already receive native input.
+  Pictures never travel through App-wide program notifications or replayable tool calls.
+  This bitmap feed is local only. A page on another computer requires the shared media transport; there is no
+  bitmap-over-network, tool-result, cloud-notification or relay fallback.
+
+Use \`resource.close()\` to release the source and \`view.close()\` to remove the mounted viewer.
+`;
+
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Programs and skills for this computer's agents. Configuration/behavior: \`apps-settings\`; page calls: \`apps-page\`.
+Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -417,16 +458,14 @@ export const follow = {
 
   — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
   agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\` and \`model\` come stamped the same way: its session (a \`{ session }\` place; keep it, and a
-  click takes the person there with \`showSession\`), that working copy's absolute path, and the model gugu runs it on,
-  as \`listAgents\` gives it (not one switched in its own terminal); each absent when there is none.
-  What run returns is the answer (a string as it is, anything else as JSON); what it throws, the
-  error the agent reads. An export that is not a tool stops the file with an error naming it: keep
-  helpers unexported, or in another module \`tools.js\` imports. It may import your bundle's files
-  and Node's built-ins (no \`node_modules\`).
-- Your tools run only on the computers the App is installed on, with that person's full rights.
-  Another person's agent has them once its owner installs the card too —
-  ask them to; never have agents write their ids into your data.
+  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
+  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
+  Return human steps immediately; the agent asks via existing questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
+  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
+- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
+  these tools; never have agents write their ids into your data.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
@@ -469,10 +508,10 @@ export const follow = {
 - Agents reach your tools through the catalog (\`catalog_list\` / \`catalog_call\`), named
   \`<App id>__<tool>\` whichever program gives it, in every session the moment you are installed; the person can have them
   listed natively instead, from the next session on. \`contributes.toolsListed: true\` asks for that at the first install
-  (the person can switch it back). The person can switch \`agents:tools\` off without uninstalling you; running
-  sessions' calls are refused from then on.
+  (the person can switch it back). Withdrawing \`agents:tools\` refuses further calls; lifecycle: \`apps-settings\`.
 
 Free — your own programs and data folder:
+
 
 - \`callProgram(tool, args?, { server?, device? })\` → your MCP tool's \`{ content, structuredContent?, isError? }\`.
   \`_meta.ui.visibility\` must include \`"app"\` (absent: both); \`["model"]\` hides it from pages, \`["app"]\` from agents.
@@ -919,8 +958,12 @@ may also declare \`{ "name":"settings", "title":"Settings", "hostPage":"settings
 Optional top-level \`settings\` declares up to 32 fields: \`{ "key":"mode", "title":"Mode",
 "type":"string", "default":"local" }\`. Types: \`string\`, \`boolean\`, or \`select\` with
 \`options:[{"value":"local","title":"Local"}]\`; \`description\` and a typed \`default\` are optional.
-Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; saving retires
-the old program after in-flight calls finish, and new calls start with the new values. Uninstall clears them.
+Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; after a change,
+new calls start with the new values. Uninstall clears them.
+Switching the App off, withdrawing \`agents:tools\`, or uninstalling cancels pending calls (agent/page,
+including startup), closes program IPC authority and stops its process tree. Other Apps are unaffected.
+Single-call cancellation does not stop other sessions sharing the program. Upgrades/settings drain already-running
+stdio calls; calls still starting may be interrupted.
 A program's real failures reach the agent in its tool result and the person on the App's page; installed does not mean running.
 Native host resources use \`contributes.mcpServers:[{"name":"browser-use","host":"browser-use"}]\`
 (API 5, desktop GUI). They use the same App permissions, Agent scope, catalog and disclosure as stdio
@@ -1058,6 +1101,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-programs',
     about: 'Giving agents your own tools (tools.js, MCP programs, skills) — also how agents subscribe to and follow what happens in your App, each call stamped with who made it — and calling your program from a tab.',
     text: EXTENSION_GUIDE_PROGRAMS,
+  },
+  {
+    topic: 'apps-projection',
+    about: 'Local picture and input resources: a program supplies capture and input, a task page mounts the shared viewer; authorization, painted frames and cleanup.',
+    text: EXTENSION_GUIDE_PROJECTION,
   },
   {
     topic: 'apps-files',

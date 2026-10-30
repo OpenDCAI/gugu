@@ -1,3 +1,4 @@
+import type { QuoteSelection } from './messageQuoteContent'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
@@ -23,6 +24,7 @@ import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
 import { MESSAGE_SEEN_THRESHOLDS, messageSeen } from './messageSeen'
+import { useStructurallyShared } from '@/hooks/useStructurallyShared'
 
 // #1163 perf — 在父层为单条消息预算「发送/已读态」(primitive 字符串)，下传给 memo 化的 MessageBubble，
 // 取代旧的「整个 memberReadSeqs map 下传、气泡自己 derive」。任一成员已读回执会换 map 引用、破气泡浅比较
@@ -68,6 +70,12 @@ function computeReadReceipt(
  * autoscroll 在某些平台还会差一截。这些 #461 / #667 / #780 / #781 / #1315 一路踩过来的东西,
  * 自己撸一个 map 全都没有 —— 症状就是「不会滚」。
  */
+function withoutLiveStatus(profiles: Record<string, MemberProfileCardModel>): Record<string, MemberProfileCardModel> {
+  const out: Record<string, MemberProfileCardModel> = {}
+  for (const [id, { agentStatus: _status, agentMeta: _meta, ...rest }] of Object.entries(profiles)) out[id] = rest
+  return out
+}
+
 // ── MessageListRow ────────────────────────────────────────────────────────────
 // Module-level so row rendering stays stable across ChatAreaPanel re-renders;
 // unrelated header/input state changes should not remount visible message rows.
@@ -92,7 +100,7 @@ export interface MessageListRowProps {
   // @@@1345 点击已读圆环 → 父层弹「谁已读/谁未读」名单(稳定回调，避免 reader 列表作对象 prop 破 memo)。
   onShowReadReceipt: ((messageId: string, anchor: HTMLElement) => void) | undefined
   onShowMessage?: (id: string) => void
-  onQuote: (msg: MessageItem) => void
+  onQuote: (msg: MessageItem, selection?: QuoteSelection) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   onVisible: (msg: MessageItem) => void
@@ -161,7 +169,7 @@ const MessageListRow = memo(function MessageListRow({
   isAgentChat,
   isGroupChat,
   threeParty,
-  memberProfiles,
+  memberProfiles, bubbleMemberProfiles,
   onReaction,
   onShowReadReceipt,
   onQuote, onShowMessage,
@@ -178,6 +186,7 @@ const MessageListRow = memo(function MessageListRow({
 }: {
   index: number
   showReplyQuote: boolean
+  bubbleMemberProfiles: Record<string, MemberProfileCardModel>
 } & MessageListRowProps) {
   const row = rows[index]
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -258,7 +267,7 @@ const MessageListRow = memo(function MessageListRow({
       compactMobile={mobile}
       // 直接透传稳定 handler；话题里不传则不显示「开话题」菜单项(单层不嵌套)。
       onOpenTopic={onOpenTopic} onOpenTopicAnchor={msg.content_type === 'system' ? onOpenTopicAnchor : undefined} onOpenFile={onOpenFile} onOpenLocalFileLink={onOpenLocalFileLink}
-      memberProfiles={memberProfiles}
+      memberProfiles={bubbleMemberProfiles}
       // @@@multi-select (#988) — More 菜单「多选」入口;多选态的勾选/底色在外层 MessageListRow 处理。
       onEnterSelectMode={onEnterSelectMode}
     />
@@ -295,13 +304,13 @@ const MessageListRow = memo(function MessageListRow({
       ) : isAgentFloodNotice ? (
         <AgentFloodSystemNotice messageId={msg.id} content={msg.content ?? ''} onUndone={onAgentFloodUndone} />
       ) : notice?.kind === 'member-joined' ? (
-        <MemberJoinNotice userIds={notice.userIds} content={msg.content ?? ''} memberProfiles={memberProfiles} onMention={onMentionMember} />
+        <MemberJoinNotice userIds={notice.userIds} content={msg.content ?? ''} memberProfiles={bubbleMemberProfiles} onMention={onMentionMember} />
       ) : bubble}
       {/* @@@5856 锚点:这条消息长出来的话题挂在它底下(它是这条消息的附件,所以跟气泡同侧同缩进),
           双向连接的另一端是分栏标题块里那句「引自…」。正文要传进去:话题名默认就是从这条正文截的,
           没改过名时锚点不再把它念第二遍(owner:「你不感觉这个像是个文字重复吗」)。 */}
       {anchoredTopics && onOpenTopicAnchor && (
-        <TopicAnchorCard topics={anchoredTopics} isMine={!!msg.is_mine} sourceContent={msg.content} onOpen={onOpenTopicAnchor} memberProfiles={memberProfiles} />
+        <TopicAnchorCard topics={anchoredTopics} isMine={!!msg.is_mine} sourceContent={msg.content} onOpen={onOpenTopicAnchor} memberProfiles={bubbleMemberProfiles} />
       )}
     </MessageRow>
   )
@@ -366,6 +375,9 @@ export function MessageList({
     scrollerRef?.(element)
   }, [scrollerRef])
   const rowIds = useMemo(() => rows.map((row) => row.message.id), [rows])
+  // 气泡里的名字(@、引用、任务卡)只认名字 / 头像 / 是否在群;agent 的运行态每翻一次,整张表就是新的,
+  // 递下去会打穿每一只可见气泡的 memo(连同正文的 markdown 重新解析)。发送者自己的状态照旧走 memberProfile。
+  const bubbleMemberProfiles = useStructurallyShared(useMemo(() => withoutLiveStatus(rowProps.memberProfiles), [rowProps.memberProfiles]))
   const quoteIds = useMemo(() => visibleReplyQuoteIds(rowProps.messages,rowProps.isGroupChat || !!rowProps.threeParty || rowProps.isFiltering), [rowProps.messages,rowProps.isGroupChat,rowProps.threeParty,rowProps.isFiltering])
   const { start, end } = useFlowList({ scrollerRef: ownScrollerRef, contentRef, resetKey, rowIds, landing: initialTopMostItemIndex, followTail, atBottomThreshold: 80, onAtBottomChange, onTotalHeightChanged: onTotalListHeightChanged, onStartReached, handleRef: listRef })
   // 未读行不在窗口里:比窗口最早一条还早 = 在上方(-1);否则是尾部对账还没回来,先不判(null)。
@@ -379,7 +391,7 @@ export function MessageList({
       {/* 每换一条线(resetKey)换一个滚动容器:落点、贴底电平、锚定都从这条线自己的第一帧开始。 */}
       <div key={resetKey} ref={handleScrollerRef} data-testid={SCROLLER_TEST_ID[surface]} data-unread-stream-surface={surface} data-message-avatars={rowProps.isAgentChat ? undefined : 'true'} data-image-gallery="" style={scrollerStyle}>
         <div ref={contentRef}>
-          {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} showReplyQuote={quoteIds.has(row.message.id)} />)}
+          {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} bubbleMemberProfiles={bubbleMemberProfiles} showReplyQuote={quoteIds.has(row.message.id)} />)}
           {end >= rows.length ? footer : null}
           {/* 会话底部那一摞浮在消息流上(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
           <div aria-hidden className="h-[var(--chat-dock-h,0px)]" />

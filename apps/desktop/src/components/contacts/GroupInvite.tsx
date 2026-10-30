@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
 import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
@@ -251,7 +252,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
                 data-testid={AUTOMATION_TEST_IDS.groupInviteLinkCopyButton}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(payloadText)
+                    await platform.writeClipboardText(payloadText)
                     toast(t('groupInvite.linkCopied'), 'success')
                   } catch (error) {
                     toast(t('groupInvite.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))

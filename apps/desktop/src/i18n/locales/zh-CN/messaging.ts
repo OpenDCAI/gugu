@@ -821,6 +821,13 @@ export default {
     "title": "发送到"
   },
   "topic": {
+    "pins": {
+      "pin": "将“{{name}}”置顶到主群",
+      "unpin": "取消置顶“{{name}}”",
+      "emptyHint": "在任意消息上选择“开话题”。",
+      "loadFailed": "无法读取置顶话题。",
+      "saveFailed": "未能保存置顶话题。"
+    },
     "phoneTabs": {
       "group": "群聊",
       "label": "群聊和话题"

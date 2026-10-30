@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { rendererLogger } from '@/lib/log'
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
@@ -167,7 +168,7 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
   const handleCopy = useCallback(async () => {
     if (!shareUrl) return
     try {
-      await navigator.clipboard.writeText(shareUrl)
+      await platform.writeClipboardText(shareUrl)
       setCopied(true)
       setError(null)
       setTimeout(() => setCopied(false), 1800)

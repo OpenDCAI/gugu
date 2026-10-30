@@ -1,3 +1,4 @@
+import { platform } from '@/platform';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
@@ -359,9 +360,9 @@ function CopyReportButton({
   }, []);
 
   const handleCopy = useCallback(async () => {
-    if (!snapshot || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+    if (!snapshot) return;
     try {
-      await navigator.clipboard.writeText(formatReport(snapshot, groups));
+      await platform.writeClipboardText(formatReport(snapshot, groups));
       setCopied(true);
       if (resetRef.current !== null) window.clearTimeout(resetRef.current);
       resetRef.current = window.setTimeout(() => {

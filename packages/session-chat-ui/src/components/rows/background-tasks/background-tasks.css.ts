@@ -151,9 +151,22 @@ export const subagentTimeline = style({
 
 export const subagentTimelineStep = style({
   display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
+  flexDirection: 'column',
+  flexShrink: 0,
   minWidth: 0,
+});
+
+export const subagentStepTrigger = style({
+  display: 'flex', alignItems: 'center', gap: 8, height: 20, width: '100%', minWidth: 0,
+  padding: 0, border: 0, background: 'transparent', textAlign: 'left', font: 'inherit', color: 'inherit',
+  cursor: 'pointer', selectors: { '&:disabled': { cursor: 'default' } },
+});
+
+export const subagentStepAction = style({ flexShrink: 0, whiteSpace: 'nowrap' });
+export const subagentStepChevron = style({ width: 12, flexShrink: 0, marginLeft: 'auto' });
+export const subagentStepDetail = style({
+  paddingLeft: 25, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+  color: `color-mix(in srgb, ${vars.fg} 70%, transparent)`,
 });
 
 /** 记号格:一行字高,与 GridLoader 同宽(17)。 */
@@ -178,6 +191,8 @@ export const subagentTimelineErrorDot = style({
 
 export const subagentTimelineTitle = style({
   minWidth: 0,
-  overflowWrap: 'anywhere',
+  overflow: 'hidden',
+  whiteSpace: 'pre',
+  textOverflow: 'ellipsis',
   color: `color-mix(in srgb, ${vars.fg} 70%, transparent)`,
 });

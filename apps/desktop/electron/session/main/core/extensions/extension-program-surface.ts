@@ -7,6 +7,7 @@ import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
 import { fileSync } from './file-sync';
 import { resourceChatIdOf } from '@shared/extensions/app-files-core';
+import { extensionProjections } from './extension-projection-bridge';
 
 /**
  * An App's MCP program as a caller of the App (摩擦单 F16, 真源 §4): the same `gugu` a page has but for a page's own
@@ -47,10 +48,10 @@ export interface ProgramSurface {
    * and chats it handed; the function it returns takes them back when that call ends — resolved once the program let go
    * of the files, its last writes handed to the file service ahead of its Close (F106).
    */
-  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[]): () => Promise<void>;
+  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person'): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
-  close(): void;
+  close(processGone?: boolean): void | Promise<void>;
 }
 
 let lastPageId = 0;
@@ -58,7 +59,9 @@ let lastPageId = 0;
 export function attachProgramSurface(extensionId: string, child: ChildProcess): ProgramSurface {
   const pageId = --lastPageId;
   /** Each call running now, by its id: whose it is, and what it handed. */
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[] }>();
+  let closing: Promise<void> | undefined;
+  let withdrawn = false;
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -102,13 +105,15 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
       return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true);
     },
     hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
-    // Only an agent's call is stamped with an id (`gugu/call`): a person's page calling the program is not.
-    ...(callId === undefined ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
+    // Each host-stamped call has an id; a person's page has a task but no calling agent.
+    ...(callId === undefined || calls.get(callId)?.callerKind === 'person' ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
+    ...(callId === undefined || !calls.get(callId)?.sessionId ? {} : { callingSession: calls.get(callId)!.sessionId }),
   });
 
   const onMessage = (message: unknown) => {
     const frame = message as FrameToHost | null;
     if (frame?.m !== APP_FRAME_MARKER) return;
+    if (withdrawn && (frame.t !== 'call' || !extensionProjections.isCleanup(callerFor(undefined), frame.method, (frame.args ?? {}) as Record<string, unknown>))) return;
     if (frame.t === 'sync') {
       fileSync.fromPort(page, frame.data);
       return;
@@ -129,8 +134,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
 
   return {
     pageId,
-    hand(callId, agent, files, chats = []) {
-      calls.set(callId, { agent, files, chats });
+    hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
+      calls.set(callId, { agent, files, chats, sessionId, callerKind });
       return async () => {
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last
@@ -149,11 +154,19 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
         );
       };
     },
-    openFiles: () => fileSync.openCount(pageId),
-    close() {
-      child.off('message', onMessage);
+    openFiles: () => fileSync.openCount(pageId) + extensionProjections.count(pageId),
+    close(processGone = false) {
+      if (processGone) extensionProjections.closePage(pageId);
+      if (closing) return closing;
+      withdrawn = true;
+      calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));
+      closing = extensionProjections.closeProgram(pageId).finally(() => {
+        child.off('message', onMessage);
+        extensionProjections.closePage(pageId);
+      });
+      return closing;
     },
   };
 }

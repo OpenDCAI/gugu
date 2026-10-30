@@ -32,10 +32,12 @@ import { programCall } from './program-call';
 
 /** Who called and from where: each field from its `_meta` key, as gugu's gateway stamped it; one it did not stamp is absent, never empty. */
 const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: 'gugu/workspaceRoot', model: 'gugu/model', modelLabel: 'gugu/modelLabel' } as const;
-export type ToolCall = { [field in keyof typeof STAMP]?: string };
+export type ToolCall = { [field in keyof typeof STAMP]?: string } & { signal: AbortSignal };
 
-function callOf(meta: Record<string, unknown> | undefined): ToolCall {
-  return Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]])) as ToolCall;
+function callOf(meta: Record<string, unknown> | undefined, signal: AbortSignal): ToolCall {
+  const call = Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]]));
+  // Older tools save the whole stamp in JSON data. The live signal is accessible, never enumerable.
+  return Object.defineProperty(call, 'signal', { value: signal }) as ToolCall;
 }
 
 export interface AppTool {
@@ -91,12 +93,12 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [...tools].map(([name, { run: _run, ...fields }]) => ({ ...fields, name }) as Tool),
   }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args, _meta: meta } = request.params;
     const tool = tools.get(name);
     if (!tool) return { ...text(`no tool "${name}" here; there are: ${[...tools.keys()].join(', ')}`), isError: true };
     const callId = meta?.[PROGRAM_CALL_META_KEY];
-    const run = () => tool.run(args ?? {}, callOf(meta));
+    const run = () => tool.run(args ?? {}, callOf(meta, extra.signal));
     try {
       const value = await (typeof callId === 'string' ? programCall.run(callId, run) : run());
       void server.notification({ method: TOOLS_CALLED, params: { tool: name } });

@@ -2,6 +2,7 @@ import { consoleLogger } from '@gugu/session-core/lib';
 /** Copy feedback shared by transcript buttons; preserve the native user gesture and dispose the reset timer. */
 
 import { createSignal, onCleanup } from 'solid-js';
+import { useCommands } from '../contexts/CommandsContext';
 
 export type ClipboardState = {
   copied: () => boolean;
@@ -9,6 +10,8 @@ export type ClipboardState = {
 };
 
 export function createClipboard(onError: (error: unknown) => void, resetMs = 1500): ClipboardState {
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- Solid context, owned by the caller's reactive root.
+  const commands = useCommands();
   const [copied, setCopied] = createSignal(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -16,7 +19,9 @@ export function createClipboard(onError: (error: unknown) => void, resetMs = 150
     if (resetTimer !== undefined) { clearTimeout(resetTimer); resetTimer = undefined; }
     setCopied(false);
     try {
-      await navigator.clipboard.writeText(text);
+      const write = commands().writeClipboardText;
+      if (!write) throw new Error('The transcript host does not provide clipboard writing');
+      await write(text);
       setCopied(true);
       if (resetTimer !== undefined) clearTimeout(resetTimer);
       resetTimer = setTimeout(() => {

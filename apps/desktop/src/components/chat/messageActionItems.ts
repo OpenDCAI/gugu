@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next'
-import { Clock, Copy, Download, ExternalLink, Pin, Reply, Share, SquareCheck, TextCursorInput, Trash, type IconComponent } from '@/lib/icons'
+import { Clock, Copy, Download, ExternalLink, Pin, Reply, Share, Smile, SquareCheck, TextCursorInput, Trash, type IconComponent } from '@/lib/icons'
+import { SELECTED_MESSAGE_QUOTES_ENABLED } from '../../lib/messageQuoteRollout'
 
 export type MessageActionTarget = {
   isRetracted: boolean
@@ -7,6 +8,8 @@ export type MessageActionTarget = {
   onReply?: () => void
   onQuoteSelection?: () => void
   onCopy?: (content?: string) => void
+  /** Selection toolbars have no reaction row; open the same picker from an action. */
+  onShowReactions?: () => void
   /** 手机才有:长按菜单里换成可选中的原文,挑一段复制(手机长按就是菜单,气泡本身不能选字)。 */
   onSelectText?: () => void
   onCopyLink?: () => void
@@ -38,8 +41,9 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
   const hasContent = !!target.content && !target.isRetracted
   const items: (MessageActionItem | false)[] = [
     !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
-    !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
+    SELECTED_MESSAGE_QUOTES_ENABLED && !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
+    !!target.onShowReactions && { key: 'react', icon: Smile, label: t('message.actions.react'), onSelect: target.onShowReactions, disabled: target.isRetracted },
     !!target.onSelectText && { key: 'selectText', icon: TextCursorInput, label: t('message.actions.selectText'), onSelect: target.onSelectText, disabled: !hasContent, keepOpen: true },
     !!target.onCopyLink && { key: 'copyLink', icon: Copy, label: t('message.actions.copyLink'), onSelect: target.onCopyLink, disabled: target.isRetracted },
     !!target.onOpenLink && { key: 'openLink', icon: ExternalLink, label: t('message.actions.openLink'), onSelect: target.onOpenLink, disabled: target.isRetracted },
@@ -52,4 +56,10 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
     !!target.onDelete && { key: 'delete', icon: Trash, label: t('message.actions.delete'), onSelect: target.onDelete, danger: true },
   ]
   return items.filter((item): item is MessageActionItem => item !== false)
+}
+
+/** Until excerpt-aware receivers ship, Reply keeps its whole-message meaning.
+ * Permissions and every other action, including future extensions, still come from the same list. */
+export function messageSelectionActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
+  return messageActionItems({ ...target, onReply: SELECTED_MESSAGE_QUOTES_ENABLED ? target.onQuoteSelection ?? target.onReply : target.onReply, onQuoteSelection: undefined }, t)
 }

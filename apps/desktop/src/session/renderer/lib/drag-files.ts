@@ -12,6 +12,19 @@ export function getDraggedFilePaths(dataTransfer: DataTransfer): string[] {
 }
 
 /**
+ * 拖进来的每一项,和它是不是文件夹。文件夹在 `DataTransfer.files` 里也是一个读不出字节的 File,
+ * 只能靠背后的 entry 分辨,而 entry 只在 drop 当下拿得到 —— 在事件里同步调。
+ */
+export function droppedFileItems(dataTransfer: DataTransfer): { file: File; directory: boolean }[] {
+  const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === 'file');
+  if (items.length === 0) return Array.from(dataTransfer.files ?? [], (file) => ({ file, directory: false }));
+  return items.flatMap((item) => {
+    const file = item.getAsFile();
+    return file ? [{ file, directory: item.webkitGetAsEntry?.()?.isDirectory === true }] : [];
+  });
+}
+
+/**
  * 拖进输入框的**文件夹** → 正文里那条路径引用(pill)。
  * 文件夹没有可上传的字节,不进附件通道;agent 要的本就是这条路径。
  * 显示文件夹名,发给 agent 的写法(`@[名字](/绝对路径)`)与路径附件同一种语法。
