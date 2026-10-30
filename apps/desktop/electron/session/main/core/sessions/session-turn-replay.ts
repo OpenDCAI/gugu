@@ -34,12 +34,23 @@ function replayOnly(turn: TranscriptTurn): boolean {
 
 export type StoredReplayRow = { seq: number; data: string; turnId: string };
 
+/** One visible-row projection for transcript paging and derived search; source rows stay unchanged. */
+export function filterReadableStoredRows<T extends StoredReplayRow>(parsed: (T & { turn: TranscriptTurn })[], previous: TranscriptTurn | null) {
+  return parsed.filter(row => {
+    const candidate = replayOnly(row.turn) ? messageIdentity(row.turn) : null;
+    if (candidate && previous && candidate === messageIdentity(previous)) return false;
+    if (row.turn.outcome && row.turn.startedAt !== undefined) previous = row.turn;
+    return true;
+  });
+}
+
 /** View repair only: leave archived rows, sequence numbers and message contents unchanged. */
 export async function readableStoredRows(sessionId: string, rows: StoredReplayRow[]) {
-  const parsed = rows.map(row => ({ ...row, turn: JSON.parse(row.data) as TranscriptTurn }));
   let previous: TranscriptTurn | null = null;
+  const parsed = rows.map(row => ({ ...row, turn: JSON.parse(row.data) as TranscriptTurn }));
   const first = parsed[0];
-  if (first && replayOnly(first.turn) && messageIdentity(first.turn)) {
+  // Carry the same preceding settled context across any page boundary, including a leading unfinished row.
+  if (first && !(first.turn.outcome && first.turn.startedAt !== undefined)) {
     const [row] = await db.select({ data: sessionTurns.data }).from(sessionTurns).where(and(
       eq(sessionTurns.sessionId, sessionId), lt(sessionTurns.seq, first.seq),
       sql`json_extract(${sessionTurns.data}, '$.outcome.kind') IS NOT NULL`,
@@ -47,10 +58,5 @@ export async function readableStoredRows(sessionId: string, rows: StoredReplayRo
     )).orderBy(desc(sessionTurns.seq)).limit(1);
     previous = row ? JSON.parse(row.data) as TranscriptTurn : null;
   }
-  return parsed.filter(row => {
-    const candidate = replayOnly(row.turn) ? messageIdentity(row.turn) : null;
-    if (candidate && previous && candidate === messageIdentity(previous)) return false;
-    if (row.turn.outcome && row.turn.startedAt !== undefined) previous = row.turn;
-    return true;
-  });
+  return filterReadableStoredRows(parsed, previous);
 }

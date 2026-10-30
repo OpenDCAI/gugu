@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS task (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   project_id TEXT NOT NULL,
-  agent_user_id TEXT
+  agent_user_id TEXT,
+  terminal INTEGER NOT NULL CHECK (terminal IN (0, 1))
 );
 CREATE TABLE IF NOT EXISTS task_coverage (
   task_id TEXT PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE,
@@ -33,8 +34,8 @@ CREATE TABLE IF NOT EXISTS msg (
   thread_root_id TEXT,
   seq INTEGER NOT NULL,
   sender_id TEXT,
-  created_at INTEGER NOT NULL,
-  created_at_iso TEXT NOT NULL,
+  created_at INTEGER,
+  created_at_iso TEXT,
   text TEXT NOT NULL,
   is_whisper INTEGER NOT NULL CHECK (is_whisper IN (0, 1)),
   to_user_ids TEXT NOT NULL,

@@ -60,6 +60,8 @@ export interface SearchTask {
   title: string
   projectId: string
   agentUserId?: string | null
+  /** Terminal history requires the separately admitted source-storage backfill. */
+  terminal?: boolean
 }
 
 export interface SearchTaskDocument {
@@ -69,7 +71,8 @@ export interface SearchTaskDocument {
   seq: number
   role: 'user' | 'assistant'
   senderId?: string | null
-  createdAt: string
+  /** Original conversation clock; missing timestamps remain unknown. */
+  createdAt: string | null
   text: string
 }
 
@@ -77,6 +80,7 @@ export interface SearchTaskCoverage {
   taskId: string
   lastSeq: number
   exhausted: boolean
+  reason?: 'terminal'
 }
 
 export interface SearchCoverageReport {
@@ -112,7 +116,7 @@ export interface SearchMessageHit {
   threadRootId: string | null
   seq: number
   senderId: string | null
-  createdAt: string
+  createdAt: string | null
   text: string
   /** An attachment hit: text is the file name (and caption). */
   attachment: 'file' | 'image' | null

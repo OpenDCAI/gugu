@@ -58,11 +58,13 @@ export class MessageSearchStore {
   }
 
   tasks(): SearchTask[] {
-    return (this.db.prepare('SELECT id,title,project_id,agent_user_id FROM task').all() as { id: string; title: string; project_id: string; agent_user_id: string | null }[])
-      .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id }));
+    return (this.db.prepare('SELECT id,title,project_id,agent_user_id,terminal FROM task').all() as { id: string; title: string; project_id: string; agent_user_id: string | null; terminal: number }[])
+      .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id, terminal: row.terminal === 1 }));
   }
 
-  taskCoverage() { return readTaskCoverage(this.db); }
+  taskCoverage() {
+    return readTaskCoverage(this.db).map(row => ({ ...row, exhausted: row.exhausted && this.current.has(taskCoverageKey(row.taskId)) }));
+  }
 
   apply(ops: readonly SearchIndexOp[]): void {
     this.db.transaction(() => applyOps(this.db, this.accountId, ops))();

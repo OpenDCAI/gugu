@@ -29,7 +29,7 @@ export interface SearchMessageRankFeatures {
   textRelevance: number
   chatAffinity: number
   senderAffinity: number
-  createdAt: string
+  createdAt: string | null
   mentionsActor: boolean
   fromActor: boolean
   isAgent: boolean
@@ -40,8 +40,8 @@ export function rankMessage(
   features: SearchMessageRankFeatures,
   context: { now: number; sort: 'recent' | 'relevant' },
 ): SearchRank {
-  const at = Date.parse(features.createdAt)
-  if (!Number.isFinite(at) || !Number.isFinite(context.now)) throw new Error('Search rank timestamp is invalid')
+  const at = features.createdAt === null ? null : Date.parse(features.createdAt)
+  if ((at !== null && !Number.isFinite(at)) || !Number.isFinite(context.now)) throw new Error('Search rank timestamp is invalid')
   for (const value of [features.textRelevance, features.chatAffinity, features.senderAffinity]) {
     if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('Search rank feature must be between zero and one')
   }
@@ -50,7 +50,7 @@ export function rankMessage(
   add('phrase', features.phraseHit ? 40 : 0)
   add('terms', features.allTermsHit ? 20 : 0)
   add('text-relevance', 10 * features.textRelevance)
-  add('recent', 30 * 2 ** (-Math.max(0, context.now - at) / (14 * 86_400_000)))
+  add('recent', at === null ? 0 : 30 * 2 ** (-Math.max(0, context.now - at) / (14 * 86_400_000)))
   add('mention', features.mentionsActor ? 25 : 0)
   add('from-self', features.fromActor ? 10 : 0)
   add('chat-affinity', 12 * features.chatAffinity)
