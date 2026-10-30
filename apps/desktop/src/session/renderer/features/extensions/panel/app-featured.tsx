@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
 import { cn } from '@/lib/cn';
@@ -131,6 +131,20 @@ export function AppFeaturedCard({
   // 上次存下的那张(重启后的 initialData)这次运行里还没解码:解码好再上屏;解不出来(图也读不到了)就重新取,走读不到的那张脸。
   const [, setDecodedSrc] = useState<string | null>(null);
   const shown = shot && isDecoded(shot.src);
+  // 这张卡上画过图没有:挂上时就有解码好的图(再进来)就算画过。从骨架第一次换成图(全新安装、什么都没存)时,新的这个
+  // `<img>` 自己也解码好了才露出来,之前骨架留着(❌ 先画一帧空的)。画过之后换新一版不再藏:浏览器在新图到手前留着旧的。
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [painted, setPainted] = useState(() => Boolean(shot && isDecoded(shot.src)));
+  useEffect(() => {
+    if (painted || !shown || shot?.placeholder) return;
+    let alive = true;
+    const done = () => alive && setPainted(true);
+    void (imageRef.current?.decode() ?? Promise.resolve()).then(done, done);
+    return () => {
+      alive = false;
+    };
+  }, [painted, shown, shot]);
+  const hidden = !painted && !shot?.placeholder;
   useEffect(() => {
     if (!shot || isDecoded(shot.src)) return;
     let alive = true;
@@ -162,12 +176,16 @@ export function AppFeaturedCard({
           </div>
         ) : shot ? (
           <>
-            {/* 大图解码好之前画占位图(重启后的第一帧);连占位图都没有才空着,❌ 画一张没解码完的大图。 */}
+            {/* 大图解码好之前画占位图(重启后的第一帧);连占位图都没有,骨架留着,❌ 画一张没解码完的大图。 */}
             <img
+              ref={imageRef}
               src={shown || !shot.placeholder ? shot.src : shot.placeholder}
               alt=""
-              style={shown || shot.placeholder ? undefined : { visibility: 'hidden' }}
+              style={hidden ? { visibility: 'hidden' } : undefined}
             />
+            {hidden ? (
+              <Skeleton className="absolute inset-0 rounded-none" role="status" aria-label={translate('extensions.loading')} aria-busy="true" />
+            ) : null}
             {!card ? (
               <button type="button" className="mk-hero-open" aria-label={translate('extensions.detailsOf', { name })} />
             ) : null}

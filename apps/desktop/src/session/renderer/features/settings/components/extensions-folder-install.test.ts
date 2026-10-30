@@ -610,6 +610,24 @@ describe('市场页 (#7059)', () => {
     expect(img()?.style.visibility).toBe('');
   });
 
+  // 全新安装、什么都没存:骨架第一次换成图时,新挂上的 <img> 自己解码好才露出来(真机 DPR3 上先画了约 6 帧空的)。
+  it('第一次进来:新的 <img> 自己解码好之前骨架留着,❌ 先画一帧空的', async () => {
+    const src = 'https://dl.example/market/media/pomo/first-visit.png';
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: `![Pomo](${src})` } }));
+    let painted!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode)
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(new Promise<void>((resolve) => { painted = resolve; }));
+    await render(false);
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
+    expect(img()?.getAttribute('src')).toBe(src);
+    expect(img()?.style.visibility).toBe('hidden');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    await act(async () => painted());
+    expect(img()?.style.visibility).toBe('');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
   it('老版本的机器没有 marketRead:没有占位图就是没有,❌ 重试、❌ 报错', async () => {
     const marketRead = vi.fn(async () => {
       throw new Error('No handler registered for extensions.marketRead');
