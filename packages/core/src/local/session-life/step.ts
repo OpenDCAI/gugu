@@ -25,7 +25,7 @@ function protocol(state: Life, event: Event): never { throw new LifeProtocolErro
 
 export function hydrateLife(input: { readonly archived: boolean; readonly hold: Hold | null }): Life {
   if (input.archived) return seal({ kind: 'archived' })
-  if (input.hold?.reason === 'start-failed') return seal({ kind: 'failed', hold: input.hold })
+  if (input.hold?.reason === 'start-failed' || input.hold?.reason === 'effect-fault') return seal({ kind: 'failed', hold: input.hold, residue: [] })
   return seal({ kind: 'dormant', hold: input.hold, lastExit: null })
 }
 
@@ -72,6 +72,23 @@ function start(ctx: StepContext, clearHold: boolean): Transition {
   return [next, clearHold ? [{ e: 'write-hold', hold: null }, ...effects] : effects]
 }
 
+/** v3.1 #9: any non-archived state × fault → failed. In-flight rows become unknown; queued rows never left. */
+function faulted(state: Exclude<Life, { kind: 'archived' }>, event: Extract<Event, { k: 'fault' }>, q: PendingView): Transition {
+  const current = state.kind === 'starting' || state.kind === 'ready' || state.kind === 'stopping' ? state.gen : null
+  if (!sameGen(current, event.run)) return unchanged(state)
+  const own = state.kind === 'starting' ? [{ gen: state.gen, have: state.progress.have }]
+    : state.kind === 'ready' || state.kind === 'stopping' ? [{ gen: state.gen, have: state.have }]
+      : state.kind === 'failed' ? state.residue : []
+  const residue = event.unreleased ? [event.unreleased, ...own] : own
+  const hold = { reason: 'effect-fault' as const, barrier: maxSeq(q), cause: event.cause }
+  return [seal({ kind: 'failed', hold, residue }),
+    [...q.dispatching.map((seq): Effect => ({ e: 'write-receipt', seq, receipt: { state: 'unknown' } })), { e: 'write-hold', hold }]]
+}
+
+function residueTeardown(state: Extract<Life, { kind: 'failed' }>): Effect[] {
+  return state.residue.map((r): Effect => ({ e: 'teardown', gen: r.gen, have: r.have }))
+}
+
 function archivedRows(q: PendingView): Effect[] {
   return q.queued.map(seq => ({
     e: 'write-receipt', seq,
@@ -99,6 +116,10 @@ function tighten(current: Destination, event: InterruptEvent, q: PendingView): D
       if (event.reason === 'archive' || event.reason === 'delete') return destination(event, q)
       if (current.hold.reason === 'user-stop' && event.reason === 'sign-out') {
         return { kind: 'held', hold: { reason: 'sign-out', ownerUserId: event.ownerUserId, prior: current.hold } }
+      }
+      // v3.1 #7: sign-out outranks a failure hold.
+      if (current.hold.reason === 'start-failed' && event.reason === 'sign-out') {
+        return { kind: 'held', hold: { reason: 'sign-out', ownerUserId: event.ownerUserId, prior: null } }
       }
       return current
     case 'archived': return event.reason === 'delete' ? { kind: 'deleted' } : current
@@ -182,6 +203,7 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
         ? start(ctx, true)
         : [restored, [{ e: 'write-hold', hold: hold.prior }]]
     }
+    case 'fault': return faulted(state, event, q)
     case 'stage-ok': case 'stage-fail': case 'receipt': case 'turn-busy': case 'turn-idle': case 'exit': case 'settled': case 'restore':
       return protocol(state, event)
     default: return assertNever(event)
@@ -190,15 +212,19 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
 
 function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
-    case 'deliver': case 'start': return start(ctx, true)
+    case 'deliver': case 'start': {
+      const [next, run] = start(ctx, true)
+      return [next, [...residueTeardown(state), ...run]]
+    }
     case 'interrupt':
       switch (event.reason) {
-        case 'archive': return [seal({ kind: 'archived' }), [...archivedRows(q), { e: 'write-hold', hold: null }]]
-        case 'delete': return [seal({ kind: 'archived' }), [{ e: 'remove' }]]
+        case 'archive': return [seal({ kind: 'archived' }), [...residueTeardown(state), ...archivedRows(q), { e: 'write-hold', hold: null }]]
+        case 'delete': return [seal({ kind: 'archived' }), [...residueTeardown(state), { e: 'remove' }]]
         case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': return unchanged(state)
         default: return assertNever(event)
       }
     case 'signed-in': return unchanged(state)
+    case 'fault': return faulted(state, event, q)
     case 'stage-ok': case 'stage-fail': case 'receipt': case 'turn-busy': case 'turn-idle': case 'exit': case 'settled': case 'restore':
       return protocol(state, event)
     default: return assertNever(event)
@@ -219,6 +245,7 @@ function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, 
     }
     case 'interrupt': return [seal({ kind: 'stopping', gen: state.gen, have: state.progress.have, destination: destination(event, q) }),
       [{ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.progress.have }]]
+    case 'fault': return faulted(state, event, q)
     case 'receipt': case 'turn-busy': case 'turn-idle': case 'settled': case 'restore': case 'signed-in':
       return protocol(state, event)
     default: return assertNever(event)
@@ -260,6 +287,7 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: Event, q: Pen
       if (event.reason === 'idle-reap' && (state.admission.kind !== 'free' || head(q) !== null)) return unchanged(state)
       return [seal({ kind: 'stopping', gen: state.gen, have: state.have, destination: destination(event, q) }),
         [{ e: 'teardown', gen: state.gen, have: state.have }]]
+    case 'fault': return faulted(state, event, q)
     case 'stage-ok': case 'stage-fail': case 'settled': case 'restore': case 'signed-in':
       return protocol(state, event)
     default: return assertNever(event)
@@ -285,7 +313,7 @@ function settle(state: Extract<Life, { kind: 'stopping' }>, q: PendingView, ctx:
         const [next, run] = start(ctx, true)
         return [next, [...effects, ...run]]
       }
-      const next = hold.reason === 'start-failed' ? seal({ kind: 'failed', hold }) : seal({ kind: 'dormant', hold, lastExit: null })
+      const next = hold.reason === 'start-failed' ? seal({ kind: 'failed', hold, residue: [] }) : seal({ kind: 'dormant', hold, lastExit: null })
       return [next, [...effects, { e: 'write-hold', hold }]]
     }
     default: return assertNever(dest)
@@ -310,6 +338,7 @@ function stepStopping(state: Extract<Life, { kind: 'stopping' }>, event: Event, 
     case 'stage-fail': case 'exit': case 'turn-busy': case 'turn-idle': return unchanged(state)
     case 'receipt': return [state, receiptEffects(event)]
     case 'settled': return settle(state, q, ctx)
+    case 'fault': return faulted(state, event, q)
     case 'restore': case 'signed-in': return protocol(state, event)
     default: return assertNever(event)
   }
@@ -322,6 +351,7 @@ function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: Event):
     case 'restore': return [seal({ kind: 'dormant', hold: null, lastExit: null }), []]
     case 'start': case 'signed-in': return unchanged(state)
     case 'interrupt': return event.reason === 'delete' ? [state, [{ e: 'remove' }]] : unchanged(state)
+    case 'fault': return unchanged(state)
     case 'stage-ok': case 'stage-fail': case 'receipt': case 'turn-busy': case 'turn-idle': case 'exit': case 'settled':
       return protocol(state, event)
     default: return assertNever(event)

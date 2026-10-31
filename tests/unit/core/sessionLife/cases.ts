@@ -121,6 +121,29 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
   { name: 'channel readiness cannot be forged from a stale proof in a current completion', run() { assert.throws(() => decide(starting('channel'), { k: 'stage-ok', gen: G, out: { at: 'channel', value: { gen: STALE, timing: 'next-tool-call' } as AdmittedChannel } }), LifeProtocolError) } },
   { name: 'all seven stage completions reject the other six current-generation stages', run() { for (const at of STAGES) for (const other of STAGES) if (at !== other) assert.throws(() => decide(starting(at), { k: 'stage-ok', gen: G, out: output(other) }), LifeProtocolError) } },
   { name: 'a wake followed by sign-out cannot start while signing out', run() { const wake = decide(stopping(), deliver, pending([20]))[0]; const out = decide(wake, interrupt('sign-out'), pending([20]))[0]; const r = decide(out, { k: 'settled', gen: G }, pending([20])); kind(r, 'dormant'); assert.equal(r[1].some(e => e.e === 'run-stage'), false) } },
+  { name: 'sign-out outranks a startup-failure hold (v3.1 #7)', run() { const s = decide(stoppingFailed(), interrupt('sign-out'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'held', hold: OUT }); kind(decide(s, { k: 'settled', gen: G }, pending([20])), 'dormant') } },
+  { name: 'v3.1 #9: a current-run fault fails every live state; in-flight rows become unknown, queued rows stay', run() {
+    for (const s of [starting('cli'), ready('next-tool-call', 'awaiting'), stopping('user-stop')]) {
+      const r = decide(s, { k: 'fault', run: G, cause: CAUSE, unreleased: null }, pending([20], [10]))
+      const f = kind(r, 'failed'); assert.ok(f.kind === 'failed' && f.hold.reason === 'effect-fault' && f.residue[0]?.gen === G)
+      assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }, { e: 'write-hold', hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }])
+      noChange(s, { k: 'fault', run: STALE, cause: CAUSE, unreleased: null }, pending([20], [10])); noChange(s, { k: 'fault', run: null, cause: CAUSE, unreleased: null })
+    }
+    const d = decide(dormant(), { k: 'fault', run: null, cause: CAUSE, unreleased: null }, pending([20])); kind(d, 'failed'); assert.equal(d[1].some(e => e.e === 'write-receipt'), false)
+    noChange(dormant(), { k: 'fault', run: G, cause: CAUSE, unreleased: null }); noChange(archived(), { k: 'fault', run: null, cause: CAUSE, unreleased: null })
+    // A teardown that threw after ready×exit already went dormant: its resources survive as residue for the retry.
+    const leftover = { gen: G, have: (ready() as Extract<Life, { kind: 'ready' }>).have }
+    const u = decide(dormant(), { k: 'fault', run: null, cause: CAUSE, unreleased: leftover })[0]
+    assert.ok(u.kind === 'failed'); assert.deepEqual(u.residue, [leftover]); assert.deepEqual(decide(u, start)[1][0], { e: 'teardown', ...leftover })
+  } },
+  { name: 'v3.1 #9: a faulted run is torn down before a retry, an archive or a delete; the failed batch does not retry itself', run() {
+    const f = decide(ready(), { k: 'fault', run: G, cause: CAUSE, unreleased: null }, pending([20]))[0]
+    for (const e of [start, deliver] as const) { const r = decide(f, e, pending([20])); kind(r, 'starting'); assert.equal(r[1][0]?.e, 'teardown'); assert.deepEqual(r[1][0], { e: 'teardown', gen: G, have: (ready() as Extract<Life, { kind: 'ready' }>).have }) }
+    assert.equal(decide(f, interrupt('archive'), pending([20]))[1][0]?.e, 'teardown')
+    assert.deepEqual(decide(f, interrupt('delete'))[1].map(e => e.e), ['teardown', 'remove'])
+    assert.equal(shouldStartOnHydrate(hydrateLife({ archived: false, hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }), pending([20])), false)
+    kind([hydrateLife({ archived: false, hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }), []], 'failed')
+  } },
   { name: 'a late stop cannot undo archive or delete', run() { for (const reason of ['archive', 'delete'] as const) { const s = decide(stopping(reason), interrupt('user-stop'))[0]; assert.ok(s.kind === 'stopping'); assert.equal(s.destination.kind, reason === 'archive' ? 'archived' : 'deleted') } } },
   { name: 'a null barrier means any durable queued row is later and unknown rows never count as queued', run() { assert.equal(shouldStartOnHydrate(dormant({ ...STOP, barrier: null }), pending([1])), true); assert.equal(shouldStartOnHydrate(dormant({ ...STOP, barrier: null }), pending([], [1])), false); const r = decide(stopping('sign-out'), { k: 'settled', gen: G }, pending([], [1])); assert.equal(r[1].filter(e => e.e === 'write-receipt').every(e => e.receipt.state === 'unknown'), true); assert.equal(r[1].some(e => e.e === 'mark-source-read'), false) } },
   { name: 'version-switch settlement and reconstruction both resume an existing queue', run() {
@@ -200,7 +223,8 @@ export function verifyMatrix(): void {
     ...STAGES.map(at => ({ k: 'stage-fail' as const, gen: G, at, cause: CAUSE })), accepted, rejected,
     { ...accepted, seq: seq(99) }, { k: 'turn-busy', gen: G }, { k: 'turn-idle', gen: G }, { k: 'exit', gen: G, exit: EXIT },
     ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap'] as const).map(interrupt),
-    { k: 'settled', gen: G }, { k: 'restore' }, signedIn, { k: 'signed-in', userId: 'other' }]
+    { k: 'settled', gen: G }, { k: 'restore' }, signedIn, { k: 'signed-in', userId: 'other' },
+    { k: 'fault', run: G, cause: CAUSE, unreleased: null }, { k: 'fault', run: null, cause: CAUSE, unreleased: null }, { k: 'fault', run: STALE, cause: CAUSE, unreleased: null }]
   for (const { name, state: s } of states) for (const e of events) {
     if ('gen' in e && (s.kind === 'dormant' || s.kind === 'failed' || s.kind === 'archived')) {
       assert.deepEqual(decide(s, e), [s, []], name)
@@ -208,12 +232,12 @@ export function verifyMatrix(): void {
     }
     let legal: boolean
     switch (s.kind) {
-      case 'dormant': legal = e.k === 'deliver' || e.k === 'signed-in' || (e.k === 'start' && s.hold?.reason !== 'sign-out') || (e.k === 'interrupt' && !(s.hold?.reason === 'sign-out' && e.reason === 'user-stop')); break
-      case 'failed': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'signed-in'; break
-      case 'starting': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'stage-ok' && e.out.at === s.progress.at) || (e.k === 'stage-fail' && e.at === s.progress.at); break
-      case 'ready': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'receipt' && s.admission.kind === 'awaiting' && s.admission.seq === e.seq) || ((e.k === 'turn-busy' || e.k === 'turn-idle') && s.have.channel.timing === 'idle-only'); break
+      case 'dormant': legal = e.k === 'fault' || e.k === 'deliver' || e.k === 'signed-in' || (e.k === 'start' && s.hold?.reason !== 'sign-out') || (e.k === 'interrupt' && !(s.hold?.reason === 'sign-out' && e.reason === 'user-stop')); break
+      case 'failed': legal = e.k === 'fault' || e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'signed-in'; break
+      case 'starting': legal = e.k === 'fault' || e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'stage-ok' && e.out.at === s.progress.at) || (e.k === 'stage-fail' && e.at === s.progress.at); break
+      case 'ready': legal = e.k === 'fault' || e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'receipt' && s.admission.kind === 'awaiting' && s.admission.seq === e.seq) || ((e.k === 'turn-busy' || e.k === 'turn-idle') && s.have.channel.timing === 'idle-only'); break
       case 'stopping': legal = e.k !== 'restore' && e.k !== 'signed-in'; break
-      case 'archived': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'restore' || e.k === 'signed-in'; break
+      case 'archived': legal = e.k === 'fault' || e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'restore' || e.k === 'signed-in'; break
     }
     if (legal) decide(s, e, pending([20], [10]))
     else assert.throws(() => decide(s, e, pending([20], [10])), LifeProtocolError, `${name} × ${e.k}`)

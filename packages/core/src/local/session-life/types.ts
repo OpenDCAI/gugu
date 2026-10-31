@@ -52,10 +52,13 @@ export type Admission =
 export type UserStopHold = Readonly<{ reason: 'user-stop'; barrier: Seq | null }>
 export type SignOutHold = Readonly<{ reason: 'sign-out'; ownerUserId: string; prior: UserStopHold | null }>
 export type StartFailedHold = Readonly<{ reason: 'start-failed'; barrier: Seq | null; stage: StageName; cause: SerializedError }>
-export type Hold = UserStopHold | SignOutHold | StartFailedHold
+/** v3.1 #9: an effect threw. Like start-failed, its barrier keeps the failed batch from retrying on its own. */
+export type FaultHold = Readonly<{ reason: 'effect-fault'; barrier: Seq | null; cause: SerializedError }>
+export type FailureHold = StartFailedHold | FaultHold
+export type Hold = UserStopHold | SignOutHold | FailureHold
 export type Destination =
   | Readonly<{ kind: 'rest'; wakeAfter: boolean }>
-  | Readonly<{ kind: 'held'; hold: Hold }>
+  | Readonly<{ kind: 'held'; hold: UserStopHold | SignOutHold | StartFailedHold }>
   | Readonly<{ kind: 'archived' }>
   | Readonly<{ kind: 'deleted' }>
 
@@ -65,12 +68,15 @@ export interface ExitFact {
   readonly signal: string | null
 }
 
+export type Residue = Readonly<{ gen: Gen | null; have: Partial<StageOut> }>
+
 export type LifeShape =
   | Readonly<{ kind: 'dormant'; hold: UserStopHold | SignOutHold | null; lastExit: ExitFact | null }>
   | Readonly<{ kind: 'starting'; gen: Gen; progress: Progress }>
   | Readonly<{ kind: 'ready'; gen: Gen; have: StageOut; admission: Admission }>
   | Readonly<{ kind: 'stopping'; gen: Gen | null; destination: Destination; have: Partial<StageOut> }>
-  | Readonly<{ kind: 'failed'; hold: StartFailedHold }>
+  // residue: what faulted runs may still hold; a later start, archive or delete tears it down first. Never persisted.
+  | Readonly<{ kind: 'failed'; hold: FailureHold; residue: readonly Residue[] }>
   | Readonly<{ kind: 'archived' }>
 export type Life = Brand<LifeShape, 'Life'>
 
@@ -102,6 +108,9 @@ export type Event =
   | Readonly<{ k: 'settled'; gen: Gen | null }>
   | Readonly<{ k: 'restore' }>
   | Readonly<{ k: 'signed-in'; userId: string }>
+  // `run` (not `gen`): a fault is accepted in every non-archived state, so the reducer judges staleness itself.
+  // unreleased: the resources of a teardown that threw (possibly an earlier run's), kept for a later teardown.
+  | Readonly<{ k: 'fault'; run: Gen | null; cause: SerializedError; unreleased: Residue | null }>
 
 export type RunStageEffect = {
   [K in StageName]: Readonly<{ e: 'run-stage'; gen: Gen; at: K; have: Have<K> }>

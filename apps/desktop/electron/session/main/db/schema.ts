@@ -20,6 +20,7 @@ import { providerAccountMeta } from '@shared/core/provider-accounts/provider-acc
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { workspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { workspaceProviderData } from '@shared/core/workspaces/workspace-provider-data';
+import type { Hold } from '@gugu/core/local/session-life/types';
 
 export const activityEvents = sqliteTable('activity_events', {
   seq: integer('seq').primaryKey({ autoIncrement: true }),
@@ -391,6 +392,7 @@ export const sessions = sqliteTable(
     title: text('title').notNull(),
     provider: text('provider'),
     config: versionedJsonColumn(sessionConfig)('config'),
+    lifeHold: text('life_hold', { mode: 'json' }).$type<Hold | null>(),
     createdAt: text('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -496,6 +498,26 @@ export const messages = sqliteTable(
     timestampIdx: index('idx_messages_timestamp').on(table.timestamp),
   })
 );
+
+export const sessionPending = sqliteTable('session_pending', {
+  seq: integer('seq').primaryKey({ autoIncrement: true }),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  messageId: text('message_id').notNull().references(() => messages.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['ordinary', 'session-direct', 'inbox-batch'] }).notNull(),
+  state: text('state', { enum: ['queued', 'dispatching', 'accepted', 'failed', 'unknown'] }).notNull(),
+  attempt: integer('attempt'),
+  nativeReceiptId: text('native_receipt_id'),
+  failure: text('failure'),
+  enqueuedAt: text('enqueued_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  settledAt: text('settled_at'),
+}, table => ({ message: uniqueIndex('idx_session_pending_message').on(table.sessionId, table.messageId),
+  queue: index('idx_session_pending_queue').on(table.sessionId, table.state, table.seq) }));
+
+export const sessionPendingSource = sqliteTable('session_pending_source', {
+  seq: integer('seq').notNull().references(() => sessionPending.seq, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull(),
+  sourceMessageId: text('source_message_id').notNull(),
+}, table => ({ source: uniqueIndex('idx_session_pending_source_identity').on(table.sessionId, table.sourceMessageId) }));
 
 /**
  * 会话历史的落盘（#5381）。一条已提交的回合一行，`data` 是那一回合的结构化条目
