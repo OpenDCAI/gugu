@@ -171,6 +171,8 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   return {
     id: input.id,
     projectId: input.projectId,
+    // The creation name, for the previous release only (0043 @@@rollback-title); nothing here reads it.
+    legacyTitle: agentDisplayName,
     workspaceId: input.workspaceId,
     linkedIssue: input.linkedIssue ?? null,
     automationRunId: input.automationRunId ?? null,

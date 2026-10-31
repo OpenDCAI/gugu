@@ -7,7 +7,7 @@ describe('0043 task name', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
   afterEach(() => fixture?.close());
 
-  it('moves every legacy name into the pending-bind record and drops the title column', async () => {
+  it('moves every legacy name into the pending-bind record; the title column stays only for the previous release', async () => {
     fixture = await openFixture('empty', { through: '0041_project_archival' });
     const sql = fixture.sqlite;
     sql.exec(`
@@ -24,8 +24,17 @@ describe('0043 task name', () => {
     expect(migration).toBeDefined();
     applyMigrations(sql, [migration!]);
 
-    const columns = (sql.pragma('table_info(sessions)') as Array<{ name: string }>).map((column) => column.name);
-    expect(columns).not.toContain('title');
+    // A rollback runs the previous release on this database, and it selects `title`: the column stays,
+    // holding the name each row showed, and defaults for rows this release creates.
+    const titles = Object.fromEntries(
+      (sql.prepare('SELECT id, title FROM sessions').all() as Array<{ id: string; title: string }>).map((row) => [row.id, row.title])
+    );
+    expect(titles).toEqual({
+      v1: '修登录页', named: 'Chosen', 'blank-name': 'Shown title', 'no-config': 'Trimmed', v0: 'Unversioned', 'empty-title': 'codex',
+    });
+    sql.exec(`INSERT INTO sessions (id, project_id, config) VALUES ('later', 'p', '{"version":"1","type":"pty","agentDisplayName":"L"}')`);
+    expect(sql.prepare(`SELECT title FROM sessions WHERE id = 'later'`).get()).toEqual({ title: '' });
+    sql.exec(`DELETE FROM sessions WHERE id = 'later'`);
 
     // Read through the versioned config column, the way every reader sees it (v0 upgrades on read).
     const names = Object.fromEntries(
