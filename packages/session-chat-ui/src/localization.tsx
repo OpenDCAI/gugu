@@ -307,7 +307,9 @@ export function useChatTranslator(): ChatTranslator {
   return useContext(ChatTranslationContext)?.translate ?? defaultChatTranslator;
 }
 
-/** Transcript dates use the same host capability and translation epoch as their text. */
+const defaultChatLocale = (): SupportedLocale => 'en-US';
+
+/** Transcript dates use the same host capability and translation epoch as their text; without a host, the fallback messages' English. */
 export function useChatLocale(): () => SupportedLocale {
-  return useContext(ChatTranslationContext)!.locale;
+  return useContext(ChatTranslationContext)?.locale ?? defaultChatLocale;
 }
