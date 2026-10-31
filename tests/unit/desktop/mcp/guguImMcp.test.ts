@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

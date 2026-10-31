@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { sanitizeRemoteFileName } from '../../apps/desktop/electron/remoteFileOpen'
 import { createNativeFileHost } from '../../apps/desktop/electron/nativeFileHost'
 import { stageFileHandle } from '@gugu/core/shared/fileResolver'
-import { verifiedFileHandle } from '../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../support/verifiedFileHandle'
 import { createHash } from 'node:crypto'
 
 const roots: string[] = []
