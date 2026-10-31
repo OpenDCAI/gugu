@@ -248,15 +248,15 @@ export const read = {
     return withFile(item_id, { readOnly: true }, async (f) => {
       const entry = f.entry
       const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: await linkOf(entry) }
-      if (f.type === 'binary' && save !== true && typeof f.textPreview === 'string') {
-        return pageOf(f.textPreview, {
+      if (f.readOnlyReason === 'stored-bytes' && save !== true) {
+        return pageOf(f.text, {
           ...head,
           read_only: true,
           edit: 'Stored text is read-only here. Call workspace__read with save: true, then workspace__edit with the saved path and expected_version to store a new version.',
         }, { offset, limit })
       }
       if (f.type === 'binary' || save === true) {
-        const data = f.type === 'binary' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
+        const data = f.type === 'binary' || f.readOnlyReason === 'stored-bytes' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
         const saved = await saveLocally(entry, data, agent)
         return { ...head, size: entry.size, version: saved.version, saved_to: saved.path }
       }

@@ -48,7 +48,8 @@ function handle(id: string) {
   const e = ENTRIES.find((candidate) => candidate.id === id)
   if (!e) throw coded('not-found', 'No such file in a chat you are in')
   const close = () => closed.push(id)
-  if (e.type === 'binary') return { entry: e, type: 'binary', ...(storedTexts[id] !== undefined ? { textPreview: storedTexts[id] } : {}), blob: async () => new Blob([new Uint8Array([1, 2, 3])]), close }
+  if (e.type === 'binary' && storedTexts[id] !== undefined) return { entry: e, type: 'text', readOnly: true, readOnlyReason: 'stored-bytes', text: storedTexts[id], blob: async () => new Blob([new Uint8Array([1, 2, 3])]), close }
+  if (e.type === 'binary') return { entry: e, type: 'binary', blob: async () => new Blob([new Uint8Array([1, 2, 3])]), close }
   return {
     entry: e,
     type: e.type,
@@ -228,6 +229,8 @@ describe('the folder\'s tools as tools.js gives them', () => {
     expect(body.join('\n')).toBe('# Older note\nsecond line\n')
     expect(calls).toContainEqual(['open', { id: LEGACY_TEXT }, { readOnly: true }])
     expect(closed).toContain(LEGACY_TEXT)
+    const saved = (await read!.run({ item_id: LEGACY_TEXT, save: true }, { agent: AGENT })) as { saved_to: string }
+    expect([...readFileSync(saved.saved_to)]).toEqual([1, 2, 3])
   })
 
   // 10-13(#7174,搬进来):同一台机器上主人的两个 agent 读同一个文件,各拿各的副本 —— 共用一份时,一个的读会冲掉另一个

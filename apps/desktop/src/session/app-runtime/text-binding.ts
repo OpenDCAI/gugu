@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { applyFromSnapshot } from './apply-from';
 import { guguError } from './host';
-import { internals, type FieldText, type OpenFile } from './open-file';
+import { internals, type FieldText, type OpenFile, type StoredTextSnapshot } from './open-file';
 
 /**
  * `gugu.bind.text(view, f)` (摩擦单 F59, L7 S12): a text file on an editor the App draws itself. The rules that keep
@@ -81,7 +81,7 @@ interface Drawn {
 export function bindText(target: unknown, file: unknown): () => void {
   const view = viewOf(target);
   // A text file, or a JSON file's collaborative text field (`f.textAt(path)`, 摩擦单 F8).
-  const openFile: OpenFile | FieldText | undefined = file && typeof file === 'object' ? internals.get(file) : undefined;
+  const openFile: OpenFile | FieldText | StoredTextSnapshot | undefined = file && typeof file === 'object' ? internals.get(file) : undefined;
   if (!openFile || openFile.type !== 'text') throw guguError('invalid', 'bind.text takes a text file from gugu.files.open(…), or f.textAt(path)');
   const handle = file as { readonly readOnly: boolean; readonly status: string; onChange(handler: (event: { local: boolean }) => void): () => boolean };
   if (handle.readOnly && (view.element instanceof HTMLTextAreaElement || view.element instanceof HTMLInputElement)) view.element.readOnly = true;

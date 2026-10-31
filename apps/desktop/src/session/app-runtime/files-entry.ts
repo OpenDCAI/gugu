@@ -1,6 +1,6 @@
 import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { guguError, refOf, type GuguHost } from './host';
-import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
+import { askingMain, fileKey, openFiles, OpenFile, storedTextFile } from './open-file';
 import { syncLink } from './sync-link';
 import { workspaceStoredText } from '@gugu/core/shared/workspaceUpload.mjs';
 
@@ -45,7 +45,7 @@ async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promi
   try {
     const opened = await requested;
     if (opened.entry.detailsPending) detailsOf = opened.docName;
-    if (opened.bytes) return storedFile(opened.entry, opened.bytes);
+    if (opened.bytes) return storedFile(host, opened.entry, opened.bytes);
     const id = fileKey(opened.entry);
     const existing = openFiles.get(id);
     if (existing && existing.status !== 'gone') {
@@ -87,13 +87,14 @@ function entryAfterPaint(docName: string): void {
 }
 
 /**
- * A stored file — an image, a clip, a sound: read-only, nothing synced. `blob()` is what `<img>`, `<video>` and `<audio>`
- * take through `URL.createObjectURL` (the page's CSP admits `blob:`).
+ * Stored bytes stay the source of truth. Valid UTF-8 text-shaped files open as a read-only text snapshot; other files stay
+ * binary, and `blob()` is what `<img>`, `<video>` and `<audio>` take through `URL.createObjectURL`.
  */
-function storedFile(entry: AppFileEntry, bytes: ArrayBuffer): object {
+function storedFile(host: GuguHost, entry: AppFileEntry, bytes: ArrayBuffer): object {
   const blob = new Blob([bytes], { type: entry.contentType });
   const preview = workspaceStoredText(entry.name, entry.contentType, new Uint8Array(bytes));
-  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, ...(preview ? { textPreview: preview.text } : {}), blob: async () => blob, close: () => undefined });
+  if (preview) return storedTextFile(host, entry, preview.text, bytes);
+  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, blob: async () => blob, close: () => undefined });
 }
 
 /** A place as the page passed it, checked: what is not one throws `invalid`, as a coded Error. */

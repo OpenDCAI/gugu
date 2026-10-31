@@ -54,7 +54,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
-    storedTextReadOnly: '这是已存储的文本，只能在这里阅读。要编辑它，请下载后用文件路径和当前版本保存下一版。',
+    storedTextReadOnly: '这是已存储的文本，只能在这里阅读。要编辑，请用 workspace__read 的 save:true 保存到本机，再用 workspace__edit 按保存路径和版本写下一版。',
     remove: '删除',
     confirmRemove: '确认删除',
     rename: '改名',
@@ -225,7 +225,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
-    storedTextReadOnly: 'This is stored text and is read-only here. To edit it, download it and save a new version using its file path and current version.',
+    storedTextReadOnly: 'This stored text is read-only here. To edit it, use workspace__read with save:true, then workspace__edit with the saved path and version.',
     remove: 'Delete',
     confirmRemove: 'Confirm delete',
     rename: 'Rename',
@@ -1694,21 +1694,6 @@ async function openHanded() {
     // A stored file (a .json over a document's size is one): its details, to download — this App edits documents. The host
     // handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
     if (file.type === 'binary') {
-      if (typeof file.textPreview === 'string') {
-        const current = {
-          entry: file.entry,
-          file: Object.freeze({ ...file, type: 'text', text: file.textPreview }),
-          view: null,
-          unbind: null,
-          offs: [],
-        }
-        state.current = current
-        bindFileMenu(current)
-        showDoc(file.entry)
-        setMode('preview')
-        await mountStoredTextPreview(current, previewReady)
-        return
-      }
       file.close()
       showDocMessage(state.t.downloadOnly)
       document.body.classList.add('binary', 'show-doc')
@@ -1729,23 +1714,6 @@ async function openHanded() {
   } finally {
     if (state.opening === token) state.opening = null
   }
-}
-
-async function mountStoredTextPreview(current, preview) {
-  const prepared = await preview
-  if ('error' in prepared) throw prepared.error
-  if (state.current !== current) return
-  const { md } = prepared
-  const text = current.file.text
-  document.body.dataset.kind = 'text'
-  md.render($('preview'), text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
-  previewMarks()
-  for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = true
-  $('doc-empty').hidden = !!text.trim()
-  document.body.classList.toggle('empty-doc', !text.trim())
-  $('empty-write').hidden = true
-  $('empty-draft').hidden = true
-  showBanner(state.t.storedTextReadOnly, 'info')
 }
 
 async function mountText(current, preview) {
@@ -2226,6 +2194,7 @@ function watchStatus(current) {
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
+    else if (file.readOnlyReason === 'stored-bytes') showBanner(t.storedTextReadOnly, 'info', true)
     else if (!$('banner').dataset.sticky) hideBanner()
   }
   // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.

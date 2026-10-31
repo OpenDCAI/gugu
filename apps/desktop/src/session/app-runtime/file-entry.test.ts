@@ -32,16 +32,17 @@ it('requests decoration after two frames and updates the entry without a documen
   file.close();
 });
 
-it('gives a stored UTF-8 text file a read-only preview alongside its original bytes', async () => {
-  const { host, open } = await loadPage<{ type: string; textPreview?: string; readOnly: boolean; blob(): Promise<Blob>; close(): void }>();
+it('opens historical stored UTF-8 text through the read-only text handle and preserves its bytes', async () => {
+  const { host, open } = await loadPage<{ type: string; text: string; readOnly: boolean; readOnlyReason: string; blob(): Promise<Blob>; insert(index: number, value: string): void; close(): void }>();
   const opened = fileOpened('text');
   opened.entry.type = 'binary';
   opened.entry.contentType = 'text/markdown';
-  opened.bytes = new TextEncoder().encode('# legacy note\n').buffer;
+  opened.bytes = new TextEncoder().encode('# legacy note\r\n').buffer;
   host.appFiles.open.mockResolvedValueOnce(opened);
 
   const file = await open();
-  expect(file).toMatchObject({ type: 'binary', readOnly: true, textPreview: '# legacy note\n' });
-  expect(await (await file.blob()).text()).toBe('# legacy note\n');
+  expect(file).toMatchObject({ type: 'text', readOnly: true, readOnlyReason: 'stored-bytes', text: '# legacy note\r\n' });
+  expect(await (await file.blob()).text()).toBe('# legacy note\r\n');
+  expect(() => file.insert(0, 'change')).toThrow(expect.objectContaining({ code: 'read-only' }));
   file.close();
 });
