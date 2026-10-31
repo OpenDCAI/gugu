@@ -8,18 +8,20 @@ export function formatNumber(value: number, options: Intl.NumberFormatOptions | 
   return new Intl.NumberFormat(locale, options).format(value);
 }
 
-// One formatter per locale and options: every message row formats its time, and building an Intl.DateTimeFormat per
-// call was a measurable part of switching chats.
+// One formatter per locale, options and time zone: every message row formats its time, and building an
+// Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
+// so the key carries the current UTC offset: a zone change (travel, DST) gets a fresh one.
 const dateFormats = new Map<string, Intl.DateTimeFormat>();
 
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  const key = `${locale}|${JSON.stringify(options ?? {})}`;
+  const key = `${locale}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
   let format = dateFormats.get(key);
   if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
   return format.format(value instanceof Date ? value : new Date(value));
 }
 
-const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+// 12/24 小时跟 locale 默认走(❌ 指定 hourCycle):统一的是日期怎么写,不是几点怎么写。
+const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 
 export function formatCalendarDate(
   value: DateValue,

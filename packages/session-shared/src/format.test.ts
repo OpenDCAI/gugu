@@ -72,7 +72,7 @@ describe('local calendar and datetime-local values across DST', () => {
     expect(toLocalDateTimeInput(date)).toBe('2026-10-15T07:07');
     expect(new Date(toLocalDateTimeInput(date)).getTime()).toBe(date.getTime());
     expect(formatCalendarDate(date, 'zh-CN', { now: date })).toBe('10月15日 07:07');
-    expect(formatCalendarDate(date, 'en-US', { now: date })).toBe('Oct 15, 07:07');
+    expect(formatCalendarDate(date, 'en-US', { now: date })).toBe('Oct 15, 07:07 AM');
     expect(formatCalendarDate(date, 'zh-CN', { now: new Date(2027, 0), includeTime: false })).toBe('2026年10月15日');
   });
 });
@@ -90,7 +90,9 @@ describe('calendar day: one style for lists, separators and the chat day boundar
   it('separators carry the clock on every day', () => {
     expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'zh-CN', { now, withTime: true })).toBe('昨天 09:05');
     expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'zh-CN', { now, withTime: true })).toBe('10月3日 09:05');
-    expect(formatCalendarDay(new Date(2026, 9, 3, 21, 5), 'en-US', { now, withTime: true })).toBe('Oct 3, 21:05');
+    expect(formatCalendarDay(new Date(2026, 9, 3, 21, 5), 'en-US', { now, withTime: true })).toBe('Oct 3, 09:05 PM');
+    expect(formatCalendarDay(new Date(2026, 9, 31, 21, 5), 'en-US', { now })).toBe('09:05 PM');
+    expect(formatCalendarDay(new Date(2026, 9, 31, 21, 5), 'zh-CN', { now })).toBe('21:05');
   });
   it('an invalid time is drawn as such, not hidden', () => {
     expect(formatCalendarDay('not a time', 'zh-CN', { now })).toBe('Invalid Date');
