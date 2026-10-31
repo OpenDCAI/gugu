@@ -12,7 +12,13 @@ export class SessionBootTasks {
 
   record(operation: string, taskId: string, error: unknown): void {
     let message = 'Boot operation failed (error could not be read)'
-    try { message = String(error instanceof Error ? error.message : error).slice(0, 500) } catch { /* Diagnostics cannot escape the task boundary. */ }
+    try {
+      // Result errors are plain objects ({ type, message } / { type, path }); never record `[object Object]`.
+      const text = (error as { message?: unknown } | null)?.message
+      if (typeof text === 'string') message = text.slice(0, 500)
+      else if (error === null || typeof error !== 'object') message = String(error).slice(0, 500)
+      else if (Object.keys(error).length > 0) message = JSON.stringify(error).slice(0, 500)
+    } catch { /* Diagnostics cannot escape the task boundary. */ }
     const failure = { operation: operation.slice(0, 80), taskId: taskId.slice(0, 128), message }
     const key = `${operation}:${taskId}`
     this.failures.delete(key)
