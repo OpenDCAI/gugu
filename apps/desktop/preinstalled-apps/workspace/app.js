@@ -1586,7 +1586,7 @@ async function uploadFiles(place = { chat: state.ctx.chat.id, ...(state.folder ?
     const arrived = await gugu.files.upload(place)
     // What arrived is in the list, to open like any other file (the picker took the gesture's time).
     await refreshList()
-    return await askAboutNames(arrived, before)
+    return askAboutNames(arrived, before)
   } catch (error) {
     // A partial failure rejects too, after the rest are stored: the list shows what arrived.
     await refreshList()
