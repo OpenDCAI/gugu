@@ -1,5 +1,5 @@
 import type { QuoteSelection } from './messageQuoteContent'
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
@@ -25,6 +25,7 @@ import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
 import { visibleReplyQuoteIds } from './replyQuoteVisibility'
 import { MESSAGE_SEEN_THRESHOLDS, messageSeen } from './messageSeen'
 import { useStructurallyShared } from '@/hooks/useStructurallyShared'
+import { isAnimationWindowVisible, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
 
 // #1163 perf — 在父层为单条消息预算「发送/已读态」(primitive 字符串)，下传给 memo 化的 MessageBubble，
 // 取代旧的「整个 memberReadSeqs map 下传、气泡自己 derive」。任一成员已读回执会换 map 引用、破气泡浅比较
@@ -70,6 +71,15 @@ function computeReadReceipt(
  * autoscroll 在某些平台还会差一截。这些 #461 / #667 / #780 / #781 / #1315 一路踩过来的东西,
  * 自己撸一个 map 全都没有 —— 症状就是「不会滚」。
  */
+// 窗口最小化 / 收进托盘时(主窗关了 backgroundThrottling,页面照样「看得见」)消息流停在离开时那一帧:新消息不排进列表、
+// 不渲染,也就不会被「看见即已读」悄悄读掉;窗口回来时一次补齐。会话列表、未读数、通知照旧由投影实时更新。
+function useHeldWhileWindowUnseen<T>(value: T): T {
+  const seen = useSyncExternalStore(subscribeAnimationWindowVisibility, () => isAnimationWindowVisible())
+  const shown = useRef(value)
+  if (seen) shown.current = value
+  return shown.current
+}
+
 function withoutLiveStatus(profiles: Record<string, MemberProfileCardModel>): Record<string, MemberProfileCardModel> {
   const out: Record<string, MemberProfileCardModel> = {}
   for (const [id, { agentStatus: _status, agentMeta: _meta, ...rest }] of Object.entries(profiles)) out[id] = rest
@@ -329,8 +339,8 @@ const UNREAD_ABOVE_STYLE: CSSProperties = { position: 'absolute', top: 'var(--sp
  * 不传落点 = 停在最新一条;在底部时内容一变就贴底(新消息、markdown 异步撑高)。分栏用的就是这份缺省。
  */
 export function MessageList({
-  rows,
-  rowProps,
+  rows: liveRows,
+  rowProps: liveRowProps,
   resetKey,
   listRef,
   scrollerRef,
@@ -365,6 +375,7 @@ export function MessageList({
   /** 接在最后一条后面、随消息流一起滚的那一格(助理聊天里它在处理时的打字气泡);窗口没到最新处时不画。 */
   footer?: ReactNode
 }): ReactNode {
+  const { rows, rowProps } = useHeldWhileWindowUnseen({ rows: liveRows, rowProps: liveRowProps })
   const ownScrollerRef = useRef<HTMLElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const handleScrollerRef = useCallback((element: HTMLDivElement | null) => {
