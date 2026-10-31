@@ -38,8 +38,8 @@ export class ReplicaState<T> implements LiveSource {
   private localGeneration = nextGeneration();
   private localSequence = 0;
   private upstreamBase: LiveCursor | undefined;
-  /** Attach precedes the first snapshot, so updates arriving in that window are expected. */
-  private initialUpdates: LiveUpdate[] | null = [];
+  /** Every snapshot can race subscribed updates, including reconnect and gap recovery. */
+  private snapshotUpdates: LiveUpdate[] | null = [];
   private disposed = false;
 
   constructor(
@@ -48,7 +48,16 @@ export class ReplicaState<T> implements LiveSource {
   ) {
     this.store = deps.store ?? createPlainStore<T>();
     this.follower = new LiveFollower(
-      () => handle.snapshot(),
+      async () => {
+        this.snapshotUpdates ??= [];
+        try {
+          return await handle.snapshot();
+        } catch (error) {
+          // A failed later read must not leave an otherwise healthy replica buffering forever.
+          if (this.follower.isReady()) this.replaySnapshotUpdates();
+          throw error;
+        }
+      },
       createStateMaterializer(this.store, deps.schema),
       {
         instrumentation: deps.instrumentation,
@@ -97,8 +106,8 @@ export class ReplicaState<T> implements LiveSource {
   }
 
   applyUpdate(update: LiveUpdate): void {
-    if (this.initialUpdates) {
-      this.initialUpdates.push(update);
+    if (this.snapshotUpdates) {
+      this.snapshotUpdates.push(update);
       return;
     }
     this.follower.applyUpdate(update);
@@ -182,13 +191,18 @@ export class ReplicaState<T> implements LiveSource {
     this.waiters.flushCursorWaiters();
     this.waiters.flushAllMutationWaiters();
     this.localWaiters.flushCursorWaiters();
-    if (this.initialUpdates) {
-      for (const update of this.initialUpdates) {
+    this.replaySnapshotUpdates();
+  }
+
+  private replaySnapshotUpdates(): void {
+    const updates = this.snapshotUpdates;
+    this.snapshotUpdates = null;
+    if (updates) {
+      for (const update of updates) {
         const cursor = this.cursor;
         if (cursor?.generation === update.generation && update.sequence <= cursor.sequence) continue;
         this.follower.applyUpdate(update);
       }
-      this.initialUpdates = null;
     }
   }
 

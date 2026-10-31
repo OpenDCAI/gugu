@@ -6,6 +6,7 @@ import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
+import { useMarkProjectTopicsReadOnOpen } from '../hooks/useMarkProjectTopicsReadOnOpen'
 import { useChatStore } from '../store/chatContext'
 
 installShellSlots()
@@ -30,6 +31,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
     () => slots?.getSlots() ?? EMPTY,
   )
+  useMarkProjectTopicsReadOnOpen(entries, projectGroupChats)
   return (
     <>
       {[...entries].flatMap(([key, element]) => {

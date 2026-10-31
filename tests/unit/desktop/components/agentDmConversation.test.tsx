@@ -292,3 +292,13 @@ it('captures unread on return to a retained desktop slot even when its logical s
   ;(probe.props as { onVisibleItems: (ids: string[]) => void }).onVisibleItems(second.slice(0, 2).map(row => row.id))
   expect(markMessageVisible.mock.calls.map(([row]) => row.id)).toEqual(second.slice(0, 2).map(row => row.id))
 })
+
+
+it('does not expose the removed whole-message quote action in agent DM commands', async () => {
+  await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: {
+    activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent', display_name: 'External agent' }) },
+  } })
+  const commands = (probe.props as { commands: ChatCommands }).commands
+  expect(commands).not.toHaveProperty('onQuoteMessage')
+  expect(commands).not.toHaveProperty('canQuoteMessage')
+})

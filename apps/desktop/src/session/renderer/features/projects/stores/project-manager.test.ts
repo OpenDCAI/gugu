@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   initializeRepository: vi.fn(),
   inspectProjectPath: vi.fn(),
   getProjects: vi.fn(),
+  attachProjectFolder: vi.fn(),
   getUnarchivedSession: vi.fn(),
   logError: vi.fn(),
   openProject: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('@renderer/lib/ipc', () => {
     projects: {
       createProject: mocks.createProject,
       getProjects: mocks.getProjects,
+      attachProjectFolder: mocks.attachProjectFolder,
       inspectProjectPath: mocks.inspectProjectPath,
       openProject: mocks.openProject,
       patchProjectSettings: mocks.patchProjectSettings,
@@ -407,6 +409,53 @@ describe('ProjectManagerStore project creation', () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(store.projects.has('optimistic-project')).toBe(false);
     expect(store.pendingCreationIds.has('optimistic-project')).toBe(false);
+  });
+
+  it.each([false, true])('reopens the original project through the host when archived: %s', async (archived) => {
+    const original = localProject({
+      id: 'retained-project',
+      repositoryWorkspaceId: 'original-root',
+      ...(archived ? { archivedAt: '2026-10-30T10:00:00Z' } : {}),
+    });
+    const restored = localProject({ id: original.id, repositoryWorkspaceId: 'original-root' });
+    mocks.inspectProjectPath.mockResolvedValueOnce({ isDirectory: true, isGitRepo: true, existingProject: original });
+    mocks.createProject.mockImplementation(async () => {
+      mocks.getProjects.mockResolvedValue([restored]);
+      return okProject(restored);
+    });
+    const store = new ProjectManagerStore();
+    // Exercise the real creation and store loading path; mounting Agent runtimes
+    // is covered separately and this suite deliberately leaves openProject pending.
+    const mount = vi.spyOn(store, 'mountProject').mockResolvedValue(undefined);
+    try {
+      const result = await store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'Project', path: original.path });
+      expect(result).toEqual({ kind: 'existing', projectId: original.id });
+      expect(mocks.createProject).toHaveBeenCalledTimes(archived ? 1 : 0);
+      if (archived) {
+        expect(store.projects.has(original.id)).toBe(true);
+        expect(store.projects.get(original.id)?.data?.archivedAt).toBeUndefined();
+        expect(store.projects.get(original.id)?.data?.repositoryWorkspaceId).toBe('original-root');
+        expect(mount).toHaveBeenCalledWith(original.id);
+      }
+    } finally {
+      store.dispose();
+    }
+  });
+
+  it('does not restore or attach an archived project during automatic discovery', async () => {
+    const archived = localProject({ id: 'archived-project', archivedAt: '2026-10-30T10:00:00Z', rootFolderDetached: true });
+    mocks.inspectProjectPath.mockResolvedValueOnce({ isDirectory: true, isGitRepo: false, existingProject: archived });
+    mocks.attachProjectFolder.mockResolvedValueOnce({ success: true, data: {} });
+    const store = new ProjectManagerStore();
+    try {
+      await expect(store.startProjectCreation({ type: 'local' }, { mode: 'pick', name: 'History', path: archived.path, automatic: true }))
+        .resolves.toEqual({ kind: 'existing', projectId: archived.id });
+      expect(mocks.createProject).not.toHaveBeenCalled();
+      expect(mocks.attachProjectFolder).not.toHaveBeenCalled();
+      expect(store.projects.has(archived.id)).toBe(false);
+    } finally {
+      store.dispose();
+    }
   });
 
   it('#609 adding by hand a folder that is a workspace (~) asks the machine to make it a project; automatic entries do not', async () => {

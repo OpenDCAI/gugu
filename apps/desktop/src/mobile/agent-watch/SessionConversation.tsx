@@ -126,7 +126,6 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     if (sending || stopping || inFlight.current) return
     const submission = { attachments: new Set(attachments.map(file => file.id)), waiting: uploads.unsettled() }
     inFlight.current = submission
-    const sentQuote = quotes.capture()
     try {
       setAttachmentWaiting(submission.waiting)
       if (!await uploads.waitForUploads() || inFlight.current !== submission) return
@@ -144,8 +143,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       composerDraft.setText(''); composerDraft.flush(); editor.current?.setText('')
       setAttachments(current => current.filter(file => !sentAttachments.some(sent => sent.id === file.id)))
       try {
-        await onSend(quotes.prompt(text, sentQuote), images)
-        quotes.consume(sentQuote)
+        await onSend(text, images)
         view.current?.setScrollMode({ kind: 'tail' })
         for (const file of sentAttachments) { paths.current.delete(file.id); uploads.forget(file.id) }
       } catch {
@@ -205,7 +203,6 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     {backgroundError ? <div role="alert">{backgroundError}</div> : null}
     {phoneHost ? <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={recoveryComposer} sending={sending} /> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
-    {quotes.composer.preview}
     <input ref={input} type="file" hidden multiple onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
     <AgentConversationComposer {...options.props} {...queue.props} queuedPrompts={[...queue.props.queuedPrompts, ...pendingSends.slice(1).map(send => ({ id: send.id, text: send.text, origin: 'manual' as const, locked: true }))]} mobile isWorking={agentWorking} canSubmit={!sending && !stopping && (!!composerDraft.text.trim() || attachments.length > 0)}
       onStop={agentWorking ? onStop : undefined} editorApiRef={receiveEditor} editorOptions={{ clearOnSubmit: false, enterBehavior: 'newline' }}

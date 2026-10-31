@@ -134,6 +134,7 @@ export interface AgentInboxFetchInput {
 }
 
 export interface AgentInboxReaderDeps {
+  recipientIsRegistered?: (agentUserId: string) => boolean | Promise<boolean>
   accessToken: string
   /** Host-owned durable refusal intervals; suppressed rows are never marked read. */
   sessionArchival?: (agentUserId: string) => SessionArchivalState | null | Promise<SessionArchivalState | null>
@@ -508,6 +509,7 @@ async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow
 }
 
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
+  if (deps.recipientIsRegistered && !(await deps.recipientIsRegistered(agentUserId))) return { pulled: 0, injected: 0, verdict: 'not-now' }
   if ((await deps.sessionArchival?.(agentUserId))?.archivedAt) return { pulled: 0, injected: 0, verdict: 'not-now' }
   const fetchUnread = deps.fetchUnread ?? ((input: AgentInboxFetchInput) =>
     fetchUnreadViaRpc(input, deps.accessToken))

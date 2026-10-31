@@ -1121,7 +1121,7 @@ function withSurfaceSelfDescription(
 }
 
 /** #7317 What `<gugu_apps>` says while Computer Use is on (off: nothing, no token). */
-export const COMPUTER_USE_LINE = 'Computer Use is on: to operate the apps of a computer (open one, see its window, click, type), use device_actions with group computer, then device_call; not osascript, AppleScript or browser tools.'
+export const COMPUTER_USE_LINE = 'Computer Use is on: use browser_* tools for webpages in this session\'s own browser tabs. Use device_actions with group computer, then device_call, only for the person\'s other desktop apps.'
 
 /** 上下文工程第二批 P3 (owner 10-07 chose (c), D-27): one App line is at most this many characters… */
 export const GUGU_APPS_LINE_MAX_CHARS = 120

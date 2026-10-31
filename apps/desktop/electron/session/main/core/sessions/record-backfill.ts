@@ -27,9 +27,13 @@ export async function syncStoredHistoryFromRecord(sessionId: string): Promise<{ 
       if (record.length === 0) return [];
       // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
       let missing: TranscriptTurn[] | null = null;
-      for (const limit of TAIL_WINDOWS) {
+      const windows = identity === 'content' ? [...TAIL_WINDOWS, Number.MAX_SAFE_INTEGER] : TAIL_WINDOWS;
+      for (const limit of windows) {
         const tail = await readStoredTailNow(sessionId, limit);
-        missing = recordTurnsAfterStore(record, tail, identity);
+        missing = recordTurnsAfterStore(record, tail, identity, {
+          hasOlderStoredTurns: tail.length === limit,
+          hermesPromptReceipts: sessionRecordHarnessForProvider(row.provider) === 'hermes',
+        });
         if (missing !== null || tail.length < limit) break;
       }
       return missing;

@@ -18,7 +18,8 @@ import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@renderer/lib/ui/context-menu';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { chatBlockContentOf, chatLayoutOf, closeChatTab } from './chat-layouts';
-import { CHAT_TAB_KIND, ChatTabHostContext, type ChatTabHost } from './chat-tab-providers';
+import { CHAT_PANEL_TAB_KIND, CHAT_TOPIC_TAB_KIND, CHAT_TAB_KIND, ChatTabHostContext, type ChatTabHost } from './chat-tab-providers';
+import { groupParticipantPanes } from '../group-participant-panes';
 
 /**
  * A chat's block (gugu-dev#181: a project's group, a chat ⌘-clicked beside a task): one strip on the task's engine —
@@ -42,6 +43,9 @@ export const ChatPanes = observer(function ChatPanes({
 }) {
   const layout = chatLayoutOf(chatId);
   const group = layout.groups[0]!;
+  const pair = group.pane.livePair;
+  const sideKind = pair ? group.pane.entries.get(pair.side)?.kind : undefined;
+  const sharedAuxiliaryWidth = sideKind === CHAT_TOPIC_TAB_KIND || sideKind === CHAT_PANEL_TAB_KIND;
   const host = useMemo<ChatTabHost>(() => ({
     chip,
     body,
@@ -79,6 +83,11 @@ export const ChatPanes = observer(function ChatPanes({
             <SplitPaneHotkey />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-pane-cell={group.paneId} data-chat-panes={chatId}>
               <PaneContent
+                pairSizing={sharedAuxiliaryWidth ? {
+                  rightWidth: groupParticipantPanes.rightWidth,
+                  onResize: width => groupParticipantPanes.rememberWidth(width),
+                  onReset: () => groupParticipantPanes.rememberWidth(480),
+                } : undefined}
                 // 「+」 after the last tab: the folder and the Apps that open here, drawn by the shell (it knows them).
                 tabTrailingSlot={<ChatPartSlot chatId={chatId} part="tabs" className="flex h-full items-center" />}
                 actionsSlot={actionsSlot}

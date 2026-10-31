@@ -12,6 +12,7 @@ import { minExtent, paneExtent, removePane } from '@renderer/features/tabs/pane-
 import { auxWindows, type TabWindowHome } from './aux-windows';
 import { readChatSummaries, subscribeChatSummaries } from '@/lib/chatSummariesBridge';
 import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
+import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
 
 /**
  * 这一屏(screen-layout)和导航之间的那两根线(spec session-page「一屏几块」):
@@ -141,7 +142,7 @@ export function ensureScreenLayoutSync(): void {
   pruneGoneChats();
   // 左边列表把拼成一组的几行并在一处(spec session-page「拼在一屏的几块是一组」):列表自己不认这屏,由这里喂。
   reaction(
-    () => screenLayout.joinedGroups,
+    () => groupParticipantPanes.joinedGroups(screenLayout.joinedGroups),
     (groups) => sidebarStore.setJoinedGroups(groups),
     { fireImmediately: true }
   );
@@ -241,6 +242,12 @@ export function focusScreenBlock(blockId: string): void {
 
 /** 从这屏拿走一块(⋮⋮ 右键「关闭这一块」、页签条右端那枚、一块最后一格关掉)。 */
 export function closeScreenBlock(blockId: string): void {
+  const participantOf = groupParticipantPanes.ownerOf(blockId);
+  if (participantOf) {
+    groupParticipantPanes.hide(participantOf);
+    followFocus();
+    return;
+  }
   if (screenLayout.close(blockId)) followFocus();
 }
 

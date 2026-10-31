@@ -131,6 +131,7 @@ export {
   listAgents,
   matchAgentByProviderSessionId,
   removeAgents,
+  archiveAgents,
   updateAgent,
   type LocalAgentUpdate,
   type LocalAgentRecord
@@ -259,14 +260,7 @@ export {
   type ProvisionSessionpageAgentOneTripInput,
   type ProvisionedSessionpageAgentOneTrip
 } from './cloud/ownedAgent'
-export {
-  removeAgentCloudIdentity,
-  removeAgentCloudIdentityViaSupabase,
-  type AgentIdentityRemovalClient,
-  type RemoveAgentCloudIdentityInput,
-  type RemoveAgentCloudIdentityOutcome,
-  type RemoveAgentCloudIdentityViaSupabaseInput
-} from './cloud/agentIdentityRemoval'
+export { permanentlyRemove } from './cloud/agentIdentityRemoval'
 export {
   createDeviceRuntimeHostLoop,
   stopRuntimeHostWithTimeout,

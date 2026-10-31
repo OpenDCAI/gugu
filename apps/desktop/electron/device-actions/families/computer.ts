@@ -212,10 +212,10 @@ function isDesktop(args: Args): boolean {
 /** 一次调用(或 run_steps 里的一步)碰不碰得:回拒绝原因,能做回 null。 */
 function refusal(tool: string, args: Args, self: SelfApp, inherited: { pid?: number; app?: string } = {}): string | null {
   const pid = targetPid(args) ?? inherited.pid
-  if (pid !== undefined && self.pids.has(pid)) return 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows.'
+  if (pid !== undefined && self.pids.has(pid)) return 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows. For webpages in this session\'s browser tabs, use browser_* tools.'
   for (const key of ['bundle_id', 'app', 'name'] as const) {
     if (key === 'name' && tool !== 'launch_app' && tool !== 'bring_to_front') continue
-    if (self.names.has(lower(args[key]))) return 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows.'
+    if (self.names.has(lower(args[key]))) return 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows. For webpages in this session\'s browser tabs, use browser_* tools.'
   }
   if (!INPUT_TOOLS.has(tool)) return null
   if (isDesktop(args)) return 'Desktop-wide input moves the person\'s real pointer / acts on whatever they are using: 咕咕 refuses it. Target one window (pid and window_id, or an element_token).'
@@ -257,8 +257,8 @@ function checkCall(tool: string, args: Args, self: SelfApp, platform: NodeJS.Pla
     return { refused: refusal(tool, args, self), foreground: lower(args.delivery_mode) === 'foreground' }
   }
   const inherited = { ...(isNum(args.pid) ? { pid: args.pid } : {}), ...(typeof args.app === 'string' ? { app: args.app } : {}) }
-  if (self.names.has(lower(args.app))) return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows.', foreground: false }
-  if (inherited.pid !== undefined && self.pids.has(inherited.pid)) return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows.', foreground: false }
+  if (self.names.has(lower(args.app))) return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows. For webpages in this session\'s browser tabs, use browser_* tools.', foreground: false }
+  if (inherited.pid !== undefined && self.pids.has(inherited.pid)) return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows. For webpages in this session\'s browser tabs, use browser_* tools.', foreground: false }
   let foreground = lower(args.delivery_mode) === 'foreground' || args.foreground_fallback === true
   for (const [i, step] of stepsOf(args).entries()) {
     if (!INPUT_TOOLS.has(step.tool)) return { refused: `Step ${i + 1}: run_steps here only runs ${[...INPUT_TOOLS].join(', ')}.`, foreground }
@@ -267,7 +267,7 @@ function checkCall(tool: string, args: Args, self: SelfApp, platform: NodeJS.Pla
     if (lower(step.args.delivery_mode) === 'foreground') foreground = true
   }
   if (isRecord(args.observe) && self.pids.has(targetPid(args.observe) ?? -1)) {
-    return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows.', foreground }
+    return { refused: 'That is 咕咕 itself: 咕咕 does not let an agent operate its own windows. For webpages in this session\'s browser tabs, use browser_* tools.', foreground }
   }
   return { refused: null, foreground }
 }

@@ -13,7 +13,6 @@ import {
   sessionAgentStatusChangedChannel,
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import {
   type ArchiveOutcome,
@@ -26,7 +25,6 @@ import { sessionDescendantIds } from './session-descendants';
 export class PageSessionsStore implements IDisposable {
   private offAgentStatusChanged: (() => void) | null = null;
   private offSessionCreated: (() => void) | null = null;
-  private offSessionDeleted: (() => void) | null = null;
   private offSessionChanges: (() => void) | null = null;
   private readonly _disposeReaction: () => void;
 
@@ -97,7 +95,6 @@ export class PageSessionsStore implements IDisposable {
 
     this.offAgentStatusChanged = this.listenToAgentStatusChanged();
     this.offSessionCreated = this.listenToSessionCreated();
-    this.offSessionDeleted = this.listenToSessionDeleted();
     this.offSessionChanges = this.listenToSessionChanges();
   }
 
@@ -156,17 +153,6 @@ export class PageSessionsStore implements IDisposable {
       if (session.id !== this.id || session.projectId !== this.projectId) return;
       runInAction(() => {
         this.addSession(session);
-      });
-    });
-  }
-
-  private listenToSessionDeleted(): () => void {
-    return this.onEvent(sessionDeletedChannel, ({ sessionId, projectId }) => {
-      if (sessionId !== this.id || projectId !== this.projectId) return;
-      runInAction(() => {
-        this.sessions.delete(sessionId);
-        this.ptySessions.get(sessionId)?.destroy();
-        this.ptySessions.delete(sessionId);
       });
     });
   }
@@ -372,8 +358,6 @@ export class PageSessionsStore implements IDisposable {
     this.offAgentStatusChanged = null;
     this.offSessionCreated?.();
     this.offSessionCreated = null;
-    this.offSessionDeleted?.();
-    this.offSessionDeleted = null;
     this.offSessionChanges?.();
     this.offSessionChanges = null;
     for (const session of this.ptySessions.values()) {

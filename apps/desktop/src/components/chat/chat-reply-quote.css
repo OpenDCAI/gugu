@@ -1,0 +1,5 @@
+.gg-chat-reply-quote { display: inline-flex; align-items: center; flex-shrink: 0; max-width: 100%; min-width: 0; color: var(--muted-fg); vertical-align: middle; }
+.gg-chat-reply-quote .gg-chat-reply-jump[data-size] { width: var(--lh-caption); height: var(--lh-caption); min-height: 0; padding: 0; }
+.gg-chat-reply-quote .gg-chat-reply-jump[data-mobile]::after { inset: calc((var(--lh-caption) - var(--control-h-touch)) / 2); }
+.gg-chat-reply-preview { min-width: 0; max-width: 100%; }
+.gg-chat-reply-popup { max-width: min(320px, calc(100vw - 16px)); min-width: 0; background: var(--popover); color: var(--text-primary); border-radius: var(--radius-control); box-shadow: var(--shadow-lift); }

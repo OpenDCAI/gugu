@@ -21,14 +21,21 @@
   --member-ink-l: 0.5;
   --member-ink-c: 0.13;
 }
-/* 长名先让:名字截断,归属标签不让位。 */
+/* 先缩归属标签,再省略名字;回复入口始终留在同一行。 */
 .msg-sender-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msg-sender > .msg-sender-name { flex-shrink: 0; max-width: 100%; }
+.msg-sender:has(> .gg-chat-reply-quote) > .msg-sender-name { max-width: calc(100% - var(--lh-caption) - 6px); }
 .msg-sender-link { border: 0; border-radius: 0; padding: 0; min-height: 0; height: auto; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
 .msg-sender-link:hover, .msg-sender-link:focus-visible { text-decoration: underline; }
-.msg-sender > .gg-chip { flex-shrink: 0; font-weight: var(--font-weight-regular); }
+.msg-sender > .gg-chip { display: block; flex-shrink: 1; font-weight: var(--font-weight-regular); }
+/* Preserve the label’s intrinsic contribution so hiding it cannot shrink the bubble and lock it hidden. */
+.msg-sender[data-owner-hidden] > .gg-chip { visibility: hidden; padding-inline: 0; margin-left: -6px; }
 
 /* 时间:标注字号的灰字,钉在气泡右下角。 */
 .msg-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--font-caption);
   line-height: var(--lh-caption);
   color: var(--muted-fg);
@@ -37,7 +44,8 @@
 }
 .msg-time[data-mine] { color: var(--text-on-bubble-muted); }
 .msg-time[data-inline] { position: absolute; right: 12px; bottom: 5px; }
-.msg-time:not([data-inline]) { display: block; align-self: flex-end; margin-top: 2px; }
+.msg-time:not([data-inline]) { display: flex; align-self: flex-end; margin-top: 2px; }
+[data-message-reply-footer] { --msg-reply-room: calc(var(--lh-caption) + 4px); }
 
 /* 给内嵌时间留位:正文最后一行末尾放一段看不见的、和时间一样宽的文字。末行放得下 ⇒ 时间和它同一行;放不下 ⇒ 这段自己折到
    下一行,时间落在那一行。内容由气泡写进 --msg-time-room(时间文本本身,所以宽度永远对得上)。 */
@@ -49,7 +57,7 @@
   content: var(--msg-time-room);
   display: inline-block;
   visibility: hidden;
-  padding-left: 10px;
+  padding-left: calc(10px + var(--msg-reply-room, 0px));
   font-size: var(--font-caption);
   line-height: 1;
   white-space: nowrap;

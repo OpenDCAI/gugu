@@ -79,6 +79,20 @@ export function providerStartupTurnViaLocalSession(
   return prompt?.startupDelivery === 'delivery-bridge' && sessionTuiMessageTransport === 'local-session';
 }
 
+/**
+ * Whether the terminal leg can start with a first turn that is a real Gugu message (a chat-page first sentence or a
+ * dispatched task card, carried as a route=chat envelope): through its argv/stdin startup slot, or host-injected over
+ * local-session. The new-task composer offers Terminal for such a creation only when this holds, and the PTY spawn
+ * refuses otherwise — one predicate, so the control never offers a leg that cannot start.
+ */
+export function providerTakesMessageStartupInPty(
+  prompt: { kind: string; startupDelivery?: string } | undefined,
+  sessionTuiMessageTransport: string | undefined,
+): boolean {
+  return providerConsumesStartupPrompt(prompt, 'pty')
+    || providerStartupTurnViaLocalSession(prompt, sessionTuiMessageTransport);
+}
+
 type Prompt = {
   buildCommand(ctx: CommandContext): AgentCommand;
 };

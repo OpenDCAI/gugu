@@ -8,7 +8,7 @@ const viewStateKV = new KV<Record<string, unknown>>('view-state');
 
 /**
  * 这条会话在这台机器眼里是什么状态 —— 「确知已删除」只认一种:它的项目在这台机器上,会话行却没了
- * (本机会话消失只有 deleteSession / deleteProject 两条路,都删行;归档留着行)。项目也不在这台机器上 = 会话在
+ * (归档会保留行)。项目也不在这台机器上 = 会话在
  * 别的机器上(咕咕 server、别的电脑):这里不知道它的死活,❌ 当成删了 —— 由那台机器说了算。
  */
 async function restoredSessionState(sessionId: string, projectId: string): Promise<RestoredSessionState> {

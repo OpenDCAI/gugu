@@ -13,7 +13,7 @@ import { buildIntegrationListPayload } from '@main/core/integrations/integration
 import { integrationConnectionService } from '@main/core/integrations/integration-connection-service'
 import { platformCredentials } from '@main/core/integrations/platform-credentials-instance'
 import { listAgents } from '@gugu/core'
-import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import type { AssistantPanelChange } from '@gugu/core/cloud/assistantPanel'
 import { readUserLibraryVolume, readUserLibraryEntry, writeUserLibraryEntry, removeUserLibraryEntry, onUserLibraryChanged } from './user-library'
 
@@ -32,7 +32,7 @@ export const assistantPanelLocal = {
   },
   async sessions(ownerId: string) {
     const agents = await listAgents(process.env,{ includeGuests: true })
-    const identities = new Map(agents.filter(agent => agentMayBelongTo(agent,ownerId)).map(agent =>
+    const identities = new Map(agentsForOwner(agents,ownerId).map(agent =>
       [agent.cache?.emdash_session_id,agent.gugu_user_id]))
     return listSessionStates().sessions.map(summary => ({ summary,agentId: identities.get(summary.conversationId) ?? null }))
   },

@@ -1,30 +1,26 @@
-import { expect,it } from 'vitest'
+import { expect, it } from 'vitest'
 import { message } from '../../../support/testHarness'
 import { visibleReplyQuoteIds } from '../../../../apps/desktop/src/components/chat/replyQuoteVisibility'
 
-const row=(id:string,sender:string|null,reply:string|null=null)=>message({id,sender_user_id:sender,reply_to_message_id:reply})
-it('does not hide an older target after a newer message from that participant',()=>{
- expect([...visibleReplyQuoteIds([row('old','owner'),row('new','owner'),row('answer','agent','old')])]).toEqual(['answer'])
- expect([...visibleReplyQuoteIds([row('old','owner'),row('new','owner'),row('answer','agent','new')])]).toEqual([])
+const row = (id: string, sender: string | null, reply: string | null = null) => message({ id, sender_user_id: sender, reply_to_message_id: reply })
+it('keeps every explicit reply, including the message directly above', () => {
+  expect([...visibleReplyQuoteIds([row('old', 'owner'), row('new', 'owner'), row('answer', 'agent', 'new')])]).toEqual(['answer'])
+  expect([...visibleReplyQuoteIds([row('old', 'owner'), row('new', 'owner'), row('answer', 'agent', 'old')])]).toEqual(['answer'])
 })
-it('only collapses a consecutive run to the same target',()=>{
- const rows=[row('old','owner'),row('new','owner'),row('a','agent','old'),row('b','agent','old'),row('c','agent'),row('d','agent','old')]
- expect([...visibleReplyQuoteIds(rows)]).toEqual(['a','d'])
+it('keeps consecutive replies without comparing authors or viewers', () => {
+  expect([...visibleReplyQuoteIds([row('original', 'owner'), row('a', 'agent', 'original'), row('b', 'agent', 'a'), row('c', 'owner', 'b')])]).toEqual(['a', 'b', 'c'])
 })
-it('a new message from the other participant ends the repeated-reply run',()=>{
- expect([...visibleReplyQuoteIds([row('old','owner'),row('new','owner'),row('a','agent','old'),row('latest','owner'),row('b','agent','old')])]).toEqual(['a','b'])
+it('keeps an explicit target even when its author or history is unavailable', () => {
+  expect([...visibleReplyQuoteIds([row('answer', null, 'not-loaded')])]).toEqual(['answer'])
 })
-it('keeps an unknown history target and replies to the same sender',()=>{
- expect([...visibleReplyQuoteIds([row('a','agent','not-loaded'),row('b','agent','a')])]).toEqual(['a','b'])
+it('keeps replies sent as a human through a message tool', () => {
+  const sent = { ...row('tool-sent', 'owner', 'question'), sent_by_agent: true }
+  expect([...visibleReplyQuoteIds([row('question', 'agent'), sent])]).toEqual(['tool-sent'])
 })
-it('does not infer adjacency for anonymized authors',()=>{
- expect([...visibleReplyQuoteIds([row('question','owner'),row('answer',null,'question'),row('again',null,'question')])]).toEqual(['answer','again'])
+it('does not invent a target from repeated text, position, or a tool-send flag', () => {
+  const sent = { ...row('tool-sent', 'agent'), sent_by_agent: true }
+  expect([...visibleReplyQuoteIds([row('same-text', 'owner'), sent, row('answer', 'agent')])]).toEqual([])
 })
-it('system messages and retracted messages do not replace the latest visible message or first quote',()=>{
- const system={...row('system','owner'),content_type:'system' as const},removed={...row('removed','owner'),retracted_at:'2026-10-27'}
- expect([...visibleReplyQuoteIds([row('question','owner'),system,removed,row('answer','agent','question')])]).toEqual([])
- expect([...visibleReplyQuoteIds([row('old','owner'),row('new','owner'),{...row('a','agent','old'),retracted_at:'2026-10-27'},row('b','agent','old')])]).toEqual(['b'])
-})
-it('preserves all quotes in rooms and incomplete search results',()=>{
- expect([...visibleReplyQuoteIds([row('a','owner'),row('b','agent','a'),row('c','agent','a')],true)]).toEqual(['b','c'])
+it('does not infer a target from a quoted author or preview alone', () => {
+  expect([...visibleReplyQuoteIds([message({ reply_to_message_id: null, reply_to_sender_user_id: 'owner', reply_to_content: 'Original' })])]).toEqual([])
 })

@@ -73,7 +73,7 @@ describe('conversation reply references', () => {
     const projected = conversationMessages(turns);
     // owner 10-28:没传 reply_to_message_id 的输出 ❌ 猜成在回上一条。
     expect((projected[0].items[1] as ChatMessage).conversationReply).toBeUndefined();
-    expect((projected[1].items[0] as ChatMessage).conversationReply).toEqual({ itemId: 'answer:sent:sent-id', text: '你好，天天', self: true });
+    expect((projected[1].items[0] as ChatMessage).conversationReply).toEqual({ itemId: 'answer:sent:sent-id', messageId: 'sent-id', text: '你好，天天', self: true });
     expect((turns[0].items[1] as ChatMessage).conversationReply).toBeUndefined();
   });
   it('quotes a message_send only by the reply_to_message_id it passed, naming who said it', () => {
@@ -89,16 +89,16 @@ describe('conversation reply references', () => {
       { kind: 'message', id: 'call:sent:f', seq: 8, role: 'assistant', text: '接私聊那条', sentReplyTo: 'e', sentChat: '999' },
     ] as ChatMessage[] as TranscriptTurn['items'] }];
     const [items] = conversationMessages(turns).map(turn => turn.items as ChatMessage[]);
-    expect(items[1].conversationReply).toEqual({ itemId: 'incoming', text: '帮我看一下', from: '天天', fromId: 'user:other' });
+    expect(items[1].conversationReply).toEqual({ itemId: 'incoming', messageId: 'original', text: '帮我看一下', from: '天天', fromId: 'user:other' });
     // Preserve its exact anchor so a click can load older history; never quote another input.
     expect(items[2].conversationReply).toEqual({ itemId: 'unknown', text: '', unloaded: true });
     expect(items[3].conversationReply).toBeUndefined();
     // 群里那条:带上它所在的群(人读群名),发送者是那条自己的发送者。
-    expect(items[5].conversationReply).toEqual({ itemId: 'group-in', text: '群里问一句', from: '小王', fromId: 'user:wang', chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
+    expect(items[5].conversationReply).toEqual({ itemId: 'group-in', messageId: 'in-group', text: '群里问一句', from: '小王', fromId: 'user:wang', chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
     // agent 自己在群里发的那条被引用:按它发去的 chat_id 认出是这个群(真机验收 10-28 少了群名)。
-    expect(items[6].conversationReply).toEqual({ itemId: 'call:sent:c', text: '答你', self: true, chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
+    expect(items[6].conversationReply).toEqual({ itemId: 'call:sent:c', messageId: 'c', text: '答你', self: true, chatId: 'b3fc1556-22fa-4bdf-aeb7-0ffdc51b4d8f' });
     // 发去的地方认不出是群 ⇒ 不写群名,❌ 猜。
-    expect(items[8].conversationReply).toEqual({ itemId: 'call:sent:e', text: '私聊里说', self: true });
+    expect(items[8].conversationReply).toEqual({ itemId: 'call:sent:e', messageId: 'e', text: '私聊里说', self: true });
   });
   it('resolves delivery and sent identities without matching repeated text', () => {
     const turns: TranscriptTurn[] = [{ id: 't', seq: 0, initiator: 'user', items: [

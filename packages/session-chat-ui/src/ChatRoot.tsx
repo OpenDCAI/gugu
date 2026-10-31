@@ -74,7 +74,7 @@ import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
-  flattenTier,
+  flattenTier, lastConversationMessage,
   isDeliveredFromAgent,
   makeUnitsView,
   collectUserTurnUnits,
@@ -542,6 +542,8 @@ export function ChatRoot(props: ChatRootProps) {
   // Identity of the model this effect last built from. A change signals a
   // view.setModel swap and drives the snapshot + incremental-cache reset.
   let lastState: ChatState | undefined;
+  let itemScrollGeneration = 0;
+  onCleanup(() => { itemScrollGeneration++; });
   const [committedUnitsVersion, setCommittedUnitsVersion] = createSignal(0);
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
@@ -567,6 +569,7 @@ export function ChatRoot(props: ChatRootProps) {
     const next = s.transcript.state.committedTurns;
 
     if (s !== lastState) {
+      itemScrollGeneration++;
       // Model swap: snapshot the outgoing model's heights while committedUnitsArr
       // and virt still reflect it, then clear the incremental cache so the build
       // below re-seeds from scratch for the incoming model.
@@ -600,7 +603,7 @@ export function ChatRoot(props: ChatRootProps) {
         committedUnitsArr.length > 0
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
-      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
@@ -677,10 +680,10 @@ export function ChatRoot(props: ChatRootProps) {
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
       if (!at && !pendingPrompt) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
-        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
       const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
+      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -1027,13 +1030,14 @@ export function ChatRoot(props: ChatRootProps) {
       const ends = active
         ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
         : committed;
-      // Native replies have the same boundary as sent replies: the preceding
-      // input must scroll clear of the reply's header, process and body.
+      // The first, standalone process header has the same boundary as reply
+      // heads. Otherwise a zero-gap input sticks 8px into it and its backdrop
+      // plus fade cover the no-tool first frame (#1129).
       const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
       for (let i = 0; i < all.length; i++) {
         const unit = all.at(i)!;
         const data = unit.data as ChatMessage;
-        if (data.role === 'assistant' && (data.conversationPart === 'head'
+        if (unit.kind === 'turn-process' || data.role === 'assistant' && (data.conversationPart === 'head'
           || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
       }
       return [...new Set(ends)].sort((a, b) => a - b);
@@ -1661,6 +1665,8 @@ export function ChatRoot(props: ChatRootProps) {
   const doScrollToItem = (id: string, opts?: ScrollToItemOptions) => {
     const el = scrollEl;
     if (!el) return;
+    const targetState = state(), generation = ++itemScrollGeneration;
+    const ownsScroll = () => generation === itemScrollGeneration && state() === targetState;
 
     const us = units();
     let unitIdx = -1;
@@ -1696,6 +1702,7 @@ export function ChatRoot(props: ChatRootProps) {
 
     const t0 = computeTarget();
     if (us.at(idx)?.children) requestAnimationFrame(() => {
+      if (!ownsScroll()) return;
       const step = Array.from(el.querySelectorAll<HTMLElement>('[data-process-step]')).find(node => node.dataset.itemId === id);
       const viewport = step?.closest<HTMLElement>('[data-slot="conversation-process-steps"]');
       if (step && viewport) {
@@ -1724,6 +1731,7 @@ export function ChatRoot(props: ChatRootProps) {
     } else {
       writeScrollTop(t0);
       requestAnimationFrame(() => {
+        if (!ownsScroll()) return;
         const t1 = computeTarget();
         writeScrollTop(t1);
       });

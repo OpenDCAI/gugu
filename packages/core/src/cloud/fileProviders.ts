@@ -1,12 +1,13 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { copyVerifiedFile, ciphertextSize, transformFile, type FileSink } from '../shared/fileCipher'
-import { FILE_CHUNK_BYTES, fileRefKey, requireFileRange, requireFileRevision, snapshotBlob, type FileBytes, type FileContext, type FileMetadata, type FileProviders, type FileRevision } from '../shared/fileResolver'
+import { FILE_CHUNK_BYTES, MissingFileObjectError, fileRefKey, requireFileRange, requireFileRevision, snapshotBlob, type FileBytes, type FileContext, type FileMetadata, type FileProviders, type FileRevision } from '../shared/fileResolver'
 import type { FileChunkCache } from '../shared/fileCache'
 import { attachmentRequest, type AttachmentsEndpoint } from './attachmentsApi'
 import { withBoundedOperation } from './boundedOperation'
 
 export type { FileChunkCache } from '../shared/fileCache'
-type Download = { status: string; url: string; expires_at?: string; thumb_url?: string | null; download_id: string; key?: string; codec?: string; sha256: string | null; size_bytes: number; ciphertext_bytes?: number; ciphertext_sha256?: string; bucket_id?: string; object_name?: string; message_id?: string }
+type Download = { status: string; code?: string; url: string; expires_at?: string; thumb_url?: string | null; download_id: string; key?: string; codec?: string; sha256: string | null; size_bytes: number; ciphertext_bytes?: number; ciphertext_sha256?: string; bucket_id?: string; object_name?: string; message_id?: string }
+const missingObject = (row: { status: string; code?: string }) => row.status === 'missing' && row.code === 'object_not_found'
 const hex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 const cacheKey = (context: FileContext, digest: string) => hex(sha256(new TextEncoder().encode(JSON.stringify([context.actor, fileRefKey(context.ref), digest]))))
 const sameLegacyObject = (revision: FileRevision, row: { bucket_id?: string; object_name?: string; message_id?: string }) =>
@@ -93,6 +94,7 @@ export function cloudFileProviders(deps: {
     let lease: Download | undefined
     const sign = async () => {
       const row = await request(context, 'file-download', { ref, as: context.actor.actorId, request_id: crypto.randomUUID() }) as Download
+      if (missingObject(row)) throw new MissingFileObjectError()
       if (row.status !== 'ready' || typeof row.url !== 'string' || row.size_bytes !== (encrypted ? ciphertextSize(revision.size_bytes) : revision.size_bytes) || row.sha256 !== revision.sha256 || !sameLegacyObject(revision, row) ||
         encrypted && (row.ciphertext_bytes !== row.size_bytes || row.codec !== 'secretstream-v1' || !row.key || !/^[0-9a-f]{64}$/.test(row.ciphertext_sha256 ?? ''))) throw new Error('File download commitment changed')
       return lease = row
@@ -112,6 +114,7 @@ export function cloudFileProviders(deps: {
       }
       const file = encrypted ? (await transformFile({ direction: 'decrypt', revision, source, sink, key: dataKey!, ciphertextSha256: lease!.ciphertext_sha256!, signal: context.signal })).file : await copyVerifiedFile(revision, source, sink, context.signal)
       const current = await metadata({ ...context, ref }) as Download
+      if (missingObject(current)) throw new MissingFileObjectError()
       if (current.status !== 'ready' || current.sha256 !== revision.sha256 || current.size_bytes !== revision.size_bytes || !sameLegacyObject(revision, current)) throw new Error('File access or revision changed during download')
       if (encrypted) await request(context, 'file-read-complete', { download_id: lease!.download_id, as: context.actor.actorId })
       return file
@@ -124,7 +127,8 @@ export function cloudFileProviders(deps: {
   const metadata = deps.metadata ?? ((context: FileContext) => request(context, 'file-resolve', { ref: context.ref, as: context.actor.actorId }))
   return {
     async metadata(context): Promise<FileMetadata> {
-      const row = await metadata(context) as FileRevision & { status: string; bucket_id?: string; object_name?: string; message_id?: string }
+      const row = await metadata(context) as FileRevision & { status: string; code?: string; bucket_id?: string; object_name?: string; message_id?: string }
+      if (missingObject(row)) return { status: 'missing', sha256: row.sha256 ?? null }
       if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
       if (row.status !== 'ready') throw new Error('Invalid file metadata')
       const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer } = row
@@ -147,6 +151,7 @@ export function cloudFileProviders(deps: {
         if (!video && hit) return hit.blob()
         const ref = 'item_id' in context.ref ? { ...context.ref, version: revision.version } : context.ref
         const lease = await request(context, 'file-download', { ref, as: context.actor.actorId, request_id: crypto.randomUUID() }) as Download
+        if (missingObject(lease)) throw new MissingFileObjectError()
         if (lease.status !== 'ready' || lease.sha256 !== revision.sha256 || lease.size_bytes !== revision.size_bytes || !sameLegacyObject(revision, lease)) throw new Error('File preview commitment changed')
         if (video) {
           const expiresAt = Date.parse(lease.expires_at ?? '')

@@ -1,3 +1,4 @@
+import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -226,11 +227,9 @@ export async function defaultStopAgentRuntime(agentUserId: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
-// #2219 governed reclaim: hard-deletes the agent identity and writes the lifecycle tombstone. The provision row's
-// agent_user_id is ON DELETE SET NULL, so the live link drops while provisioned_agent_user_id survives as evidence.
+/** Explicit provision cancellation uses the same permanent identity removal as Delete Agent. */
 export async function defaultRemoveOwnedAgent(agentUserId: string): Promise<void> {
-  const { error } = await identityDb.rpc('remove_owned_agent', { p_agent_user_id: agentUserId })
-  if (error) throw new Error(error.message)
+  await permanentlyRemove({ client: identityDb, agentId: agentUserId })
 }
 
 // ── read / rediscovery helpers (owner-scoped by RLS SELECT) ─────────────────────────────────────────────

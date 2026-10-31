@@ -95,6 +95,8 @@ export const projects = sqliteTable(
     repositoryWorkspaceId: text('repository_workspace_id'),
     /** The root workspace remains available to historical sessions after its folder is detached. */
     rootFolderDetached: integer('root_folder_detached', { mode: 'boolean' }).notNull().default(false),
+    /** Project removal hides its directory memberships without discarding them. */
+    archivedAt: text('archived_at'),
     /** #609: 'project' = the person created or opened it; 'workspace' = a directory the app keeps for its own needs. */
     kind: text('kind').$type<'project' | 'workspace'>().notNull().default('project'),
     createdAt: text('created_at')

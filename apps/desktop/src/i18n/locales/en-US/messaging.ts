@@ -353,6 +353,7 @@ export default {
     "fileGone": "File deleted",
     "fileVersion": "Version {{n}}",
     "fileExpired": "File expired",
+    "fileMissing": "Expired",
     "reupload": "Upload again",
     "selectOriginal": "Choose the original file",
     "storageWarning": "Group file storage is almost full ({{used}} / {{limit}}).",

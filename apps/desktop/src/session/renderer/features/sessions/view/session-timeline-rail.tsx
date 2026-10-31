@@ -4,7 +4,6 @@ import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import {
   ITEM_SIZE,
-  MAGNIFICATION,
   PILL_WIDTH,
   markerWidth,
   railCapacity,
@@ -124,7 +123,7 @@ export function SessionTimelineRail({
                   data-tick-current={isCurrent ? 'true' : undefined}
                   data-tick-sender={turn.sender?.kind}
                   className="group pointer-events-auto flex items-center rounded-sm outline-none"
-                  style={{ height: ITEM_SIZE, width: ITEM_SIZE * MAGNIFICATION }}
+                  style={{ height: ITEM_SIZE, width: ITEM_SIZE }}
                   onMouseEnter={() => setHoveredIndex(index)}
                   onMouseLeave={() => setHoveredIndex(null)}
                   onFocus={() => setHoveredIndex(index)}
@@ -136,7 +135,7 @@ export function SessionTimelineRail({
               <span
                 data-slot="tick"
                 className={cn(
-                  'rounded-full transition-[width,background-color] duration-[var(--dur-med)] ease-out motion-reduce:transition-none',
+                  'pointer-events-none rounded-full transition-[width,background-color] duration-[var(--dur-med)] ease-out motion-reduce:transition-none',
                   tone
                 )}
                 style={{ width: markerWidth(index, hoveredIndex), height: PILL_WIDTH }}

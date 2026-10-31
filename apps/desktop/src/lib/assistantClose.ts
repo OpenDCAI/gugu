@@ -1,16 +1,16 @@
 // #7350 关闭咕咕(住在这台电脑上的那一位;product spec「关闭咕咕」)。
 //
 // 一份确认、一个按钮:它的记忆、性格、交给它的文件和定时任务清掉,和它的聊天不再显示;它开过的会话删不删由人在确认框里选
-// (owner 10-18「要不要删是用户选的」,默认保留)。删完咕咕那一格回到「认识咕咕」,再开通的是全新的一位。
+// (owner 10-18「要不要删是用户选的」,默认归档保留)。删完咕咕那一格回到「认识咕咕」,再开通的是全新的一位。
 //
 // 顺序是硬的:
 //   1. 定时任务先撤 —— 在删任何东西之前。正好有一条在启动(automation_runs_active)= 整个停下,让人稍等再关;
 //      ❌ 先删它再撤定时任务:撤不掉的那几条会照点往一个已经不在的会话里投。
-//   2. (勾了)它开过的会话:有身份的先删身份,再把会话收起来(停掉进程)。
+//   2. 它开过的任务走现有归档;勾了永久删除时删身份,由同一删除入口清掉绑定任务。
 //   3. 删它自己的身份(同一个「删除 agent」:撤掉正在跑的那一轮、放掉本机的登记;服务端把和它的私聊收起来)。
-//   4. 收起它自己的会话(停掉进程)。
-//   5. 清掉它在这台电脑上的家(主进程算路径)。
-//   6. 清掉这台电脑上记着的开通进度、「自定义」卡、没走完的开通记录、搬家记录 —— 下次进来就是「认识咕咕」
+//   身份删除已经停掉并删除绑定任务;剩下未绑定的自身任务仍走原归档。
+//   4. 清掉它在这台电脑上的家(主进程算路径)。
+//   5. 清掉这台电脑上记着的开通进度、「自定义」卡、没走完的开通记录、搬家记录 —— 下次进来就是「认识咕咕」
 //      (第 3 步一过就一定做,后面哪步没成也做)。
 // 任何一步失败都如实报出来(第几步、为什么进日志),❌ 吞掉接着走、❌ 报「关好了」。
 
@@ -37,7 +37,7 @@ export type LocalCloseDeps = {
   listSessions: () => Promise<readonly CloseSession[]>
   listAutomations: () => Promise<readonly { id: string; agentSessionId?: string | null }[]>
   deleteAutomation: (id: string) => Promise<void>
-  /** 同一个「删除 agent」(删身份 + 放掉本机登记)。 */
+  /** 同一个「删除 agent」:删身份、放掉本机登记并永久删除绑定任务,之后不能再归档它。 */
   removeAgent: (agentUserId: string) => Promise<void>
   /** 收起一条会话(停掉它的进程)。 */
   archiveSession: (projectId: string, sessionId: string) => Promise<void>
@@ -59,7 +59,8 @@ export class AssistantCloseError extends Error {
 }
 
 /** 确认框要先知道的:它自己的会话、它开过的会话(数一下给那个勾)。 */
-export async function planLocalClose(assistantId: string, deps: Pick<LocalCloseDeps, 'listSessions'>): Promise<LocalClosePlan> {
+export async function planLocalClose(assistantId: string, deps: Pick<LocalCloseDeps, 'check' | 'listSessions'>): Promise<LocalClosePlan> {
+  await deps.check?.()
   const listed = await deps.listSessions()
   return {
     own: listed.filter((summary) => isAssistantSession(summary, assistantId)),
@@ -72,7 +73,7 @@ export async function closeLocalAssistant(
   plan: LocalClosePlan,
   deps: LocalCloseDeps,
 ): Promise<void> {
-  const started = input.deleteStarted ? plan.started : []
+  const started = plan.started
   const step = async (name: AssistantCloseStep, run: () => Promise<void>) => {
     try {
       await run()
@@ -83,7 +84,12 @@ export async function closeLocalAssistant(
     }
   }
 
-  const sessionIds = new Set([...plan.own, ...started].map((session) => session.conversationId))
+  // Archived tasks retain their schedules; only sessions being removed join
+  // the assistant's own schedule cleanup.
+  const sessionIds = new Set([
+    ...plan.own,
+    ...(input.deleteStarted ? started.filter(session => session.agent?.userId && session.agent.userId !== input.assistantId) : []),
+  ].map((session) => session.conversationId))
   await step('check', async () => { await deps.check?.() })
   await step('schedules', async () => {
     for (const automation of await deps.listAutomations()) {
@@ -92,16 +98,21 @@ export async function closeLocalAssistant(
   })
   await step('started', async () => {
     for (const session of started) {
-      const agentUserId = session.agent?.userId
-      if (agentUserId && agentUserId !== input.assistantId) await deps.removeAgent(agentUserId)
-      await deps.archiveSession(session.projectId, session.conversationId)
+      if (input.deleteStarted && session.agent?.userId && session.agent.userId !== input.assistantId) {
+        await deps.removeAgent(session.agent.userId)
+      } else {
+        await deps.archiveSession(session.projectId, session.conversationId)
+      }
     }
   })
   await step('identity', () => deps.removeAgent(input.assistantId))
   // 它已经删掉了:后面哪一步没成都照实报,但这台电脑上记着的开通进度一律清掉 —— 咕咕那一格要回到「认识咕咕」,❌ 停在半截的步骤上。
   try {
     await step('session', async () => {
-      for (const session of plan.own) await deps.archiveSession(session.projectId, session.conversationId)
+      const ownIds = new Set(plan.own.map(session => session.conversationId))
+      for (const session of await deps.listSessions()) {
+        if (ownIds.has(session.conversationId)) await deps.archiveSession(session.projectId, session.conversationId)
+      }
     })
     await step('home', deps.wipeHome)
   } finally {

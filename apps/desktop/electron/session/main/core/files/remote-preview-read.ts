@@ -27,27 +27,33 @@ export async function readRemotePreviewBytes(
   read: ReadRemoteChunk,
   path: string,
   maxBytes: number,
+  signal?: AbortSignal,
   attempt = 0
 ): Promise<RemotePreviewBytes> {
+  const aborted = { ok: false as const, reason: 'unreadable' as const, code: 'aborted' };
+  if (signal?.aborted) return aborted;
   let first: RemoteChunk;
   try {
     first = await read({ path, offset: 0, length: REMOTE_WORKSPACE_CHUNK_BYTES });
   } catch (error) {
     return { ok: false, reason: 'unreadable', code: errorCode(error) };
   }
+  if (signal?.aborted) return aborted;
   if (first.size > maxBytes) return { ok: false, reason: 'too_large' };
   const parts: Buffer[] = [Buffer.from(first.data, 'base64')];
   let offset = parts[0]!.length;
   while (offset < first.size) {
+    if (signal?.aborted) return aborted;
     let chunk: RemoteChunk;
     try {
       chunk = await read({ path, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
     } catch (error) {
       return { ok: false, reason: 'unreadable', code: errorCode(error) };
     }
+    if (signal?.aborted) return aborted;
     if (chunk.etag !== first.etag) {
       if (attempt >= 2) return { ok: false, reason: 'changing' };
-      return readRemotePreviewBytes(read, path, maxBytes, attempt + 1);
+      return readRemotePreviewBytes(read, path, maxBytes, signal, attempt + 1);
     }
     const bytes = Buffer.from(chunk.data, 'base64');
     if (bytes.length === 0) break;

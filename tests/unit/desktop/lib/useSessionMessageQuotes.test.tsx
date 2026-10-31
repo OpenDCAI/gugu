@@ -5,7 +5,6 @@ import type { ChatMessage } from '@gugu/session-chat-ui';
 import type { AcpChatStore } from '../../../../apps/desktop/src/session/renderer/features/sessions/acp/acp-chat-store';
 import type { PromptEditorRef } from '@gugu/session-ui/react/components';
 import { messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
-import { getSessionQuote } from '../../../../apps/desktop/src/session/renderer/features/sessions/acp/session-quote-draft';
 import { createReactHarness } from '../../../support/testHarness';
 
 const menu = vi.hoisted(() => vi.fn());
@@ -34,7 +33,7 @@ async function setup() {
   return { state, editor, root, dispose, commands, setItem: (value: ChatMessage) => { item = value; }, render: (current: AcpChatStore) => harness.render(createElement(Probe, { current })) };
 }
 
-describe('task message quote entry points', () => {
+describe('task message copy menus and legacy prompt restoration', () => {
   it.each([false, true])('uses the platform clipboard for copy (selected=%s)', async selected => {
     const c = await setup();
     if (selected) {
@@ -44,7 +43,7 @@ describe('task message quote entry points', () => {
     menu.mockResolvedValue('copy');
     await act(async () => c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith(selected ? 'same' : 'same words');
-    expect(getSessionQuote(c.state)).toBeNull();
+    expect(c.state.draftText).toBe('my question');
     c.dispose(); c.root.remove();
   });
   it('reports clipboard failure without a copied-success notification', async () => {
@@ -56,17 +55,17 @@ describe('task message quote entry points', () => {
     expect(toast).toHaveBeenCalledExactlyOnceWith({ title: 'task.copyFailed', tier: 'error' });
     c.dispose(); c.root.remove();
   });
-  it('quotes a whole Solid message by identity, keeps the draft and never sends it', async () => {
+  it('ignores a removed whole-message quote action after its row is recycled', async () => {
     const c = await setup();
     let answer!: (action: string) => void;
     menu.mockImplementation(() => new Promise(resolve => { answer = resolve; }));
     c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     c.setItem({ kind: 'message', id: 'recycled', role: 'assistant', text: 'same words' });
     await act(async () => answer('quote'));
-    expect(getSessionQuote(c.state)).toMatchObject({ source: { kind: 'session', sessionId: 'session-a', itemId: 'first' }, text: 'same words' });
+    expect(menu.mock.calls[0]![0].some((item: { id?: string }) => item.id === 'quote')).toBe(false);
     expect(c.state.draftText).toBe('my question');
     expect(c.editor.current.setText).not.toHaveBeenCalled();
-    expect(c.editor.current.focus).toHaveBeenCalledWith('end');
+    expect(c.editor.current.focus).not.toHaveBeenCalled();
     expect(c.state.submitPrompt).not.toHaveBeenCalled();
     expect(c.state.queuePrompt).not.toHaveBeenCalled();
     c.dispose(); c.root.remove();
@@ -77,18 +76,17 @@ describe('task message quote entry points', () => {
     document.getSelection()!.addRange(range);
     menu.mockResolvedValue('quote');
     await act(async () => c.root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
-    expect(getSessionQuote(c.state)).toBeNull();
+    expect(c.state.draftText).toBe('my question');
     expect(c.state.draftText).toBe('my question');
     expect(menu.mock.calls[0]![0].some((item: { id?: string }) => item.id === 'quote')).toBe(false);
     expect(menu.mock.calls[0]![0]).toContainEqual({ id: 'copy', label: 'transcript.copySelection' });
     c.dispose(); c.root.remove();
   });
-  it('restores a persisted quote into its preview without exposing its id in the editor', async () => {
+  it('restores only the body of a persisted quote without recreating its quote', async () => {
     const c = await setup();
     c.commands.restorePrompt({ text: messageQuoteText({ kind: 'session', sessionId: 'session-a', itemId: 'first' }, 'same words', 'Agent') + 'retry this' });
     expect(c.state.draftText).toBe('retry this');
     expect(c.editor.current.setText).toHaveBeenCalledWith('retry this');
-    expect(getSessionQuote(c.state)?.source).toMatchObject({ itemId: 'first' });
     c.dispose(); c.root.remove();
   });
   it('does not apply a menu from one task to a task opened while the menu was waiting', async () => {

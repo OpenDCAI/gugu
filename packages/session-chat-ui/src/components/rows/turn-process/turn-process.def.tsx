@@ -34,14 +34,15 @@ import { conversationHeader, conversationName, conversationTime } from '../messa
 import { processRowHeight } from '../message/process-row-layout';
 import { ConversationProcess } from '../message/ConversationProcess';
 import { ProcessBackgroundList, ProcessBackgroundPill, backgroundHeight } from '../message/ConversationMessage';
-import { CONVERSATION_HEADER_H } from '../message/conversation-body';
+import { conversationHeaderLayout } from '../message/conversation-header-layout';
 import { SenderName } from '../message/SenderName';
 import { conversationAgentTarget } from '@session-chat/lib/sender-target';
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
 
-function nameLayout(ctx: MeasureCtx) {
-  return readableLabel(ctx.commands?.conversationAgentName?.() ?? 'Agent', ctx, ctx.width, 12, 18, 650);
+function headerLayout(data: TurnProcessItem, ctx: MeasureCtx) {
+  return conversationHeaderLayout({ kind: 'message', role: 'assistant', text: '', id: data.id,
+    conversationProcess: data, conversationPreviousSpeaker: data.conversationPreviousSpeaker }, ctx, ctx.commands?.conversationAgentName?.() ?? 'Agent');
 }
 function silentLayout(ctx: MeasureCtx) { return readableLabel(rowTranslator(ctx)('transcript.processSilent'), ctx, ctx.width, 12, 22); }
 function classicHeight(data: TurnProcessItem, ctx: MeasureCtx) {
@@ -50,7 +51,7 @@ function classicHeight(data: TurnProcessItem, ctx: MeasureCtx) {
   return Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8);
 }
 function conversationHeight(data: TurnProcessItem, ctx: MeasureCtx) {
-  return Math.max(CONVERSATION_HEADER_H, nameLayout(ctx).height + 6) + processRowHeight(data.id, data, ctx)
+  return headerLayout(data, ctx).height
     + (data.silent ? silentLayout(ctx).height : 0) + backgroundHeight(data, ctx);
 }
 
@@ -85,6 +86,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
       onCleanup(() => clearInterval(timer));
     });
 
+    const header = () => headerLayout(props.data, props.ctx.measureCtx!());
     const label = () => turnProcessLabel(props.data, now(), translate);
 
     return (
@@ -96,11 +98,6 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         class={turnProcessRow}
         style={{ height: `${rowHeight()}px` }}
       >
-        <Show when={theme().layout.agentConversation}>
-          <div class={conversationHeader} style={{ height: `${Math.max(CONVERSATION_HEADER_H, nameLayout(props.ctx.measureCtx!()).height + 6)}px` }}><SenderName class={conversationName} name={nameLayout(props.ctx.measureCtx!()).text} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} /></div>
-        </Show>
-        {/* 对话布局:过程行与回复头里那一行同一个样式(conversationTime)—— ❌ 套经典头的 turnProcessLine / 头槽,
-            出正文前后字号 14→12、左右半边差 4px(真机验收 10-28)。 */}
         <Show when={theme().layout.agentConversation} fallback={
           <div class={turnProcessLine} data-slot="tool-timeline-line">
             <div class={turnProcessHeaderSlot}>
@@ -116,9 +113,13 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
             </div>
           </div>
         }>
-          <div class={conversationTime} data-slot="tool-timeline-line" style={{ height: `${processRowHeight(props.data.id, props.data, props.ctx.measureCtx!())}px` }}>
-            <ConversationProcess measureCtx={props.ctx.measureCtx!} process={props.data} anchorId={props.data.id} expanded={expanded()} />
-            <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
+          <div class={conversationHeader} style={{ height: `${header().height}px` }}>
+            <Show when={header().name}>{name => <SenderName class={conversationName} name={name().text}
+              style={{ width: `${header().nameWidth}px` }} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} />}</Show>
+            <div class={conversationTime} data-slot="tool-timeline-line" style={{ width: `${header().processWidth}px`, height: `${processRowHeight(props.data.id, props.data, header().processCtx)}px` }}>
+              <ConversationProcess measureCtx={() => header().processCtx} process={props.data} anchorId={props.data.id} expanded={expanded()} />
+              <ProcessBackgroundPill ownerId={props.data.id} ctx={{ ...props.ctx, measureCtx: () => header().processCtx }} />
+            </div>
           </div>
         </Show>
         <Show when={theme().layout.agentConversation}><ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} /></Show>

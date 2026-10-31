@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { deleteSession } from '@main/core/sessions/deleteSession';
+import { archiveSession } from '@main/core/sessions/archiveSession';
 import type { Automation } from '@shared/core/automations/automation';
 import { AutomationsService } from './automations-service';
 import {
@@ -14,12 +14,12 @@ const mocks = vi.hoisted(() => ({
   schedulerReload: vi.fn(),
   beginAutomationDeletion: vi.fn(),
   endAutomationDeletion: vi.fn(),
-  deleteSession: vi.fn(),
+  archiveSession: vi.fn(),
   emit: vi.fn(),
 }));
 
-vi.mock('@main/core/sessions/deleteSession', () => ({
-  deleteSession: mocks.deleteSession,
+vi.mock('@main/core/sessions/archiveSession', () => ({
+  archiveSession: mocks.archiveSession,
 }));
 vi.mock('@main/db/client', () => ({ db: {} }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit } }));
@@ -82,13 +82,13 @@ describe('AutomationsService.deleteAutomation', () => {
 
     await new AutomationsService().deleteAutomation(automation.id);
 
-    expect(deleteSession).toHaveBeenNthCalledWith(1, 'project-1', 'session-1');
-    expect(deleteSession).toHaveBeenNthCalledWith(2, 'project-1', 'session-2');
+    expect(archiveSession).toHaveBeenNthCalledWith(1, 'project-1', 'session-1');
+    expect(archiveSession).toHaveBeenNthCalledWith(2, 'project-1', 'session-2');
     expect(removeRun).toHaveBeenNthCalledWith(1, 'run-1');
     expect(removeRun).toHaveBeenNthCalledWith(2, 'run-2');
     expect(removeRun).toHaveBeenNthCalledWith(3, 'run-3');
     expect(softDeleteAutomation).toHaveBeenCalledWith(automation.id);
-    expect(mocks.deleteSession.mock.invocationCallOrder[1]).toBeLessThan(
+    expect(mocks.archiveSession.mock.invocationCallOrder[1]).toBeLessThan(
       vi.mocked(removeRun).mock.invocationCallOrder[0]
     );
     expect(vi.mocked(removeRun).mock.invocationCallOrder[2]).toBeLessThan(
@@ -111,7 +111,7 @@ describe('AutomationsService.deleteAutomation', () => {
     );
 
     expect(skipQueuedCronRuns).toHaveBeenCalledWith(automation.id, 'automation_deleted');
-    expect(deleteSession).not.toHaveBeenCalled();
+    expect(archiveSession).not.toHaveBeenCalled();
     expect(removeRun).not.toHaveBeenCalled();
     expect(softDeleteAutomation).not.toHaveBeenCalled();
   });
