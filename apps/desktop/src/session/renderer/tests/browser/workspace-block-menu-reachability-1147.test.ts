@@ -162,6 +162,12 @@ it('keeps the block through left padding, opens its menu, and changes only on an
   }
   await openHandle('block-handle');
   await userEvent.keyboard('{Escape}');
+  await openHandle();
+  const title = byId('doc-title').getBoundingClientRect();
+  await pointer(title.left + 10, title.top + 5);
+  await pointer(title.left + 10, title.top + 5, 'mousePressed');
+  await pointer(title.left + 10, title.top + 5, 'mouseReleased');
+  await until('closing outside the reading restores the handle hide', () => controls().hidden);
 
   const second = preview.querySelector<HTMLElement>('p[data-line="5-5"]')!.getBoundingClientRect();
   const gutter = preview.getBoundingClientRect().left + 2;

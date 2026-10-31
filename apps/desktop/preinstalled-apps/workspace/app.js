@@ -2797,10 +2797,12 @@ function closeDetails() {
 }
 
 function closeMenu() {
+  const blockControls = $('block-controls').contains(state.menuAnchor)
   if ($('menu').contains(document.activeElement)) state.menuAnchor?.focus({ preventScroll: true })
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
+  if (blockControls && !$('preview').matches(':hover') && !$('block-controls').matches(':hover')) scheduleBlockHandleHide()
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
