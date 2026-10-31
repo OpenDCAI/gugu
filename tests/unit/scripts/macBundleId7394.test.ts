@@ -131,13 +131,13 @@ describe('#7394 描述文件与受限权限', () => {
     expect(main).toContain('<key>com.apple.security.device.audio-input</key>')
 
     const inherit = fs.readFileSync(config.mac.entitlementsInherit!, 'utf8')
-    expect(config.mac.entitlementsInherit).toBe(path.join(repoRoot, 'sign', 'entitlements.mac.plist'))
+    expect(config.mac.entitlementsInherit).toBe(path.join(repoRoot, 'apps', 'desktop', 'sign', 'entitlements.mac.plist'))
     expect(inherit).not.toMatch(/application-identifier|team-identifier|keychain-access-groups/)
   })
 
   test('没有描述文件时主程序就用公共那份(本地签名包、ad-hoc 包与改动前一致)', () => {
     const config = loadBuilderConfig({ ...SIGNED, GUGU_TIER: 'production' })
     expect(config.mac.provisioningProfile).toBeUndefined()
-    expect(config.mac.entitlements).toBe(path.join(repoRoot, 'sign', 'entitlements.mac.plist'))
+    expect(config.mac.entitlements).toBe(path.join(repoRoot, 'apps', 'desktop', 'sign', 'entitlements.mac.plist'))
   })
 })
