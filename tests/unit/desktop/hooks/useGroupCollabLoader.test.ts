@@ -44,8 +44,6 @@ function Probe() {
       published.push(value)
     },
     groupRosterMemoryCacheRef: cacheRef,
-    pruneRemovedAgentsFromCollab: (value) => value,
-    mergeGroupCollabPruned: (_prev, next) => next,
   })
   load = result.loadGroupCollab
   currentError = result.error

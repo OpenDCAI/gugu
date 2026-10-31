@@ -71,12 +71,12 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
   const restGet = async (path: string) => {
     reads.push(path)
     if (path.startsWith('message_agent_delivery_blocks?')) return []
-    if (path.startsWith('friendships?')) return [{ user_a_id: FRIEND, user_b_id: OWNER }]
-    if (path.startsWith('chat_members?chat_id=in.(')) {
-      const ids = decodeURIComponent(path.slice('chat_members?chat_id=in.('.length, path.indexOf(')'))).split(',')
+    if (path.startsWith('active_friendships?')) return [{ user_a_id: FRIEND, user_b_id: OWNER }]
+    if (path.startsWith('active_members?chat_id=in.(')) {
+      const ids = decodeURIComponent(path.slice('active_members?chat_id=in.('.length, path.indexOf(')'))).split(',')
       return ids.flatMap((chat_id) => (members[chat_id] ?? []).map((user_id) => ({ chat_id, user_id })))
     }
-    if (path.startsWith('chat_members?user_id=eq.')) return [{ chat_id: 'friend-dm' }] // 主人置顶了和这位好友的私聊
+    if (path.startsWith('active_members?user_id=eq.')) return [{ chat_id: 'friend-dm' }] // 主人置顶了和这位好友的私聊
     if (path.startsWith(`users?id=in.(`)) return [{ id: FRIEND, display_name: 'shuxue', type: 'human' }]
     if (path.startsWith(`users?id=eq.${FRIEND}&`)) return [{ type: 'human' }]
     if (path.startsWith('contact_overrides?')) return [{ contact_user_id: FRIEND, alias: '费俊杰' }]
@@ -145,7 +145,7 @@ describe('owner DMs with friends (#84)', () => {
     }
     expect(db.rpcs.filter(([name]) => name === 'message_history_as').map(([, body]) => body.p_as_user_id)).toEqual([AGENT, AGENT, AGENT, AGENT])
     expect(db.rpcs.filter(([name]) => name === 'list_member_ids').map(([, body]) => body.p_chat_id)).toEqual(['stranger-agent-dm', 'agent-dm'])
-    expect(db.reads.filter((path) => path.startsWith('chat_members?chat_id') || path.startsWith('friendships'))).toEqual([])
+    expect(db.reads.filter((path) => path.startsWith('active_members?chat_id') || path.startsWith('active_friendships'))).toEqual([])
   })
 
   it('message_send to a friend DM points to message_send_as_owner and writes nothing', async () => {
@@ -159,7 +159,7 @@ describe('owner DMs with friends (#84)', () => {
     const db = fakeDb()
     expect(await callTool(context, 'message_send', { chat_id: 'agent-dm', text: '收到' }, db.deps)).toMatch(/^sent \(id=/)
     expect(db.inserts).toHaveLength(1)
-    expect(db.reads.filter((path) => path.startsWith('chat_members?chat_id') || path.startsWith('friendships'))).toEqual([])
+    expect(db.reads.filter((path) => path.startsWith('active_members?chat_id') || path.startsWith('active_friendships'))).toEqual([])
   })
 
   it('a DM send whose first read hits an expired token still refreshes and retries', async () => {
@@ -198,7 +198,7 @@ describe('owner DMs with friends (#84)', () => {
     it('a file in a chat the agent is in stays the agent\'s, with no owner-DM check', async () => {
       const { db } = await download('00000000-0000-4000-8000-0000000000a1')
       expect(db.signedAs).toEqual([AGENT])
-      expect(db.reads.filter((path) => path.startsWith('chat_members?chat_id') || path.startsWith('friendships'))).toEqual([])
+      expect(db.reads.filter((path) => path.startsWith('active_members?chat_id') || path.startsWith('active_friendships'))).toEqual([])
     })
 
     it('a file in an ex-friend\'s DM is refused (not read as the owner)', async () => {

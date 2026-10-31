@@ -13,10 +13,10 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     from: (table: string) => {
       const filters: Array<(row: Record<string, unknown>) => boolean> = []
-      const source = table === 'app_enablements' ? db.rows : table === 'chat_members' ? db.members : db.chats
+      const source = table === 'app_enablements' ? db.rows : table === 'active_members' ? db.members : db.chats
       const query = {
         select: () => query,
-        eq: (key: string, value: unknown) => (key === 'user_id' && table === 'chat_members' ? query : (filters.push((row) => row[key] === value), query)),
+        eq: (key: string, value: unknown) => (key === 'user_id' && table === 'active_members' ? query : (filters.push((row) => row[key] === value), query)),
         in: (key: string, values: unknown[]) => (filters.push((row) => values.includes(row[key])), query),
         then: (resolve: (value: unknown) => void) => resolve({ data: source.filter((row) => filters.every((keep) => keep(row as Record<string, unknown>))), error: null }),
       }
