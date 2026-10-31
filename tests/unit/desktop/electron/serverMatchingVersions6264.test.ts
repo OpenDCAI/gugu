@@ -179,11 +179,12 @@ describe('planAccountVersion', () => {
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0' })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
   })
-  it('这一版刚失败过:不再自己下、不再等空闲换;桌面经 SSH 装好后请它换(版本信号)照样换', () => {
+  it('这一版刚失败过:不再自己下、不再等空闲换;换版请求也不绕过冷却(能否解除由 failed 判)', () => {
     const reports = { a: { version: '0.2.9', protocol: 2, at: NOW } }
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false, failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
     expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true, switchRequested: true }).kind).toBe('switch')
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true, switchRequested: true })).toEqual({ kind: 'failed', version: '0.2.9' })
+    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => false, switchRequested: true }).kind).toBe('switch')
   })
   it('目标版本下载站上没有:退回次新的那一版;一版都不剩就跟守护进程', () => {
     const reports = { a: { version: '0.2.9', protocol: 2, at: NOW }, b: { version: '0.3.1', protocol: 2, at: NOW } }

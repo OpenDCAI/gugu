@@ -146,13 +146,17 @@ export function createAccountVersionConverger(options: {
 
   const installed = (version: string): boolean => !!layout && exists(versionBinary(layout.versions, version))
   /**
-   * 失败后冷却中;人点了「重试」(比失败更晚的换版请求,见 VERSION_RETRY_RPC)就不算。
-   * 两种失败：装不上(下载 / 试跑失败,可能只是网断了,记在内存里)与起不来(盘上 bad-versions.json 那本账，
+   * 失败后冷却中。两种失败：装不上(下载 / 试跑失败,可能只是网断了,记在内存里)与起不来(盘上 bad-versions.json 那本账，
    * 看门狗退回来的与本账号换过去秒退的同记一处，守护进程追通道时也跳过它)。
+   * 装不上:比失败更晚的「重试」(见 VERSION_RETRY_RPC)就解除。起不来:只有比失败更晚、目标正是这一版的确认重启才解除,
+   * 普通重试 ❌ 把账号再切回一个起不来的版本。
    */
-  const failed = (version: string, request: { at: number } | null = null): boolean => {
-    const at = Math.max(failedAt.get(version) ?? -Infinity, (layout && readBadVersions(layout.home)[version]) ?? -Infinity)
-    return at > -Infinity && now() - at < VERSION_FAILURE_COOLDOWN_MS && !(request && request.at > at)
+  const failed = (version: string, request: { at: number; confirmed: boolean; target?: string } | null = null): boolean => {
+    const cooling = (at: number, lifted: boolean): boolean => now() - at < VERSION_FAILURE_COOLDOWN_MS && !lifted
+    const installAt = failedAt.get(version) ?? -Infinity
+    const bootAt = (layout && readBadVersions(layout.home)[version]) ?? -Infinity
+    return cooling(installAt, !!request && request.at > installAt)
+      || cooling(bootAt, !!request?.confirmed && request.target === version && request.at > bootAt)
   }
 
   const binaryFor = (userId: string): { binary: string; version: string } | null => {

@@ -104,12 +104,13 @@ export function planAccountVersion(input: {
   if (!target || target === input.running) return { kind: 'none', clearSwitchRequest: true }
   const failed = input.failed(target)
   if (!input.installed(target)) return failed ? { kind: 'failed', version: target } : { kind: 'stage', version: target }
-  // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):冷却不拦 —— 那是人那边在等。
+  // 冷却中的版本连换版请求也拦:哪种请求能解除冷却由 `failed` 判(起不来的那一版只认绑定它的确认重启)。
+  if (failed) return { kind: 'failed', version: target }
+  // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):那是人那边在等。
   // 但有 agent 在跑就等它空闲,除非人点过「现在重启更新」:换版结束账号进程,在跑的那一轮跟着没了。
   if (input.switchRequested) {
     return input.busy && !input.switchConfirmed ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: input.switchConfirmed === true }
   }
-  if (failed) return { kind: 'failed', version: target }
   return input.busy ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: false }
 }
 

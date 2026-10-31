@@ -223,6 +223,26 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     expect(readAccountVersionPin(data())?.version).toBe(A)
     expect(f.restarted).toEqual([U1])
   })
+  it('ordinary SSH Retry does not lift a boot-failure cooldown; a confirmed restart for that version does', () => {
+    pin(A)
+    report(B)
+    const f = fixture(B, A, false)
+    f.converge()
+    expect(readAccountVersionPin(data())?.version).toBe(B)
+    for (let i = 0; i < 3; i += 1) f.c.quickExit(U1, B)
+    expect(readAccountVersionPin(data())?.version).toBe(A)
+    const next = fixture(B, A, false)
+    clock += 1_000
+    requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, clock)
+    next.converge()
+    expect(readAccountVersionPin(data())?.version).toBe(A)
+    expect(next.restarted).toEqual([])
+    clock += 1_000
+    requestConfirmedVersionRestart({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, B, true, clock)
+    next.converge()
+    expect(readAccountVersionPin(data())?.version).toBe(B)
+    expect(next.restarted).toEqual([U1])
+  })
   it('ordinary SSH accounts without reports retain their existing pin', () => {
     pin(A)
     const f = fixture(B, undefined, false)
