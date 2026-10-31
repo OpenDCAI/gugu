@@ -9,6 +9,10 @@ import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
+import { makeObservable, observable, runInAction } from 'mobx'
+import { createChatContext, createChatState } from '@gugu/session-chat-ui'
+import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+import { AcpSessionInputQueue } from '../../../../apps/desktop/src/session/renderer/features/sessions/acp/acp-session-input-queue'
 
 const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn(), phoneSend: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: scope.owner } }) }))
@@ -166,5 +170,41 @@ describe('native input shell lifecycle', () => {
     await act(async () => { await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-session', text: 'not yet accepted' }) })
     await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Phone host has not acknowledged the input'))
     expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull()
+  })
+
+  it('does not rescan unchanged history on streaming revisions, and still confirms a replaced old row', async () => {
+    scope.owner = 'history-confirmation-owner'
+    const context = createChatContext()
+    const chatState = createChatState(context)
+    const store = { runtimeSessionId: 'session-a', chatState, transcriptRevision: 0 }
+    makeObservable(store, { transcriptRevision: observable })
+    let historicalReads = 0
+    const old: TranscriptTurn = { id: 'old', seq: 0, initiator: 'user',
+      get items() { historicalReads++; return [{ kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'same text' }] } }
+    try {
+      chatState.transcript.history.seed([old])
+      await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><AcpSessionInputQueue store={store} /></>)
+      historicalReads = 0
+      let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
+      await act(async () => { input = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'session-a', text: 'same text' }) })
+      await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull())
+      const afterPending = historicalReads
+      expect(afterPending).toBeGreaterThan(0)
+      await act(async () => {
+        chatState.transcript.activeTurn.set({ id: 'active', seq: 1, initiator: 'agent', items: [
+          { kind: 'message', id: 'assistant', seq: 0, role: 'assistant', text: 'still streaming' },
+        ] })
+        runInAction(() => { store.transcriptRevision++ })
+      })
+      expect(historicalReads).toBe(afterPending)
+      expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull()
+      await act(async () => {
+        // No startedAt is required; an older committed row can receive a late confirmation.
+        chatState.transcript.history.seed([{ ...old, items: [{ kind: 'message', id: 'old-user', seq: 0, role: 'user',
+          text: 'same text', _meta: { clientMessageId: input.id } }] }])
+        runInAction(() => { store.transcriptRevision++ })
+      })
+      await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).toBeNull())
+    } finally { await harness.render(null); chatState.dispose(); context.dispose() }
   })
 })
