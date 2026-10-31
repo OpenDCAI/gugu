@@ -1,5 +1,5 @@
 /**
- * #7199「电脑控制」= trycua/cua 的 cua-driver(MIT,v0.36.0,scripts/build-mac-native.mjs 随包带上)。
+ * #7199「电脑控制」= trycua/cua 的 cua-driver(MIT,v0.36.0,scripts/build/build-mac-native.mjs 随包带上)。
  * 它在后台操作别的 App:❌ 抢人的焦点、❌ 动人的真鼠标,并在屏幕上画一个 agent 自己的鼠标。
  *
  * 照它的嵌入说明起守护进程,直接从咕咕主进程 spawn(❌ open / NSWorkspace):

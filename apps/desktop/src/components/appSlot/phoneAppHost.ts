@@ -1,7 +1,6 @@
 import { composeChatDraft } from '@/lib/composeDraft'
 import { showRendererContentMenu } from '../../lib/contentContextMenu'
 import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
-import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
@@ -192,7 +191,6 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
-  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
   async resolveFile(ref, actorId, options) {
     if (options.localOnly) return null;
     if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
@@ -205,7 +203,7 @@ const files = createAppFiles({
     if (!candidate) return null
     // The icon it declared for this kind of file (`fileIcons`), as this page re-encoded it (app-icon.ts) — as main does on the desktop.
     const icon = installedExtensionsStore.icons[fileIconKey(candidate.tabKind, candidate.suffix)] ?? null
-    return { suffix: candidate.suffix, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, installedExtensionsStore.locale).name, icon } }
+    return { suffix: candidate.suffix, state: candidate.state, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, installedExtensionsStore.locale).name, icon } }
   },
   async account() {
     const token = getRendererAccessToken()
@@ -670,7 +668,7 @@ export function hostAppFrame(
           hooks.openWith({ ...target, choice })
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')

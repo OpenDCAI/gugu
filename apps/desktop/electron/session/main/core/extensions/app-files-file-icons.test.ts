@@ -37,7 +37,7 @@ const manifest = (tab: Record<string, unknown>) => ({
   id: 'workspace',
   name: '文件夹',
   version: '1.0.0',
-  apiVersion: EXTENSION_API_VERSION,
+  apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: '文件夹', icon: 'icon.png', opensFiles: { chat: ['.md', '.json'] }, ...tab }] },
 });

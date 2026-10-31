@@ -6,6 +6,8 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { ToastContext, type ToastContextValue } from '../../apps/desktop/src/components/toastContext'
 import { AuthContext, type AuthUser } from '../../apps/desktop/src/store/auth'
 import { ChatStoreProvider } from '../../apps/desktop/src/store/chatContext'
+import { createShellTabStore, ShellTabContext } from '../../apps/desktop/src/lib/shellTab'
+import type { SidebarTab } from '../../packages/core/src/shared/enums/sidebarTabModels'
 import type { ChatContextValue } from '../../apps/desktop/src/store/chatContext'
 import { chatWindowStub } from './chatWindowStub'
 import { deriveThreadScope } from '../../apps/desktop/src/store/threadScope'
@@ -56,9 +58,12 @@ export async function renderWithAppProviders(
     chat?: Partial<ChatContextValue>
     contacts?: Partial<ContactsContextValue>
     toast?: ToastContextValue['toast']
+    /** Which shell tab is shown (ShellTabContext); surfaces read it themselves instead of an activeTab prop. */
+    shellTab?: SidebarTab
   } = {},
 ) {
   let tree = node
+  tree = createElement(ShellTabContext.Provider, { value: createShellTabStore(options.shellTab ?? 'chats') }, tree)
   tree = createElement(ChatStoreProvider, { value: chatStore({ ...chatWindowStub(options.auth?.id), ...options.chat }) }, tree)
   if (options.contacts) {
     tree = createElement(ContactsContext.Provider, { value: contactsStore(options.contacts) }, tree)

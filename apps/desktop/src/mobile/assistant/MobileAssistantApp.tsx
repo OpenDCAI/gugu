@@ -242,7 +242,6 @@ function MobileAssistantAppContent({
         <FilePreviewHost.Provider value={{}}><ChatAreaPanel assistantChat viewportKey="assistant"
           chatId={chatId}
           navigationTarget={navigationTarget}
-          activeTab="chats"
           mobile
           hidden={!chatShown}
           chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Paperclip />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}

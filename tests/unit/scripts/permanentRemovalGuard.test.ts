@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { removalViolations } from '../../../scripts/check-permanent-removal.mts'
+import { removalViolations } from '../../../scripts/checks/check-permanent-removal.mts'
 
 describe('permanent removal call-site guard', () => {
   it.each(['apps/desktop/shared/action.mts', 'packages/session-core/action.cjs', 'apps/mobile/runtime/action.mjs'])('covers production module %s and indirect RPC operands', file => {

@@ -8,8 +8,8 @@ import {
 } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
 
-function isMonacoFocused(): boolean {
-  return document.activeElement?.closest('.monaco-editor') !== null;
+function isCodeEditorFocused(event: KeyboardEvent): boolean {
+  return event.composedPath().some(node => node instanceof HTMLElement && node.closest('.monaco-editor, .cm-editor'));
 }
 
 /**
@@ -46,7 +46,7 @@ export function MonacoKeyboardBridge() {
     const platform = detectPlatform();
 
     const handler = (e: KeyboardEvent) => {
-      if (!isMonacoFocused()) return;
+      if (!isCodeEditorFocused(e)) return;
 
       const handled = dispatchMatchingHotkeys(e, {
         filter: (registration) =>

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXTENSION_API_VERSION, EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
-import { APP_PLATFORMS_API_VERSION } from '@shared/extensions/app-platforms';
 import type { MarketIndexVersion } from '@shared/extensions/market';
 import { ExtensionsService } from './extensions-service';
 import { packExtensionArchive } from './extension-archive';
@@ -53,7 +52,7 @@ async function version(v: string, options: { network?: string[]; yanked?: string
   const dir = path.join(work, 'src', `radar-${v}`);
   mkdirSync(dir, { recursive: true });
   const manifest = {
-    id: 'radar', name: 'Radar', version: v, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'radar', name: 'Radar', version: v, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     ...(options.network ? { permissions: { network: options.network } } : {}), contributes: { tabs: [{ name: 'main', title: 'Radar' }] },
   };
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
@@ -63,7 +62,7 @@ async function version(v: string, options: { network?: string[]; yanked?: string
   site.bundles[bundle] = new Uint8Array(bytes);
   return {
     version: v, manifest, apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.1.0', releaseNotes: `v${v}`,
-    publishedAt: '2026-10-19T00:00:00Z', sha256, bytes: bytes.byteLength, bundle, icon: null, readme: null, source,
+    publishedAt: '2026-10-19T00:00:00Z', sha256, bytes: bytes.byteLength, bundle, icon: null, source,
     yanked: options.yanked ? { reason: options.yanked } : null,
   };
 }
@@ -96,20 +95,23 @@ afterEach(() => {
 });
 
 describe('market Apps update by themselves (autoUpdateAppsOnce)', () => {
-  it.each([EXTENSION_API_VERSION_MIN_SUPPORTED, APP_PLATFORMS_API_VERSION - 1])('keeps an installed pre-platform API %i App valid and updates it through the normal market path', async (oldApiVersion) => {
+  // App 模型 v2 (owner 10-31: one switch, no compatibility layer): an App from the market written for the interface before
+  // does not run here, and goes to the market's version for this one by itself — asking only for what that version adds.
+  it('moves an installed App written for the older interface to the market version this build runs', async () => {
     const previous = await version('1.0.0');
     await publish([previous]);
     await install('1.0.0');
-    // A profile written by the previous client: runtime inventory must not require new publication metadata.
-    const old = { ...service.get('radar').manifest, apiVersion: oldApiVersion };
-    delete old.platforms;
+    // A profile written by the previous client: its manifest as apiVersion 22 wrote it.
+    const { defaultLocale: _locale, ...current } = service.get('radar').manifest;
+    const old = { ...current, apiVersion: EXTENSION_API_VERSION_MIN_SUPPORTED - 1, description: 'Watches agents.' };
     writeFileSync(path.join(service.get('radar').rootDir, 'manifest.json'), JSON.stringify(old));
-    expect(service.list().invalid).toEqual([]);
-    expect(service.get('radar').manifest.apiVersion).toBe(oldApiVersion);
+    expect(service.list().invalid.map((entry) => entry.dirName)).toEqual(['radar']);
+    expect(service.olderInterface('radar')).toMatchObject({ id: 'radar', version: '1.0.0' });
     await publish([previous, await version('1.1.0')]);
 
     await expect(autoUpdateAppsOnce({ ...quiet, market })).resolves.toEqual([{ id: 'radar', from: '1.0.0', version: '1.1.0' }]);
-    expect(service.get('radar').manifest).toMatchObject({ apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] });
+    expect(service.get('radar').manifest).toMatchObject({ apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', version: '1.1.0' });
+    expect(service.list().invalid).toEqual([]);
   });
 
   it('puts in the newer version the market gives this machine, without asking, fetched once', async () => {

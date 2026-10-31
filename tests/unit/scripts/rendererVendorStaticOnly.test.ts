@@ -7,7 +7,7 @@ import {
   entryAwareRendererManualChunk,
   type EntryReachability,
   type ModuleGraphContext,
-} from '../../../scripts/renderer-chunking.mts'
+} from '../../../scripts/build/renderer-chunking.mts'
 
 const NM = '/repo/node_modules'
 const graph: Record<string, { isEntry?: boolean; importedIds?: string[]; dynamicallyImportedIds?: string[] }> = {

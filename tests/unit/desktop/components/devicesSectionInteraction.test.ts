@@ -9,7 +9,8 @@ import { ProjectFolderCard } from '@/session/renderer/features/projects/componen
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 const retryMatch = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch }))
+const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
+vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch, restartServerVersionNow: restartNow }))
 function device(overrides: Partial<Device> = {}): Device {
   return {
     device_id: 'remote',
@@ -334,7 +335,7 @@ describe('DevicesSection interaction', () => {
       expect(server.dataset.kind).toBe('server')
       expect(server.textContent).toContain('Ubuntu 22.04.5 LTS · arm64')
       expect(server.textContent).toContain('咕咕 server 0.2.99')
-      expect(server.textContent).toContain('新版本已就绪，等待空闲')
+      expect(server.textContent).toContain('新版本已就绪')
       expect(server.textContent).toContain('上次在线 3 小时前')
       expect(server.textContent).toContain('远程 SSH：alice@box:2222')
       const me = Array.from(rows).find((row) => row.dataset.deviceId === 'me')!
@@ -372,6 +373,36 @@ describe('DevicesSection interaction', () => {
     await flush()
     expect(retryMatch).toHaveBeenCalledWith('srv')
     expect(container.querySelector('[data-testid="settings-device-match-failed"]')!.textContent).toContain('正在更新')
+  })
+
+  it('起不来的那一版(boot-failed):失败行给「现在重启更新」(确认后走确认重启),❌ 给按了没用的「重试」', async () => {
+    const value = store({
+      devices: [
+        device({
+          device_id: 'srv', label: 'Linux 1', platform: 'linux',
+          capabilities: { terminals: [], runtimes: [], app_version: '0.3.0', host_kind: 'server', server_confirmed_restart: true,
+            server_update: { state: 'failed', version: '0.3.1', scope: 'account', reason: 'boot-failed' } },
+        }),
+      ],
+    })
+    await act(async () => {
+      root.render(createElement(DevicesContext.Provider, { value }, createElement(DevicesSection)))
+    })
+    await flush()
+    expect(container.querySelector('[data-testid="settings-device-match-retry"]')).toBeNull()
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="settings-device-match-restart-now"]')!.click()
+    })
+    expect(container.querySelector('[data-testid="settings-device-update-now-confirm"]')).not.toBeNull()
+    expect(restartNow).not.toHaveBeenCalled()
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="settings-device-update-now-yes"]')!.click()
+    })
+    await flush()
+    expect(restartNow).toHaveBeenCalledWith('srv', '0.3.1', true)
+    const status = container.querySelector<HTMLElement>('[data-testid="settings-device-match-failed"]')!
+    expect(status.textContent).toContain('正在更新')
+    expect(status.className).not.toContain('danger')
   })
 
   it('#6264 连法只标在咕咕 server 上:SSH 装的「远程 SSH：地址」、只经云端的「远程隧道」;另一台咕咕桌面不标连法', async () => {

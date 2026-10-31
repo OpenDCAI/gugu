@@ -66,7 +66,7 @@ class TabFullscreen {
 export function escapeIsFree(target: EventTarget | null): boolean {
   if (typeof document === 'undefined') return true;
   const el = target instanceof Element ? target : null;
-  if (el?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .xterm, .monaco-editor, [role="dialog"], [role="menu"], [role="listbox"]')) return false;
+  if (el?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .xterm, .monaco-editor, .cm-editor, [role="dialog"], [role="menu"], [role="listbox"]')) return false;
   return document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]') === null;
 }
 

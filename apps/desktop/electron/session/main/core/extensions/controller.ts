@@ -1,6 +1,5 @@
 import type { ChatFileRef } from '@shared/extensions/app-files-core';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { app } from 'electron';
 import {
   clearExtensionSessionData,
@@ -99,23 +98,6 @@ function disclosureOf(manifests: readonly ExtensionManifest[]) {
       .filter((manifest) => (manifest.contributes.mcpServers ?? []).length > 0)
       .map((manifest) => [manifest.id, extensionsService().disclosure(manifest.id)])
   );
-}
-
-/** The installed copy of an extension when what is installed is exactly this version; null otherwise. */
-function installedAtVersion(extensionId: string, version: string) {
-  try {
-    const installed = extensionsService().get(extensionId);
-    return installed.manifest.version === version ? installed : null;
-  } catch {
-    // not installed here (or unreadable): the copy to read is the market's
-    return null;
-  }
-}
-
-/** The bundle's README.md (the file the market keeps from a package, any letter case); null when it has none. */
-function readBundleReadme(rootDir: string): string | null {
-  const name = fs.readdirSync(rootDir).find((file) => file.toLowerCase() === 'readme.md');
-  return name ? fs.readFileSync(path.join(rootDir, name), 'utf8') : null;
 }
 
 /**
@@ -628,27 +610,15 @@ export const extensionsController = createRPCController({
   },
 
   /**
-   * 这一版包里的 README(可能没有)。这台机器装着的正是这一版,就读装好的那份 —— 从文件夹装的、从聊天里装的、
-   * 内置的都一样,包里写了就有(#6950:从前只问市场,文件夹装的永远是「作者没写说明」);没装这一版才问市场。
-   * 名字沿用:别的机器按这个名字调它,改名就要动机器之间的协议。
+   * 市场上这一版的产品页内容(关于、截图):只有上架的版本有 —— `store/` 不进安装包,本机装的 App 没有它(owner 10-31)。
+   * 读不到就报错,❌ 改读别处。别的机器也按这个名字调它(机器之间的协议):太旧、还没有它的那台,对端说不认得这个方法。
    */
-  marketReadme: async (args: { extensionId: string; version: string }) => {
+  marketListing: async (args: { extensionId: string; version: string }) => {
     try {
-      const installed = installedAtVersion(args.extensionId, args.version);
-      if (!installed) return { success: true, data: { readme: await cloudExtensionMarket().readme(args.extensionId, args.version) } };
-      // 从市场装的:读市场上这一版的那份 —— 字一样(版本不可变),但 README 里的截图已改写成下载站地址;
-      // 包里那份是相对路径,产品页的「预览」画不出来(#7059)。连不上才读装好的那份。
-      // 文件夹、聊天里装的读它自己的(#6950):同 id 同版本的市场那份未必是它。
-      const fromMarket =
-        extensionsService().origins()[args.extensionId] === 'market'
-          ? await cloudExtensionMarket()
-              .readme(args.extensionId, args.version)
-              .catch(() => null)
-          : null;
-      return { success: true, data: { readme: fromMarket ?? readBundleReadme(installed.rootDir) } };
+      return { success: true as const, data: await cloudExtensionMarket().listing(args.extensionId, args.version) };
     } catch (error) {
-      log.error('Failed to read extension README:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      log.warn(`Market listing not read: ${error instanceof Error ? error.message : String(error)}`);
+      return { success: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   },
 

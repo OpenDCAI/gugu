@@ -5,6 +5,7 @@ import { messageForUser } from '@/lib/userFacingError';
 import { observable, runInAction } from 'mobx';
 import type * as monaco from 'monaco-editor';
 import { diffHunks, mergeThreeWay } from '@/session/app-runtime/apply-from';
+import type { DiffViewState } from '@renderer/lib/editor/diff-view-state';
 import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { HEAD_REF, type GitRef } from '@shared/core/git/types';
 import { gitRefToString, refsEqual } from '@shared/core/git/utils';
@@ -93,11 +94,11 @@ export class MonacoModelRegistry {
 
   /**
    * Diff editor view states keyed by `${originalUri}::${modifiedUri}`.
-   * Saves and restores scroll/cursor for the Monaco diff editor across tab switches,
+   * Saves and restores scroll/selection for the diff editor across tab switches,
    * mirroring how BufferModelEntry.viewState works for regular file tabs.
    * Entries are swept out when either constituent model is evicted (see unregisterModel).
    */
-  private diffViewStates = new Map<string, monaco.editor.IDiffEditorViewState>();
+  private diffViewStates = new Map<string, DiffViewState>();
 
   // ---------------------------------------------------------------------------
   // Monaco readiness — awaited before creating any ITextModel instance.
@@ -411,26 +412,35 @@ export class MonacoModelRegistry {
 
     // Run the RPC fetch and Monaco initialization in parallel.
     const fetchKey = `${projectId}:${workspaceId}:${filePath}:git:${gitRefToString(ref)}`;
-    const [content, m] = await Promise.all([
-      this.dedupFetch(fetchKey, async () => {
-        if (ref.kind === 'staged') {
-          const res = await workspaceRpc(projectId).gitWorktree.getFileAtIndex(
+    let content: string | null;
+    let m: typeof monaco;
+    try {
+      [content, m] = await Promise.all([
+        this.dedupFetch(fetchKey, async () => {
+          if (ref.kind === 'staged') {
+            const res = await workspaceRpc(projectId).gitWorktree.getFileAtIndex(
+              projectId,
+              workspaceId,
+              filePath
+            );
+            if (!res.success) throw new Error(`Cannot read git index: ${JSON.stringify(res.error)}`);
+            return res.data.content;
+          }
+          const res = await workspaceRpc(projectId).gitWorktree.getFileAtRef(
             projectId,
             workspaceId,
-            filePath
+            filePath,
+            gitRefToString(ref)
           );
-          return res.success ? res.data.content : null;
-        }
-        const res = await workspaceRpc(projectId).gitWorktree.getFileAtRef(
-          projectId,
-          workspaceId,
-          filePath,
-          gitRefToString(ref)
-        );
-        return res.success ? res.data.content : null;
-      }),
-      this.monacoReadyPromise,
-    ]);
+          if (!res.success) throw new Error(`Cannot read git ref: ${JSON.stringify(res.error)}`);
+          return res.data.content;
+        }),
+        this.monacoReadyPromise,
+      ]);
+    } catch (error) {
+      runInAction(() => this.modelStatus.set(gitUri, 'error'));
+      throw error;
+    }
 
     const gitMonacoUri = m.Uri.parse(gitUri);
     let model = m.editor.getModel(gitMonacoUri);
@@ -695,31 +705,14 @@ export class MonacoModelRegistry {
     return `${originalUri}::${modifiedUri}`;
   }
 
-  /**
-   * Save the diff editor's current viewport state (scroll + cursor) for the given
-   * model pair. Call this before swapping models (i.e. in the effect cleanup).
-   */
-  saveDiffViewState(
-    originalUri: string,
-    modifiedUri: string,
-    editor: monaco.editor.IStandaloneDiffEditor
-  ): void {
-    const vs = editor.saveViewState();
-    if (vs) this.diffViewStates.set(this.diffKey(originalUri, modifiedUri), vs);
+  /** Remember the diff editor's viewport for this model pair (call before tearing it down). */
+  saveDiffViewState(originalUri: string, modifiedUri: string, state: DiffViewState): void {
+    this.diffViewStates.set(this.diffKey(originalUri, modifiedUri), state);
   }
 
-  /**
-   * Restore a previously saved diff editor viewport state.
-   * Call this after editor.setModel() so the editor has a layout target.
-   * No-ops silently if no state was ever saved for this pair.
-   */
-  restoreDiffViewState(
-    originalUri: string,
-    modifiedUri: string,
-    editor: monaco.editor.IStandaloneDiffEditor
-  ): void {
-    const vs = this.diffViewStates.get(this.diffKey(originalUri, modifiedUri));
-    if (vs) editor.restoreViewState(vs);
+  /** The viewport last saved for this model pair, if any. */
+  restoreDiffViewState(originalUri: string, modifiedUri: string): DiffViewState | undefined {
+    return this.diffViewStates.get(this.diffKey(originalUri, modifiedUri));
   }
 
   /**
@@ -924,21 +917,27 @@ export class MonacoModelRegistry {
       }
       this.applyDiskUpdate(uri, entry, res.data.content);
     } else if (entry.type === 'git') {
-      const res =
-        entry.ref.kind === 'staged'
-          ? await workspaceRpc(entry.projectId).gitWorktree.getFileAtIndex(
-              entry.projectId,
-              entry.workspaceId,
-              entry.filePath
-            )
-          : await workspaceRpc(entry.projectId).gitWorktree.getFileAtRef(
-              entry.projectId,
-              entry.workspaceId,
-              entry.filePath,
-              gitRefToString(entry.ref)
-            );
-      if (res.success) {
-        entry.model.setValue(res.data.content ?? '');
+      try {
+        const res =
+          entry.ref.kind === 'staged'
+            ? await workspaceRpc(entry.projectId).gitWorktree.getFileAtIndex(
+                entry.projectId,
+                entry.workspaceId,
+                entry.filePath
+              )
+            : await workspaceRpc(entry.projectId).gitWorktree.getFileAtRef(
+                entry.projectId,
+                entry.workspaceId,
+                entry.filePath,
+                gitRefToString(entry.ref)
+              );
+        if (res.success) {
+          entry.model.setValue(res.data.content ?? '');
+          runInAction(() => this.modelStatus.set(uri, 'ready'));
+        } else throw new Error(`Cannot refresh git model: ${JSON.stringify(res.error)}`);
+      } catch (error) {
+        runInAction(() => this.modelStatus.set(uri, 'error'));
+        throw error;
       }
     }
   }

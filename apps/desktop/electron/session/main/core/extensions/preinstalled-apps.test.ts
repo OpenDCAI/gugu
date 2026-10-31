@@ -26,7 +26,7 @@ function bundle(dir: string, id: string, version: string, capabilities: string[]
       name: id,
       author: 'gugu official',
       version,
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'index.html',
       permissions: { capabilities },

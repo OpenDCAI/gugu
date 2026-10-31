@@ -7,7 +7,7 @@ function manifest(version: string, permissions: { capabilities?: string[]; netwo
     id: 'notes',
     name: 'Notes',
     version,
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     permissions,
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },

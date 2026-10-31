@@ -1,11 +1,16 @@
 /** Supervisor-owned version lifecycle, shared by account matching, self-upgrade and its watchdog. */
-import { pickTargetVersion, readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+import { readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+import { checkAccountBoot } from './server-selftest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { pruneVersions, readAccountVersionPin, writeAccountVersionPin, touchVersion, ACCOUNT_VERSION_FILE } from './server-account-versions'
+import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
+import { readAccountState } from './server-account-machine'
 import { listAccounts } from './server-layout'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
+/** The staged package installed but did not boot an account: a boot failure, not an install failure. */
+export class AccountBootRejectedError extends Error {}
+
 export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number }
 const dataDir = (home: string) => path.join(home, 'data')
 
@@ -44,58 +49,71 @@ export function pointCurrent(home: string, versionDir: string): void {
 
 /** The watchdog records an actual successful transition, never a directory-number or mtime guess. */
 export function recordVerifiedSupervisorVersion(home: string, marker: UpgradeMarker): void {
-  writeAccountVersionPin(dataDir(home), { version: marker.to, previous: marker.from, at: marker.switchedAt })
+  writeVersionPin(dataDir(home), { version: marker.to, previous: marker.from, at: marker.switchedAt })
 }
 
 export type ServerVersionLifecycle = ReturnType<typeof createServerVersionLifecycle>
 export function createServerVersionLifecycle(options: {
   layout: { home: string; versions: string; version: string }
   running?: () => Iterable<string>
+  /** 试跑一个账号(缺省:真的起一个,见 server-selftest.ts checkAccountBoot)。 */
+  verifyBoot?: (binary: string) => Promise<void>
 }) {
   const { layout } = options
-  const flights = new Map<string, Promise<void>>()
+  const flights = new Map<string, { promise: Promise<void>; ready: boolean }>()
   const held = new Map<string, string>()
+  const ready = (version: string): boolean => flights.get(version)?.ready === true
+    && fs.existsSync(path.join(layout.versions, version, 'bin', 'gugu-server'))
+  const requireBoot = (version: string): void => {
+    if (!ready(version)) throw new Error('Target version has not passed account boot verification')
+  }
   const reclaim = (): string[] => {
-    const supervisor = readAccountVersionPin(dataDir(layout.home))
+    const supervisor = readVersionPin(dataDir(layout.home))
     // Old installations did not record previous. Preserve their directories until a verified transition supplies it.
     if (!supervisor) return []
-    const keep = new Set([layout.version, supervisor.version, ...flights.keys(), ...held.values(), ...(options.running?.() ?? [])])
+    const keep = new Set([layout.version, supervisor.version,
+      ...[...flights].filter(([, stage]) => !stage.ready).map(([version]) => version),
+      ...held.values(), ...(options.running?.() ?? [])])
     if (supervisor.previous) keep.add(supervisor.previous)
     try { keep.add(path.basename(fs.realpathSync(path.join(layout.home, 'current')))) } catch { return [] }
     const marker = readUpgradeMarker(layout.home)
     if (marker) { keep.add(marker.from); keep.add(marker.to) }
     for (const account of listAccounts()) {
-      const target = pickTargetVersion(readDesktopReports(account.dataDir), Date.now())
-      if (target) keep.add(target)
-      const pin = readAccountVersionPin(account.dataDir)
-      if (pin) { keep.add(pin.version); if (pin.previous) keep.add(pin.previous) }
+      for (const report of Object.values(readDesktopReports(account.dataDir))) keep.add(report.version)
+      const state = readAccountState(account.dataDir) ?? readVersionPin(account.dataDir)
+      if (state?.version) keep.add(state.version)
+      if (state?.previous) keep.add(state.previous)
     }
     // install.sh publishes this lease BEFORE its target directory becomes visible. Recheck at deletion.
-    return pruneVersions(layout.versions, keep, version => fs.existsSync(path.join(layout.versions, '.prepared', version)))
+    const removed = pruneVersions(layout.versions, keep, version => fs.existsSync(path.join(layout.versions, '.prepared', version)))
+    for (const version of removed) flights.delete(version)
+    return removed
   }
   return {
+    ready,
     hold(owner: string, version: string | null): void { if (version) held.set(owner, version); else held.delete(owner) },
     async stage(version: string, work: () => Promise<unknown>): Promise<void> {
       const existing = flights.get(version)
-      if (existing) return existing
+      if (existing && (!existing.ready || fs.existsSync(path.join(layout.versions, version, 'bin', 'gugu-server')))) return existing.promise
       // The lease is installed before any await. Both consumers share this exact in-flight operation.
       let resolve!: () => void
       let reject!: (error: unknown) => void
       const flight = new Promise<void>((ok, fail) => { resolve = ok; reject = fail })
-      flights.set(version, flight)
-      try { Promise.resolve(work()).then(() => resolve(), reject) } catch (error) { reject(error) }
-      try { await flight } finally { if (flights.get(version) === flight) flights.delete(version) }
-    },
-    switchAccount(data: string, version: string, previous: string | null, at: number): void {
-      writeAccountVersionPin(data, { version, previous, at })
-      fs.rmSync(path.join(layout.versions, '.prepared', version), { force: true })
-      touchVersion(layout.versions, version)
-    },
-    rollbackAccount(data: string, previous: string | null, at: number): void {
-      if (previous) writeAccountVersionPin(data, { version: previous, previous: null, at })
-      else fs.rmSync(path.join(data, ACCOUNT_VERSION_FILE), { force: true })
+      const stage = { promise: flight, ready: false }
+      flights.set(version, stage)
+      try {
+        Promise.resolve(work())
+          .then(() => Promise.resolve((options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
+            .catch((error: unknown) => { throw new AccountBootRejectedError(error instanceof Error ? error.message : String(error)) }))
+          .then(() => { stage.ready = true; resolve() }, reject)
+      } catch (error) { reject(error) }
+      try { await flight } catch (error) {
+        if (flights.get(version) === stage) flights.delete(version)
+        throw error
+      }
     },
     switchSupervisor(marker: UpgradeMarker, beforeSwitch: () => void): void {
+      requireBoot(marker.to)
       if (!writeUpgradeMarker(layout.home, marker)) throw new Error('Cannot persist the upgrade rollback pointer')
       beforeSwitch()
       pointCurrent(layout.home, marker.toDir)

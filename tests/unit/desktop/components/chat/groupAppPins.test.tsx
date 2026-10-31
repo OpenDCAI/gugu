@@ -47,7 +47,7 @@ beforeEach(() => {
   queryClient.clear()
   harness = createReactHarness()
   runInAction(() => {
-    installedExtensionsStore.manifests = ['board', 'calendar'].map((id) => parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } }))
+    installedExtensionsStore.manifests = ['board', 'calendar'].map((id) => parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } }))
     installedExtensionsStore.disabled = []
     installedExtensionsStore.isLoaded = true
   })
@@ -130,6 +130,9 @@ describe('personal group App shortcuts', () => {
       const width = this.hasAttribute('data-chat-area-header') ? 1200 : this.hasAttribute('data-tabbar-actions') ? 320 : 32
       return new DOMRect(0, 0, width, 32)
     })
+    // The header measures in its ResizeObserver's first delivery (after layout, as a browser does), not synchronously.
+    const noObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class { callback: ResizeObserverCallback; constructor(callback: ResizeObserverCallback) { this.callback = callback } observe() { queueMicrotask(() => this.callback([], this as unknown as ResizeObserver)) } unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
     try {
       row('user-1', 'g1', ['board', 'calendar'])
       await header('g1', 'user-1', false)
@@ -137,7 +140,7 @@ describe('personal group App shortcuts', () => {
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
       // Settings remains reachable through More even when every pinned App fits.
       expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
-    } finally { bounds.mockRestore() }
+    } finally { bounds.mockRestore(); globalThis.ResizeObserver = noObserver }
   })
 
   it.each([false, true])('keeps group App access without History (mobile=%s)', async (mobile) => {

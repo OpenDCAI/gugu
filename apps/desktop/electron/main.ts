@@ -414,7 +414,7 @@ import { previewSchemePrivilege } from '../src/session/shared/preview/preview-ur
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
 import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
-import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
+import { agentAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
 import type { AgentEvent } from '../src/session/shared/core/agents/agentEvents'
@@ -673,7 +673,7 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mts serverChannelForDb)。
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build/build-env-preflight.mts serverChannelForDb)。
 declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
@@ -4509,6 +4509,7 @@ app.whenReady().then(async () => {
   // The session backend and its session actions are required session-page
   // components: either failing aborts app startup through fatalSessionpageBoot.
   const emdash = loadEmdashBridge()
+  let sessionHostBoot: Promise<void> | undefined
   if (emdash) {
     const localDelivery = getSessionpageLocalDelivery()
     // The session-page PTY provider is a separately bundled module graph. Install the host-owned registry before
@@ -6049,6 +6050,7 @@ app.whenReady().then(async () => {
     const emdashBoot = emdash.bootEmdashModule(ipcMain, {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
+    sessionHostBoot = emdashBoot
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
     refreshPlatformCredentials()
     void emdashBoot.then(() => {
@@ -6261,12 +6263,12 @@ app.whenReady().then(async () => {
           // D-10:开场只给「完全披露」的扩展开网关卡,其余经 catalog_*。
           const full = new Set(contributions.filter((c) => c.disclosure === 'full').map((c) => c.extensionId))
           const programs = installed.filter((program) => full.has(program.extensionId))
-          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps whose tools this session reaches
-          // through the catalog — now or never, like a skill, so their scope is waited for too.
-          const catalogApps = catalogAppsOf(contributions, installed)
-          const appsKept = await Promise.all(catalogApps.map((app) => inScope(app.extensionId)))
+          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps that give this session programs or
+          // skills — now or never, like a skill, so their scope is waited for too.
+          const agentApps = agentAppsOf(contributions, installed)
+          const appsKept = await Promise.all(agentApps.map((app) => inScope(app.extensionId)))
           // Computer Use is this computer's, not a place's (#7317).
-          const apps = catalogApps.filter((app, index) => app.computerUse || appsKept[index])
+          const apps = agentApps.filter((app, index) => app.computerUse || appsKept[index])
           // 网关起不来只让扩展工具缺席,❌ 把会话拖死 —— 会话永远要能开。
           const gateway = programs.length === 0 || !authProvider
             ? { servers: [], origins: [] }
@@ -6391,9 +6393,12 @@ app.whenReady().then(async () => {
   // @@@tray-icon-blank — 图标按 app 根解析(`app.getAppPath()`:开发态=仓库根,打包=Resources/app),
   // ❌ 别再按 `__dirname/../build-resources` 拼:main.js 在 apps/desktop/dist-electron/ 下,那条路指向不存在的
   // apps/desktop/build-resources/,于是 nativeImage 静默给空图 → 所有 mac 用户的菜单栏挂着一个透明空槽(owner 实机圈出)。
-  // 空图直接抛,别再静默。资源规格见 scripts/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
+  // 空图直接抛,别再静默。资源规格见 scripts/build/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
+    // 心跳 = 这个账号进程真的起来了(守护进程据此判新版本站稳):后端没起完、或起不来,❌ 先报心跳。
+    if (!sessionHostBoot) throw new Error('Session backend boot was not started')
+    await sessionHostBoot
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。

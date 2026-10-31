@@ -135,7 +135,8 @@ export function readVersionSwitchRequest(
     return {
       reason: typeof value.reason === 'string' ? value.reason : '',
       at: value.at,
-      confirmed: value.confirmed === true && isServerVersion(value.target) && now - value.at >= 0 && now - value.at < VERSION_SWITCH_CONFIRM_TTL_MS,
+      // 不带 target 的确认只有旧版本账号进程会写(它只认旧的 retry RPC):确认的是守护进程此刻的目标。
+      confirmed: value.confirmed === true && now - value.at >= 0 && now - value.at < VERSION_SWITCH_CONFIRM_TTL_MS,
       ...(isServerVersion(value.target) ? { target: value.target } : {}),
     }
   } catch {

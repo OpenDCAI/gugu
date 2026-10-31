@@ -66,6 +66,7 @@ export async function readElsewhere(
       suffix: fileSuffixOf({ name, contentType }),
       displayName: name,
       claimedBy: null,
+      appState: false,
       size: read.bytes.byteLength,
       version: null,
       createdAt: null,

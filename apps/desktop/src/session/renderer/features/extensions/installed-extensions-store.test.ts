@@ -51,7 +51,7 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
     id,
     name: id,
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: id, ...(opensFiles === undefined ? {} : { opensFiles }) }] },
   });
@@ -63,7 +63,7 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
     } as unknown as Api);
 
   it('names the default page in the interface language and preserves a specifically named subpage', async () => {
-    const calendar = { ...app('calendar'), name: '日历', localized: { en: { name: 'Calendar' } }, contributes: { tabs: [
+    const calendar = { ...app('calendar'), name: '日历', defaultLocale: 'zh-CN', localized: { en: { name: 'Calendar' } }, contributes: { tabs: [
       { name: 'main', title: '日历' }, { name: 'reports', title: 'Reports' },
     ] } };
     const store = storeListing([calendar]);
@@ -85,7 +85,7 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
 
   it('keeps an App-owned per-task HTML page separate from its settings page', async () => {
     const appWithPages = {
-      id: 'tool', name: 'Tool', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      id: 'tool', name: 'Tool', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       contributes: { tabs: [
         { name: 'settings', title: 'Settings', hostPage: 'settings' },
         { name: 'view', title: 'View', entry: 'view.html', perSession: true },

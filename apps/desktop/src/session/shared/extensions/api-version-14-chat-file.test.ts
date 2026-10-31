@@ -65,8 +65,8 @@ const files = createAppFiles({
   warn: () => undefined,
 });
 
-const app = (fileTab: Record<string, unknown>, apiVersion = 14) => ({
-  id: 'kanban', name: '协作看板', version: '1.1.0', apiVersion, entry: 'board.html',
+const app = (fileTab: Record<string, unknown>) => ({
+  id: 'kanban', name: '协作看板', version: '1.1.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'zh-CN', entry: 'board.html',
   contributes: { tabs: [{ name: 'board', title: '协作看板' }, { name: 'file', title: '协作看板', ...fileTab }] },
 });
 const naming = { opensFiles: { chat: ['.board.json'] }, chatFile: NAME };
@@ -83,9 +83,8 @@ describe('chatFile in a manifest', () => {
     expect(EXTENSION_API_VERSION).toBeGreaterThanOrEqual(14);
   });
 
-  it('is a name this tab opens in a chat, on one tab, from apiVersion 14', () => {
+  it('is a name this tab opens in a chat, on one tab', () => {
     expect(safeParseExtensionManifest(app(naming)).ok).toBe(true);
-    expect(safeParseExtensionManifest(app(naming, 13))).toMatchObject({ ok: false, issues: ['apiVersion: chatFile requires apiVersion 14'] });
     expect(safeParseExtensionManifest(app({ opensFiles: { chat: ['.vote.json'] }, chatFile: NAME }))).toMatchObject({ ok: false });
     expect(safeParseExtensionManifest(app({ opensFiles: { session: ['.board.json'] }, chatFile: NAME }))).toMatchObject({ ok: false });
     expect(safeParseExtensionManifest(app({ ...naming, chatFile: `boards/${NAME}` }))).toMatchObject({ ok: false });

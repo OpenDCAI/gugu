@@ -194,6 +194,7 @@ export const libraryView = {
   MainPanel: LibraryMainPanel,
   // 资源库是最左栏自己的一格(与「App」同形,product spec):整页,左边不带任务列表。
   withoutSessionSidebar: true,
+  retained: true,
   /**
    * 资源库记得住的「位置」只到 tab 这一层。`agentId` 不是位置,是一次性意图:
    * 「这次进去,顺便把这个 agent 的详情抽屉打开」(聊天页的「配置 <agent>」就是这么进来的)。

@@ -152,7 +152,7 @@ export function consentPrompt(
   /** The interface language: the App is named as its manifest's `localized` says it there. */
   locale: string,
   /**
-   * 「这版改了什么」(云端那一版的 CHANGELOG 节,#5410)。只在有装着的旧版本、且这是
+   * 「这版改了什么」(云端那一版的 store/whats-new.md,#5410)。只在有装着的旧版本、且这是
    * 一次更新时才放在描述最前面 —— 首次安装没有「这一版相对哪一版」可言,权限清单已经
    * 是当时最重要的那句话。
    */

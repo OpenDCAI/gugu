@@ -165,7 +165,7 @@ function writeBundle(hosts: string[], tab: Record<string, unknown> = { name: 'de
       id: EXTENSION_ID,
       name: 'Demo',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'],
       entry: 'index.html',
       permissions: { network: hosts, ...(capabilities ? { capabilities } : {}) },
       contributes: { tabs: [tab] },
@@ -312,7 +312,7 @@ process.stdin.on('end', () => process.exit(0));
     const source = writeBundle([], undefined, ['agents:tools']);
     const manifestPath = join(source, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    manifest.contributes.mcpServers = [{ name: 'revocation-test', command: 'node', args: ['server.mjs'] }];
+    manifest.contributes.mcpServers = [{ name: 'revocation-test', command: 'node', args: ['server.mjs'] }]; manifest.contributes.instructions = 'Test tools.';
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(join(source, 'server.mjs'), readFileSync(script));
     const inspected = await folderAsk(source);
@@ -399,7 +399,7 @@ process.stdin.on('end', () => process.exit(0));
       const source = writeBundle([], undefined, ['agents:tools']);
       const file = join(source, 'manifest.json');
       const manifest = JSON.parse(readFileSync(file, 'utf8'));
-      manifest.contributes.mcpServers = [{ name: 'control', host }];
+      manifest.contributes.mcpServers = [{ name: 'control', host }]; manifest.contributes.instructions = 'Test tools.';
       writeFileSync(file, JSON.stringify(manifest));
       const inspected = await folderAsk(source);
       const result = await folderGiven(source, inspected.ask.manifestDigest);
@@ -652,7 +652,7 @@ process.stdin.on('end', () => process.exit(0));
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+        apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'],
         entry: 'index.html',
         permissions: { network: ['evil.example.com'] },
         contributes: { tabs: [{ name: 'demo', title: 'Demo' }] },
@@ -688,7 +688,7 @@ process.stdin.on('end', () => process.exit(0));
       const dir = join(mkdtempSync(join(tmpdir(), 'gugu-ext-card-')), id);
       mkdirSync(dir);
       writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
         permissions: { network }, contributes: { tabs: [{ name: 'main', title: id }] },
       }));
       writeFileSync(join(dir, 'index.html'), '<!doctype html>');
@@ -729,7 +729,7 @@ describe('每个 tab 画自己那一页', () => {
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+        apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'],
         entry: 'left.html',
         contributes: {
           tabs: [
@@ -795,7 +795,7 @@ describe('a tab\'s icon: its own, else its App\'s (owner 10-17)', () => {
   it('a tab naming no icon gets the App\'s, at the tab\'s size; a tab naming one keeps its own', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tabicon-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', icon: 'app.png',
+      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html', icon: 'app.png',
       contributes: { tabs: [{ name: 'plain', title: 'Plain' }, { name: 'own', title: 'Own', icon: 'tab.png' }] },
     }));
     for (const file of ['index.html', 'app.png', 'tab.png']) writeFileSync(join(dir, file), file);
@@ -813,9 +813,9 @@ describe('agent tools up front or on demand (W-08)', () => {
   async function installToolsBundle(): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tools-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Tools' }], mcpServers: [{ name: 'rows', command: 'node', args: ['server.mjs'] }] },
+      contributes: { tabs: [{ name: 'main', title: 'Tools' }], mcpServers: [{ name: 'rows', command: 'node', args: ['server.mjs'] }], instructions: 'Test tools.' },
     }));
     writeFileSync(join(dir, 'index.html'), '<!doctype html>');
     writeFileSync(join(dir, 'server.mjs'), '');
@@ -937,60 +937,26 @@ describe('marketRead: one file under the market media, for the featured card pla
   });
 });
 
-describe('the README a detail dialog shows', () => {
-  it('is the installed copy’s own README.md for the installed version, and the market’s for any other', async () => {
+describe('the product page listing', () => {
+  it('is the market’s store listing of that version, even for the installed one; a folder App has none to read', async () => {
     const source = writeBundle([]);
-    writeFileSync(join(source, 'README.md'), '# Demo\n\nREADME-6950-MARKER\n');
+    writeFileSync(join(source, 'README.md'), '# Demo\n\nnever shown in gugu\n');
     const inspected = await folderAsk(source);
-    const installed = await folderGiven(source, inspected.ask.manifestDigest);
-    expect(installed.success, installed.error).toBe(true);
-    const market = vi.spyOn(cloudExtensionMarket(), 'readme').mockResolvedValue('# From the market');
-
-    expect(await extensionsController.marketReadme({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({
-      success: true,
-      data: { readme: '# Demo\n\nREADME-6950-MARKER\n' },
-    });
-    expect(market).not.toHaveBeenCalled();
-
-    expect(await extensionsController.marketReadme({ extensionId: EXTENSION_ID, version: '2.0.0' })).toEqual({
-      success: true,
-      data: { readme: '# From the market' },
-    });
-    expect(await extensionsController.marketReadme({ extensionId: 'not-installed', version: '1.0.0' })).toEqual({
-      success: true,
-      data: { readme: '# From the market' },
-    });
+    expect((await folderGiven(source, inspected.ask.manifestDigest)).success).toBe(true);
+    const listing = { about: { en: 'Demo does one thing.' }, screenshots: ['https://download.example/market/media/a.png'] };
+    const market = vi.spyOn(cloudExtensionMarket(), 'listing').mockResolvedValue(listing);
+    expect(await extensionsController.marketListing({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({ success: true, data: listing });
+    expect(market).toHaveBeenCalledWith(EXTENSION_ID, '1.0.0');
     market.mockRestore();
   });
 
-  // #7059 从市场装的:读市场那份 —— 那份里的截图改写成了下载站地址,包里的相对路径在产品页画不出来;连不上才读装好的那份。
-  it('is the market’s for the installed version of an App installed from the market, the installed copy’s when it cannot be reached', async () => {
-    const source = writeBundle([]);
-    writeFileSync(join(source, 'README.md'), '# Demo\n\n![shot](shots/a.png)\n');
-    const inspected = await folderAsk(source);
-    // Installed as the market's, as installExtensionFromMarket records it (the controller's `install` takes folders only).
-    extensionsService().installFromDirectory(source, inspected.ask.manifestDigest, 'market');
-    const market = vi.spyOn(cloudExtensionMarket(), 'readme').mockResolvedValue('# Demo\n\n![shot](https://download.example/market/media/a.png)\n');
-    expect(await extensionsController.marketReadme({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({
-      success: true,
-      data: { readme: '# Demo\n\n![shot](https://download.example/market/media/a.png)\n' },
-    });
-    market.mockRejectedValue(new Error('offline'));
-    expect(await extensionsController.marketReadme({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({
-      success: true,
-      data: { readme: '# Demo\n\n![shot](shots/a.png)\n' },
-    });
-    market.mockRestore();
-  });
-
-  it('is none for the installed version when its package has no README, without asking the market', async () => {
+  it('says why when the market has none, and reads nothing else instead', async () => {
     await installViaController([]);
-    const market = vi.spyOn(cloudExtensionMarket(), 'readme').mockResolvedValue('# From the market');
-    expect(await extensionsController.marketReadme({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({
-      success: true,
-      data: { readme: null },
+    const market = vi.spyOn(cloudExtensionMarket(), 'listing').mockRejectedValue(new Error('demo-ext@1.0.0 has no store listing in the market'));
+    expect(await extensionsController.marketListing({ extensionId: EXTENSION_ID, version: '1.0.0' })).toEqual({
+      success: false,
+      error: 'demo-ext@1.0.0 has no store listing in the market',
     });
-    expect(market).not.toHaveBeenCalled();
     market.mockRestore();
   });
 });

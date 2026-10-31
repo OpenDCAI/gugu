@@ -23,7 +23,7 @@ const PLATFORM = detectPlatform();
 /** The ProseMirror element every composer on the session page renders (session, project home, new task). */
 const PROMPT_EDITOR_SELECTOR = '[data-testid="prompt-editor"]';
 /** Surfaces that own their keyboard outright and must never have a key taken from them. */
-const KEY_OWNING_SURFACES = '.xterm, .monaco-editor, webview, iframe';
+const KEY_OWNING_SURFACES = '.xterm, .monaco-editor, .cm-editor, webview, iframe';
 
 function pathElements(event: KeyboardEvent): HTMLElement[] {
   // The session page runs inside an open shadow root in the gugu shell, where `event.target` is

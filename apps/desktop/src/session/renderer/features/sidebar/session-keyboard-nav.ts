@@ -179,7 +179,7 @@ class SessionKeyboardNavStore {
     }
     if (
       element.closest(
-        `${COMPOSER_INPUT_SELECTOR}, .xterm-helper-textarea, .monaco-editor, webview, iframe`,
+        `${COMPOSER_INPUT_SELECTOR}, .xterm-helper-textarea, .monaco-editor, .cm-editor, webview, iframe`,
       )
     ) {
       this.setFocusLayer('composer');

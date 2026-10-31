@@ -15,7 +15,8 @@ const h = vi.hoisted(() => {
     id: 'notes',
     name: 'Notes',
     version,
-    apiVersion: 3, // inside vi.hoisted: runs before any import
+    apiVersion: 24, // inside vi.hoisted: runs before any import
+    defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities, network },
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
@@ -25,7 +26,7 @@ const h = vi.hoisted(() => {
   const api = {
     list: vi.fn(answer({ extensions: [manifest('1.0.0')], invalid: [], icons: {}, disabled: [] })),
     switchVariant: vi.fn(),
-    marketReadme: vi.fn(answer({ readme: null })),
+    marketListing: vi.fn(offline),
     marketHistory: vi.fn(answer([])),
     revoked: vi.fn(answer({ notes: ['files:read'] })),
     agentStatus: vi.fn(answer({})),
@@ -71,7 +72,7 @@ const { toast } = await import('@renderer/lib/hooks/use-toast');
 const { ExtensionsSettingsCard } = await import('./ExtensionsSettingsCard');
 
 // How this build refuses an App written for apiVersion 2, as list() hands it over (#6934).
-const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 4 as app_create writes Apps.';
+const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 24 as app_create writes Apps.';
 
 /** The page opens on the market (#7059); these rows live on 已安装. */
 async function showInstalled(dom: JSDOM) {
@@ -252,7 +253,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
   const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 30))));
   const source = { repo: 'shuxueshuxue/promo-skills', path: '.', commit: '6f46446' + 'a'.repeat(33) };
   const cloudOf = (version: string, releaseNotes: string) => ({
-    version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes,
+    version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 24, minAppVersion: '0.2.40', releaseNotes,
     publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
   });
   const entryOf = (version: string, releaseNotes: string) => ({
@@ -332,10 +333,10 @@ describe('市场页 (#7059)', () => {
   const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 30))));
   const source = { repo: 'OpenDCAI/gugu', path: 'extensions/x', commit: '6f46446' + 'a'.repeat(33) };
   const app = (id: string, categories: string[], network: string[] = []) => ({
-    manifest: { ...h.manifest('1.0.0', network, []), id, name: `App ${id}`, categories, description: `${id} 的一句话` },
+    manifest: { ...h.manifest('1.0.0', network, []), id, name: `App ${id}`, categories, subtitle: `${id} 的一句话` },
     ref: { extensionId: id, version: '1.0.0' },
     cloud: {
-      version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes: '',
+      version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 24, minAppVersion: '0.2.40', releaseNotes: '',
       publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
     },
   });
@@ -356,7 +357,7 @@ describe('市场页 (#7059)', () => {
       success: true,
       data: { extensions: listing, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: null } }));
+    (h.api as Record<string, unknown>).marketListing = vi.fn(async () => ({ success: true, data: { about: { en: 'About.' }, screenshots: ['https://dl.example/default.png'] } }));
     (h.api as Record<string, unknown>).marketHistory = vi.fn(async () => ({ success: true, data: [] }));
     // Main reads the unpacked package and hands back what it would ask (`return`); `given` installs it.
     (h.api as Record<string, unknown>).installFromMarket = vi.fn(async ({ ref, consent }: { ref: { extensionId: string }; consent?: { kind: string } }) => {
@@ -379,6 +380,7 @@ describe('市场页 (#7059)', () => {
     vi.clearAllMocks();
     h.api.market.mockImplementation(saved.market!);
     delete (h.api as Record<string, unknown>).marketRead;
+    h.api.marketListing = vi.fn(async () => ({ success: false, error: 'offline' }));
     dom.window.close();
   });
 
@@ -419,17 +421,17 @@ describe('市场页 (#7059)', () => {
   });
 
   it('keeps a placeholder until the README and final artwork are ready', async () => {
-    let answer!: (value: { success: boolean; data: { readme: string } }) => void;
+    let answer!: (value: { success: boolean; data: { about: Record<string, string>; screenshots: string[] } }) => void;
     let decoded!: () => void;
-    const readme = new Promise<{ success: boolean; data: { readme: string } }>((resolve) => { answer = resolve; });
+    const readme = new Promise<{ success: boolean; data: { about: Record<string, string>; screenshots: string[] } }>((resolve) => { answer = resolve; });
     const image = new Promise<void>((resolve) => { decoded = resolve; });
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(() => readme);
+    (h.api as Record<string, unknown>).marketListing = vi.fn(() => readme);
     vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(image);
     await render(false);
     const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
     expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(art()?.querySelector('.mk-hero-big')).toBeNull();
-    await act(async () => answer({ success: true, data: { readme: '# Pomo\n\n![Pomo](https://dl.example/pomo/shot.png)\n' } }));
+    await act(async () => answer({ success: true, data: { about: { en: 'Pomo.' }, screenshots: ['https://dl.example/pomo/shot.png'] } }));
     await settle();
     expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(art()?.querySelector('img')).toBeNull();
@@ -440,32 +442,32 @@ describe('市场页 (#7059)', () => {
     expect(art()?.querySelector('.mk-hero-big')).toBeNull();
   });
 
-  it.each(['README', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
+  it.each(['listing', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
     // 读不到的一直读不到(这一页画过的那份目录在、重读也会再取一次),直到点「重试」时才读得到。
-    const readme = vi.fn(async () => (failure === 'README' ? { success: false, error: 'unreadable' }
+    const readme = vi.fn(async () => (failure === 'listing' ? { success: false, error: 'unreadable' }
       // 一张这次运行里没解码过的图(解码好的图这次运行里留着,不再解)。
-      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/unreadable.png)' } }));
-    (h.api as Record<string, unknown>).marketReadme = readme;
+      : { success: true, data: { about: { en: 'Pomo.' }, screenshots: ['https://dl.example/pomo/unreadable.png'] } }));
+    (h.api as Record<string, unknown>).marketListing = readme;
     if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValue(new Error('image unreadable'));
     await render(false);
     const card = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"]');
     expect(card()?.querySelector('[role="alert"]')?.textContent).toContain(translateSessionMessage('extensions.loadFailed'));
     expect(card()?.querySelector('.mk-hero-big')).toBeNull();
-    readme.mockResolvedValue({ success: true, data: { readme: null } } as never);
+    readme.mockResolvedValue({ success: true, data: { about: { en: 'Pomo.' }, screenshots: ['https://dl.example/pomo/retried.png'] } } as never);
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockResolvedValue(undefined);
     const before = readme.mock.calls.length;
     await press('[data-testid="app-featured-pomo"] [role="alert"] button');
     expect(readme).toHaveBeenCalledTimes(before + 1);
     expect(card()?.querySelector('[role="alert"]')).toBeNull();
-    // A successful README with no artwork is the one case that uses the icon design.
-    expect(card()?.querySelector('.mk-hero-big')).not.toBeNull();
+    expect(card()?.querySelector('.mk-hero-art img')?.getAttribute('src')).toBe('https://dl.example/pomo/retried.png');
     expect(dom.window.document.querySelector('[data-testid="app-product-page"]')).toBeNull();
   });
 
   // owner 10-20「每次点进去 apps 页面里面整个 banner image 都是要变一下」:从项目页回来这一页是重新挂上的,精选卡先画图标版、
   // README 取回来再换成截图。一版的 README 不变 ⇒ 再挂上时第一帧就是截图,README 只取一次。
   it('精选卡的截图:离开再进来,第一帧就是截图,不先画图标版', async () => {
-    const readme = vi.fn(async () => ({ success: true, data: { readme: '# Pomo\n\n![番茄钟](https://dl.example/pomo/shot.png)\n' } }));
-    (h.api as Record<string, unknown>).marketReadme = readme;
+    const readme = vi.fn(async () => ({ success: true, data: { about: { en: 'Pomo.' }, screenshots: ['https://dl.example/pomo/shot.png'] } }));
+    (h.api as Record<string, unknown>).marketListing = readme;
     await render(false);
     const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
     expect(art()?.className).toBe('mk-hero-art is-shot');
@@ -492,7 +494,7 @@ describe('市场页 (#7059)', () => {
     } as never);
   };
   const shotOf = (version: string) => `https://dl.example/market/media/pomo/${version}.png`;
-  const readmeOf = (version: string) => ({ success: true, data: { readme: `# Pomo\n\n![Pomo](${shotOf(version)})\n` } });
+  const readmeOf = (version: string) => ({ success: true, data: { about: { en: 'Pomo.' }, screenshots: [shotOf(version)] } });
   const heroArt = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
   const reopen = async () => {
     await act(async () => root.render(null));
@@ -503,7 +505,7 @@ describe('市场页 (#7059)', () => {
     // 浏览器里 react-query 默认 5 分钟回收没人看的查询(这里 window 是后来才换上的,它当自己在服务端、默认不回收):照浏览器的来。
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 5 * 60_000 } } });
     const readme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
-    (h.api as Record<string, unknown>).marketReadme = readme;
+    (h.api as Record<string, unknown>).marketListing = readme;
     await render(false);
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
     const calls = readme.mock.calls.length;
@@ -530,7 +532,7 @@ describe('市场页 (#7059)', () => {
       if (version === '1.1.0') await new Promise<void>((resolve) => { answer = resolve; });
       return readmeOf(version);
     });
-    (h.api as Record<string, unknown>).marketReadme = readme;
+    (h.api as Record<string, unknown>).marketListing = readme;
     await render(false);
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
 
@@ -555,7 +557,7 @@ describe('市场页 (#7059)', () => {
   });
 
   it('下载站连不上:新一版的 README 取不到,画着的那份一直留着,❌ 骨架、❌ 错误面板', async () => {
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) =>
+    (h.api as Record<string, unknown>).marketListing = vi.fn(async ({ version }: { version: string }) =>
       version === '1.0.0' ? readmeOf(version) : { success: false, error: 'download site unreachable' });
     await render(false);
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
@@ -583,7 +585,7 @@ describe('市场页 (#7059)', () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 900, close: () => undefined })));
     vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => undefined } as never);
     vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(placeholder);
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    (h.api as Record<string, unknown>).marketListing = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
     await render(false);
     expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
     expect(marketRead).toHaveBeenCalledWith({ path: 'media/pomo/1.0.0.png' });
@@ -613,7 +615,7 @@ describe('市场页 (#7059)', () => {
   // 全新安装、什么都没存:骨架第一次换成图时,新挂上的 <img> 自己解码好才露出来(真机 DPR3 上先画了约 6 帧空的)。
   it('第一次进来:新的 <img> 自己解码好之前骨架留着,❌ 先画一帧空的', async () => {
     const src = 'https://dl.example/market/media/pomo/first-visit.png';
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: `![Pomo](${src})` } }));
+    (h.api as Record<string, unknown>).marketListing = vi.fn(async () => ({ success: true, data: { about: { en: 'Pomo.' }, screenshots: [src] } }));
     let painted!: () => void;
     vi.mocked(dom.window.HTMLImageElement.prototype.decode)
       .mockResolvedValueOnce(undefined)
@@ -633,7 +635,7 @@ describe('市场页 (#7059)', () => {
       throw new Error('No handler registered for extensions.marketRead');
     });
     (h.api as Record<string, unknown>).marketRead = marketRead;
-    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => readmeOf('1.0.0'));
+    (h.api as Record<string, unknown>).marketListing = vi.fn(async () => readmeOf('1.0.0'));
     await render(false);
     expect(marketRead).toHaveBeenCalledTimes(1);
     expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
