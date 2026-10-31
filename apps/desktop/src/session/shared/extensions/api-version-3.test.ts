@@ -14,6 +14,7 @@ const app = (apiVersion: number) => ({
   name: 'Notes',
   version: '1.0.0',
   apiVersion,
+  defaultLocale: 'en',
   entry: 'main.html',
   contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
 });
@@ -23,22 +24,21 @@ function issues(raw: unknown): string {
   return result.ok ? '' : result.issues.join(' ');
 }
 
-describe('an App written for apiVersion 1 or 2', () => {
-  it.each([1, 2])('%i: refused in one sentence that says what to do — and nothing about what changed', (version) => {
+describe('an App written for an older interface', () => {
+  it.each([1, 2, 22])('%i: refused in one sentence that says what to do — and nothing about what changed', (version) => {
     expect(issues(app(version))).toBe(
       `apiVersion: apiVersion ${version} is an older App interface; ask an agent to rewrite the App for apiVersion ${EXTENSION_API_VERSION} as app_create writes Apps.`,
     );
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(23);
+    expect(EXTENSION_API_VERSION).toBe(24);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
-  // 4 (10-15, App 引用 pill) took `about` out of compose / send: an App on 3 still installs and runs — only a call
-  // passing `about` is refused, when it is made — and the market hands a client that knows only 3 an App's 3.
-  it('keeps installed supported Apps readable and refuses a future interface', () => {
-    expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(3);
+  // 23 (App 模型 v2, owner 10-31: one switch, no compatibility layer): nothing older runs; the market's 13 move at once.
+  it('reads only the current interface and refuses a future one', () => {
+    expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(24);
     for (let version = EXTENSION_API_VERSION_MIN_SUPPORTED; version <= EXTENSION_API_VERSION; version++) {
       expect(issues(app(version))).toBe('');
     }

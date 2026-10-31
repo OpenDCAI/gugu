@@ -13,7 +13,7 @@ const SHOT_KEY = 'gugu.appsShot.v1';
 type Item = { manifest: { id: string } };
 type Ids = { featured: string[]; remaining: string[]; newest: string[]; popular: string[] | null };
 /** `placeholder`:从这张图缩出来的几 KB 小图(data URL),重启后大图解码好之前先画它。 */
-export type Shot = { src: string; alt: string; placeholder?: string } | null;
+export type Shot = { src: string; placeholder?: string } | null;
 
 function read(key: string): unknown {
   try {

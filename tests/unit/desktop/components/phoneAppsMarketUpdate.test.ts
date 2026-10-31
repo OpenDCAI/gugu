@@ -32,7 +32,7 @@ const phone = vi.hoisted(() => ({
 vi.mock('../../../../apps/desktop/src/components/appSlot/phoneApps', () => ({ phoneApps: phone }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', async () => {
   const { observable } = await import('mobx')
-  const app = (id: string, name: string) => ({ id, name, version: '1.0.0', apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name }] } })
+  const app = (id: string, name: string) => ({ id, name, version: '1.0.0', apiVersion: 4, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name }] } })
   return {
     installedExtensionsStore: observable({
       manifests: [app('notes', 'Notes'), app('vote', 'Vote')],

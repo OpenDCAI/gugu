@@ -291,6 +291,7 @@ export function fileOpened(type: 'text' | 'json'): AppFileOpened {
       suffix: type === 'json' ? '.json' : '.md',
       displayName: type === 'json' ? 'board' : 'notes',
       claimedBy: null,
+      appState: false,
       size: 0,
       version: 1,
       createdAt: null,

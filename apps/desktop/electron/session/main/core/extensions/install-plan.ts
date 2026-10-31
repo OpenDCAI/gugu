@@ -10,11 +10,13 @@ import type { ExtensionsService } from './extensions-service';
  */
 export function installPlan(service: ExtensionsService, manifest: ExtensionManifest, origin: 'folder' | 'market' | 'fork' = 'folder') {
   const displaced = service.list().extensions.find((entry) => entry.manifest.id === manifest.id);
-  const revokedPermissions = displaced ? service.revokedPermissions(manifest.id) : [];
-  const approved = displaced ? service.approvedManifest(manifest.id) : undefined;
+  // One written for an older interface is replaced as any installed App is: by what the person approved of it.
+  const older = displaced ? null : service.olderInterface(manifest.id);
+  const revokedPermissions = displaced || older ? service.revokedPermissions(manifest.id) : [];
+  const approved = displaced ? service.approvedManifest(manifest.id) : older ? ({ permissions: older.permissions } as ExtensionManifest) : undefined;
   const { newlyAsked, asks } = installAsks({
     installed: approved,
-    installedOrigin: displaced ? service.origins()[manifest.id] : undefined,
+    installedOrigin: displaced || older ? service.origins()[manifest.id] : undefined,
     revokedPermissions,
     candidate: manifest,
     origin,

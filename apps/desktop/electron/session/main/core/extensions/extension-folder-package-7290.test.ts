@@ -42,7 +42,7 @@ async function sentFromThere(network?: string[], from = THERE): Promise<{ upload
   const dir = path.join(work, 'src', 'share');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    id: 'share', name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'share', name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     ...(network ? { permissions: { network } } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   }));
   writeFileSync(path.join(dir, 'index.html'), '<!doctype html>');

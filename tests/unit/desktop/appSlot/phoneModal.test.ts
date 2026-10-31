@@ -8,7 +8,7 @@ import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/ex
 
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({}) }));
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => null }));
-const manifest = parseExtensionManifest({ id: 'board', name: 'Board', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Board' }] } });
+const manifest = parseExtensionManifest({ id: 'board', name: 'Board', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Board' }] } });
 let frame: HTMLIFrameElement;
 let host: ReturnType<typeof hostAppFrame>;
 let stop: () => void;

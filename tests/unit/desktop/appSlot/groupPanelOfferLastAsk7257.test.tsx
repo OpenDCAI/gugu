@@ -34,9 +34,9 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
 
 function slides(version: string) {
-  return { id: 'slides', name: 'Slides', version, apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.deck.json'] } }] } }
+  return { id: 'slides', name: 'Slides', version, apiVersion: 4, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.deck.json'] } }] } }
 }
-const workspace = { id: 'workspace', name: 'Workspace', version: '1.0.0', apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } }
+const workspace = { id: 'workspace', name: 'Workspace', version: '1.0.0', apiVersion: 4, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } }
 const install = (manifests: unknown[]) =>
   act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [] } as unknown as InstalledExtensionsList))
 

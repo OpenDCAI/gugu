@@ -670,7 +670,7 @@ describe('an App reaches only the sessions its owner gave it to (D-30)', () => {
 // records app_search filters. Read like the programs, so an App switched off or installed while a session runs is said at its next call.
 describe('the Apps as app_search reads them (10-19)', () => {
   const entry = (id: string, more: Partial<CloudMarketEntry> = {}, manifest: Partial<ExtensionManifest> = {}) =>
-    ({ manifest: manifestOf(id, id.toUpperCase(), { description: `${id} does a thing.`, ...manifest }), version: '1.0.0', publishedAt: '2026-10-10T00:00:00Z',
+    ({ manifest: manifestOf(id, id.toUpperCase(), { subtitle: `${id} does a thing`, ...manifest }), version: '1.0.0', publishedAt: '2026-10-10T00:00:00Z',
       firstPublishedAt: '2026-10-01T00:00:00Z', deprecated: null, compat: null, ...more }) as CloudMarketEntry & { firstPublishedAt: string }
   const installed = [
     { manifest: manifestOf('agent-notes', 'Notes', { contributes: { tabs: [{ name: 'board', title: 'Board' }] } } as Partial<ExtensionManifest>), enabled: true, givesAgents: true },

@@ -51,7 +51,7 @@ describe('App notification permission in the task settings', () => {
     root = mkdtempSync(join(tmpdir(), 'gugu-notification-card-'));
     const source = join(root, 'source'); mkdirSync(source);
     writeFileSync(join(source, 'index.html'), '<p>Plain</p>');
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ id: 'plain', name: 'Plain', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ id: 'plain', name: 'Plain', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'],
       entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Plain' }] } }));
     h.service = new ExtensionsService(join(root, 'installed'));
     h.service.installFromDirectory(source, h.service.inspectDirectory(source).manifestDigest, 'folder');
@@ -66,7 +66,7 @@ describe('App notification permission in the task settings', () => {
     root = mkdtempSync(join(tmpdir(), 'gugu-notification-card-'));
     const source = join(root, 'source'); mkdirSync(source);
     writeFileSync(join(source, 'index.html'), '<p>Notes</p>');
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'],
       entry: 'index.html', permissions: { capabilities: ['notifications'] }, contributes: { tabs: [{ name: 'main', title: 'Notes' }] } }));
     h.service = new ExtensionsService(join(root, 'installed'));
     h.service.installFromDirectory(source, h.service.inspectDirectory(source).manifestDigest, 'folder');

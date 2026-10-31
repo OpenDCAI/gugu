@@ -19,10 +19,9 @@ import { hostProgramLine, programName } from '@shared/extensions/manifest'
 
 export interface ExtensionAgentContribution {
   extensionId: string
-  /** The manifest's `name` and `description` (the base ones, not a locale's): what `<gugu_apps>` says the App is. */
+  /** The manifest's base `name` and its `contributes.instructions`: the App's line in `<gugu_apps>`. */
   name: string
-  description?: string
-  agentInstructions?: string
+  instructions?: string
   rootDir: string
   dataDir: string
   /** Manifest digest: which version of the extension these programs are. */
@@ -41,22 +40,21 @@ export interface ExtensionAgentContribution {
   skillsDir: string | null
 }
 
-/** 上下文工程第二批 P3: an App whose tools this session reaches through the catalog, as `<gugu_apps>` names it. */
-export interface ExtensionCatalogApp {
+/** An App that gives this session programs or skills, as `<gugu_apps>` names it: one line, its instructions in full. */
+export interface ExtensionAgentApp {
   extensionId: string
   name: string
-  description?: string
+  instructions: string
   /** #7317 Computer Use, on: its tools are not in the catalog but gugu's own device_actions / device_call (`<gugu_apps>` says so). */
   computerUse?: true
-  agentInstructions?: string
 }
 
 export interface ExtensionSessionMcp {
   /** One gateway entry per program (extension-gateway.ts). */
   servers: AcpMcpServer[]
   skills: ExtensionSkill[]
-  /** The Apps whose tools are in this session's catalog (progressive, in D-30 scope), named once at the opening. */
-  apps: ExtensionCatalogApp[]
+  /** The Apps whose programs or skills reach this session (in D-30 scope), named once at the opening. */
+  apps: ExtensionAgentApp[]
   /** Which extension each program in `servers` came from, by the name the session knows it under. */
   origins: { name: string; extensionId: string }[]
 }
@@ -204,24 +202,22 @@ export function extensionAgentPrograms(
 }
 
 /**
- * 上下文工程第二批 P3: the Apps `<gugu_apps>` may name as having tools in the catalog — progressive ones with at least one
- * program gugu actually runs (the catalog lists exactly those, extension-gateway.ts). A program `extensionAgentPrograms`
- * left out (its tools module is not in the bundle, this build has no App runtime) puts nothing in the catalog, so its App
- * is not named: the opening says only what can run (复核 84 2(d)). Full-disclosure Apps are included only when
- * they also provide standing instructions, which must not depend on tool disclosure. D-30 scope is the caller's (the same `inScope` the catalog uses).
+ * The Apps `<gugu_apps>` names: each one whose program gugu actually runs, or whose skills this session reads, with its
+ * `instructions` (the schema gives every App with programs or skills one, and no other App). A program
+ * `extensionAgentPrograms` left out (its tools module is not in the bundle, this build has no App runtime) runs nothing,
+ * so an App with nothing else is not named: the opening says only what can run (复核 84 2(d)). Whether its tools are
+ * listed natively or reached through the catalog does not matter: the line says what the App is for either way.
+ * D-30 scope is the caller's (the same `inScope` the catalog uses).
  */
-export function catalogAppsOf(
+export function agentAppsOf(
   contributions: readonly ExtensionAgentContribution[],
   programs: readonly ExtensionProgram[],
-): ExtensionCatalogApp[] {
+): ExtensionAgentApp[] {
   // The native Computer Use host is named separately from catalog tools.
   const computerUse = new Set(programs.filter((program) => program.native === 'computer-use').map((program) => program.extensionId))
   const running = new Set(programs.map((program) => program.extensionId))
-  return contributions.flatMap(({ extensionId, name, description, disclosure, agentInstructions }): ExtensionCatalogApp[] => {
-    if (!running.has(extensionId)) return []
-    const instructions = agentInstructions ? { agentInstructions } : {}
-    if (computerUse.has(extensionId)) return [{ extensionId, name, computerUse: true, ...instructions }]
-    return disclosure === 'progressive' || agentInstructions
-      ? [{ extensionId, name, ...(description ? { description } : {}), ...instructions }] : []
+  return contributions.flatMap(({ extensionId, name, instructions, skillsDir }): ExtensionAgentApp[] => {
+    if (instructions === undefined || (!running.has(extensionId) && skillsDir === null)) return []
+    return [{ extensionId, name, instructions, ...(computerUse.has(extensionId) ? { computerUse: true as const } : {}) }]
   })
 }

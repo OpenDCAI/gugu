@@ -3,14 +3,14 @@ import { AppFeaturedCard } from './app-featured';
 import { AppShelfRow } from './app-shelf';
 import { MarketAppRow } from './app-rows';
 import type { AppLifecycle } from './app-lifecycle-button';
-import type { ProductPageApi } from './app-product-page';
+import { screenshotsLanguage, type ProductPageApi } from './app-product-page';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ShelfMoreSkeleton } from './extension-skeletons';
 import { Button } from '@renderer/lib/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { featuredBody, localizedManifestText, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
+import { localizedManifestText, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
 import type { MarketListItem, MarketCompat } from '@shared/extensions/market';
 import type { MarketHome } from '@shared/extensions/market-home';
 import type { ResourceContext } from '@shared/resource-actions';
@@ -48,7 +48,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
   resourceOf?: (id: string) => ResourceContext;
   query: string;
   hostKey: string;
-  api: Pick<ProductPageApi, 'marketReadme' | 'marketRead'>;
+  api: Pick<ProductPageApi, 'marketListing' | 'marketRead'>;
   lifecycleOf: (id: string, item: ShelfItem) => AppLifecycle;
   pending: Record<string, ExtensionPendingAction>;
   downloadPercent: Record<string, number>;
@@ -79,7 +79,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
   const gridTitle = query !== '' ? translate('extensions.searchResults') : activeChip !== 'all' ? chipLabel(activeChip)
     : translate(view === 'newest' ? 'extensions.newest' : view === 'popular' ? 'extensions.popular' : view === 'all' ? 'extensions.allApps' : 'extensions.moreApps');
 
-  /** 精选大卡的底图:README 第一张截图,没有就用图标。 */
+  /** 精选大卡的底图:产品页的第一张截图。 */
   const featuredCardOf = (item: ShelfItem) => {
     const text = localizedManifestText(item.manifest, locale);
     return (
@@ -92,8 +92,11 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
         version={item.manifest.version}
         name={text.name}
         subtitle={text.subtitle}
-        body={featuredBody(text.description ?? '', text.subtitle)}
-        meta={`${translate(`extensions.category.${marketCategoryOf(item.manifest)}`)} · ${translate('extensions.official')}`}
+        meta={[
+          translate(`extensions.category.${marketCategoryOf(item.manifest)}`),
+          translate('extensions.official'),
+          ...(screenshotsLanguage(item.manifest, locale) ? [translate('extensions.screenshotsIn', { language: screenshotsLanguage(item.manifest, locale)! })] : []),
+        ].join(' · ')}
         iconUrl={item.cloud.iconUrl}
         lifecycle={lifecycleOf(item.manifest.id, item)}
         pending={pending[item.manifest.id]}
