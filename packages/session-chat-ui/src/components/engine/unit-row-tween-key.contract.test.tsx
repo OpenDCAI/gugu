@@ -103,12 +103,13 @@ describe('UnitRow tween key (#5332)', () => {
         expect(Math.abs(virt.size(0) - row.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
       };
       assertCurrent();
-      const initialHeight = virt.size(0);
+      const measured = measure.mock.calls.length;
       setName('W'.repeat(40));
       await nextPaint();
       expect(host.querySelector('[data-agent-conversation-message]')).toBe(row);
+      // The compact header truncates a long name on one line; the rename must still re-measure the mounted row.
+      expect(measure.mock.calls.length).toBeGreaterThan(measured);
       assertCurrent();
-      expect(virt.size(0)).toBeGreaterThan(initialHeight);
     } finally {
       dispose(); host.remove(); caches.clearAll();
       rendered.mockRestore(); measure.mockRestore();
