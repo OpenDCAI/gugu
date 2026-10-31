@@ -4878,7 +4878,7 @@ app.whenReady().then(async () => {
         const local = await emdash.runSessionAction(context, record as SessionAction, signal)
         return crossMachine().withRemoteChildren(local, sessionId, () => remoteCaller(auth, context), signal)
       }
-      if (['get', 'stop', 'archive', 'set_parent'].includes(String(record.action)) && elsewhere) {
+      if (['get', 'stop', 'archive', 'set_parent', 'schedule_list', 'schedule_cancel'].includes(String(record.action)) && elsewhere) {
         return crossMachine().runOnSession(sessionId, await remoteCaller(auth, context), record as { action: string }, signal)
       }
       return projectResult(await emdash.runSessionAction(context, record as SessionAction, signal))

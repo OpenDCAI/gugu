@@ -2487,4 +2487,55 @@ describe('session_archive', () => {
         .rejects.toThrow('remote tunnel');
     });
   });
+
+// 看与取消主人另一条会话的「已安排」:与 session_archive 同一个口径 —— 这台机器上的任一会话(含已归档),
+// 别的机器由宿主按 session_id 路由过来(runRemoteSessionAction)。账号之外的会话不在这个库里,够不着。
+describe('schedule_list / schedule_cancel with session_id', () => {
+  const context: SessionCallerContext = { sessionId: 'caller', projectId: 'project-1', workspaceId: 'workspace-1' };
+  const remoteCaller: RemoteSessionCaller = {
+    deviceId: 'device-a', deviceLabel: 'mac1', sessionId: 'remote-caller', agentUserId: 'agent-remote',
+    name: 'Claude 7', harness: 'codex', transport: 'acp', model: null, platformModel: null,
+  };
+
+  async function seedArchivedWithSchedule(): Promise<string> {
+    fixture.sqlite
+      .prepare(`INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, archived_at)
+                VALUES ('patrol', 'project-1', 'workspace-1', 'Patrol', 'codex', 'acp', '2026-10-31T21:36:10.836Z')`)
+      .run();
+    const { runAgentScheduleAction } = await import('../automations/agent-schedules');
+    const created = await runAgentScheduleAction(
+      { sessionId: 'patrol', projectId: 'project-1', provider: 'codex' },
+      { action: 'schedule_create', prompt: 'patrol', cron: '*/30 * * * *', tz: 'UTC' },
+    ) as { schedule_id: string };
+    return created.schedule_id;
+  }
+
+  it('lists and cancels an archived session\'s schedule on this machine; its own id alone is not enough', async () => {
+    const id = await seedArchivedWithSchedule();
+    await expect(runSessionAction(context, { action: 'schedule_cancel', schedule_id: id })).rejects.toThrow(/no schedule .* of yours/);
+    const listed = await runSessionAction(context, { action: 'schedule_list', session_id: 'patrol' }) as { schedules: Array<{ schedule_id: string }> };
+    expect(listed.schedules.map((row) => row.schedule_id)).toEqual([id]);
+    await expect(runSessionAction(context, { action: 'schedule_cancel', schedule_id: id, session_id: 'caller' }))
+      .rejects.toThrow(`no schedule ${id} of session:caller`);
+    await expect(runSessionAction(context, { action: 'schedule_cancel', schedule_id: id, session_id: 'patrol' }))
+      .resolves.toEqual({ schedule_id: id, cancelled: true });
+    expect(fixture.sqlite.prepare('SELECT id FROM automations WHERE agent_session_id = ? AND deleted_at IS NULL').all('patrol')).toEqual([]);
+  });
+
+  it('does the same for a caller on another machine, and only with session_id', async () => {
+    const id = await seedArchivedWithSchedule();
+    await expect(runRemoteSessionAction(remoteCaller, { action: 'schedule_list' })).rejects.toThrow(/without session_id .* no meaning on another machine/);
+    const listed = await runRemoteSessionAction(remoteCaller, { action: 'schedule_list', session_id: 'patrol' }) as { schedules: Array<{ schedule_id: string }> };
+    expect(listed.schedules.map((row) => row.schedule_id)).toEqual([id]);
+    await expect(runRemoteSessionAction(remoteCaller, { action: 'schedule_cancel', schedule_id: id, session_id: 'patrol' }))
+      .resolves.toEqual({ schedule_id: id, cancelled: true });
+  });
+
+  it('refuses a session that is not in this account\'s task database', async () => {
+    await seedArchivedWithSchedule();
+    await expect(runSessionAction(context, { action: 'schedule_list', session_id: 'someone-elses' })).rejects.toThrow(/session not found on this machine/);
+    await expect(runRemoteSessionAction(remoteCaller, { action: 'schedule_cancel', schedule_id: 'schedule:00000000-0000-4000-8000-000000000000', session_id: 'someone-elses' }))
+      .rejects.toThrow(/session not found on this machine/);
+  });
+});
 });
