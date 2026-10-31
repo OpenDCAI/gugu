@@ -8,6 +8,7 @@ import {
 } from '../../agentTypes'
 import { atomicWriteText, ensureStateDirs, stateDir } from './paths'
 import { acquireStateLock } from './fileLocks'
+import { archiveAgentRecord } from './agentOwner'
 
 export { DEFAULT_AGENT_TYPE, normalizeAgentType, VALID_AGENT_TYPES, type AgentType }
 
@@ -242,6 +243,20 @@ export async function removeAgents(
     payload.agents = payload.agents.filter((agent) => !match(agent))
     await saveAgentsPayload(payload, env)
     return removed
+  } finally {
+    await release()
+  }
+}
+
+/** Archive matching roster rows under the existing roster lock, retaining their bindings. */
+export async function archiveAgents(match: (agent: LocalAgentRecord) => boolean, env: NodeJS.ProcessEnv = process.env): Promise<LocalAgentRecord[]> {
+  const release = await acquireAgentsLock(env)
+  try {
+    const payload = await loadAgentsPayload(env)
+    const archived = payload.agents.filter((agent) => agent.status !== 'archived' && match(agent))
+    for (const agent of archived) archiveAgentRecord(agent)
+    if (archived.length) await saveAgentsPayload(payload, env)
+    return archived
   } finally {
     await release()
   }

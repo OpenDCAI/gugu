@@ -1343,7 +1343,7 @@ export function ContactsPanel({
     try {
       if (isOwnedAgent) await removeOwnedAgent(contact.id)
       else await removeContact(contact.id)
-      toast(isOwnedAgent ? ct('toast.deletedAgent') : ct('toast.deletedContact'), 'success')
+      toast(ct(isOwnedAgent ? 'toast.deletedAgent' : 'toast.deletedContact'), 'success')
     } catch (error) {
       toast(
         isOwnedAgent ? ct('toast.deleteAgentFailed') : ct('toast.deleteContactFailed'),

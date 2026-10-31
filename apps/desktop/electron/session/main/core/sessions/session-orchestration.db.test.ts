@@ -147,6 +147,8 @@ import {
   sessionPlatformModel,
   recordSessionPlatformModel,
 } from './platform-model-selection';
+import { restoreSession } from './archiveSession';
+import { getSessions } from './getSessions';
 import { takeBirthGroup } from './birth-groups';
 import { recordChildHarnessDefault } from './child-harness-default';
 import type { NewSessionMemory } from '@shared/core/app-settings';
@@ -297,6 +299,30 @@ describe('session orchestration', () => {
       `SELECT id, workspace_id, parent_session_id, spawned_by_session_id
        FROM sessions WHERE id != 'caller' ORDER BY created_at, id`
     ).all() as Array<{ id: string; workspace_id: string | null; parent_session_id: string | null; spawned_by_session_id: string | null }>;
+  }
+
+  async function expectFailedChildToRestore(sessionId: string) {
+    const child = { id: sessionId, workspace_id: 'workspace-1', parent_session_id: 'caller', spawned_by_session_id: 'caller' };
+    await vi.waitFor(() => {
+      expect(fixture.sqlite.prepare('SELECT id, archived_at FROM sessions WHERE id = ?').get(sessionId))
+        .toEqual({ id: sessionId, archived_at: expect.any(String) });
+    });
+    expect(childRows()).toEqual([child]);
+    expect((await getSessions()).map(session => session.id)).not.toContain(sessionId);
+    expect((await getSessions({ includeArchived: true })).find(session => session.id === sessionId)).toMatchObject({
+      id: sessionId, projectId: 'project-1', workspaceId: 'workspace-1', archivedAt: expect.any(String),
+      parentSessionId: 'caller', spawnedBySessionId: 'caller',
+    });
+    const started = mocks.startSession.mock.calls.length;
+    await expect(restoreSession('project-1', sessionId)).resolves.toMatchObject({
+      id: sessionId, projectId: 'project-1', workspaceId: 'workspace-1', archivedAt: null,
+    });
+    expect(childRows()).toEqual([child]);
+    expect((await getSessions()).map(session => session.id)).toContain(sessionId);
+    expect(fixture.sqlite.prepare('SELECT archived_at FROM sessions WHERE id = ?').get('caller'))
+      .toEqual({ archived_at: null });
+    expect(mocks.startSession).toHaveBeenCalledTimes(started);
+    expect(mocks.stopSession).not.toHaveBeenCalled();
   }
 
   /** 这条会话挂载好了:pty 会话的进程经这个 provider 起停。 */
@@ -1913,7 +1939,7 @@ describe('session orchestration', () => {
     expect((receipt as { status: string }).status).not.toBe('closed');
   });
 
-  it('returns a starting child immediately and compensates when ACP start fails', async () => {
+  it('returns a starting child immediately and archives it for Restore when ACP start fails', async () => {
     mocks.startSession.mockResolvedValueOnce({
       success: false,
       error: { type: 'spawn_failed', message: 'runtime rejected child' },
@@ -1924,15 +1950,18 @@ describe('session orchestration', () => {
       prompt: 'Will fail to start.',
     })) as { session_id: string; status: string };
     expect(result.status).toBe('starting');
-    await vi.waitFor(() => expect(childRows()).toEqual([]));
+    await expectFailedChildToRestore(result.session_id);
   });
 
-  it('rolls back when cancellation lands after conversation creation but before ACP start', async () => {
+  it('archives the child for Restore when cancellation lands after creation but before ACP start', async () => {
     const controller = new AbortController();
     mocks.emit.mockImplementationOnce(() => controller.abort(new Error('grant revoked')));
     const spawning = runSessionAction(context, { action: 'spawn', prompt: 'Orphan.' }, controller.signal);
     await expect(spawning).rejects.toThrow('grant revoked');
-    expect(childRows()).toEqual([]);
+    const children = childRows();
+    expect(children).toHaveLength(1);
+    expect(mocks.startSession).not.toHaveBeenCalled();
+    await expectFailedChildToRestore(children[0]!.id);
   });
 
   it('does not cancel provider startup after the spawn response is returned', async () => {

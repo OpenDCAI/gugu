@@ -40,7 +40,7 @@ export const sessionController = createRPCController({
   forkSession,
   restartSession,
   switchSessionRuntime,
-  // 人这一侧收起会话只有归档(#6949):删除不上这张面,只剩主进程内部的回滚与上级对象的连带删除在用。
+  // 人手动收起与自动清理共用归档;任务历史与绑定保留。
   archiveSession,
   // spec session-graph:UI 上没有恢复入口(owner 2026-09-11),但接口在 —— 归档不是删除,
   // 「数据回得来」这件事必须有代码作证。摆不摆入口是另一个决定。

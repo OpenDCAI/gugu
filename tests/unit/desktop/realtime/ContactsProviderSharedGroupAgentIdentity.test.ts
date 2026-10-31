@@ -46,8 +46,9 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({ contactsService: contactsServiceMock }))
 
-const { renameLocal } = vi.hoisted(() => ({ renameLocal: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal } }))
+const { renameLocal, releaseLocal, notify } = vi.hoisted(() => ({ renameLocal: vi.fn(), releaseLocal: vi.fn(), notify: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { renameOwnedAgentLocalFootprint: renameLocal, releaseOwnedAgentLocalFootprint: releaseLocal } }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify }))
 
 import { ContactsProvider } from '../../../../apps/desktop/src/store/contacts'
 import { readPerfCounters } from '../../../../apps/desktop/src/lib/perfCounters'
@@ -86,6 +87,8 @@ const sharedGroupRow = {
 
 beforeEach(() => {
   renameLocal.mockReset().mockResolvedValue(undefined)
+  releaseLocal.mockReset().mockResolvedValue(undefined)
+  notify.mockReset()
   store = null
   for (const id of Object.keys(identitiesById)) delete identitiesById[id]
   putIdentitiesMock.mockReset().mockImplementation(async (identities: ContactUser[]) => {
@@ -162,3 +165,39 @@ describe('agent rename canonical publication #6021', () => {
   })
 })
 vi.mock('../../../../apps/desktop/src/lib/groupInvitations', () => ({ listGroupInvitations: vi.fn(async () => []) }))
+
+describe('confirmed Agent deletion has one identity receipt', () => {
+  it('returns the identity receipt without emitting per-agent toasts during a compound user action', async () => {
+    let finishCleanup!: () => void
+    releaseLocal.mockImplementation(() => new Promise<void>(resolve => { finishCleanup = resolve }))
+    const harness = await renderProvider()
+    try {
+      let removal!: Promise<void>
+      await act(async () => { removal = store!.removeOwnedAgent('agent-1'); await Promise.resolve() })
+      expect(contactsServiceMock.removeOwnedAgent).toHaveBeenCalledExactlyOnceWith('agent-1')
+      expect(notify).not.toHaveBeenCalled()
+      await act(async () => { finishCleanup(); await removal })
+      releaseLocal.mockResolvedValue(undefined)
+      await act(async () => { await store!.removeOwnedAgent('agent-2') })
+      expect(notify).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+  it('does not report a rejected identity deletion as success or begin cleanup', async () => {
+    contactsServiceMock.removeOwnedAgent.mockRejectedValue(new Error('identity denied'))
+    const harness = await renderProvider()
+    try {
+      await expect(store!.removeOwnedAgent('agent-1')).rejects.toThrow('identity denied')
+      expect(notify).not.toHaveBeenCalled()
+      expect(releaseLocal).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+  it.each(['cleanup', 'refresh'])('preserves the success receipt when post-delete %s fails', async stage => {
+    const harness = await renderProvider()
+    try {
+      if (stage === 'cleanup') releaseLocal.mockRejectedValue(new Error('cannot cancel its in-flight turn'))
+      else refreshChatsMock.mockRejectedValue(new Error('refresh unavailable'))
+      await act(async () => { await expect(store!.removeOwnedAgent('agent-1')).resolves.toBeUndefined() })
+      expect(notify).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
+  })
+})

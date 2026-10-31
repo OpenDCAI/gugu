@@ -59,8 +59,6 @@ export function installActivityCollector(): () => void {
       kind: 'session.renamed', session_id: sessionId, occurred_at: null })),
     sessionEvents.on('session:archived', sessionId => observe({ event_id: randomUUID(),
       kind: 'session.archived', session_id: sessionId, occurred_at: null })),
-    sessionEvents.on('session:deleted', sessionId => observe({ event_id: randomUUID(),
-      kind: 'session.deleted', session_id: sessionId, occurred_at: null })),
   ];
   const timer = setInterval(() => safely(() => recorder.heartbeat()), 60_000);
   timer.unref();

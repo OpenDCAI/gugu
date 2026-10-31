@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const io = vi.hoisted(() => ({ binding: vi.fn(), stop: vi.fn(), discard: vi.fn() }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/sessionpage/sessionpage-session-agent', () => ({ localAgentForSession: io.binding }))
 vi.mock('../../../../apps/desktop/electron/session/main/core/sessions/session-orchestration', () => ({ stopExactSessionpageSession: io.stop }))
-vi.mock('../../../../apps/desktop/electron/session/main/core/sessions/deleteSession', () => ({ deleteSession: io.discard }))
+vi.mock('../../../../apps/desktop/electron/session/main/core/sessions/archiveSession', () => ({ archiveSession: io.discard }))
 import { rollbackAgentSessionStartup } from '../../../../apps/desktop/electron/session/main/core/sessions/agent-session-startup'
 
 const attempt = { projectId: 'project', sessionId: 'task', created: true, started: true }

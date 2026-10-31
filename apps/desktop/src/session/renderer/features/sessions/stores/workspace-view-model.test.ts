@@ -10,7 +10,6 @@ import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import type { Session } from '@shared/core/sessions/sessions';
 import {
   sessionChangedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import type { Terminal } from '@shared/core/terminals/terminals';
 import type { SessionViewSnapshot } from '@shared/view-state';
@@ -224,12 +223,7 @@ afterEach(() => {
 });
 
 describe('WorkspaceViewModel terminal drawer snapshot', () => {
-  /**
-   * spec session-graph「归档后收拾现场与删除同一条规则」:归档也让这一行离开会话列表,它的 tab 同样不能
-   * 留在聊天栏里。2026-09-11 产品面实测到的正是漏了这一条 —— 归档掉父会话后聊天栏落到空态,而同 task 里
-   * 那条子会话还活着。判据:两个动词各自的事件都必须走到**同一个**收拾动作上。
-   */
-  it('归档事件与删除事件走同一个收拾动作,且只认这条会话自己的行', () => {
+  it('归档只收起当前任务的页签,其它字段与其它任务不受影响', () => {
     vi.mocked(events.on).mockClear();
     const viewModel = makeViewModel();
     const pick = (channel: unknown) =>
@@ -238,9 +232,7 @@ describe('WorkspaceViewModel terminal drawer snapshot', () => {
         .mock.calls.filter(([c]) => c === channel)
         .at(-1)?.[1] as ((payload: unknown) => void) | undefined;
 
-    const deletedListener = pick(sessionDeletedChannel);
     const changedListener = pick(sessionChangedChannel);
-    expect(deletedListener).toBeTypeOf('function');
     // 阳控:归档那一条监听真的注册了 —— 没注册的话下面的「不抛」什么都不证明。
     expect(changedListener).toBeTypeOf('function');
 
@@ -272,10 +264,6 @@ describe('WorkspaceViewModel terminal drawer snapshot', () => {
       changes: { archivedAt: '2026-09-11 01:00:00' },
     });
     expect(retire).not.toHaveBeenCalled();
-
-    // 删除那一条走的是同一个动作 —— 一处收拾,两个动词。
-    deletedListener?.({ sessionId: 'conversation-1', projectId: 'project-1' });
-    expect(retire).toHaveBeenCalledWith('conversation-1');
 
     retire.mockRestore();
     viewModel.dispose();

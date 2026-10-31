@@ -10,7 +10,6 @@
  *   · 清扫器不许碰**有主**的目录 —— 一个「无脑清空整棵树」的实现同样能让「孤儿被删掉」变绿。
  */
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,7 +56,6 @@ vi.mock('@main/db/client', async () => {
 });
 
 const {
-  deleteSessionAttachmentFiles,
   findSessionAttachmentCopy,
   recordSessionAttachments,
   resolveSessionAttachmentPath,
@@ -193,51 +191,6 @@ async function seedDirs(userDataDir: string, ...names: string[]): Promise<void> 
     await writeFile(join(dir, 'a.bin'), 'x');
   }
 }
-
-describe('deleteSessionAttachmentFiles', () => {
-  it('只清这条会话那一目录，隔壁会话的原样留着', async () => {
-    await seedDirs(userData, 'c1', 'c2');
-
-    await deleteSessionAttachmentFiles('c1', userData);
-
-    expect(existsSync(sessionAttachmentDirectory('c1', userData))).toBe(false);
-    // ⚠️ 阳控：隔壁那个必须还在 —— 少了它，「删得太多」这种坏法一样绿。
-    expect(existsSync(sessionAttachmentDirectory('c2', userData))).toBe(true);
-  });
-
-  /**
-   * 迁移前的附件落在按旧 id 起名的目录里,一个目录可能归好几条会话(旧模型一个容器挂多条会话)。
-   * 删一条会话只删它登记过的副本;目录空了才收,还有别人的文件就留着。
-   */
-  it('按登记的副本行删旧目录里的文件,目录里还有别人的就留着', async () => {
-    await seedDirs(userData, 'old-id');
-    const dir = sessionAttachmentDirectory('old-id', userData);
-    await writeFile(join(dir, 'mine.png'), 'm');
-    mocks.attachmentRows = [{ storedPath: join(dir, 'mine.png') }];
-
-    await deleteSessionAttachmentFiles('c1', userData);
-
-    expect(existsSync(join(dir, 'mine.png'))).toBe(false);
-    // ⚠️ 阳控：别人的那件(a.bin)和它所在的目录都还在。
-    expect(existsSync(join(dir, 'a.bin'))).toBe(true);
-
-    mocks.attachmentRows = [{ storedPath: join(dir, 'a.bin') }];
-    await deleteSessionAttachmentFiles('c2', userData);
-    expect(existsSync(dir)).toBe(false);
-  });
-
-  /**
-   * 新建页先落盘、后登记：用户在发送前把某枚 chip 点掉，那一件就只剩文件没有行。
-   * 会话自己那一目录按名字整个清，所以这种文件照样跟着会话走。
-   */
-  it('库里一行都没有时也照清 —— 那正是「落了盘但没登记」的那一件', async () => {
-    await seedDirs(userData, 'c1');
-
-    await deleteSessionAttachmentFiles('c1', userData);
-
-    expect(existsSync(sessionAttachmentDirectory('c1', userData))).toBe(false);
-  });
-});
 
 describe('sweepOrphanSessionAttachmentDirectories', () => {
   it('没有主人的目录被清掉;有主 = 名字是一条还在的会话,或库里有行的副本落在它里面', async () => {
