@@ -12,7 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
-import { INSERT_BLOCKS, blockContent, swapBlocks, turnBlock } from './blocks.js'
+import { INSERT_BLOCKS, isFrontmatter, moveBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -1586,8 +1586,7 @@ async function uploadFiles(place = { chat: state.ctx.chat.id, ...(state.folder ?
     const arrived = await gugu.files.upload(place)
     // What arrived is in the list, to open like any other file (the picker took the gesture's time).
     await refreshList()
-    askAboutNames(arrived, before)
-    return arrived
+    return await askAboutNames(arrived, before)
   } catch (error) {
     // A partial failure rejects too, after the rest are stored: the list shows what arrived.
     await refreshList()
@@ -1612,7 +1611,11 @@ function askAboutNames(arrived, before) {
     const old = entry.clashWith ? state.entries.find((e) => e.id === entry.clashWith && before.has(e.id)) : null
     if (old && !isFolder(old)) clashes.push({ entry, old })
   }
-  if (clashes.length === 0) return
+  if (clashes.length === 0) return Promise.resolve(arrived)
+  const kept = new Map(arrived.map((entry) => [entry.id, entry]))
+  let finish
+  const settled = new Promise((resolve) => { finish = () => { $('conflicts').hidden = true; resolve([...kept.values()]) } })
+  $('conflicts-done').onclick = finish // Unanswered names keep both files, as before.
   $('conflict-list').replaceChildren(...clashes.map(({ entry, old }) => {
     const li = document.createElement('li')
     li.className = 'conflict'
@@ -1624,20 +1627,20 @@ function askAboutNames(arrived, before) {
       button.type = 'button'
       button.textContent = text
       button.onclick = async () => {
-        for (const b of actions.querySelectorAll('button')) b.disabled = true
+        for (const b of $('conflicts').querySelectorAll('button')) b.disabled = true
         try {
-          await run()
+          kept.set(entry.id, await run())
           li.remove()
-          if (!$('conflict-list').children.length) $('conflicts').hidden = true
+          if (!$('conflict-list').children.length) finish()
         } catch (error) {
           showBanner(fmt(t.failed, { e: error.message }), 'error')
-          for (const b of actions.querySelectorAll('button')) b.disabled = false
         }
         await refreshList()
+        for (const b of $('conflicts').querySelectorAll('button')) b.disabled = false
       }
       return button
     }
-    actions.append(act(t.keepBoth, async () => undefined))
+    actions.append(act(t.keepBoth, async () => entry))
     if (entry.type === 'binary' && old.type === 'binary') {
       actions.append(act(t.replaceOld, async () => {
         const file = await gugu.files.open(entry, { readOnly: true })
@@ -1645,14 +1648,16 @@ function askAboutNames(arrived, before) {
         file.close()
         await gugu.files.replace(old, blob, { expectedVersion: old.version })
         await gugu.files.remove(entry)
+        return { ...old, contentType: entry.contentType }
       }))
     } else {
-      actions.append(act(t.dropNew, () => gugu.files.remove(entry)))
+      actions.append(act(t.dropNew, async () => { await gugu.files.remove(entry); return old }))
     }
     li.append(actions)
     return li
   }))
   $('conflicts').hidden = false
+  return settled
 }
 
 async function removeFile(entry) {
@@ -1741,7 +1746,6 @@ async function mountText(current, preview) {
     if (state.current !== current) return
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
     current.previewPending = false
-    if (file.readOnly) hideBlockHandle(true)
     previewMarks()
     // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
     for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = !!file.readOnly
@@ -2039,6 +2043,7 @@ function scheduleBlockHandleHide() {
 
 function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
+  if (!force && $('block-controls').matches(':focus-within')) return
   if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
     handleBlock = null
     $('block-controls').hidden = true
@@ -2047,7 +2052,7 @@ function hideBlockHandle(force = false) {
 
 function showBlockHandle(event) {
   cancelBlockHandleHide()
-  if (!state.current?.view || state.current.file.readOnly || state.current.view.state.readOnly) return hideBlockHandle(true)
+  if (!state.current?.view) return hideBlockHandle(true)
   if (touchPane?.matches || state.current.previewPending || state.current.file.type !== 'text') return hideBlockHandle()
   const root = $('preview').firstElementChild
   const pane = $('preview').getBoundingClientRect()
@@ -2064,6 +2069,12 @@ function showBlockHandle(event) {
     }
   }
   if (!block) return
+  const span = spanOf(block.dataset.line)
+  const current = state.current
+  let source = state.cm.language.syntaxTree(current.view.state).resolveInner(current.view.state.doc.line(span[0]).from, 1)
+  while (source.parent && source.parent.parent) source = source.parent
+  if (isFrontmatter(source)) return hideBlockHandle(true)
+  $('block-insert').hidden = current.file.readOnly || current.view.state.readOnly
   if (block === handleBlock && !$('block-controls').hidden) return
   handleBlock = block
   const box = block.getBoundingClientRect()
@@ -2073,111 +2084,122 @@ function showBlockHandle(event) {
   handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
 }
 
-// Positions are native file anchors while a menu or picker is open, never a second block/document model.
+// Only the start is anchored. The current syntax tree owns the extent and neighbors at the moment an action runs.
 function blockRange(current, span) {
-  const { doc } = current.view.state
-  return { from: current.file.anchor(doc.line(span[0]).from), to: current.file.anchor(doc.line(Math.min(span[1], doc.lines)).to) }
+  return { from: current.file.anchor(current.view.state.doc.line(span[0]).from) }
 }
 
 function resolvedRange(current, range) {
-  const from = current.file.resolve(range.from), to = current.file.resolve(range.to)
-  if (from === null || to === null) {
-    showBanner(state.t.insertReloaded, 'error')
-    return null
+  const from = current.file.resolve(range.from)
+  if (from === null) throw new Error(state.t.insertReloaded)
+  if (range.line) {
+    const line = current.view.state.doc.lineAt(from)
+    if (!/^\/\S*$/.test(line.text)) throw new Error(state.t.insertReloaded)
+    return { from: line.from, to: line.to }
   }
-  return { from, to }
+  const blocks = sourceBlocks(current.view.state, state.cm)
+  const index = blocks.findIndex((block) => block.from <= from && from <= block.to)
+  if (index < 0 || isFrontmatter(blocks[index])) throw new Error(state.t.insertReloaded)
+  return { ...blocks[index], above: blocks[index - 1], below: blocks[index + 1] }
 }
 
-function changeBlock(current, range, change) {
+function blockAction(run) {
+  return async () => {
+    try { return await run() } catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error') }
+  }
+}
+
+function changeBlock(current, range, change, userEvent = 'input.complete') {
   const view = current.view
   if (state.current !== current || current.file.readOnly || !view || view.state.readOnly) return
-  const at = resolvedRange(current, range)
-  if (!at) return
   try {
+    const at = resolvedRange(current, range)
     const edit = change(view.state.doc, at)
     if (!edit) return
-    const { caret = 0, ...changes } = edit
-    const head = changes.from + caret
-    view.dispatch({ changes, selection: { anchor: head }, effects: state.cm.EditorView.scrollIntoView(head, { y: 'center' }), userEvent: 'input' })
+    const { changes, head } = edit
+    view.dispatch({ changes, selection: { anchor: head }, effects: state.cm.EditorView.scrollIntoView(head, { y: 'center' }), userEvent })
     if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
-    hideBlockHandle()
     view.focus()
+    hideBlockHandle(true)
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
 }
 
 function insertionItems(current, range, below = true) {
-  const insert = (text, caret = 0) => changeBlock(current, range, (_doc, at) => ({
-    from: below ? at.to : at.from, to: at.to, insert: `${below ? '\n\n' : ''}${text}\n`, caret: (below ? 2 : 0) + caret,
-  }))
+  const insert = (text, caret = 0) => changeBlock(current, range, (doc, at) => {
+    const from = below ? at.to : at.from
+    const after = doc.sliceString(at.to)
+    const trailing = /^\n*/.exec(after)[0].length
+    const prefix = below ? '\n\n' : ''
+    const suffix = after.length === trailing ? (trailing ? '' : '\n') : '\n'.repeat(Math.max(0, 2 - trailing))
+    return { changes: { from, to: at.to, insert: prefix + text + suffix }, head: from + prefix.length + caret }
+  })
   return INSERT_BLOCKS.map((item) => ({
     text: state.t[item.label],
     disabled: !item.text && (!current.entry.chat || !canWrite() || $('upload').disabled),
-    run: async () => {
+    run: blockAction(async () => {
       if (item.text !== undefined) return insert(item.text, item.caret)
       const arrived = await uploadFiles({ chat: current.entry.chat, ...(current.entry.parentId ? { folder: current.entry.parentId } : {}) })
       if (!arrived?.length) return
-      insert(arrived.map((entry) => `${item.id === 'image' && entry.contentType.startsWith('image/') ? '!' : ''}[${entry.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${entry.id})`).join('\n\n'))
-    },
+      insert(arrived.map((entry) => `${item.id === 'image' && (entry.contentType || '').startsWith('image/') ? '!' : ''}[${entry.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${entry.id})`).join('\n\n'))
+    }),
   }))
 }
 
 function insertMenu() {
   const current = state.current, span = spanOf(handleBlock?.dataset.line)
-  if (!current?.view || !span || current.file.readOnly || current.view.state.readOnly) return
+  if (!current?.view || current.previewPending || !span || current.file.readOnly || current.view.state.readOnly) return
   toggleMenu($('block-insert'), [{ label: state.t.insertBelow }, ...insertionItems(current, blockRange(current, span))])
 }
 
 function blockMenu() {
   const current = state.current, block = handleBlock
   const span = spanOf(block?.dataset.line)
-  if (!current?.view || !span || current.file.readOnly || current.view.state.readOnly) return
+  if (!current?.view || current.previewPending || !span) return
   const t = state.t, range = blockRange(current, span)
-  const blocks = [...block.parentElement.children].filter((node) => node.dataset.line)
-  const index = blocks.indexOf(block)
-  const neighbor = (offset) => blocks[index + offset] ? blockRange(current, spanOf(blocks[index + offset].dataset.line)) : null
-  const above = neighbor(-1), below = neighbor(1)
-  const move = (other, down) => changeBlock(current, range, (doc, at) => {
-    const adjacent = resolvedRange(current, other)
-    if (!adjacent) return null
-    const { movedDown, ...edit } = down ? swapBlocks(doc, at, adjacent) : swapBlocks(doc, adjacent, at)
-    return { ...edit, caret: down ? movedDown : 0 }
-  })
+  const at = resolvedRange(current, range)
+  const move = (down) => changeBlock(current, range, (doc, block) => {
+    const neighbor = down ? block.below : block.above
+    return neighbor && !isFrontmatter(neighbor) ? moveBlock(doc, block, neighbor, down) : null
+  }, 'move')
   const pick = () => {
     const at = resolvedRange(current, range), doc = current.view.state.doc
-    return at && { text: doc.sliceString(at.from, at.to), lines: [doc.lineAt(at.from).number, doc.lineAt(at.to).number] }
+    return { text: doc.sliceString(at.from, at.to), lines: [doc.lineAt(at.from).number, doc.lineAt(at.to).number] }
   }
-  toggleMenu($('block-handle'), [
+  const edits = [
     { text: t.turnInto, children: ['heading', 'list', 'quote', 'code'].map((kind) => ({
       text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
-      run: () => changeBlock(current, range, (_doc, at) => ({ ...at, insert: turnBlock(blockContent(current.view.state, state.cm, at.from, at.to), kind) })),
+      run: () => changeBlock(current, range, (_doc, at) => ({ changes: turnBlockChanges(current.view.state, state.cm, at, kind), head: at.from })),
     })) },
-    [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ from: at.to, to: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}`, caret: 2 }))],
-    { text: t.moveBlockUp, disabled: !above, run: () => move(above, false) },
-    { text: t.moveBlockDown, disabled: !below, run: () => move(below, true) },
+    [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ changes: { from: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}` }, head: at.to + 2 }))],
+    { text: t.moveBlockUp, disabled: !at.above || isFrontmatter(at.above), run: () => move(false) },
+    { text: t.moveBlockDown, disabled: !at.below, run: () => move(true) },
     [t.deleteBlock, () => changeBlock(current, range, (_doc, at) => {
-      const next = below && resolvedRange(current, below), previous = above && resolvedRange(current, above)
-      return { from: next ? at.from : previous ? previous.to : at.from, to: next ? next.from : at.to, insert: '' }
-    })],
+      const from = at.below ? at.from : at.above ? at.above.to : at.from
+      return { changes: { from, to: at.below ? at.below.from : at.to, insert: '' }, head: from }
+    }, 'delete')],
     { separator: true },
-    [t.copyBlockLink, () => { const p = pick(); if (p) void copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) }],
-    [t.citeBlock, () => { const p = pick(); if (p) void cite(current, [p], state.held) }],
+  ]
+  toggleMenu($('block-handle'), [
+    ...(!current.file.readOnly && !current.view.state.readOnly ? edits : []),
+    [t.copyBlockLink, blockAction(() => { const p = pick(); return copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) })],
+    [t.citeBlock, blockAction(() => cite(current, [pick()], state.held))],
   ])
 }
 
 function blockCompletions(current, cm) {
-  return cm.autocomplete.autocompletion({ override: [(context) => {
+  return cm.markdownLanguage.data.of({ autocomplete: (context) => {
     if (current.file.readOnly || context.state.readOnly) return null
     const line = context.state.doc.lineAt(context.pos)
-    if (context.pos !== line.to || !line.text.startsWith('/')) return null
+    if (context.pos !== line.to || !/^\/\S*$/.test(line.text)) return null
     for (let node = cm.language.syntaxTree(context.state).resolveInner(context.pos, -1); node; node = node.parent) {
-      if (node.name === 'FencedCode' || node.name === 'CodeBlock') return null
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock' || isFrontmatter(node)) return null
     }
-    const range = { from: current.file.anchor(line.from), to: current.file.anchor(line.to) }
+    const range = { from: current.file.anchor(line.from), line: true }
     const items = insertionItems(current, range, false).filter((item) => !item.disabled)
-    return { from: line.from + 1, options: items.map((item, index) => ({ label: item.text, boost: items.length - index, type: 'keyword', apply: () => { cm.autocomplete.closeCompletion(current.view); void item.run() } })) }
-  }] })
+    return { from: line.from + 1, validFor: (filter, _from, to, state) => !/\s/.test(filter) && state.doc.lineAt(to).text === `/${filter}`, options: items.map((item, index) => ({ label: item.text, boost: items.length - index, type: 'keyword', apply: () => { cm.autocomplete.closeCompletion(current.view); void item.run() } })) }
+  } })
 }
 
 // A task ticked in the reading page ticks its line in the source: that line's `[ ]` / `[x]`, nothing else.
@@ -2897,11 +2919,12 @@ function start() {
   $('preview').addEventListener('pointermove', showBlockHandle)
   $('preview').addEventListener('pointerenter', cancelBlockHandleHide)
   $('preview').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('preview').addEventListener('scroll', () => hideBlockHandle())
+  $('preview').addEventListener('scroll', () => hideBlockHandle(true))
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
-  $('block-insert').onclick = () => insertMenu()
-  $('block-handle').onclick = () => blockMenu()
+  $('block-controls').addEventListener('focusout', scheduleBlockHandleHide)
+  $('block-insert').onclick = blockAction(insertMenu)
+  $('block-handle').onclick = blockAction(blockMenu)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {
     setMode(state.mode === 'split' && !narrowPane?.matches ? 'split' : 'edit')

@@ -44,15 +44,19 @@ const pictureId = '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60';
 const image = new File(['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="blue"/></svg>'], 'image [one].svg', { type: 'image/svg+xml' });
 const picture = { ...entry, id: pictureId, type: 'binary', name: image.name, contentType: image.type };
 const attachment = { ...entry, id: '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f61', type: 'binary', name: 'notes.pdf', contentType: 'application/pdf' };
-const upload = vi.fn(async (_place: unknown) => [picture, attachment]);
+type FolderEntry = Omit<typeof entry, 'contentType'> & { contentType?: string; clashWith?: string };
+let folderEntries: FolderEntry[] = [entry, picture, attachment];
+const upload = vi.fn(async (_place: unknown): Promise<FolderEntry[]> => [picture, attachment]);
+const replace = vi.fn(async (_entry: unknown, _blob: unknown, _options: unknown) => {});
+const remove = vi.fn(async (entry: { id: string }) => { folderEntries = folderEntries.filter((item) => item.id !== entry.id); });
 const dispatch = vi.fn(async (_text: string, _options: unknown) => ({}));
 const verbs = {
   openLink: async () => {}, openBrowserTab: async () => {}, reportError: async (message: string) => { throw new Error(message); },
   clipboard: { writeText: async (text: string) => { copied.push(text); } },
   files: {
-    open: async (ref: unknown) => (ref as { id: string }).id === pictureId ? { type: 'binary', entry: picture, blob: async () => image } : file,
-    readVersion: async () => file, onChanged: () => () => {}, upload,
-    list: async () => [entry, picture, attachment],
+    open: async (ref: unknown) => (ref as { id: string }).id !== entry.id ? { type: 'binary', entry: ref, blob: async () => image, close: () => {} } : file,
+    readVersion: async () => file, onChanged: () => () => {}, upload, replace, remove,
+    list: async () => folderEntries,
   },
 };
 const gugu = {
@@ -92,6 +96,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   file.readOnly = false;
+  folderEntries = [entry, picture, attachment];
   const before = renders;
   editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: text } });
   await userEvent.keyboard('{Escape}');
@@ -101,6 +106,8 @@ beforeEach(async () => {
   upload.mockClear();
   copied.length = 0;
   dispatch.mockClear();
+  replace.mockClear();
+  remove.mockClear();
 });
 
 afterAll(() => {
@@ -137,7 +144,7 @@ async function openHandle(id = 'block-insert') {
     expect(items.map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider']);
   } else {
     expect(handle(id).textContent).toBe('⋮⋮');
-    expect([...byId('menu').querySelectorAll(':scope > button, :scope > .menu-group > button')].map((item) => item.textContent)).toEqual(['Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
+    expect([...byId('menu').querySelectorAll(':scope > button, :scope > .menu-group > button')].map((item) => item.textContent)).toEqual(file.readOnly ? ['Copy link to block', 'Cite in chat'] : ['Turn into ›', 'Duplicate', 'Move up', 'Move down', 'Delete', 'Copy link to block', 'Cite in chat']);
   }
 }
 
@@ -204,7 +211,7 @@ it('inserts a 3×3 table after the paragraph, focuses its first cell in the sour
   await insertAtFirst('Table');
   const table = '|  |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
   const at = text.indexOf('\n\nSecond paragraph');
-  expect(editor().state.doc.toString()).toBe(`${text.slice(0, at)}\n\n${table}\n${text.slice(at)}`);
+  expect(editor().state.doc.toString()).toBe(`${text.slice(0, at)}\n\n${table}${text.slice(at)}`);
   expect(editor().state.selection.main.head).toBe(at + 4);
   expect(document.body.dataset.mode).toBe('split');
   await until('the table is drawn by the real preview', () => byId('preview').querySelectorAll('table tr').length === 3);
@@ -220,7 +227,7 @@ it('uses the existing picker/upload into this document’s folder and renders th
   await until('the uploaded image is written through the bound source', () => file.text.includes(imageSource));
   expect(upload).toHaveBeenCalledExactlyOnceWith({ chat: 'group', folder: 'notes' });
   const at = text.indexOf('\n\nSecond paragraph');
-  expect(editor().state.doc.toString()).toBe(`${text.slice(0, at)}\n\n${imageSource}\n\n[notes.pdf](gugu-file://${attachment.id})\n${text.slice(at)}`);
+  expect(editor().state.doc.toString()).toBe(`${text.slice(0, at)}\n\n${imageSource}\n\n[notes.pdf](gugu-file://${attachment.id})${text.slice(at)}`);
   expect(editor().state.selection.main.head).toBe(at + 2);
   expect(document.body.dataset.mode).toBe('split');
   await until('the uploaded file is read and painted by the real Markdown renderer', () => {
@@ -241,11 +248,11 @@ it('inserts a file as a folder link, including an image chosen through File', as
 
 it.each([
   ['Heading', '## ', 'h2'], ['List', '- ', 'ul li'], ['To-do', '- [ ] ', 'ul li'],
-  ['Quote', '> ', 'blockquote'], ['Code block', '```\n\n```', 'pre'], ['Divider', '---\n', 'hr'],
+  ['Quote', '> ', 'blockquote'], ['Code block', '```\n\n```', 'pre'], ['Divider', '***', 'hr'],
 ])('inserts %s through + into the same Y.Text and preview', async (label, source, selector) => {
   await insertAtFirst(label);
   const at = text.indexOf('\n\nSecond paragraph');
-  expect(file.text).toBe(`${text.slice(0, at)}\n\n${source}\n${text.slice(at)}`);
+  expect(file.text).toBe(`${text.slice(0, at)}\n\n${source}${text.slice(at)}`);
   expect(editor().state.doc.toString()).toBe(ytext.toString());
   if (label !== 'Divider') await userEvent.keyboard('Inserted');
   await until('the inserted block is rendered', () => {
@@ -254,12 +261,16 @@ it.each([
   });
 });
 
-async function actOnParagraph(words: string, action: string, turn?: string) {
+async function paragraphMenu(words: string) {
   const paragraph = [...byId('preview').querySelectorAll('p')].find((p) => p.textContent === words)!;
   const box = paragraph.getBoundingClientRect();
   await pointer(box.left + 30, box.top + box.height / 2);
   await until('the paragraph controls appear', () => !controls().hidden);
   await openHandle('block-handle');
+}
+
+async function actOnParagraph(words: string, action: string, turn?: string) {
+  await paragraphMenu(words);
   const button = [...byId('menu').querySelectorAll('button')].find((item) => item.textContent === (turn ? 'Turn into ›' : action))!;
   if (turn) {
     const at = button.getBoundingClientRect();
@@ -274,11 +285,134 @@ it.each([
   ['List', '- First paragraph keeps its own actions.', 'ul li'],
   ['Quote', '> First paragraph keeps its own actions.', 'blockquote'],
   ['Code block', '```\nFirst paragraph keeps its own actions.\n```', 'pre'],
-])('turns a paragraph into %s by replacing its source span', async (label, source, selector) => {
+])('turns a paragraph into %s by changing only its source markers', async (label, source, selector) => {
   await actOnParagraph('First paragraph keeps its own actions.', 'Turn into', label);
   expect(file.text).toBe(text.replace('First paragraph keeps its own actions.', source));
   await until('the converted block is drawn', () => !!byId('preview').querySelector(selector)?.textContent?.includes('First paragraph keeps its own actions.'));
   expect(file.text).toContain('Second paragraph has different source lines.');
+});
+
+async function showSource(source: string) {
+  const before = renders;
+  editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: source } });
+  await userEvent.click(byId('mode-preview'));
+  await until('the new source is rendered', () => renders > before && file.text === source);
+}
+
+it.each([
+  '| a | b |\n| - | - |\n| 1 | 2 |',
+  '[ref]: https://example.com',
+])('uses syntax neighbors when deleting or moving above %s', async (neighbor) => {
+  const source = `Before.\n\n${neighbor}\n\nAfter.`;
+  await showSource(source);
+  await actOnParagraph('Before.', 'Delete');
+  expect(file.text).toBe(`${neighbor}\n\nAfter.`);
+  await showSource(source);
+  await actOnParagraph('Before.', 'Move down');
+  expect(file.text).toBe(`${neighbor}\n\nBefore.\n\nAfter.`);
+});
+
+it('keeps front matter fixed and exposes handles on table and rendered diagram wrappers', async () => {
+  const source = '---\ntitle: Test\n---\n\nFirst.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```mermaid\ngraph TD; A-->B\n```';
+  await showSource(source);
+  const props = byId('preview').querySelector('.gg-md-props')!.getBoundingClientRect();
+  await pointer(props.left + 30, props.top + props.height / 2);
+  expect(controls().hidden).toBe(true);
+  await paragraphMenu('First.');
+  expect([...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Move up')?.disabled).toBe(true);
+  await userEvent.keyboard('{Escape}');
+  for (const [selector, lines] of [['.gg-md-table-scroll', '7-9'], ['.gg-md-mermaid', '11-13']] as const) {
+    await until('the real wrapper has its source lines', () => byId('preview').querySelector(selector)?.getAttribute('data-line') === lines);
+    const box = byId('preview').querySelector(selector)!.getBoundingClientRect();
+    await pointer(box.left + 30, box.top + box.height / 2);
+    expect(controls().hidden).toBe(false);
+    await openHandle();
+    await userEvent.keyboard('{Escape}');
+  }
+  expect(file.text).toBe(source);
+});
+
+it('does not absorb a collaborator’s new paragraph appended at the old block end', async () => {
+  await paragraphMenu('First paragraph keeps its own actions.');
+  const at = file.text.indexOf('\n\nSecond paragraph');
+  ydoc.transact(() => ytext.insert(at, '\n\nRemote paragraph.'));
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Delete')!);
+  expect(file.text).toBe(text.replace('First paragraph keeps its own actions.\n\n', 'Remote paragraph.\n\n'));
+});
+
+it('converts with marker edits and moves without replacing the neighboring Y.Text characters', async () => {
+  const first = 'First paragraph keeps its own actions.', second = 'Second paragraph has different source lines.';
+  await paragraphMenu(first);
+  const word = file.anchor(file.text.indexOf('First'));
+  const at = file.text.indexOf('\n\nSecond paragraph');
+  ydoc.transact(() => ytext.insert(at, ' From another editor.'));
+  const turn = [...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Turn into ›')!;
+  const rect = turn.getBoundingClientRect();
+  await pointer(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  await userEvent.click([...turn.parentElement!.querySelectorAll('.menu-submenu button')].find((item) => item.textContent === 'Heading')!);
+  expect(file.text).toContain(`## ${first} From another editor.`);
+  expect(file.text.slice(file.resolve(word)!, file.resolve(word)! + 5)).toBe('First');
+  await showSource(text);
+  const neighborWord = file.anchor(file.text.indexOf('Second'));
+  await actOnParagraph(first, 'Move down');
+  expect(file.text).toBe(text.replace(`${first}\n\n${second}`, `${second}\n\n${first}`));
+  expect(file.text.slice(file.resolve(neighborWord)!, file.resolve(neighborWord)! + 6)).toBe('Second');
+});
+
+it('waits for a name conflict and inserts the surviving old file id after Replace', async () => {
+  const newId = '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f62';
+  const arrived = { ...picture, id: newId, clashWith: picture.id };
+  upload.mockImplementationOnce(async () => { folderEntries.push(arrived); return [arrived]; });
+  await insertAtFirst('Image…');
+  await until('the existing name question appears', () => !byId('conflicts').hidden);
+  expect(file.text).toBe(text);
+  await userEvent.click([...byId('conflicts').querySelectorAll('button')].find((item) => item.textContent === 'Replace the old one')!);
+  await until('the surviving file is referenced', () => file.text.includes(`gugu-file://${pictureId}`));
+  expect(file.text).not.toContain(newId);
+  expect(replace).toHaveBeenCalledOnce();
+  expect(remove).toHaveBeenCalledWith(arrived);
+});
+
+it('treats an upload without contentType as a file link and reports picker failures in the banner', async () => {
+  upload.mockResolvedValueOnce([{ ...attachment, contentType: undefined }]);
+  await insertAtFirst('Image…');
+  await until('a missing MIME type still inserts a link', () => file.text.includes(`[notes.pdf](gugu-file://${attachment.id})`));
+  expect(file.text).not.toContain('![');
+  await showSource(text);
+  upload.mockRejectedValueOnce(new Error('Picker denied'));
+  await insertAtFirst('Image…');
+  await until('the failure is visible', () => byId('banner').textContent?.includes('Picker denied') === true);
+  expect(file.text).toBe(text);
+});
+
+it('slash divider after a paragraph remains a divider and whitespace ends slash completion', async () => {
+  await showSource('Paragraph.\n');
+  await userEvent.click(byId('mode-edit'));
+  editor().dispatch({ selection: { anchor: editor().state.doc.length } });
+  editor().focus();
+  await userEvent.keyboard('/div');
+  await until('Divider is offered', () => document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Divider') === true);
+  await userEvent.keyboard('{Enter}');
+  expect(file.text).toBe('Paragraph.\n***\n');
+  await userEvent.click(byId('mode-split'));
+  await until('the paragraph is not converted into a setext heading', () => !!byId('preview').querySelector('hr') && byId('preview').querySelector('p')?.textContent === 'Paragraph.');
+  await showSource('\n');
+  await userEvent.click(byId('mode-edit'));
+  editor().dispatch({ selection: { anchor: 0 } });
+  editor().focus();
+  await userEvent.keyboard('/quo ');
+  await until('whitespace closes slash suggestions', () => !document.querySelector('.cm-tooltip-autocomplete'));
+});
+
+it('keeps keyboard focus on the handle after Escape until focus leaves it', async () => {
+  await paragraphMenu('First paragraph keeps its own actions.');
+  const title = byId('doc-title').getBoundingClientRect();
+  await pointer(title.left + 10, title.top + 5);
+  await userEvent.keyboard('{Escape}');
+  expect(document.activeElement).toBe(handle('block-handle'));
+  expect(controls().hidden).toBe(false);
+  byId('mode-edit').focus();
+  await until('focus leaving restores hiding', () => controls().hidden);
 });
 
 it('copies the whole block link and cites that source span from the actions handle', async () => {
@@ -335,9 +469,15 @@ it('keeps an insertion attached to its paragraph while another editor changes Y.
   await until('the collaborative insertion also reaches the preview', () => !!byId('preview').querySelector('img.gg-md-img'));
 });
 
-it('shows neither handle for a read-only document', async () => {
+it('keeps only link and whole-block citation actions for a read-only document', async () => {
   file.readOnly = true;
   const first = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
   await pointer(first.left + 40, first.top + first.height / 2);
-  expect(controls().hidden).toBe(true);
+  expect(controls().hidden).toBe(false);
+  expect(handle().hidden).toBe(true);
+  await openHandle('block-handle');
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((button) => button.textContent === 'Copy link to block')!);
+  await until('the read-only block link is copied', () => copied.at(-1) === 'gugu-file://reachability#3');
+  await actOnParagraph('First paragraph keeps its own actions.', 'Cite in chat');
+  expect(file.text).toBe(text);
 });

@@ -18,7 +18,7 @@ import * as autocomplete from '@codemirror/autocomplete'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 // @ts-expect-error — the built-in App's source-edit commands are plain ES modules.
-import { blockContent, turnBlock } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
+import { isFrontmatter, moveBlock, sourceBlocks, turnBlockChanges } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
 
 const TEXT = ['# 计划', '', '- [ ] 写完', '- [x] 定了', '', '正文 一句'].join('\n')
 const entry = {
@@ -128,7 +128,7 @@ describe('folder documents: reading', () => {
 
   test.each([
     ['Heading', '## ', 3], ['List', '- ', 2], ['To-do', '- [ ] ', 6],
-    ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '---\n', 4],
+    ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '***', 3],
   ])('%s inserts after the entire multi-line block, with its caret in the template', async (label, text, caret) => {
     const block = $('preview').querySelector('ul[data-line="3-4"]')!
     hoverBlock(block)
@@ -137,7 +137,7 @@ describe('folder documents: reading', () => {
     expect(menuItems().map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
     menuItems().find((item) => item.textContent === label)!.click()
     const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
-    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}\n\n${text}\n${TEXT.slice(at)}`)
+    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}\n\n${text}${TEXT.slice(at)}`)
     expect(view().state.selection.main.head).toBe(at + 2 + Number(caret))
     expect(document.body.dataset.mode).toBe('split')
     expect($('block-controls').hidden).toBe(true)
@@ -150,7 +150,12 @@ describe('folder documents: reading', () => {
     file.readOnly = true
     try {
       hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
-      expect($('block-controls').hidden).toBe(true)
+      expect($('block-controls').hidden).toBe(false)
+      expect($('block-insert').hidden).toBe(true)
+      $('block-handle').click()
+      expect(menuItems().map((item) => item.textContent)).toEqual(['Copy link to block', 'Cite in chat'])
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      view().focus()
     } finally {
       file.readOnly = false
     }
@@ -183,6 +188,24 @@ describe('folder documents: reading', () => {
       vi.useRealTimers()
     }
   })
+
+  test('Escape keeps a focused handle through the hide grace; focus leaving hides it', () => {
+    vi.useFakeTimers()
+    try {
+      hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
+      $('block-handle').click()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(document.activeElement).toBe($('block-handle'))
+      $('block-controls').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(150)
+      expect($('block-controls').hidden).toBe(false)
+      $('mode-edit').focus()
+      vi.advanceTimersByTime(150)
+      expect($('block-controls').hidden).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('folder documents: writing', () => {
@@ -193,13 +216,35 @@ describe('folder documents: writing', () => {
     ['> - [ ] nested', 'nested'],
     ['````js\nconst fence = "```"\n````', 'const fence = "```"'],
     ['literal - item and # marks with `tick`', 'literal - item and # marks with `tick`'],
-  ])('conversion removes only parsed block marks: %s', async (source, content) => {
+  ])('conversion preserves content characters and only changes parsed block markers: %s', async (source, content) => {
     view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
-    const actual = blockContent(view().state, { language }, 0, source.length)
-    expect(actual).toBe(content)
-    const code = turnBlock(actual, 'code')
-    expect(code).toContain(content)
-    if (content.includes('```')) expect(code).toBe(`\`\`\`\`\n${content}\n\`\`\`\``)
+    const block = sourceBlocks(view().state, { language })[0]
+    view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, 'quote') })
+    expect(view().state.doc.toString()).toBe(content.split('\n').map((line) => line.trim() ? `> ${line}` : line).join('\n'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('source neighbors include tables and invisible link definitions, with front matter kept as a boundary', async () => {
+    const source = '---\ntitle: Test\n---\n\nBefore.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n[ref]: https://example.com\n\nAfter.'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const blocks = sourceBlocks(view().state, { language })
+    expect(blocks.map((block: { name: string }) => block.name)).toEqual(['Frontmatter', 'Paragraph', 'Table', 'LinkReference', 'Paragraph'])
+    expect(isFrontmatter(blocks[0])).toBe(true)
+    const move = moveBlock(view().state.doc, blocks[1], blocks[2], true)
+    view().dispatch({ changes: move.changes })
+    expect(view().state.doc.toString()).toBe(source.replace('Before.\n\n| a | b |\n| - | - |\n| 1 | 2 |', '| a | b |\n| - | - |\n| 1 | 2 |\n\nBefore.'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each(['list', 'quote'])('converting to %s keeps blank lines blank', async (kind) => {
+    const source = '> one\n>\n> two'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, kind) })
+    const prefix = kind === 'list' ? '- ' : '> '
+    expect(view().state.doc.toString()).toBe(`${prefix}one\n\n${prefix}two`)
     view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
     await redraw()
   })

@@ -9,48 +9,80 @@ export const INSERT_BLOCKS = [
   { id: 'todo', label: 'insertTodo', text: '- [ ] ', caret: 6 },
   { id: 'quote', label: 'insertQuote', text: '> ', caret: 2 },
   { id: 'code', label: 'insertCode', text: '```\n\n```', caret: 4 },
-  { id: 'divider', label: 'insertDivider', text: '---\n', caret: 4 },
+  { id: 'divider', label: 'insertDivider', text: '***', caret: 3 },
 ]
 
-export function blockContent(state, cm, from, to) {
+export function sourceBlocks(state, cm) {
+  const tree = cm.language.ensureSyntaxTree(state, state.doc.length, 100)
+  if (!tree) throw new Error('Markdown syntax is not ready')
+  const blocks = []
+  for (let node = tree.topNode.firstChild; node; node = node.nextSibling) {
+    blocks.push({ from: state.doc.lineAt(node.from).from, to: state.doc.lineAt(Math.max(node.from, node.to - 1)).to, name: node.name })
+  }
+  return blocks
+}
+
+export function isFrontmatter(block) {
+  return /^frontmatter$/i.test(block.name)
+}
+
+// Only syntax marks change. The original content characters remain in Y.Text, including other people's edits.
+export function turnBlockChanges(state, cm, block, kind) {
   const { doc } = state
+  const { from, to, name } = block
   const tree = cm.language.ensureSyntaxTree(state, to, 100)
   if (!tree) throw new Error('Markdown syntax is not ready')
-  let top = tree.topNode.firstChild
-  while (top && top.to <= from) top = top.nextSibling
-  if (top?.from === from && (top.name === 'FencedCode' || top.name === 'CodeBlock')) {
-    const content = top.getChild('CodeText')
-    return content ? doc.sliceString(content.from, content.to) : ''
-  }
-  const marks = []
+  if (kind === 'code' && (name === 'FencedCode' || name === 'CodeBlock')) return []
+  const marks = new Map()
+  let underline = null
   tree.iterate({ from, to, enter(node) {
     if (node.from < from || node.to > to || !['HeaderMark', 'ListMark', 'QuoteMark', 'TaskMarker'].includes(node.name)) return
     const line = doc.lineAt(node.from)
-    // Setext's underline is its own line. Other block marks consume the separating horizontal space only.
-    const wholeLine = doc.sliceString(line.from, line.to).trim() === doc.sliceString(node.from, node.to)
+    if (node.name === 'HeaderMark' && line.from > from && doc.sliceString(line.from, line.to).trim() === doc.sliceString(node.from, node.to)) {
+      underline = line
+      return
+    }
     const end = node.to + /^[ \t]*/.exec(doc.sliceString(node.to, line.to))[0].length
-    marks.push({ from: wholeLine && line.from > from ? line.from - 1 : node.from, to: end })
+    marks.set(line.from, Math.max(marks.get(line.from) ?? line.from, end))
   } })
-  let result = '', at = from
-  for (const mark of marks) {
-    result += doc.sliceString(at, mark.from)
-    at = mark.to
+  let first = doc.lineAt(from).number, last = doc.lineAt(to).number
+  const changes = []
+  if (name === 'FencedCode') {
+    const open = doc.line(first), close = doc.line(last)
+    // An unclosed fence has no closing delimiter to remove.
+    let node = tree.resolveInner(from, 1)
+    while (node.parent && node.parent.parent) node = node.parent
+    const fences = node.getChildren('CodeMark')
+    const closed = fences.length > 1 && doc.lineAt(fences.at(-1).from).number === last
+    if (closed && last === first + 1) return [{ from, to, insert: '' }]
+    changes.push({ from: open.from, to: Math.min(doc.length, open.to + 1), insert: '' })
+    first++
+    if (closed) {
+      changes.push({ from: close.from - 1, to: close.to, insert: '' })
+      last--
+    }
   }
-  return result + doc.sliceString(at, to)
+  if (underline) {
+    changes.push({ from: underline.from - 1, to: underline.to, insert: '' })
+    last--
+  }
+  const fence = '`'.repeat(Math.max(3, ...[...doc.sliceString(from, to).matchAll(/`+/g)].map(([run]) => run.length + 1)))
+  for (let n = first; n <= last; n++) {
+    const line = doc.line(n)
+    const end = name === 'CodeBlock' ? line.from + Math.min(4, /^ */.exec(line.text)[0].length) : marks.get(line.from) ?? line.from
+    const content = doc.sliceString(end, line.to)
+    const prefix = !content.trim() ? '' : kind === 'heading' ? '## ' : kind === 'list' ? '- ' : kind === 'quote' ? '> ' : ''
+    const insert = (kind === 'code' && n === first ? `${fence}\n` : '') + prefix
+    if (end !== line.from || insert) changes.push({ from: line.from, to: end, insert })
+    if (kind === 'code' && n === last) changes.push({ from: line.to, insert: `\n${fence}` })
+  }
+  return changes.sort((a, b) => a.from - b.from)
 }
 
-export function turnBlock(content, kind) {
-  if (kind === 'heading') return `## ${content.replace(/\s*\n\s*/g, ' ')}`
-  if (kind === 'list') return content.split('\n').map((line) => `- ${line}`).join('\n')
-  if (kind === 'quote') return content.split('\n').map((line) => `> ${line}`).join('\n')
-  // A code block may itself contain backticks: its fence must be longer than any run inside it.
-  const fence = '`'.repeat(Math.max(3, ...[...content.matchAll(/`+/g)].map(([run]) => run.length + 1)))
-  return `${fence}\n${content}\n${fence}`
-}
-
-export function swapBlocks(doc, first, second) {
-  const left = doc.sliceString(first.from, first.to)
-  const gap = doc.sliceString(first.to, second.from)
-  const right = doc.sliceString(second.from, second.to)
-  return { from: first.from, to: second.to, insert: right + gap + left, movedDown: right.length + gap.length }
+export function moveBlock(doc, block, neighbor, down) {
+  const text = doc.sliceString(block.from, block.to)
+  const gap = down ? doc.sliceString(block.to, neighbor.from) : doc.sliceString(neighbor.to, block.from)
+  return down
+    ? { changes: [{ from: block.from, to: neighbor.from, insert: '' }, { from: neighbor.to, insert: gap + text }], head: neighbor.to - (neighbor.from - block.from) + gap.length }
+    : { changes: [{ from: neighbor.from, insert: text + gap }, { from: neighbor.to, to: block.to, insert: '' }], head: neighbor.from }
 }
