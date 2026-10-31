@@ -197,6 +197,10 @@ export interface GroupMemberItem {
 }
 
 export interface GroupChatSettings {
+  my_role: GroupMemberRole | null
+  can_manage: boolean
+  can_dissolve: boolean
+  can_archive_topic: boolean
   id: string
   public_id?: number | null
   creator_user_id: string | null

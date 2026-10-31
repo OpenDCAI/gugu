@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { GroupChatSettings, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
+import type { GroupChatSettings, GroupCollabSnapshot, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
 import { rendererLogger } from '../../lib/log'
 
@@ -23,7 +23,12 @@ function pick(source: GroupChatSettings, keys: readonly SettingsKey[]): Partial<
  *   · 失败时只把「这次写的字段」回滚到改之前 —— 不会顺带撤掉同时成功的另一项(或刚传好的头像)。
  *   同一字段被连写两次时,只有最后一次发出的那次有资格改它(per-field 序号)。
  */
-export function useGroupChatSettings(chatId: string) {
+/** Settings carry the viewer's authority: re-read them when a projected role changes, not on every roster refresh. */
+export function groupRoleRevision(snapshot: GroupCollabSnapshot): string {
+  return [...snapshot.humans, ...snapshot.agents].map((member) => `${member.id}:${member.role}`).sort().join(',')
+}
+
+export function useGroupChatSettings(chatId: string | null, revision?: string) {
   const { t } = useTranslation('messaging')
   const [settings, setSettings] = useState<GroupChatSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -32,23 +37,38 @@ export function useGroupChatSettings(chatId: string) {
   const latestWrite = useRef(new Map<SettingsKey, number>())
   const writeSeq = useRef(0)
 
+  // A chat switch starts empty; a role change re-reads in place (the first roster load is not a change).
+  const [roleChange, setRoleChange] = useState(0)
+  const seenRevision = useRef<{ chatId: string | null; revision?: string }>({ chatId })
   useEffect(() => {
-    let cancelled = false
+    const seen = seenRevision.current
+    if (seen.chatId !== chatId) seenRevision.current = { chatId, revision }
+    else if (seen.revision && revision && seen.revision !== revision) { seen.revision = revision; setRoleChange((n) => n + 1) }
+    else if (!seen.revision) seen.revision = revision
+  }, [chatId, revision])
+
+  useEffect(() => {
     setSettings(null)
     setError(null)
     latestWrite.current.clear()
+  }, [chatId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!chatId) return
     chatService.getGroupChatSettings(chatId)
       .then((loaded) => { if (!cancelled) setSettings(loaded) })
       .catch((err: unknown) => {
         if (cancelled) return
+        settingsLog.error({ error: err, chatId }, 'group settings load failed')
         setError(t('group.settings.loadFailed', { reason: String((err as Error)?.message ?? err) }))
       })
     return () => { cancelled = true }
-  }, [chatId, t])
+  }, [chatId, t, roleChange])
 
   const update = useCallback(async (input: UpdateGroupChatSettingsInput): Promise<boolean> => {
     const before = settingsRef.current
-    if (!before) {
+    if (!chatId || !before) {
       // 设置还没读到(或读失败)时写,只会拿一个不存在的「之前」去对账 —— 明说,❌ 静默丢掉这次操作。
       setError(t('group.settings.notLoaded'))
       return false

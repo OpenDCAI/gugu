@@ -9,12 +9,14 @@ export function isGroupManagerRole(role: string | null | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
 
-export function canInviteHumansToGroup(input: {
-  viewerRole: string | null | undefined
-  allowMemberInvite: boolean
-}): boolean {
-  if (!input.viewerRole) return false
-  return isGroupManagerRole(input.viewerRole) || input.allowMemberInvite
+/** Reads the server's projection of the viewer (group_info_as), never a locally held roster role. */
+export function canInviteHumansToGroup(settings: {
+  my_role: string | null
+  can_manage: boolean
+  allow_member_invite: boolean
+} | null): boolean {
+  if (!settings?.my_role) return false
+  return settings.can_manage || settings.allow_member_invite
 }
 
 /**

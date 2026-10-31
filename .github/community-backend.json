@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "b336fd3b3076932b5f964f51413d6cc3d46eb10f",
-  "status": "merged in OpenDCAI/gugu-supabase#117; archive removes social identity and live membership reads use chat.active_members"
+  "ref": "4afce707b7eef332570e4db84c797529f43c8966",
+  "status": "merged in OpenDCAI/gugu-supabase#121; group and topic management authority comes from the source conversation"
 }

@@ -52,6 +52,8 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       identities: [],
     })),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'chat-1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 // 真 hook 的返回值在状态不变时身份稳定;替身也必须稳定,否则量到的是替身制造的重渲。

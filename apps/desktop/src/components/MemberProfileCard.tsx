@@ -138,6 +138,7 @@ export interface MemberProfileEditControls {
   // @@@1208 (#857 收尾) listen-mode 变更:agent 的主人看它时父级才给这个回调,分段控件变可交互(否则只读镜像)。
   onChangeListenMode?: (mode: ListenMode) => Promise<void> | void
   canRemove?: boolean
+  removeLabel?: string
   onRemove?: () => Promise<void> | void
   busy?: boolean
   // @@@2247 - error text for the last manage-control mutation (remove / role / listen). The
@@ -439,7 +440,7 @@ export function MemberProfileCard({
               onClick={() => editControls.onRemove?.()}
               disabled={editBusy}
             >
-              {isAgent && member.ownerUserId === user?.id ? t('profile.agentLeaveGroup') : t('profile.removeFromGroup')}
+              {editControls?.removeLabel ?? (isAgent && member.ownerUserId === user?.id ? t('profile.agentLeaveGroup') : t('profile.removeFromGroup'))}
             </button>
           ) : null}
           {editControls?.editError ? (
