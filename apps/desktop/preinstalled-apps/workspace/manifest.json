@@ -4,7 +4,7 @@
   "defaultLocale": "zh-CN",
   "subtitle": "共享文件：Markdown、JSON 预览与编辑",
   "localized": {
-    "en": { "subtitle": "Shared Markdown and JSON files" }
+    "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files" }
   },
   "author": "咕咕",
   "version": "0.2.62",

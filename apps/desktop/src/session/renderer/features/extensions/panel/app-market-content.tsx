@@ -3,7 +3,7 @@ import { AppFeaturedCard } from './app-featured';
 import { AppShelfRow } from './app-shelf';
 import { MarketAppRow } from './app-rows';
 import type { AppLifecycle } from './app-lifecycle-button';
-import type { ProductPageApi } from './app-product-page';
+import { screenshotsLanguage, type ProductPageApi } from './app-product-page';
 import type { ExtensionPendingAction } from './extension-pending';
 import { ShelfMoreSkeleton } from './extension-skeletons';
 import { Button } from '@renderer/lib/ui/button';
@@ -92,7 +92,11 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
         version={item.manifest.version}
         name={text.name}
         subtitle={text.subtitle}
-        meta={`${translate(`extensions.category.${marketCategoryOf(item.manifest)}`)} · ${translate('extensions.official')}`}
+        meta={[
+          translate(`extensions.category.${marketCategoryOf(item.manifest)}`),
+          translate('extensions.official'),
+          ...(screenshotsLanguage(item.manifest, locale) ? [translate('extensions.screenshotsIn', { language: screenshotsLanguage(item.manifest, locale)! })] : []),
+        ].join(' · ')}
         iconUrl={item.cloud.iconUrl}
         lifecycle={lifecycleOf(item.manifest.id, item)}
         pending={pending[item.manifest.id]}

@@ -298,10 +298,13 @@ export function AppProductPage({
   const declaring = installed ?? manifest;
   const programs = (declaring.contributes.mcpServers ?? []).map((server) => ('name' in server ? server.name : server.tools));
 
-  // ── 截图轮播(照 Google Play:产品页头下面一排图,放不下就横着翻;不写图注)──
+  // ── 截图轮播(照 Google Play:产品页头下面一排图,放不下就横着翻;不写图注)。截图是 defaultLocale 那种语言的界面:
+  // 界面语言是别的,就照实说一句是哪种语言的,❌ 当成这种语言的 ──
+  const shotsLanguage = screenshotsLanguage(manifest, locale);
   const screenshots =
     shots.length > 0 ? (
       <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview" data-image-gallery="">
+        {shotsLanguage ? <p className="mk-note" data-testid="app-product-shots-language">{translate('extensions.screenshotsIn', { language: shotsLanguage })}</p> : null}
         <AppShelfRow label={translate('extensions.preview')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')}>
           {shots.map((src, index) => (
             <figure className="mk-shot" role="listitem" key={src}>
@@ -863,6 +866,17 @@ function shortDate(iso: string, locale: string): string {
     return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(iso));
   } catch {
     return iso;
+  }
+}
+
+/** 截图的语言(manifest 的 defaultLocale)不是界面语言时,那种语言用界面语言怎么叫;是同一种就是 null。 */
+export function screenshotsLanguage(manifest: Pick<ExtensionManifest, 'defaultLocale'>, locale: string): string | null {
+  const language = manifest.defaultLocale.split('-')[0]!;
+  if (language === locale.split('-')[0]) return null;
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(language) ?? language;
+  } catch {
+    return language;
   }
 }
 

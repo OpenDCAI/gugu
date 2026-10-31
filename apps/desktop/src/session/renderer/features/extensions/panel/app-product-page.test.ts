@@ -214,6 +214,18 @@ describe('App 的产品页 (#7059)', () => {
     expect(asked).toEqual(['把刚才查到的三个结论记进随手记']);
   });
 
+  it('截图是 defaultLocale 那种语言的界面:界面语言是别的就照实说一句,同一种就不说', async () => {
+    const listing = { about: { 'zh-CN': '番茄钟。' }, screenshots: ['https://download.example/a.png'] };
+    const zh = { ...(pomodoro as object), defaultLocale: 'zh-CN' } as never;
+    const subject = { subject: { manifest: zh, installed: undefined, installRef: undefined, cloud: cloud('1.2.0') }, api: listingOf(listing) as never };
+    await render({ ...subject, locale: 'en-US' }, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-shots-language"]')?.textContent).toBe('extensions.screenshotsIn(Chinese)');
+    });
+    await render({ ...subject, locale: 'zh-CN' }, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-shots-language"]')).toBeNull();
+    });
+  });
+
   it('「它带来了什么」原样写出它给每个 agent 的那一行(`<gugu_apps>` 里就是这句)', async () => {
     await render({}, async (document) => {
       expect(document.querySelector('[data-testid="app-product-instructions"]')?.textContent).toContain('pomodoro__log(minutes): log a focus block.');
