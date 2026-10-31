@@ -169,7 +169,7 @@ export function DevicesSection({
       upgradePercent={upgrades.get(device.device_id) ?? null}
       onRetryUpdate={() => void requestSshServerUpgrade(device.device_id, { force: true })}
       onRetryVersionMatch={() => retryServerVersionMatch(device.device_id)}
-      onRestartVersionNow={(version) => restartServerVersionNow(device.device_id, version)}
+      onRestartVersionNow={(version) => restartServerVersionNow(device.device_id, version, serverSupportsConfirmedRestart(device.capabilities))}
       onRelogin={canAddServer && addressOf(device.device_id)
         ? () => {
             setRelogin({ deviceId: device.device_id, address: addressOf(device.device_id)! })
@@ -477,8 +477,8 @@ function DeviceRow({
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
   const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
-  const canRestart = serverSupportsConfirmedRestart(device.capabilities) && model.update?.scope === 'account'
-  if ((updateNow === 'ask' && (!canRestart || model.update?.state !== 'ready'))
+  const canUpdateNow = model.update?.scope === 'account'
+  if ((updateNow === 'ask' && (!canUpdateNow || model.update?.state !== 'ready'))
     || (restarting && (model.version === restarting.version
       || (model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)
   useEffect(() => {
@@ -532,7 +532,7 @@ function DeviceRow({
                   : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}
-            {model.update?.state === 'ready' && canRestart && onRestartVersionNow && updateNow === null && (
+            {model.update?.state === 'ready' && canUpdateNow && onRestartVersionNow && updateNow === null && (
               <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
             )}
             {model.notices
@@ -551,9 +551,9 @@ function DeviceRow({
         ))}
 
         {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
-        {model.update?.state === 'ready' && canRestart && onRestartVersionNow && updateNow === 'ask' && (
+        {model.update?.state === 'ready' && canUpdateNow && onRestartVersionNow && updateNow === 'ask' && (
           <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
-            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('devices.update.updateNowConfirm', { name: device.label })}</span>
+            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t(typeof model.update.busy_agents === 'number' ? 'devices.update.updateNowConfirmCount' : 'devices.update.updateNowConfirm', { name: device.label, count: model.update.busy_agents })}</span>
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
             <Button size="sm" variant="primary" onClick={() => {
               if (!model.update) return
