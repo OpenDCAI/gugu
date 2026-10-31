@@ -397,6 +397,16 @@ describe('a start answered by session-life', () => {
     await vi.waitFor(() => expect(life.start).toHaveBeenCalledTimes(1));
   });
 
+  it('a run that fails after the page attached is said on the page, without a reopen', async () => {
+    const store = startFresh();
+    store.bootstrap();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledTimes(1));
+    life.settle(store.sessionId, 'ready');
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    life.settle(store.sessionId, 'failed', { at: 'process', message: 'Worker gone', cause: { name: 'Error', message: 'Worker gone' } });
+    await vi.waitFor(() => expect(store.loadError?.message).toBe('Worker gone'));
+  });
+
   it('retry waits for the new attempt: the previous failed view does not answer it', async () => {
     const store = startFresh();
     store.bootstrap();

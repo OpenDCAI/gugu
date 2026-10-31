@@ -363,12 +363,13 @@ import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
 import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
-import { lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
+import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
 import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
 import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
 import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
+import type { LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
 import { openProject } from '@main/core/projects/operations/openProject'
@@ -553,7 +554,10 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
     markRead: row => sessionLifeSources.markRead(row),
     reportFailure: (rows, cause) => sessionLifeSources.reportFailure(rows, cause),
-    publish: view => events.emit(sessionLifeViewChannel, view),
+    publish: view => {
+      events.emit(sessionLifeViewChannel, view)
+      for (const cb of lifeViewSubscribers) cb(view)
+    },
     removed: sessionId => log.info('session-life: session removed', { sessionId }),
     failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
     now: Date.now,
@@ -2227,6 +2231,21 @@ export function onAgentStatus(cb: (change: AgentStatusChange) => void): () => vo
 /** 启动 / 重连时的对账:每条会话此刻的读数(与写入者第一次触及它时得到的同一个)。 */
 export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
   return agentStatusWriter.snapshot()
+}
+
+const lifeViewSubscribers = new Set<(view: LifeView) => void>()
+
+/** Host-side readers of every session-life transition (`events` only reaches renderers). Returns the unsubscribe. */
+export function onSessionLifeView(cb: (view: LifeView) => void): () => void {
+  lifeViewSubscribers.add(cb)
+  return () => {
+    lifeViewSubscribers.delete(cb)
+  }
+}
+
+/** A session's current LifeView; null = session-life does not own it (terminal legs). */
+export function sessionLifeViewOf(sessionId: string): LifeView | null {
+  return isLifeSession(sessionId) ? sessionLife().read(sessionId) : null
 }
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()

@@ -197,6 +197,7 @@ import {
   type AgentInboxSource,
 } from '@gugu/core/local/agent/agentInboxReader'
 import type { PendingRow as SessionLifePendingRow } from './session/main/core/sessions/session-life-adapter'
+import { displayStatus } from '@shared/core/sessions/session-life'
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
 // #4280 —— 壳的唯一 producer 住在这里,三条渠道都从它出字节。
 import {
@@ -4912,7 +4913,9 @@ app.whenReady().then(async () => {
         return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
           const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
-          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          // A session-life session composes its lifecycle first, the same displayStatus as session_get and the pill.
+          const status = entry?.life ? displayStatus(entry.life, entry.reading?.status ?? null) : entry?.reading?.status ?? null
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -6369,6 +6372,8 @@ app.whenReady().then(async () => {
             onAgentStatus: (cb) => emdash.onAgentStatus(cb),
             agentStatusSnapshot: () => emdash.agentStatusSnapshot(),
             onSessionsGone: (cb) => emdash.onSessionsGone(cb),
+            onSessionLifeView: (cb) => emdash.onSessionLifeView(cb),
+            sessionLifeViewOf: (sessionId) => emdash.sessionLifeViewOf(sessionId),
           },
           { env: process.env, warn: (message) => sessionpageActivityLogger.warn(message) },
         )

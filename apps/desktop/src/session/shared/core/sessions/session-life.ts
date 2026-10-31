@@ -23,11 +23,14 @@ export interface LifeView {
   readonly nativeSession: 'preserved' | 'replaced' | null;
 }
 
+/** What the agent status feed carries of a session's LifeView (the chat-page pill). */
+export type LifeStatus = Pick<LifeView, 'kind' | 'stage'>;
+
 /**
  * The one composition of a session-life session's status (session_get, session_peers, the pill): its lifecycle answers
  * first (archived, starting, failed), otherwise the activity the status writer recorded.
  */
-export function displayStatus(life: LifeView, activity: AgentStatus | null): AgentStatus | 'starting' | 'archived' | null {
+export function displayStatus(life: Pick<LifeView, 'kind'>, activity: AgentStatus | null): AgentStatus | 'starting' | 'archived' | null {
   switch (life.kind) {
     case 'archived': return 'archived';
     case 'starting': return 'starting';

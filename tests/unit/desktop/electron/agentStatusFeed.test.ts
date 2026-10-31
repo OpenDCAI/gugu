@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { updateAgent } from '@gugu/core'
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus'
 import type { AgentStatusChange, SessionScope } from '@shared/core/sessions/sessionEvents'
+import type { LifeView } from '@shared/core/sessions/session-life'
 import {
   SessionpageLocalDeliveryRouter,
   createSessionpageDeliveryBridge,
@@ -60,8 +61,14 @@ function writerSource() {
   const listeners = new Set<(change: AgentStatusChange) => void>()
   const gone = new Set<(scope: SessionScope) => void>()
   const snapshot: AgentStatusChange[] = []
+  const lifeListeners = new Set<(view: LifeView) => void>()
+  const lives = new Map<string, LifeView>()
   return {
     snapshot,
+    life(view: LifeView) {
+      lives.set(view.sessionId, view)
+      for (const listener of lifeListeners) listener(view)
+    },
     emit(c: AgentStatusChange) {
       for (const listener of listeners) listener(c)
     },
@@ -82,6 +89,11 @@ function writerSource() {
         gone.add(cb)
         return () => gone.delete(cb)
       },
+      onSessionLifeView: (cb: (view: LifeView) => void) => {
+        lifeListeners.add(cb)
+        return () => lifeListeners.delete(cb)
+      },
+      sessionLifeViewOf: (sessionId: string) => lives.get(sessionId) ?? null,
     },
   }
 }
@@ -93,6 +105,10 @@ async function settle(): Promise<void> {
   await Promise.allSettled(snapshotReads.splice(0))
   await Promise.allSettled(rosterLookups.splice(0))
 }
+
+const lifeView = (sessionId: string, version: number, kind: LifeView['kind'], stage: LifeView['stage'] = null): LifeView => ({
+  sessionId, version, kind, stage, pending: { count: 0, items: [] }, hold: null, failure: null, lastExit: null, nativeSession: null,
+})
 
 async function bindAgent(env: NodeJS.ProcessEnv, sessionId = SESSION_ID) {
   await createTestLocalAgent(
@@ -141,6 +157,41 @@ describe('宿主按 agent 的流:agent 的状态 = 它绑的那条会话的读�
     ])
     expect(heard[1]![2]).toBeGreaterThan(heard[0]![2])
     expect(feed.snapshot().version).toBe(heard[1]![2])
+    feed.dispose()
+  })
+
+  it('the entry carries the bound session\'s lifecycle and republishes when only the lifecycle moves', async () => {
+    const env = await isolatedGuguEnv('gugu-agent-status-feed-life-')
+    await bindAgent(env)
+    const feed = new AgentStatusFeed()
+    const writer = writerSource()
+    const heard: Array<string | null> = []
+    feed.attach(writer.source, { env })
+    feed.subscribe((_agentUserId, entry) => heard.push(entry?.life?.kind ?? null))
+    const stage = { at: 'identity', index: 0, total: 7, since: 1 } as const
+    writer.life(lifeView(SESSION_ID, 1, 'starting', stage))
+    expect(feed.get(AGENT_ID), 'a view for an unbound session lights no one').toBeNull()
+
+    writer.emit(change(SESSION_ID, reading('idle', 'plain')))
+    await settle()
+    expect(feed.get(AGENT_ID)?.life).toEqual({ kind: 'starting', stage })
+
+    writer.life(lifeView(SESSION_ID, 2, 'ready'))
+    expect(feed.get(AGENT_ID)?.life).toEqual({ kind: 'ready', stage: null })
+    writer.life(lifeView(SESSION_ID, 3, 'ready'))
+    expect(heard, 'same kind and stage is the same entry').toEqual(['starting', 'ready'])
+    feed.dispose()
+  })
+
+  it('a session session-life does not own carries life null', async () => {
+    const env = await isolatedGuguEnv('gugu-agent-status-feed-life-')
+    await bindAgent(env)
+    const feed = new AgentStatusFeed()
+    const writer = writerSource()
+    feed.attach(writer.source, { env })
+    writer.emit(change(SESSION_ID, reading('working', 'running')))
+    await settle()
+    expect(feed.get(AGENT_ID)?.life).toBeNull()
     feed.dispose()
   })
 

@@ -37,7 +37,7 @@ import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
-import { action, computed, makeObservable, observable, runInAction, when } from 'mobx';
+import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
@@ -1997,6 +1997,15 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
+    // A run that fails after the page attached (its restart after an exit, say) is said here, as a failed open is:
+    // the page's next open would only show it, never start it again.
+    const lifeId = this.runtimeSessionId;
+    const attachedVersion = sessionLifeView(lifeId)?.version ?? 0;
+    this._unsubs.push(reaction(() => sessionLifeView(lifeId), (view) => {
+      if (!view || view.version <= attachedVersion || view.kind !== 'failed' || !view.failure) return;
+      const failure = view.failure;
+      runInAction(() => { this.loadError = toLoadError(lifeFailureError(failure), machineRegistry.machineOf(lifeId)); });
+    }));
     const initialState = session.sessionState.current();
     let refreshingChildren = false;
     let childrenChanged = false;

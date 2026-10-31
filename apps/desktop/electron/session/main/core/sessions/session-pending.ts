@@ -92,6 +92,11 @@ export function lifeSessions(): readonly string[] {
   return db.select({ id: sessions.id }).from(sessions).where(eq(sessions.runtime, 'acp')).all().map(row => row.id);
 }
 
+/** Whether session-life owns this session (a missing row is not one). */
+export function isLifeSession(sessionId: string): boolean {
+  return db.select({ runtime: sessions.runtime }).from(sessions).where(eq(sessions.id, sessionId)).get()?.runtime === 'acp';
+}
+
 export const lifeStore: LifeStore = {
   read(sessionId) {
     const row = db.select({ archivedAt: sessions.archivedAt, hold: sessions.lifeHold }).from(sessions).where(eq(sessions.id, sessionId)).get();
