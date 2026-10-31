@@ -116,6 +116,8 @@ function UnitDebugOverlay(props: {
 // ── UnitRowProps ──────────────────────────────────────────────────────────────
 
 export type UnitRowProps = {
+  /** False while the transcript is off screen: the row keeps its last height and measures again when shown (@@@hidden-no-layout). */
+  shown?: boolean;
   unit: RenderUnit;
   /** Absolute unit index in the flat units array (used by virt.setSize). */
   index: number;
@@ -187,7 +189,8 @@ export function UnitRow(props: UnitRowProps) {
     background: props.background,
   });
 
-  const contentH = createMemo(() => {
+  const contentH = createMemo<number>((previous) => {
+    if (props.shown === false) return previous ?? 0;
     const d = def();
     if (!d) return 0;
     return d.measure(props.unit.data, logicalMeasureCtx(), d.vars ?? {});
