@@ -68,15 +68,20 @@ describe('restartSession on a session-life session', () => {
     expect(rows).toEqual([{ text: '把测试跑一遍' }]);
   });
 
-  it('a press while the restart is in flight joins it: one replay', async () => {
+  it('a 重来 before the engine took the last replay is that same restart: one row, and a later press rests nothing', async () => {
     await Promise.all([restartSession('p', 's'), restartSession('p', 's')]);
+    await restartSession('p', 's');
     const rows = fixture.sqlite.prepare("SELECT message_id AS id FROM session_pending WHERE session_id = 's'").all();
-    expect(rows).toHaveLength(1);
+    expect(rows).toEqual([{ id: 's:restart:0' }]);
+    expect(mocks.calls.filter(call => call.startsWith('reconfigure'))).toHaveLength(2);
   });
 
-  it('a second 重来 is a second replay (a new id each time), never swallowed by the first', async () => {
+  it('once the engine took the replay, the next 重来 is a new replay', async () => {
     await restartSession('p', 's');
+    fixture.sqlite.prepare("UPDATE session_pending SET state = 'accepted' WHERE session_id = 's'").run();
     await restartSession('p', 's');
-    expect(new Set(mocks.enqueued.map((input) => input.messageId)).size).toBe(2);
+    const rows = fixture.sqlite.prepare("SELECT message_id AS id FROM session_pending WHERE session_id = 's' ORDER BY seq").all();
+    expect(rows).toEqual([{ id: 's:restart:0' }, { id: 's:restart:1' }]);
   });
+
 });

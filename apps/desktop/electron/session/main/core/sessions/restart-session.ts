@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { sessions } from '@main/db/schema';
+import { sessionPending, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
@@ -8,7 +8,6 @@ import type { SessionConfig } from '@shared/core/sessions/session-config';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { hydrateSession } from './hydrateSession';
 import { sessionLife } from './session-life';
-import { randomUUID } from 'node:crypto';
 
 /**
  * spec session-resume:引擎侧什么都没有的会话,**照咕咕记着的那句首轮重来**(= restart)。
@@ -20,16 +19,7 @@ import { randomUUID } from 'node:crypto';
  * ❌ 不是「新建一条顶上」:会话 id、标题、在任务里的位置全都原样保留,用户看到的是
  * 「这句话正在重新跑」,不是一条凭空多出来的会话。
  */
-export function restartSession(projectId: string, sessionId: string): Promise<void> {
-  // A press while this session's restart is still in flight is the same restart (one replay), not a second one.
-  const current = restarting.get(sessionId) ?? restartOnce(projectId, sessionId).finally(() => restarting.delete(sessionId));
-  restarting.set(sessionId, current);
-  return current;
-}
-
-const restarting = new Map<string, Promise<void>>();
-
-async function restartOnce(
+export async function restartSession(
   projectId: string,
   sessionId: string
 ): Promise<void> {
@@ -45,6 +35,11 @@ async function restartOnce(
     .limit(1);
   if (!row) throw new Error('Session not found');
   if (!row.config) throw new Error(`Session has no config: ${sessionId}`);
+  // ACP: this restart's replay is numbered by the replays the engine already took. Until it takes this one, another
+  // 重来 (a second press, another window) is this same restart: nothing to rest, nothing to enqueue again.
+  const replayId = row.runtime === 'acp' ? `${sessionId}:restart:${acceptedReplays(sessionId)}` : null;
+  if (replayId && db.select({ seq: sessionPending.seq }).from(sessionPending)
+    .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.messageId, replayId))).get()) return;
 
   // 记着的首轮:优先用还留在载荷里的那份(它本来就是要投递的那句),否则用创建时记下的事实。
   const replay = row.config.initialPrompt?.trim() || row.config.firstUtterance?.trim();
@@ -96,14 +91,20 @@ async function restartOnce(
     type: row.runtime,
   });
 
-  // pty 在主进程这边就地重起。ACP: the replay is a new pending row with a new id (the first run's row was accepted:
-  // reusing its id would be a no-op). A reconfigure first rests a run and leaves a failure, so the replay starts a
-  // fresh run on the cleared provider session and is delivered once.
-  if (row.runtime === 'acp') {
+  // pty 在主进程这边就地重起。ACP: the replay is a new pending row (the first run's row was accepted: reusing its id
+  // would be a no-op). A reconfigure first rests a run and leaves a failure, so the replay starts a fresh run on the
+  // cleared provider session and is delivered once.
+  if (replayId) {
     await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' });
-    sessionLife().enqueue({ sessionId, messageId: `${sessionId}:restart:${randomUUID()}`, text: replay, kind: 'ordinary',
+    sessionLife().enqueue({ sessionId, messageId: replayId, text: replay, kind: 'ordinary',
       turn: { kind: 'prompt', origin: 'manual' } });
   } else {
     await hydrateSession(projectId, sessionId);
   }
+}
+
+function acceptedReplays(sessionId: string): number {
+  return db.select({ seq: sessionPending.seq }).from(sessionPending)
+    .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.state, 'accepted'), like(sessionPending.messageId, `${sessionId}:restart:%`)))
+    .all().length;
 }
