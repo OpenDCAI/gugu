@@ -141,6 +141,14 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       }
     } finally { running = false; }
   };
+  // A started turn makes the record grow: persist that, so a host that dies before the settled edge rereads it at start.
+  const growing = (id: string) => {
+    if (signal.aborted) return;
+    void write(current => {
+      const latest = current.taskCoverage().find(row => row.taskId === id);
+      return latest ? [{ kind: 'taskCoverage', coverage: { ...latest, exhausted: false, reason: 'active' } }] : [];
+    }).catch(error => log.error('Task search coverage update failed', { sessionId: id, error: String(error) }));
+  };
   const reconcile = (id: string, from = -1, scan = true, record = false) => {
     if (signal.aborted) return;
     const coverage = store.taskCoverage().find(row => row.taskId === id);
@@ -192,6 +200,7 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       const wasRunning = runningTasks.has(change.sessionId);
       if (change.reading.running) { runningTasks.add(change.sessionId); unwatch(change.sessionId); }
       else runningTasks.delete(change.sessionId);
+      if (!wasRunning && change.reading.running) growing(change.sessionId);
       if (wasRunning && !change.reading.running) reconcile(change.sessionId, -1, true, true);
     }),
   ];

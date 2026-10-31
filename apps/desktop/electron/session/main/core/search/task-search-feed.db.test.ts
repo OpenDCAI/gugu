@@ -167,6 +167,19 @@ it('rereads a record left settling by an earlier lifetime and closes the watch w
   expect(state.watch).toHaveBeenCalledOnce();
 });
 
+it('rereads a record whose turn started before the host died, with no settled edge after it', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  state.status!({ sessionId: 's', reading: { running: true } });
+  await waitFor(() => expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: false, reason: 'active' }]));
+  // The host dies mid-turn; the boot sweep settles the row without a status edge.
+  abort.abort(); store.close(); store = new MessageSearchStore(root, 'owner');
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledTimes(2);
+});
+
 it.each(['unsupported', 'diverged'])('settles %s records while retaining the unavailable-history reason', async status => {
   state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
   state.sync.mockResolvedValue({ inserted: 0, status });
