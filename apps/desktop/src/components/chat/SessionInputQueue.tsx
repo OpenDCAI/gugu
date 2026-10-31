@@ -5,6 +5,7 @@ import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
 import { conversationQuoteText } from '@session-chat/state/conversation-quote-text'
 import { MessageSendingIndicator } from './MessageSendingIndicator'
 import { Button } from '@renderer/lib/ui/button'
+import { messageForUser } from '@/lib/userFacingError'
 
 const NO_CONFIRMATIONS: readonly string[] = []
 
@@ -15,13 +16,13 @@ export function SessionInputQueue({ sessionId, confirmedClientMessageIds = NO_CO
   const [reconcileError, setReconcileError] = useState<string | null>(null)
   useEffect(() => {
     if (pending.some(input => confirmedClientMessageIds.includes(input.id))) void confirmSessionInputs(sessionId, confirmedClientMessageIds)
-      .catch(error => setReconcileError(error instanceof Error ? error.message : String(error)))
+      .catch(error => setReconcileError(messageForUser(error)))
   }, [sessionId, pending, confirmedClientMessageIds])
   const visible = pending.filter(input => !confirmedClientMessageIds.includes(input.id))
   const retry = async () => {
     setReconcileError(null)
     try { await retrySessionInputs() }
-    catch (error) { setReconcileError(error instanceof Error ? error.message : String(error)) }
+    catch (error) { setReconcileError(messageForUser(error)) }
   }
   if (!visible.length && !reconcileError) return null
   return <div className="flex flex-col gap-2 px-3 py-2" data-native-input-queue="">
@@ -32,7 +33,7 @@ export function SessionInputQueue({ sessionId, confirmedClientMessageIds = NO_CO
         {input.attachments?.map(attachment => <div key={attachment.type === 'attachment' ? attachment.id : attachment.originalPath}>{attachment.name ?? t('message.attachment')}</div>)}
       </div>
       {input.error ? <div className="flex items-center gap-2 text-sm">
-        <span role="alert">{input.error}</span>
+        <span role="alert">{messageForUser(input.error)}</span>
         <Button size="xs" variant="ghost" onClick={() => { void retry() }}>{t('common.retry')}</Button>
       </div> : <div className="flex items-center gap-1 text-xs text-foreground-muted" role="status">
         <MessageSendingIndicator label={t('message.sendStatus.pending')} />
