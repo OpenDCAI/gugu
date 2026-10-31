@@ -71,8 +71,7 @@ export function useSessionSourceMessage(store: SourceStore | null | undefined, v
     const showLoaded = () => {
       const id = target();
       if (!id || !valid()) return false;
-      currentView.scrollToItem(id, { align: 'center' });
-      return true;
+      return currentView.revealItem(id, { align: 'center' });
     };
     void revealSourceMessage(reference, {
       showLoaded,

@@ -14,9 +14,9 @@ describe('session quote navigation', () => {
     const pages = [[turn('middle', 2)], [turn('source', 1)]];
     const loadOlderHistory = vi.fn(async () => pages.shift() ?? []);
     const store = { sessionId: 'task-a', chatState: { transcript: { state } }, get canLoadOlderHistory() { return pages.length > 0; }, loadOlderHistory } as unknown as AcpChatStore;
-    const scrollToItem = vi.fn();
+    const scrollToItem = vi.fn().mockReturnValue(true);
     const loadOlder = vi.fn((older: TranscriptTurn[]) => { state.committedTurns = [...older, ...state.committedTurns]; });
-    const view = { scrollToItem, loadOlder } as unknown as ChatView;
+    const view = { revealItem: scrollToItem, loadOlder } as unknown as ChatView;
     const missing = vi.fn();
     let actions!: ReturnType<typeof useSessionSourceMessage>;
     function Harness() {
@@ -53,8 +53,8 @@ describe('session quote navigation', () => {
     const state = { committedTurns: [turn('source', 1)], activeTurnSnapshot: null };
     const loadOlderHistory = vi.fn(async () => []);
     const store = { sessionId: 'task-a', chatState: { transcript: { state } }, canLoadOlderHistory: true, loadOlderHistory } as unknown as AcpChatStore;
-    const scrollToItem = vi.fn(), missing = vi.fn();
-    const view = { scrollToItem } as unknown as ChatView;
+    const scrollToItem = vi.fn().mockReturnValue(true), missing = vi.fn();
+    const view = { revealItem: scrollToItem } as unknown as ChatView;
     function Harness() {
       const actions = useSessionSourceMessage(store, useRef(view), missing);
       return <button onClick={() => actions.reveal('gugu-session://task-b?message=source')}>Quote</button>;
@@ -108,8 +108,8 @@ describe('session quote navigation', () => {
     const pending = new Promise<TranscriptTurn[]>(resolve => { finish = resolve; });
     const loadOlderHistory = vi.fn(() => pending);
     const store = { chatState: { transcript: { state: { committedTurns: [turn('latest', 3)], activeTurnSnapshot: null } } }, canLoadOlderHistory: true, loadOlderHistory } as unknown as AcpChatStore;
-    const scrollToItem = vi.fn(), loadOlder = vi.fn(), missing = vi.fn();
-    const view = { scrollToItem, loadOlder } as unknown as ChatView;
+    const scrollToItem = vi.fn().mockReturnValue(true), loadOlder = vi.fn(), missing = vi.fn();
+    const view = { revealItem: scrollToItem, loadOlder } as unknown as ChatView;
     let actions!: ReturnType<typeof useSessionSourceMessage>;
     function Harness() {
       actions = useSessionSourceMessage(store, useRef(view), missing);

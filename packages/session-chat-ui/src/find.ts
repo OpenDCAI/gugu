@@ -7,6 +7,7 @@ import { selectPreview } from '@session-chat/components/rows/tools/diff/diff-lin
 import { createExecuteLines, executeCommandChipText } from '@session-chat/components/rows/tools/execute/execute.layout';
 import { toolDisclosedResult, toolFailureText } from '@session-chat/components/rows/tools/tool/tool.layout';
 import type { ChatContext } from '@session-chat/chat-context';
+import type { ScrollToItemOptions } from '@session-chat/commands';
 import type { EngineControls } from '@session-chat/ChatRoot';
 import type { ChatCaches } from '@session-chat/core/caches';
 import { blockPlainText } from '@session-chat/core/markdown/plain-text';
@@ -317,7 +318,7 @@ export function createChatFind(deps: {
   return {
     find,
     /** Identity navigation uses the same fold map as find, without matching private text. */
-    revealItem(itemId: string): boolean {
+    revealItem(itemId: string, options: ScrollToItemOptions = { align: 'start', offset: -8 }): boolean {
       const unit = allUnits().units.find(unit => unit.itemId === itemId);
       if (!unit) return false;
       const state = deps.state();
@@ -331,7 +332,7 @@ export function createChatFind(deps: {
       // The process has its own bounded scroll viewport; position its actual row too.
       cancelAnimationFrame(identityFrame);
       identityFrame = requestAnimationFrame(() => {
-        if (deps.state() === state) deps.controls.scrollToItem(itemId, { align: 'start', offset: -8 });
+        if (deps.state() === state) deps.controls.scrollToItem(itemId, options);
       });
       return true;
     },

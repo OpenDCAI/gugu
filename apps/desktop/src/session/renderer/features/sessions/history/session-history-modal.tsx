@@ -30,7 +30,7 @@ export function SessionHistoryModal({ projectId, sessionId, title, onSuccess }: 
   };
   return <>
     <DialogHeader><DialogTitle>{title} · {translate('globalSearch.archived')}</DialogTitle></DialogHeader>
-    <div className="h-[min(640px,75vh)] min-h-0"><StoredTranscriptView key={sessionId} sessionId={sessionId} /></div>
+    <div className="relative h-[min(640px,75vh)] min-h-0 min-w-0 overflow-hidden"><StoredTranscriptView key={sessionId} sessionId={sessionId} /></div>
     {error && <p role="alert" className="px-6 pb-3 text-xs text-foreground-destructive">{error}</p>}
     <DialogFooter>
       <Button disabled={restoring} onClick={() => void restore()}>{translate('sessionHistory.restore')}</Button>

@@ -17,7 +17,7 @@ vi.mock('@/components/assistant-ui/session-transcript-view.aui', async () => {
   const { createElement, useEffect, useRef } = await import('react');
   return { SessionTranscriptView: (props: { turns: TranscriptTurn[]; onReady: (handle: ChatView) => void; commands: { flashMessageId: string | null } }) => {
     const ready = useRef(props.onReady);
-    useEffect(() => { ready.current({ scrollToItem: calls.scroll } as unknown as ChatView); }, []);
+    useEffect(() => { ready.current({ revealItem: calls.scroll } as unknown as ChatView); }, []);
     return createElement('section', { 'data-testid': 'transcript', 'data-flash': props.commands.flashMessageId },
       props.turns.flatMap(turn => turn.items).filter(item => item.kind === 'message').map(item => item.text).join('\n'));
   } };
@@ -36,7 +36,7 @@ beforeEach(() => {
   harness = createReactHarness(); client = new QueryClient(); frames = [];
   calls.history.mockReset().mockImplementation(async ({ before }: { before?: number }) => before === undefined
     ? { turns: [turn(9, 'Newer')], nextCursor: 5 } : { turns: [turn(0, 'Original')], nextCursor: null });
-  calls.scroll.mockReset(); calls.toast.mockReset(); calls.restore.mockReset();
+  calls.scroll.mockReset().mockReturnValue(true); calls.toast.mockReset(); calls.restore.mockReset();
   publishSelfIdentity({ userId: 'owner', displayName: null, guguNumber: null });
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
 });
