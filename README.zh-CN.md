@@ -13,7 +13,7 @@
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#主要功能) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#主要功能) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#主要功能) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#主要功能) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#主要功能)
 
-<img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-banner-zh-20261031-v47.webp" width="100%" alt="咕咕 Gugu">
+<img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-banner-zh-20261031-v66.webp" width="100%" alt="咕咕 Gugu">
 
 </div>
 
