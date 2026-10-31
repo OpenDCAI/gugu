@@ -20,8 +20,13 @@ export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions
   return format.format(value instanceof Date ? value : new Date(value));
 }
 
-// 12/24 小时跟 locale 默认走(❌ 指定 hourCycle):统一的是日期怎么写,不是几点怎么写。
+// 12/24 小时跟 locale 默认走(❌ 指定 hourCycle / hour12):界面上的时刻只有这一种写法。
 const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+
+/** 界面上「几点」的唯一写法:中文 `17:06`,英文 `05:06 PM`。 */
+export function formatClock(value: DateValue, locale: string): string {
+  return formatDate(value, CLOCK, locale);
+}
 
 export function formatCalendarDate(
   value: DateValue,
@@ -32,7 +37,7 @@ export function formatCalendarDate(
   const year = includeYear || date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined;
   const day = formatDate(date, { year, month: 'short', day: 'numeric' }, locale).replaceAll(', ', ' ');
   if (!includeTime) return day;
-  const clock = formatDate(date, CLOCK, locale);
+  const clock = formatClock(date, locale);
   return `${day}${locale.startsWith('zh') ? ' ' : ', '}${clock}`;
 }
 
@@ -56,12 +61,12 @@ export function formatCalendarDay(value: DateValue, locale: string, { withTime =
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return String(date);
   const days = differenceInCalendarDays(now, date);
-  if (days === 0) return formatDate(date, CLOCK, locale);
+  if (days === 0) return formatClock(date, locale);
   if (days === 1) {
     // 英文 Intl 给小写「yesterday」;它常单独当标签用,首字母大写(中文不受影响)。
     const word = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
     const yesterday = word.charAt(0).toLocaleUpperCase(locale) + word.slice(1);
-    return withTime ? `${yesterday} ${formatDate(date, CLOCK, locale)}` : yesterday;
+    return withTime ? `${yesterday} ${formatClock(date, locale)}` : yesterday;
   }
   return formatCalendarDate(date, locale, { includeTime: withTime, now });
 }

@@ -1,9 +1,9 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { formatClock } from '@/i18n/format'
 
-/** 每条消息的 HH:mm,本地时区。 */
+/** 每条消息的时刻,本地时区,写法同界面其它时刻。 */
 export function fmtMsgTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return formatClock(iso)
 }
 
 // Five minutes keeps row-level timeline breaks sparse; shorter gaps already have bubble timestamps.

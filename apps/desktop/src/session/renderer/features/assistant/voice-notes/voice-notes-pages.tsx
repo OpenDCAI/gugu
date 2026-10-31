@@ -6,6 +6,7 @@ import '@/i18n/registerVoiceNotesCatalog';
 import './voice-notes.css';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
+import { formatCalendarDate, formatClock } from '@/i18n/format';
 import {
   askAboutNoteDraft,
   exportFileName,
@@ -50,10 +51,10 @@ function useNoteTime() {
     row(iso: string) {
       const at = new Date(iso);
       if (Number.isNaN(at.getTime())) return '';
-      const time = new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false }).format(at);
+      const time = formatClock(at, i18n.language);
       const now = new Date();
       if (at.toDateString() === now.toDateString()) return t('today', { time });
-      return new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at);
+      return formatCalendarDate(at, i18n.language);
     },
     full(iso: string) {
       const at = new Date(iso);

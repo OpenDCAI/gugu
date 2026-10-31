@@ -12,6 +12,7 @@ import { assistantQueryKey } from './assistant-data';
 import { assistantPanelRoutines } from '@/components/assistant/assistant-panel-routines';
 import { useAssistantWorkTasks, openAssistantPanelTask } from '@/components/assistant/assistant-panel-tasks';
 import { useTranslation } from 'react-i18next';
+import { formatCalendarDate } from '@/i18n/format';
 import { AlignJustify, Clock, Plus, Trash2 } from '@/lib/icons';
 import { AgentStatusIndicator } from '@renderer/lib/components/agent-status-indicator';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -122,7 +123,7 @@ function useAssistantRoutines(context: AssistantContext) {
 function useFormatAt() {
   const { i18n } = useTranslation('assistant');
   return (at: number) =>
-    new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at);
+    formatCalendarDate(at, i18n.language);
 }
 
 const RoutineLists = observer(function RoutineLists({ context }: AssistantPageProps) {

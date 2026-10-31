@@ -32,6 +32,7 @@
  * 行根写死 `DAY_SEPARATOR_ROW_H`。⇒ 跨过午夜时文案从"今天"变成"昨天"只是 lane B 的
  * 一次重绘，不产生任何测量变化，虚拟器不需要知道这件事。
  */
+import { formatClock } from '@gugu/session-shared/format';
 import { defineUnit } from '@session-chat/core/units';
 import { dayBoundaryLabel, msUntilNextLocalMidnight } from '@session-chat/lib/day-boundary';
 import { useChatLocale, useChatTranslator } from '@session-chat/localization';
@@ -77,9 +78,7 @@ export const daySeparatorUnitDef = defineUnit<DaySeparatorItem, { rowH: number }
     onCleanup(() => clearTimeout(timer));
 
     const label = (): string => {
-      const started = new Date(props.data.startedAt);
-      const time = `${started.getHours()}:${String(started.getMinutes()).padStart(2, '0')}`;
-      return `${dayBoundaryLabel(props.data.startedAt, now(), translate, locale())} ${time}`;
+      return `${dayBoundaryLabel(props.data.startedAt, now(), translate, locale())} ${formatClock(props.data.startedAt, locale())}`;
     };
 
     return (

@@ -1,4 +1,5 @@
 import type { ExtensionHostContext } from '@shared/extensions/bridge-protocol';
+import { formatCalendarDate } from '@gugu/session-shared/format';
 import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
 
 /**
@@ -188,7 +189,7 @@ export class GuguTime extends HTMLElement {
     const zh = String(locale ?? navigator.language).toLowerCase().startsWith('zh');
     const date = when(this.getAttribute('datetime'));
     root.innerHTML = date
-      ? `<time datetime="${esc(date.toISOString())}" title="${esc(date.toLocaleString(zh ? 'zh-CN' : 'en-US', { hour12: false }))}">${esc(timePhrase(date, new Date(), zh))}</time>`
+      ? `<time datetime="${esc(date.toISOString())}" title="${esc(formatCalendarDate(date, zh ? 'zh-CN' : 'en-US', { includeYear: true }))}">${esc(timePhrase(date, new Date(), zh))}</time>`
       : '';
   }
 }
