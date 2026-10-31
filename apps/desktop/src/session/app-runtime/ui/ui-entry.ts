@@ -1,5 +1,5 @@
 import type { ExtensionHostContext } from '@shared/extensions/bridge-protocol';
-import { ICONS, timePhrase } from './ui-core';
+import { ICONS, ICON_SVG_ATTRIBUTES, timePhrase } from './ui-core';
 
 /**
  * `/_gugu/<ver>/ui.js` — the host's components for App pages, loaded right after gugu.js (which writes its tag), with
@@ -35,7 +35,11 @@ const sheet = (css: string) => {
 };
 const svgOf = (name: string) => {
   const body = ICONS.get(name);
-  return body ? `<svg part="svg" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>` : '';
+  const attributes = Object.entries(ICON_SVG_ATTRIBUTES.get(name) ?? {}).map(([key, value]) => {
+    const attribute = key === 'className' ? 'class' : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return ` ${attribute}="${esc(value)}"`;
+  }).join('');
+  return body ? `<svg part="svg" viewBox="0 0 24 24" aria-hidden="true"${attributes}>${body}</svg>` : '';
 };
 
 // ── The context: one read shared by every element, replaced when the host pushes a new one ───────────────────────────

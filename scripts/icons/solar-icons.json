@@ -2,7 +2,7 @@
   "_": [
     "图标清单。改这里再跑 `node scripts/gen-icons.mjs`,❌ 别改生成物 icons.tsx。",
     "solar   = 从 @iconify-json/solar 取 body。加图标只需在这里加一行。",
-    "literal = Solar 里没有对应字形、只能手写的。18 个,只减不增。",
+    "literal = 保留既有字形及有上游出处的原图;新图不能手绘。Lucide 0.564.0 的完整 ISC/Feather MIT 见 THIRD_PARTY_NOTICES.md。",
     "alias   = 同形别名(*Icon 后缀、lucide 历史改名),复用已有导出,❌ 不重复一份 body。",
     "",
     "literal 里 16 个虽是手写但符合 Solar linear 签名(stroke + stroke-width=1.5,",
@@ -190,7 +190,28 @@
     "Plus": "<path d=\"M12 5v14M5 12h14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
     "QrCode": "<g fill=\"none\"><path stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M2 16.9c0-1.31 0-1.964.295-2.445a2 2 0 0 1 .66-.66c.48-.295 1.136-.295 2.445-.295h1.1c1.886 0 2.828 0 3.414.586s.586 1.528.586 3.414v1.1c0 1.31 0 1.964-.295 2.445a2 2 0 0 1-.66.66C9.065 22 8.409 22 7.1 22c-1.964 0-2.946 0-3.667-.442a3 3 0 0 1-.99-.99C2 19.845 2 18.864 2 16.9ZM13.5 5.4c0-1.31 0-1.964.295-2.445a2 2 0 0 1 .66-.66C14.935 2 15.591 2 16.9 2c1.964 0 2.946 0 3.668.442a3 3 0 0 1 .99.99C22 4.155 22 5.137 22 7.1c0 1.31 0 1.964-.295 2.445a2 2 0 0 1-.66.66c-.48.295-1.136.295-2.445.295h-1.1c-1.886 0-2.828 0-3.414-.586S13.5 8.386 13.5 6.5z\"/><path fill=\"currentColor\" d=\"M16.5 6.25c0-.515 0-.773.13-.955a.7.7 0 0 1 .165-.166C16.977 5 17.235 5 17.75 5s.773 0 .955.13a.7.7 0 0 1 .166.165c.129.182.129.44.129.955s0 .773-.13.955a.7.7 0 0 1-.165.166c-.182.129-.44.129-.955.129s-.773 0-.955-.13a.7.7 0 0 1-.166-.165c-.129-.182-.129-.44-.129-.955M12.75 22a.75.75 0 0 0 1.5 0zm1.639-8.163l.417.624zm-.552.552l-.623-.417zM19 12.75h-2v1.5h2zM12.75 19v3h1.5v-3zM17 12.75c-.687 0-1.258 0-1.719.046c-.474.048-.913.153-1.309.418l.834 1.247c.108-.073.272-.137.627-.173c.367-.037.85-.038 1.567-.038zM14.25 17c0-.718 0-1.2.038-1.567c.036-.355.1-.519.173-.627l-1.248-.834c-.264.396-.369.835-.417 1.309c-.047.461-.046 1.032-.046 1.719zm-.278-3.786c-.3.2-.558.458-.758.758l1.247.834a1.3 1.3 0 0 1 .345-.345zm8.778.286a.75.75 0 0 0-1.5 0zm-1.985 8.348l.287.693zm1.083-1.083l-.693-.287zM17 22.75h2v-1.5h-2zM22.75 17v-3.5h-1.5V17zM19 22.75c.456 0 .835 0 1.145-.02c.317-.022.617-.069.907-.19l-.574-1.385c-.077.032-.194.061-.435.078c-.247.017-.567.017-1.043.017zM21.25 19c0 .476 0 .796-.017 1.043c-.017.241-.046.358-.078.435l1.386.574c.12-.29.167-.59.188-.907c.021-.31.021-.69.021-1.145zm-.198 3.54a2.75 2.75 0 0 0 1.489-1.488l-1.386-.574a1.25 1.25 0 0 1-.677.677z\"/><path stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M2 7.1c0-1.964 0-2.946.442-3.667a3 3 0 0 1 .99-.99C4.155 2 5.137 2 7.1 2c1.31 0 1.964 0 2.445.295a2 2 0 0 1 .66.66c.295.48.295 1.136.295 2.445v1.1c0 1.886 0 2.828-.586 3.414S8.386 10.5 6.5 10.5H5.4c-1.31 0-1.964 0-2.445-.295a2 2 0 0 1-.66-.66C2 9.065 2 8.409 2 7.1Z\"/><path fill=\"currentColor\" d=\"M5 6.25c0-.515 0-.773.13-.955a.7.7 0 0 1 .165-.166C5.477 5 5.735 5 6.25 5s.773 0 .955.13a.7.7 0 0 1 .166.165c.129.182.129.44.129.955s0 .773-.13.955a.7.7 0 0 1-.165.166c-.182.129-.44.129-.955.129s-.773 0-.955-.13a.7.7 0 0 1-.166-.165C5 7.023 5 6.765 5 6.25m0 11.5c0-.515 0-.773.13-.955a.7.7 0 0 1 .165-.166c.182-.129.44-.129.955-.129s.773 0 .955.13a.7.7 0 0 1 .166.165c.129.182.129.44.129.955s0 .773-.13.955a.7.7 0 0 1-.165.166C7.023 19 6.765 19 6.25 19s-.773 0-.955-.13a.7.7 0 0 1-.166-.165C5 18.523 5 18.265 5 17.75m11 0c0-.702 0-1.053.169-1.306a1 1 0 0 1 .275-.275C16.697 16 17.048 16 17.75 16s1.053 0 1.306.169a1 1 0 0 1 .275.275c.169.253.169.604.169 1.306s0 1.053-.169 1.306a1 1 0 0 1-.275.275c-.253.169-.604.169-1.306.169s-1.053 0-1.306-.169a1 1 0 0 1-.275-.275C16 18.803 16 18.452 16 17.75\"/></g>",
     "RotateCcw": "<path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\" d=\"m18.364 8.05l-.707-.707a8 8 0 1 0 2.28 4.658m-1.573-3.95h-4.243m4.243 0V3.807\"/>",
-    "X": "<path d=\"M6 6l12 12M18 6 6 18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+    "X": "<path d=\"M6 6l12 12M18 6 6 18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+    "ArrowBigUp": "<path d=\"M9 13a1 1 0 0 0-1-1H5.061a1 1 0 0 1-.75-1.811l6.836-6.835a1.207 1.207 0 0 1 1.707 0l6.835 6.835a1 1 0 0 1-.75 1.811H16a1 1 0 0 0-1 1v6a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z\"/>",
+    "LucideChevronRight": "<path d=\"m9 18 6-6-6-6\"/>",
+    "Columns2": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>",
+    "GitBranch": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>",
+    "GitFork": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>",
+    "GitMerge": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 21V9a9 9 0 0 0 9 9\"/>",
+    "GitPullRequest": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M13 6h3a2 2 0 0 1 2 2v7\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>",
+    "GitPullRequestArrow": "<circle cx=\"5\" cy=\"6\" r=\"3\"/><path d=\"M5 9v12\"/><circle cx=\"19\" cy=\"18\" r=\"3\"/><path d=\"m15 9-3-3 3-3\"/><path d=\"M12 6h5a2 2 0 0 1 2 2v7\"/>",
+    "GitPullRequestClosed": "<circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 9v12\"/><path d=\"m21 3-6 6\"/><path d=\"m21 9-6-6\"/><path d=\"M18 11.5V15\"/><circle cx=\"18\" cy=\"18\" r=\"3\"/>",
+    "GitPullRequestDraft": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M18 6V5\"/><path d=\"M18 11v-1\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>",
+    "Github": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>",
+    "GripVertical": "<circle cx=\"9\" cy=\"12\" r=\"1\"/><circle cx=\"9\" cy=\"5\" r=\"1\"/><circle cx=\"9\" cy=\"19\" r=\"1\"/><circle cx=\"15\" cy=\"12\" r=\"1\"/><circle cx=\"15\" cy=\"5\" r=\"1\"/><circle cx=\"15\" cy=\"19\" r=\"1\"/>",
+    "Minus": "<path d=\"M5 12h14\"/>",
+    "PanelBottom": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M3 15h18\"/>",
+    "PanelLeft": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/>",
+    "PanelLeftClose": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>",
+    "PanelLeftOpen": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m14 9 3 3-3 3\"/>",
+    "PanelRight": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/>",
+    "PanelRightClose": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m8 9 3 3-3 3\"/>",
+    "PanelRightOpen": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m10 15-3-3 3-3\"/>",
+    "LucidePlug": "<path d=\"M12 22v-5\"/><path d=\"M15 8V2\"/><path d=\"M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z\"/><path d=\"M9 8V2\"/>"
   },
   "alias": {
     "AlertCircleIcon": "AlertCircle",
@@ -241,6 +262,177 @@
     "UnderlineIcon": "Underline",
     "XIcon": "X",
     "Reload": "RefreshCw",
-    "Loader2": "Ellipsis"
+    "Loader2": "Ellipsis",
+    "GithubIcon": "Github"
+  },
+  "svg": {
+    "ArrowBigUp": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-arrow-big-up"
+    },
+    "LucideChevronRight": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-chevron-right"
+    },
+    "Columns2": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-columns-2"
+    },
+    "GitBranch": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-branch"
+    },
+    "GitFork": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-fork"
+    },
+    "GitMerge": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-merge"
+    },
+    "GitPullRequest": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-pull-request"
+    },
+    "GitPullRequestArrow": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-pull-request-arrow"
+    },
+    "GitPullRequestClosed": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-pull-request-closed"
+    },
+    "GitPullRequestDraft": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-git-pull-request-draft"
+    },
+    "Github": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-github"
+    },
+    "GripVertical": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-grip-vertical"
+    },
+    "Minus": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-minus"
+    },
+    "PanelBottom": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-bottom"
+    },
+    "PanelLeft": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-left"
+    },
+    "PanelLeftClose": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-left-close"
+    },
+    "PanelLeftOpen": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-left-open"
+    },
+    "PanelRight": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-right"
+    },
+    "PanelRightClose": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-right-close"
+    },
+    "PanelRightOpen": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-panel-right-open"
+    },
+    "LucidePlug": {
+      "fill": "none",
+      "stroke": "currentColor",
+      "strokeWidth": 2,
+      "strokeLinecap": "round",
+      "strokeLinejoin": "round",
+      "className": "lucide lucide-plug"
+    }
   }
 }
