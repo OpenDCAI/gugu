@@ -41,6 +41,8 @@ export interface GuguHost extends ProjectionHost {
     open(args: { ref: AppFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
     reopen(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
     close(args: { docName: string }): Promise<void>;
+    /** A working copy's file, up to 512 KB at an offset (base64), and its size: how one of any size is read. */
+    read(args: { ref: AppFileRef; offset: number; length: number }): Promise<{ size: number; offset: number; data: string }>;
     /** `folder` (子文件夹): only what is directly in that folder; not given, every file of the place. */
     list(args: { place: AppPlace; folder?: string }): Promise<AppFileEntry[]>;
     /** Across every chat the reader is in: by a piece of the path, newest first; the ones this person opened last. */
@@ -56,7 +58,7 @@ export interface GuguHost extends ProjectionHost {
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
     /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
-    watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
+    watch(args: { watchId: string; place: AppPlace & { folder?: string }; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
     readVersion(args: { ref: AppFileRef; n: number }): Promise<AppFileVersionContent>;
@@ -76,7 +78,7 @@ export interface GuguHost extends ProjectionHost {
     history(args: Record<string, unknown>): Promise<unknown>;
     search(args: Record<string, unknown>): Promise<unknown>;
   };
-  /** `gugu.projects`: this computer's projects, each one's folder a place (`{ project: id }`). */
+  /** `gugu.projects`: this computer's projects, each one's folder a place (`{ workspace: project.workspace }`). */
   readonly projects?: {
     list(): Promise<unknown>;
   };

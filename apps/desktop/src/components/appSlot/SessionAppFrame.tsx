@@ -2,6 +2,7 @@ import type { Device } from '@gugu/core/shared/types/chat'
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
 import { AppPeekSlot } from './AppPeekSlot'
 import { PhoneAppFrame } from './PhoneAppFrame'
+import { useTaskConversation } from '@/lib/taskConversation'
 
 /**
  * owner 10-16 An App's tab on the phone's session page: its page here (the phone draws it, as a desktop does), its program on
@@ -12,13 +13,15 @@ import { PhoneAppFrame } from './PhoneAppFrame'
  */
 export function SessionAppFrame({ kind, device, session }: { kind: string; device?: Device; session?: { id: string; projectId?: string } }) {
   const tabId = session ? `session-app:${session.id}:${kind}` : `app-page:${kind}`
+  // A session's tab is in the person's private chat with its agent (`AppWhere`), as on the desktop.
+  const conversation = useTaskConversation(session?.id, device?.device_id)
   return (
     // What the page opens beside it (G1) goes over it, with its back first (AppPeekSlot).
     <AppPeekSlot sessionId={null} tabId={tabId} narrow>
       <PhoneAppFrame
         kind={kind}
         tabId={tabId}
-        chatId={null}
+        chatId={session ? conversation : null}
         {...(session && device
           ? { session: { id: session.id, deviceId: device.device_id, deviceLabel: device.label, online: device.is_online, ...(session.projectId ? { projectId: session.projectId } : {}) } }
           : {})}

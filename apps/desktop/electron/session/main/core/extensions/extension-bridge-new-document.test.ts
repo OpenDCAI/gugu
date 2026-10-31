@@ -85,7 +85,7 @@ beforeEach(async () => {
     deliver,
     presentation: () => ({ locale: 'zh', themeMode: 'dark' as const, fullscreen: false, windowFocused: true }),
   });
-  await bindExtensionSurface({ webContentsId: READER, extensionId: 'paper-club', tabId: 'slot-1', tabKind: 'paper-club.shelf', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: READER, extensionId: 'paper-club', tabId: 'slot-1', tabKind: 'paper-club.shelf', conversation: CHAT });
 });
 
 const { extensionProjections } = await import('./extension-projection-bridge');
@@ -105,7 +105,7 @@ describe('what a page says about itself goes with its document', () => {
     const args = { watchId: '1', place: { chat: CHAT }, on: true };
     const old = call(UNBOUND, 'filesWatch', args);
     navigate(UNBOUND);
-    await bindExtensionSurface({ webContentsId: UNBOUND, extensionId: 'paper-club', tabId: 'slot-3', tabKind: 'paper-club.shelf', chatId: CHAT });
+    await bindExtensionSurface({ webContentsId: UNBOUND, extensionId: 'paper-club', tabId: 'slot-3', tabKind: 'paper-club.shelf', conversation: CHAT });
     expect(await old).toMatchObject({ ok: true });
     expect(await call(UNBOUND, 'filesWatch', args)).toMatchObject({ ok: true });
   });
@@ -130,7 +130,7 @@ describe('what a page says about itself goes with its document', () => {
   });
 
   it('reloading one page does not revoke another page watching the same chat with the same id', async () => {
-    await bindExtensionSurface({ webContentsId: OTHER_READER, extensionId: 'paper-club', tabId: 'slot-2', tabKind: 'paper-club.shelf', chatId: CHAT });
+    await bindExtensionSurface({ webContentsId: OTHER_READER, extensionId: 'paper-club', tabId: 'slot-2', tabKind: 'paper-club.shelf', conversation: CHAT });
     const args = { watchId: '1', place: { chat: CHAT }, on: true };
     expect(await call(READER, 'filesWatch', args)).toMatchObject({ ok: true });
     expect(await call(OTHER_READER, 'filesWatch', args)).toMatchObject({ ok: true });
@@ -178,7 +178,7 @@ describe('what a page says about itself goes with its document', () => {
   });
 
   it('bound again (a task’s tab binds at every dom-ready): one navigation is told once', async () => {
-    await bindExtensionSurface({ webContentsId: READER, extensionId: 'paper-club', tabId: 'slot-1', tabKind: 'paper-club.shelf', chatId: CHAT });
+    await bindExtensionSurface({ webContentsId: READER, extensionId: 'paper-club', tabId: 'slot-1', tabKind: 'paper-club.shelf', conversation: CHAT });
     navigate(READER);
     expect(deliver.mock.calls).toEqual([[slot, { kind: 'newDocument' }]]);
   });

@@ -29,7 +29,7 @@ import {
   type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
-  type LocalPlace,
+  type WorkspacePlace,
   type SyncRevokeReason,
   type PreparedChatFile,
 } from './app-runtime-protocol';
@@ -500,7 +500,7 @@ function notAFile(row: ItemRow): AppFileError {
 }
 
 /** A file of a chat, as a call names it: by its item id (its chat checked when given), or by its name in a chat. */
-export type ChatFileRef = Exclude<AppFileRef, LocalPlace>;
+export type ChatFileRef = Exclude<AppFileRef, WorkspacePlace>;
 
 /** One row by its id, as `actor` sees it: not there and not theirs read the same (null). */
 async function itemById(token: string, itemId: string, actor: string): Promise<ItemRow | null> {

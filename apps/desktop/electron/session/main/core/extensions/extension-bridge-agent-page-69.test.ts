@@ -67,13 +67,13 @@ const AGENT = '0a000000-0000-4000-8000-000000000069';
 
 beforeEach(async () => {
   for (const fn of Object.values(files)) fn.mockClear();
-  await bindExtensionSurface({ webContentsId: REAL, extensionId: 'board', tabId: 'slot', tabKind: 'board.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: REAL, extensionId: 'board', tabId: 'slot', tabKind: 'board.main', conversation: CHAT });
   await bindExtensionSurface({
     webContentsId: CHECK,
     extensionId: 'board',
     tabId: 'extension-check:9',
     tabKind: 'board.main',
-    chatId: CHAT,
+    conversation: CHAT,
     operator: { kind: 'agent', id: `user:${AGENT}` },
   });
 });

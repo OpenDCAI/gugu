@@ -663,7 +663,6 @@ export default {
     "appPinsLoadFailed": "Could not load pinned Apps.",
     "appPinsSaveFailed": "Could not save pinned Apps.",
     "noGroupApps": "No Apps available on this device.",
-    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "groupInfo": "Group info",
     "chatInfo": "Conversation info",

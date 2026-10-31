@@ -131,10 +131,10 @@ describe('an App page on the phone, in a session on another computer', () => {
     expect(sent.calls).toHaveLength(0)
   })
 
-  it('its context names the session and its computer, and no chat', async () => {
+  it('its context names the working copy (the session) and its computer, and no chat', async () => {
     start({ chatId: null, session: SESSION })
     const context = (await call('getContext', {})).value as Record<string, unknown>
-    expect(context.session).toEqual({ id: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' })
+    expect(context.workspace).toEqual({ id: 'session:s-there', sessionId: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' })
     expect(context).not.toHaveProperty('chat')
   })
 

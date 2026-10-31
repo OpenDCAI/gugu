@@ -52,7 +52,7 @@ export async function probeDeviceProjection(appId: string) {
     });
     // The real main-binding lookup is exercised separately by the retarget behavior test.
     const page = () => ({ ...bridge.viewerPage({ kind: 'page', extensionId: appId, pageId: viewer.webContents.id,
-      binding: { sessionId: 'fixture-task' } } as BridgeCaller), deviceId: 'fixture-resource-host', version: '1.0.0' });
+      binding: { workspace: 'session:fixture-task' } } as BridgeCaller), deviceId: 'fixture-resource-host', version: '1.0.0' });
     const connect = (bound: ReturnType<typeof page>) => createProjectionDeviceClient({ page: bound, identity: viewerIdentity,
       report: error => faults.push(error), openPipe: async (_device, _asker, handlers) => ({
         send: raw => respond(raw, reply => handlers.onMessage(reply), undefined, asker),

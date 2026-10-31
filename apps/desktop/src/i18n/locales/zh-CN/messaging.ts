@@ -662,7 +662,6 @@ export default {
     "appPinsLoadFailed": "无法读取固定的 App。",
     "appPinsSaveFailed": "无法保存固定的 App。",
     "noGroupApps": "本设备暂无可用的 App。",
-    "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
     "groupInfo": "群信息",
     "chatInfo": "会话信息",

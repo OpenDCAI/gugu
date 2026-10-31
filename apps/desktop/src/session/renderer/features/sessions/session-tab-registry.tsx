@@ -23,7 +23,6 @@ import { sessionTabProvider } from './session-tab-provider';
 import type { SessionTabContext } from '../tabs/core/session-tab-context';
 import { diffTabProvider } from './diff-view/diff-tab-provider';
 import { reviewTabProvider } from './diff-view/review-tab-provider';
-import { fileBrowserTabProvider } from './editor/file-browser-tab-provider';
 import { fileTabProvider } from './editor/file-tab-provider';
 import { createSessionTabPersistor } from './stores/session-tab-view-persistor';
 import { terminalTabProvider } from './terminals/terminal-tab-provider';
@@ -34,7 +33,6 @@ export const sessionTabView = createTabView(
     sessionTabProvider,
     acpChatTabProvider,
     sideChatTabProvider,
-    fileBrowserTabProvider,
     fileTabProvider,
     reviewTabProvider,
     diffTabProvider,

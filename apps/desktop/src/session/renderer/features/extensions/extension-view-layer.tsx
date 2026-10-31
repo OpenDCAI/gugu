@@ -6,6 +6,7 @@ import { log } from '@renderer/utils/logger';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { extensionViewStore, type ExtensionViewClaim } from './extension-view-store';
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
 import { ExtensionGuestBinding } from './extension-guest-binding';
@@ -231,10 +232,10 @@ const ExtensionPage = observer(function ExtensionPage({
       }
       if (!claim) return;
       const target = {
-        // A group's side panel is in no task: the binding says so by leaving it out.
-        ...(claim.sessionId ? { sessionId: claim.sessionId } : {}),
+        // Where it is (`AppWhere`): a group's side panel works on no working copy, a session's tab is in its agent's chat.
+        workspace: claim.sessionId ? sessionWorkspace(claim.sessionId) : null,
+        conversation: claim.conversation ?? null,
         tabId: claim.tabId,
-        ...(claim.chatId ? { chatId: claim.chatId } : {}),
         ...(claim.itemId ? { itemId: claim.itemId } : {}),
         ...(claim.takeOpening ? { opening: claim.takeOpening() } : {}),
       };

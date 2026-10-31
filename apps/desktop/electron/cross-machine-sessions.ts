@@ -21,7 +21,6 @@ import {
   type AppCallAction,
   appCallWaitMs,
   type AppMessageReceipt,
-  type AppReadFileAction,
   type RemoteAppCaller,
   type RemoteCaller,
   type RemoteSessionCaller,
@@ -32,7 +31,6 @@ import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/s
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
-import type { WorkspaceChunk } from './session/main/core/files/workspace-transfer'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError, type DeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { UnifiedRecipientResult, UnifiedSessionMessageDeps } from './unified-session-message'
 
@@ -120,8 +118,6 @@ export type AgentSessionHost = {
   /** 另一台机器上的 App 发来的消息:与本机 App 发消息同一个函数,信封写那个 App。 */
   app(caller: RemoteAppCaller, action: AppMessageAction): Promise<AppMessageReceipt>
   appSpawn(caller: RemoteAppCaller, action: AppSpawnAction): Promise<{ agentId: string }>
-  /** 另一台机器上的 App 读这台机器上一条会话工作副本里的一块(那台机器判过 `files:read:all-machines`)。 */
-  appReadFile(caller: RemoteAppCaller, action: AppReadFileAction): Promise<WorkspaceChunk>
   /** 另一台机器上的 App 页面让这台机器做一个跟着会话机器的动词(它的数据目录、它的程序;页面在这台机器的一条会话里)。 */
   appCall(caller: RemoteAppCaller, action: AppCallAction): Promise<unknown>
 }
@@ -461,12 +457,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     return await call(deviceId, caller, { action: 'message', session_ids: [sessionId], text, ...how } satisfies AppMessageAction) as AppMessageReceipt
   }
 
-  /** 这台机器上的一个 App 读别的机器上一条会话工作副本里的一块。 */
-  const appReadFile: OtherMachines['appReadFile'] = async (app, deviceId, action) => {
-    const here = await thisDevice()
-    return await call(deviceId, { kind: 'app', deviceId: here.deviceId, deviceLabel: here.label, ...app } satisfies RemoteAppCaller, action) as WorkspaceChunk
-  }
-
   /** 这台机器上的一个 App 页面让别的机器做一个跟着会话机器的动词(页面所在的会话在那台机器上)。 */
   const appCall: OtherMachines['appCall'] = async (app, deviceId, action) => {
     const here = await thisDevice()
@@ -485,7 +475,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     try {
       if ('kind' in parsed.caller) {
         if (parsed.action.action === 'spawn') return await host.appSpawn(parsed.caller, parsed.action as AppSpawnAction)
-        if (parsed.action.action === 'read_file') return await host.appReadFile(parsed.caller, parsed.action as AppReadFileAction)
         if (parsed.action.action === 'app_call') return await host.appCall(parsed.caller, parsed.action as AppCallAction)
         return await host.app(parsed.caller, parsed.action as AppMessageAction)
       }
@@ -562,7 +551,6 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     sessionsElsewhere,
     archiveOn,
     appMessage,
-    appReadFile,
     appCall,
     appSpawn,
     messageDeps,
@@ -586,8 +574,8 @@ export function parseAgentSessionRequest(
   const deviceId = text('deviceId')
   if (!deviceId) return { error: 'caller.deviceId is required' }
   if (caller.kind === 'app') {
-    if (name !== 'message' && name !== 'spawn' && name !== 'read_file' && name !== 'app_call') {
-      return { error: `an App may only send a message, start an agent, read a file, or have a page's call done on another machine, not ${name}` }
+    if (name !== 'message' && name !== 'spawn' && name !== 'app_call') {
+      return { error: `an App may only send a message, start an agent, or have a page's call done on another machine, not ${name}` }
     }
     const extensionId = text('extensionId')
     const extensionName = text('extensionName')
@@ -602,16 +590,6 @@ export function parseAgentSessionRequest(
         }
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) }
-      }
-    }
-    if (name === 'read_file') {
-      const { session_id: sessionId, path, offset, length } = action
-      if (typeof sessionId !== 'string' || typeof path !== 'string' || typeof offset !== 'number' || typeof length !== 'number') {
-        return { error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' }
-      }
-      return {
-        caller: { kind: 'app', deviceId, deviceLabel: text('deviceLabel'), extensionId, extensionName },
-        action: { action: 'read_file', session_id: sessionId, path, offset, length },
       }
     }
     if (name === 'app_call') {
@@ -646,7 +624,7 @@ export function parseAgentSessionRequest(
       },
     }
   }
-  if (name === 'read_file' || name === 'app_call') return { error: `${name} is for an App on another machine; an agent works on its own machine` }
+  if (name === 'app_call') return { error: `${name} is for an App on another machine; an agent works on its own machine` }
   const sessionId = text('sessionId')
   if (!sessionId) return { error: 'caller.sessionId is required' }
   if (caller.transport !== 'acp' && caller.transport !== 'pty') return { error: 'caller.transport must be acp or pty' }

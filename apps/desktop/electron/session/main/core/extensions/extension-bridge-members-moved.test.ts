@@ -42,7 +42,7 @@ const { bindExtensionSurface, chatMembersChanged, setExtensionBridgeHost, unbind
 const pushes = () => sent.filter(({ event }) => event.type === 'context').length;
 
 const bind = async () => {
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', conversation: CHAT });
   updateExtensionSurfaceLayout(PAGE, { visible: true, width: 440, height: 700 });
   await vi.waitFor(() => expect(pushes()).toBeGreaterThan(0));
 };

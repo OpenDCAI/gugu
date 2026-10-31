@@ -240,7 +240,7 @@ Handing something to someone (\`apiVersion\` 15):
 Free, from a click or key (they read and write no data):
 
 - \`showMessage(id)\` → its chat comes up, scrolled to it (a file's \`sourceMessageIds\`). \`not-found\`: not in its chat.
-- \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.session.id\`, a tool's
+- \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.workspace.sessionId\`, a tool's
   \`call.session\`). \`not-found\`: not in that list. \`{ peek: true }\`: beside your page, left as it is.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
   entry or \`ctx.file\`; \`at\` where (\`{ slide: 3, shape: 12 }\`), back as the \`onLink\` \`query\`
@@ -252,7 +252,7 @@ Needs \`notifications\`:
   Rejects when notifications are off. Max 10/min; reuse \`tag\` to update a banner.
   Only when the person must act; use \`setTabBadge\` for progress/completion.
   \`open\` is what a click opens: \`{ session, tab? }\` (your tab there), \`{ chat }\` (you, in its panel), \`{ file }\`
-  (where it lives); none, your own page. Back to the tab that posted: \`open: { session: ctx.session.id, tab: 'main' }\`.
+  (where it lives); none, your own page. Back to the tab that posted: \`open: { session: ctx.workspace.sessionId, tab: 'main' }\`.
 - \`onNotificationClicked(fn)\` → \`{ tag?, data? }\`, your own values back. Delivered to the
   background page and to the page the click opened — even when that click is what opened it.
 
@@ -317,7 +317,7 @@ Free — what the app is showing:
   \`agentId\` needs \`agents:read\`, \`filePath\` needs \`files:read\`; absent means "not granted", not "not that sort of tab".
   \`panes\` says what is OPEN, not painted: a zero-width pane or a collapsed panel still lists its tab. For whether YOUR OWN
   surface is on screen read \`getContext().layout.visible\`; per-pane visibility is not exposed.
-  The same answer wherever your page is: when \`activeSessionId\` is not your \`context.session\`'s id the
+  The same answer wherever your page is: when \`activeSessionId\` is not your \`context.workspace.sessionId\` the
   person is elsewhere — your cue to stop animating and stop polling.
 - \`onAppStateChanged(fn)\` → that state moved: a pane switched tabs, the view split, the person
   changed session, the window gained or lost the foreground. Identical states are not re-pushed,
@@ -475,7 +475,7 @@ export const follow = {
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
   as its absolute path; the install sheet shows the command verbatim. Answer every request with its
   \`id\`, errors too: an error reply without one fails every call in flight. Each call's \`_meta\`
-  carries the same stamp: \`gugu/agent\`, \`gugu/sessionId\`, \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`. A long tool reports progress on the
+  carries the same stamp: \`gugu/agent\`, \`gugu/sessionId\`, \`gugu/conversation\` (its private chat with you), \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`. A long tool reports progress on the
   call's \`progressToken\` at least every 60 seconds, or Claude aborts it at 300 seconds.
 - Either way the working directory is your bundle, with \`GUGU_EXTENSION_ID\` and
   \`GUGU_EXTENSION_DATA_DIR\` — the folder your pages reach with \`readData\`/\`writeData\`. One copy
@@ -522,7 +522,7 @@ Free — your own programs and data folder:
   \`server\` selects one of several (a server string also works); API 17 \`device:'device:<id>'\` chooses a computer without a task.
   Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
   works its \`"gugu/agent"\`. Refused while \`agents:tools\` is off.
-  A tab of a session on another computer (\`ctx.session.deviceId\`) runs it THERE:
+  A tab of a session on another computer (\`ctx.workspace.deviceId\`) runs it THERE:
   \`not-installed\`, \`version-mismatch\`, \`unavailable\` (offline, too old, or silent 75 s: it may have run);
   1 MB each way (\`too-large\`).
 - \`onProgramNotification(fn)\` → \`{ server, method, params? }\`: a notification your program sent
@@ -562,8 +562,8 @@ no options: read it.
 Topic file addresses resolve to their source chat; messages keep the topic's.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
-\`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
-\`{ project: id }\` — a project's folder, as a working copy (\`gugu.projects.list()\` → \`{ projects: [{ id, name }] }\`).
+\`{ chat | workspace, name }\`. A place: \`{ chat: ctx.chat.id }\` or \`{ workspace: ctx.workspace.id }\` (a project's:
+\`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`). A session's tab has both.
 
 - The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
   (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
@@ -574,7 +574,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
   in a folder the search index skips hears the disk only when written.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
-- A session on another of your machines (\`files:read:all-machines\`): open/download only.
+- Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
 - \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
   \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON: an object at the top.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
@@ -584,7 +584,8 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
   \`gugu.files.move(entry, { folder, name })\`; remove takes a whole folder. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
-- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
+- A working copy lists one folder: \`gugu.files.list({ workspace, folder })\` (\`''\` top). Non-documents: \`f.read(offset, length)\`, \`f.blob()\`.
+- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A working copy (\`folder\`: below it only): \`{ kind: 'changes', changes }\` or \`resync\`.
 - \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
   \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
@@ -594,7 +595,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - Media opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- Entry: \`{id,chat|session|project,name,savedName,contentType,type,parentId,path,systemRole,size,version,
+- Entry: \`{id,chat|workspace,name,savedName,contentType,type,parentId,path,systemRole,size,version,
   createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
   23: \`savedName\`: save name. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
