@@ -542,6 +542,8 @@ export function ChatRoot(props: ChatRootProps) {
   // Identity of the model this effect last built from. A change signals a
   // view.setModel swap and drives the snapshot + incremental-cache reset.
   let lastState: ChatState | undefined;
+  let itemScrollGeneration = 0;
+  onCleanup(() => { itemScrollGeneration++; });
   const [committedUnitsVersion, setCommittedUnitsVersion] = createSignal(0);
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
@@ -567,6 +569,7 @@ export function ChatRoot(props: ChatRootProps) {
     const next = s.transcript.state.committedTurns;
 
     if (s !== lastState) {
+      itemScrollGeneration++;
       // Model swap: snapshot the outgoing model's heights while committedUnitsArr
       // and virt still reflect it, then clear the incremental cache so the build
       // below re-seeds from scratch for the incoming model.
@@ -1661,6 +1664,8 @@ export function ChatRoot(props: ChatRootProps) {
   const doScrollToItem = (id: string, opts?: ScrollToItemOptions) => {
     const el = scrollEl;
     if (!el) return;
+    const targetState = state(), generation = ++itemScrollGeneration;
+    const ownsScroll = () => generation === itemScrollGeneration && state() === targetState;
 
     const us = units();
     let unitIdx = -1;
@@ -1696,6 +1701,7 @@ export function ChatRoot(props: ChatRootProps) {
 
     const t0 = computeTarget();
     if (us.at(idx)?.children) requestAnimationFrame(() => {
+      if (!ownsScroll()) return;
       const step = Array.from(el.querySelectorAll<HTMLElement>('[data-process-step]')).find(node => node.dataset.itemId === id);
       const viewport = step?.closest<HTMLElement>('[data-slot="conversation-process-steps"]');
       if (step && viewport) {
@@ -1724,6 +1730,7 @@ export function ChatRoot(props: ChatRootProps) {
     } else {
       writeScrollTop(t0);
       requestAnimationFrame(() => {
+        if (!ownsScroll()) return;
         const t1 = computeTarget();
         writeScrollTop(t1);
       });
