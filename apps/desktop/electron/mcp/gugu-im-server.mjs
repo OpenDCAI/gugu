@@ -1545,7 +1545,7 @@ async function ownerFriendDms(deps) {
   const dms = (Array.isArray(chats) ? chats : []).filter((chat) => chat.kind === 'dm')
   if (!dms.length || !friendIds.size) return []
   const memberRows = await restGetInBatches(dms.map((chat) => chat.chat_id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
   const membersByChat = new Map()
   for (const row of memberRows) {
     if (!membersByChat.has(row.chat_id)) membersByChat.set(row.chat_id, new Set())
@@ -1621,7 +1621,7 @@ async function assertNotOwnerFriendDm(deps, chatId, toolName, ownerToolName) {
  */
 async function ownerPinnedChatIds(deps) {
   const ownerUserId = await currentAuthUserId(deps)
-  const rows = await deps.restGet(`chat_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
+  const rows = await deps.restGet(`active_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
   return new Set((Array.isArray(rows) ? rows : []).map((row) => row.chat_id))
 }
 
@@ -1990,7 +1990,7 @@ async function friendsWithPinnedDm(deps, ownerUserId, friendIds) {
     deps.restGet(`chats?id=in.(${batch.map(enc).join(',')})&kind=eq.dm&select=id`))
   if (!dms.length) return new Set()
   const peers = await restGetInBatches(dms.map((row) => row.id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
   const friends = new Set(friendIds)
   return new Set(peers.map((row) => row.user_id).filter((id) => friends.has(id)))
 }

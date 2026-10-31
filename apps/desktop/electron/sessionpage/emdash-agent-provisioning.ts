@@ -1475,7 +1475,7 @@ async function findOwnerDirectChat(accessToken: string, guguAgentUserId: string)
   // chat 的成员行。所以「这个 agent 的成员行」天然就是「owner 与它共处的 chat」——不会捞到 agent 与别人
   // 的会话。这条等价关系是本函数的前提,那条策略改了要回来复核。
   const { data: memberships, error: membershipError } = await chat
-    .from('chat_members')
+    .from('active_members')
     .select('chat_id')
     .eq('user_id', guguAgentUserId)
   if (membershipError) {

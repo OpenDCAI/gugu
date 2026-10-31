@@ -182,7 +182,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
       // membership 的键是 <chatId>/<userId>。按 chat 分组成一次 in(),再按键落位。
       const parsed = ids.map((id) => ({ id, ...splitMembershipId(id) }))
       const chatIds = [...new Set(parsed.map((entry) => entry.chatId))]
-      const { data, error } = await chatDb.from('chat_members')
+      const { data, error } = await chatDb.from('active_members')
         .select('chat_id, user_id, last_read_seq, is_marked_unread, version, notification_level, is_pinned, updated_at, joined_at, inbox_published_at, role')
         .in('chat_id', chatIds).abortSignal(signal)
       if (error) throw new Error(error.message)
@@ -389,7 +389,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
    * 键走 `observeKeys` 入脏,与增量共用同一个新鲜度闸(已新鲜的键不入脏 ⇒ 同一游标上重放免费)。
    */
   const observeSnapshotKeys = async (cursor: string, signal: AbortSignal): Promise<void> => {
-    const { data, error } = await chatDb.from('chat_members')
+    const { data, error } = await chatDb.from('active_members')
       .select('chat_id').eq('user_id', viewerId).not('inbox_published_at', 'is', null).abortSignal(signal)
     if (error) throw new Error(error.message)
     const chatIds = [...new Set((data ?? []).map((row) => String((row as { chat_id: unknown }).chat_id)))]

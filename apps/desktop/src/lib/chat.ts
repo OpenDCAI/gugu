@@ -557,7 +557,7 @@ export const chatService = {
    */
   async getDmPeerUserId(chatId: string, userId: string): Promise<string | null> {
     const { data, error } = await chatDb // 读失败要抛:「没查成」≠「查不到」,吞成 null 会报成「收件人已不可用」
-      .from('chat_members')
+      .from('active_members')
       .select('user_id')
       .eq('chat_id', chatId)
       .neq('user_id', userId)
@@ -604,7 +604,7 @@ export const chatService = {
    */
   async getOtherMembersReadSeqs(chatId: string, userId: string): Promise<Record<string, number>> {
     const { data } = await chatDb
-      .from('chat_members')
+      .from('active_members')
       .select('user_id, last_read_seq')
       .eq('chat_id', chatId)
       .neq('user_id', userId)
@@ -628,7 +628,7 @@ export const chatService = {
             .select('chat_id, paused, queue_count, blocked_count, summary, updated_at')
             .eq('chat_id', chatId)
             .maybeSingle(),
-          collabChatDb.from('chat_members').select('chat_id, user_id, role, listen_mode').eq('chat_id', chatId),
+          collabChatDb.from('active_members').select('chat_id, user_id, role, listen_mode').eq('chat_id', chatId),
           collabChatDb
             .from('group_tasks')
             .select(
