@@ -84,7 +84,7 @@ export interface ExtensionDetailSubject {
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
 export type ProductPageApi = Pick<typeof rpc.extensions, 'marketReadme' | 'marketHistory'> &
-  Partial<Pick<ExtensionsApi, 'agentTools'>>;
+  Partial<Pick<ExtensionsApi, 'agentTools' | 'marketRead'>>;
 
 /**
  * 一个 App 的产品页(#7059,取代原来的居中详情框):在「App」那一栏里整页铺开,左上「‹ App」回到清单。

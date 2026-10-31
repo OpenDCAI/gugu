@@ -104,6 +104,8 @@ jobs:
           path: node_modules/.cache/eslint
           key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
           restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-
+      - name: Check permanent removal call sites
+        run: node scripts/check-permanent-removal.mjs
       - name: Check frozen source file growth
         if: github.event_name == 'pull_request'
         env:
@@ -198,10 +200,10 @@ jobs:
   # when something the macOS build depends on beyond the Linux build changed (see `changes`);
   # pushes to dev and main always run it.
   desktop-build-mac:
-    name: Desktop app build (macos-14)
+    name: Desktop app build (macos-15)
     needs: changes
     if: needs.changes.outputs.desktop-mac == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       GUGU_CLOUD_COMPUTER_ENABLED: 'false'
@@ -246,7 +248,7 @@ jobs:
       - run: pnpm android:build
   session-db:
     name: Session database, chat UI browser and tooling
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

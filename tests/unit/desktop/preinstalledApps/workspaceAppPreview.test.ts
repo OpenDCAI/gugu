@@ -6,9 +6,11 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import * as language from '@codemirror/language'
 import * as cmState from '@codemirror/state'
 import * as cmView from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
+import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import { beforeAll, describe, expect, test, vi } from 'vitest'
 
@@ -44,7 +46,7 @@ const gugu = {
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn((handler: typeof contextChanged) => { contextChanged = handler; handler(context); return () => {} }),
-  codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState })),
+  codemirror: vi.fn(async () => ({ EditorView, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, lezerHighlight })),
   onLink: vi.fn(() => () => {}),
   markdown: vi.fn(async () => md),
   bind: { codemirror: vi.fn(() => () => {}) },

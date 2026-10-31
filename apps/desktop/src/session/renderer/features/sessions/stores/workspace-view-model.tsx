@@ -27,7 +27,6 @@ import { snapshotRegistry } from '@renderer/lib/stores/snapshot-registry';
 import { log } from '@renderer/utils/logger';
 import {
   sessionChangedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import { sessionTabKind } from '@renderer/features/sessions/session-tab-kind';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
@@ -187,21 +186,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // source, or the app state would keep describing panes that are gone.
     this._disposers.push(() => clearExtensionAppStateSource(this.sessionId));
 
-    // spec session-graph「删除的会话不能留在聊天栏里」: a conversation's tab dies with its row. The
-    // conversation manager only drops the store on this event; nothing closed the pane tab, so the
-    // chat column kept a live composer for a row that no longer existed (title fell back to the
-    // task's internal slug, sends failed with a toast — 2026-08-24 owner 实测).
-    this._disposers.push(
-      onMachineEvent(machineRegistry.machineOf(projectId), sessionDeletedChannel, ({ sessionId, projectId: eventProjectId }) => {
-        if (eventProjectId !== projectId || sessionId !== this.sessionId) return;
-        this._retireSessionTabs(sessionId);
-      })
-    );
-
-    // spec session-graph「归档后收拾现场与删除同一条规则」—— 归档也让这一行离开会话列表,所以它的 tab
-    // 同样不能留在聊天栏里。**同一个收拾动作,两个动词共用**,❌ 各写一份(2026-09-11 产品面实测:归档掉
-    // 父会话之后,聊天栏落到空态「No conversation is open」,而同 task 里那条子会话还活着 —— tab 关了,
-    // 没人把聊天栏交给剩下的那条)。
+    // Archiving removes the task from the active list; retire its tabs through the same local cleanup.
     this._disposers.push(
       onMachineEvent(machineRegistry.machineOf(projectId), sessionChangedChannel, ({ sessionId, projectId: eventProjectId, changes }) => {
         if (eventProjectId !== projectId || sessionId !== this.sessionId) return;

@@ -11,6 +11,8 @@ import { createTabView } from '@renderer/features/tabs/tab-view-factory';
 import { TabViewPersistor } from '@renderer/features/tabs/tab-view-persistor';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { readChatSummary } from '@/lib/chatSummariesBridge';
+import { groupParticipantPanes } from '../group-participant-panes';
+import { returnToScreen } from '@renderer/app/screen-layout-actions';
 import { panelItemKey, type PanelItem } from './chat-panel-item';
 import { keepRestore, takeRestore } from './chat-tab-restores';
 import {
@@ -38,6 +40,7 @@ export const chatTabView = createTabView([chatTabProvider, chatPanelTabProvider,
 export type ChatLayout = PaneLayoutStore<typeof chatTabView.registry>;
 
 const layouts = new Map<string, ChatLayout>();
+const yieldedAuxiliary = new Set<string>();
 
 /** The chat's tab: the strip's first, put back first if anything lands before it (a drop, a restored save). */
 function keepChatFirst(layout: ChatLayout): void {
@@ -72,8 +75,31 @@ export function chatLayoutOf(chatId: string): ChatLayout {
     return tabId ? { paneId: pane.paneId, tabId } : null;
   });
   reaction(() => layout.groups[0]!.pane.tabOrder, () => keepChatFirst(layout));
+  reaction(() => layout.groups[0]!.pane.resolvedActiveTabId, (tabId) => {
+    const pane = layout.groups[0]!.pane;
+    const kind = tabId ? pane.entries.get(tabId)?.kind : undefined;
+    if (!tabId || !kind || kind === CHAT_TAB_KIND) return;
+    const hidden = groupParticipantPanes.hide(chatId);
+    // A topic yielded to an agent remains a tab. Selecting it gives the auxiliary place back.
+    if (yieldedAuxiliary.delete(chatId) || hidden) {
+      const chatTab = chatTabOf(layout);
+      if (chatTab && !pane.livePair) pane.pairWith(chatTab, tabId);
+    }
+    if (hidden) returnToScreen();
+  });
   return layout;
 }
+
+/** A participant borrows the auxiliary place; no group tab or its state is closed. */
+export const yieldChatAuxiliary = action(function yieldChatAuxiliary(chatId: string): void {
+  const layout = chatLayoutOf(chatId);
+  const pane = paneOf(layout);
+  const chatTab = chatTabOf(layout);
+  if (!chatTab) return;
+  yieldedAuxiliary.add(chatId);
+  if (pane.livePair) pane.separatePair({ remember: false });
+  pane.setActiveTab(chatTab);
+});
 
 const paneOf = (layout: ChatLayout): PaneStore => layout.groups[0]!.pane;
 function chatTabOf(layout: ChatLayout): string | undefined {

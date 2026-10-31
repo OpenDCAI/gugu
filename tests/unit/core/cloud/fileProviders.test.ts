@@ -34,6 +34,24 @@ function api(row: Omit<FileRevision, 'sha256'> & { sha256: unknown; bucket_id?: 
 }
 
 describe('one cloud provider and verified raw chunk cache', () => {
+  it('recognizes only the authenticated server missing status/code, preserving generic errors', async () => {
+    const a = api(), c = cache(), cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink() })
+    a.fetcher.mockResolvedValueOnce(Response.json({ status: 'missing', code: 'object_not_found' }))
+    expect(await cloud.metadata(context)).toEqual({ status: 'missing', sha256: null })
+    a.fetcher.mockResolvedValueOnce(Response.json({ status: 'missing', code: 'failed' }))
+    await expect(cloud.metadata(context)).rejects.toThrow('Invalid file metadata')
+    for (const status of [403, 500, 503]) {
+      a.fetcher.mockResolvedValueOnce(Response.json({ error: 'failed' }, { status }))
+      await expect(cloud.metadata(context)).rejects.toMatchObject({ status, code: 'failed' })
+    }
+  })
+  it.each(['download', 'preview'])('retains an explicit missing signal received during %s after metadata was ready', async purpose => {
+    const row = { ...revision, content_type: 'image/png' }, a = api(row), c = cache()
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink() })
+    a.fetcher.mockResolvedValue(Response.json({ status: 'missing', code: 'object_not_found' }))
+    const read = purpose === 'download' ? cloud.managed(row, context) : cloud.preview!(row, context, vi.fn())
+    await expect(read).rejects.toThrow('missing')
+  })
   const legacyRef = { message_id: 'historical-message' }
   const legacyContext = { ...context, ref: legacyRef }
   const legacyRow = { ...revision, item_id: undefined, version: undefined, message_id: legacyRef.message_id,

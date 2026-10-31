@@ -3,6 +3,7 @@
 import { useLayoutEffect, useState } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { cn } from '@/lib/cn'
+import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
 
 type ClassNameProp = { className?: string }
 
@@ -19,7 +20,8 @@ function DialogRoot({ children, open, onOpenChangeComplete, ...props }: DialogPr
 }
 
 function DialogPortal(props: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal {...props} />
+  const container = useUiPortalContainer()
+  return <DialogPrimitive.Portal container={container} {...props} />
 }
 
 function DialogBackdrop({

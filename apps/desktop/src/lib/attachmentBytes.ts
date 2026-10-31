@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fileBlob, type FileHandle, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { fileBlob, MissingFileObjectError, type FileHandle, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { fileSha256 } from '@gugu/core/shared/fileCipher'
 import { attachmentFileRef, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
 import { resolveFile, fileReader, fileReadSignal, attachmentCache, attachmentCacheOrigin } from './fileAccess'
 import { attachmentQueryClient } from './attachmentQueryClient'
 import { platform } from '../platform'
+import type { ImageViewerItem } from './imageViewer'
 
 export async function resolveAttachment(source: AttachmentSource) {
   const ref = attachmentFileRef(source)
@@ -28,10 +29,15 @@ export function sourceKeyOf(source: AttachmentSource): string {
   return source.kind === 'url' ? `url:${source.url}` : source.kind === 'item' ? `item:${source.itemId}@${source.version}` : source.kind === 'message' ? `msg:${source.messageId}` : source.kind === 'attachment' ? `attachment:${source.attachmentId}` : 'gone'
 }
 
-export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' }
+export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' | 'missing' }
 
 /** Thumbnails only display; original blobs are created exclusively from a fully verified file handle. */
 export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
+  try { return await readAttachmentBytes(source, variant, onLink, metadata) }
+  catch (error) { if (error instanceof MissingFileObjectError) return { status: 'missing' }; throw error }
+}
+
+async function readAttachmentBytes(source: AttachmentSource, variant: AttachmentVariant, onLink?: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
   if (variant === 'thumb') {
     const preview = await attachmentPreview(source, metadata)
     if (preview.status !== 'ready') return preview
@@ -56,6 +62,7 @@ export type AttachmentView =
   | { status: 'ready'; objectUrl: string; link: FileRevision }
   | { status: 'gone' }
   | { status: 'expired' }
+  | { status: 'missing' }
   | { status: 'failed' }
 
 /** 缩略图在内存里只是一个 blob:记在本次运行里,超过这么久没人再取就丢。 */
@@ -116,12 +123,12 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 }
 
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */
-export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
+export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void, origin?: ImageViewerItem['source']): Promise<void> {
   const bytes = await attachmentBytes(source)
   if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
-  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
+  openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote, source: origin, resource: source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: source.itemId, version: source.version } } : undefined }])
 }
 
 /** 下载一个附件(同一份缓存);条目删了就抛。 */

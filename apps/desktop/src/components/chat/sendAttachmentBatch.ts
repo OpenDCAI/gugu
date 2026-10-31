@@ -46,7 +46,7 @@ function startBoundedUploads(files: File[], endpoint: AttachmentsEndpoint, scope
   return results
 }
 
-async function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean }) {
+async function placeholderRow(file: File, caption: string | undefined, args: { chatId: string; senderId: string; toUserIds: string[] | null; isWhisper?: boolean; replyToMessageId?: string | null }) {
   let dimensions: MessageItem['image_dimensions']
   if (inferAttachmentKind(file) === 'image') {
     try {
@@ -71,7 +71,7 @@ async function placeholderRow(file: File, caption: string | undefined, args: { c
       caption,
     }),
     content_type: 'attachment',
-    reply_to_message_id: null,
+    reply_to_message_id: args.replyToMessageId ?? null,
     thread_root_id: null,
     is_thread_root: false,
     retracted_at: null,
@@ -94,6 +94,7 @@ export async function sendAttachmentBatch(args: {
   senderId: string
   toUserIds: string[] | null
   isWhisper?: boolean
+  replyToMessageId?: string | null
   threadRootId?: string | null
   isThreadRoot?: boolean
   onSent?: (file: File, index: number) => void
@@ -137,6 +138,7 @@ export async function sendAttachmentBatch(args: {
         file_name: file.name || 'file',
         content_type: resolveFileMimeType(file),
         to_user_ids: args.toUserIds ?? [],
+        reply_to_message_id: args.replyToMessageId ?? null,
         thread_root_id: args.threadRootId ?? null,
         is_thread_root: !!args.isThreadRoot,
         is_whisper: !!args.isWhisper,

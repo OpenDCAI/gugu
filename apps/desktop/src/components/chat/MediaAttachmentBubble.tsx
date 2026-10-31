@@ -37,6 +37,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
     enabled: near && !!user && managedFile,
   }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
+  if (metadata.data?.status === 'missing') return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />{caption}</div>
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
     details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} onOpen={() => { if (metadata.isError) void metadata.refetch() }} />{caption}</div>
@@ -51,13 +52,13 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   if (meta.source.kind === 'gone') {
     return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
   }
-  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div ref={box} className={FIT_BUBBLE}><InlineImage meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
+  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div ref={box} className={FIT_BUBBLE}><InlineImage meta={meta} messageId={messageId} chatId={chatId} isMine={isMine} />{caption}</div>
   // Pin the group file version; the first version does not need a label.
   const versionLabel = meta.source.kind === 'item' && meta.source.version > 1 ? t('attachmentView.fileVersion', { n: meta.source.version }) : undefined
   return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} versionLabel={versionLabel} onOpen={() => onOpenFile?.(meta)} onDownload={onDownload} downloadLabel={t('chatArea.filePreview.download')} />{caption}</div>
 }
 
-function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; messageId: string; isMine: boolean }) {
+function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachment; messageId: string; chatId?: string; isMine: boolean }) {
   const { t } = useTranslation('messaging')
   const box = useRef<HTMLDivElement>(null)
   const near = useNearViewport(box)
@@ -74,15 +75,16 @@ function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; mess
     const unregister = registerFullImage(img.current, () => (full ??= attachmentBytes(meta.source, 'full').then((bytes) => {
       if (bytes.status !== 'ready') throw new Error('attachment is gone')
       return URL.createObjectURL(bytes.blob)
-    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined)
+    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined, chatId ? { chatId, messageId } : undefined)
     return () => {
       unregister()
       void full?.then((url) => URL.revokeObjectURL(url), () => undefined)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceKey 就是 meta.source 的身份
-  }, [ready, sourceKey])
+  }, [ready, sourceKey, chatId, messageId])
 
   if (view.status === 'gone') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />
+  if (view.status === 'missing') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />
   if (view.status === 'expired') return <ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />
   if (view.status === 'failed') {
     return (

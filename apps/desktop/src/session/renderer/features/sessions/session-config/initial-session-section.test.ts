@@ -26,6 +26,7 @@ import {
   InitialSessionField,
   resolvePlatformModel,
   sessionpageLegForCreation,
+  terminalLegUnstartableForCreation,
   useInitialSessionState,
   type InitialSessionState,
 } from './initial-session-section';
@@ -536,7 +537,7 @@ vi.mock('@renderer/features/settings/use-app-settings-key', async () => {
     }),
   };
 });
-// 新会话的展示跟本机「终端」开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
+// 新任务框给不给「终端 | 通用」跟本机开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
 vi.mock('@renderer/features/settings/use-terminal-enabled', async () => {
   const { useSyncExternalStore } = await import('react');
   return {
@@ -1010,26 +1011,81 @@ describe('useInitialSessionState', () => {
       },
     };
 
-    expect(sessionpageLegForCreation({
+    const legFrom = (creationSurface: 'session-page' | 'chat-page') => sessionpageLegForCreation({
       sessionpage: kimiSessionpage,
       preferred: 'tui',
-      creationSurface: 'session-page',
-    })).toBe('tui');
-    expect(sessionpageLegForCreation({
-      sessionpage: kimiSessionpage,
-      preferred: 'tui',
-      creationSurface: 'chat-page',
-    })).toBe('acp');
+      terminalUnstartable: terminalLegUnstartableForCreation({
+        sessionpage: kimiSessionpage, prompt: { kind: 'argv' }, creationSurface, dispatchesToChat: false,
+      }),
+    });
+    expect(legFrom('session-page')).toBe('tui');
+    expect(legFrom('chat-page')).toBe('acp');
   });
 
-  // owner 10-28:「终端开关不是默认是否是终端，而是终端功能是否可用」—— 开着关着,新任务都进通用。
-  it('opens in the general view whether the terminal is on or off', async () => {
-    settingsStore.set('terminal', { enabled: true });
-    await renderProbe('project-1');
-    expect(latestState?.sessionView).toBe('general');
+  // 派进群里的任务(项目里的新任务)首句是任务卡:终端腿要有吃得下消息首句的启动通道,
+  // 与主进程起 pty 时那道闸同一个函数(providerTakesMessageStartupInPty)。
+  it('locks Terminal for a dispatched task when the terminal leg cannot take the task card at startup', () => {
+    const codexLike = {
+      sessionpage: {
+        'acp': { identity: 'addressable' as const, messageTransport: 'router' as const },
+        'tui': { identity: 'addressable' as const, messageTransport: 'router' as const },
+      },
+      prompt: { kind: 'argv', startupDelivery: 'delivery-bridge' as const },
+    };
+    const unstartable = (prompt: typeof codexLike.prompt | { kind: string }, dispatchesToChat: boolean) =>
+      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, creationSurface: 'session-page', dispatchesToChat });
 
-    await act(async () => settingsStore.set('terminal', { enabled: false }));
+    expect(unstartable(codexLike.prompt, true)).toBe(true);
+    expect(unstartable({ kind: 'argv' }, true)).toBe(false);
+    // 不派任务(新建页)首句不是消息,codex 的终端照样可选。
+    expect(unstartable(codexLike.prompt, false)).toBe(false);
+  });
+
+  it('a dispatching box shows Terminal locked to General with a reason when the agent cannot start there', async () => {
+    settingsStore.set('terminal', { enabled: true });
+    // 渲染一次让 fixture 落地,再改 claude 的启动通道声明。
+    await renderProbe('project-1');
+    const claude = (agentFixtureRef.current as Array<{ id: string; capabilities: { prompt?: unknown } }> | undefined)
+      ?.find((agent) => agent.id === 'claude');
+    const original = claude?.capabilities.prompt;
+    try {
+      claude!.capabilities.prompt = { kind: 'argv', startupDelivery: 'delivery-bridge' };
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await renderProbe('project-1', { dispatchesToChat: true });
+      expect(latestState?.sessionViewLock).toEqual({ view: 'general', reason: 'general-required-here' });
+      await act(async () => { latestState?.setSessionView('code'); });
+      expect(latestState?.sessionView).toBe('general');
+      expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+      claude!.capabilities.prompt = { kind: 'argv' };
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await renderProbe('project-1', { dispatchesToChat: true });
+      expect(latestState?.sessionViewLock).toBeNull();
+      await act(async () => { latestState?.setSessionView('code'); });
+      expect(buildInitialSession(latestState!)?.type).toBe('pty');
+    } finally {
+      claude!.capabilities.prompt = original;
+    }
+  });
+
+  // owner 10-30:「允许以终端（TUI）模式启动 agent」关着,新任务一律通用、框里没有选择;
+  // 开着,框里给「终端 | 通用」,默认通用,选终端建出来的是 pty。
+  it('offers the Terminal / General choice only when the terminal switch is on', async () => {
+    await renderProbe('project-1');
+    expect(latestState?.sessionViewOffered).toBe(false);
     expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+    await act(async () => settingsStore.set('terminal', { enabled: true }));
+    expect(latestState?.sessionViewOffered).toBe(true);
+    expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+    await act(async () => { latestState?.setSessionView('code'); });
+    expect(latestState?.sessionView).toBe('code');
+    expect(buildInitialSession(latestState!)?.type).toBe('pty');
   });
 
   it('a stored record\'s own view (automations) overrides only this box, never a global setting', async () => {

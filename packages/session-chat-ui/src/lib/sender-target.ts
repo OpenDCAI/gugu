@@ -1,7 +1,7 @@
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
 export type MessageSenderTarget = { kind: 'chat'; chatId: string; messageId?: string }
-  | { kind: 'session'; sessionId: string } | { kind: 'sender'; userId: string };
+  | { kind: 'session'; sessionId: string } | { kind: 'sender'; userId: string; sourceChatId?: string };
 
 export function conversationAgentTarget(facts: { sessionId?: string | null; userId?: string | null }): MessageSenderTarget | null {
   if (facts.sessionId) return { kind: 'session', sessionId: facts.sessionId };

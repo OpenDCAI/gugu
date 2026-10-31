@@ -37,7 +37,11 @@ export interface FileRevision {
   /** Actual workspace metadata kept at publication in the existing local revision index. */
   workspace?: { path: string; parent_id: string | null; created_at: string | null; updated_at: string | null; created_by: string | null; source_message_ids: string[] }
 }
-export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired'; sha256: string | null }
+export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired' | 'missing'; sha256: string | null }
+/** The authenticated server explicitly identified a physically missing object. */
+export class MissingFileObjectError extends Error {
+  constructor() { super('missing') }
+}
 export interface FileBytes {
   /** An authorized immutable snapshot with exact length; stored digests are verified when present. */
   readonly size: number
@@ -92,7 +96,8 @@ export function requireFileRevision(revision: FileRevision): void {
 /** The resolver response and an authorized message projection carry the same display metadata. */
 export function parseFileMetadata(value: unknown, ref?: FileRef): FileMetadata {
   if (!value || typeof value !== 'object') throw new Error('Invalid file metadata')
-  const row = value as FileRevision & { status: string; bucket_id?: string; object_name?: string; message_id?: string }
+  const row = value as FileRevision & { status: string; code?: string; bucket_id?: string; object_name?: string; message_id?: string }
+  if (row.status === 'missing' && row.code === 'object_not_found') return { status: 'missing', sha256: row.sha256 ?? null }
   if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
   if (row.status !== 'ready') throw new Error('Invalid file metadata')
   const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer } = row

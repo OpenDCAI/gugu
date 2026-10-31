@@ -132,7 +132,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
   async initialize(): Promise<void> {
     this.useStableEndpoint();
     this.disposers.push(
-      sessionEvents.on('session:deleted', (sessionId) => forgetSessionAutonomy(sessionId))
+      sessionEvents.on('session:archived', (sessionId) => forgetSessionAutonomy(sessionId))
     );
 
     this.disposers.push(

@@ -153,10 +153,14 @@ describe('电脑控制:咕咕的规矩', () => {
       ['computer.launch_app', { name: '咕咕' }],
       ['computer.get_window_state', { pid: GUGU_PID, window_id: 3 }],
       ['computer.run_steps', { app: '咕咕', steps: [{ click: { role: 'button', name: '连接' } }] }],
+      ['computer.run_steps', { pid: GUGU_PID, steps: [{ click: { window_id: 1, x: 1, y: 1 } }] }],
+      ['computer.run_steps', { pid: 77, steps: [{ click: { window_id: 1, x: 1, y: 1 } }], observe: { pid: GUGU_PID, window_id: 3 } }],
       ['computer.run_steps', { steps: [{ tool: 'click', args: { pid: GUGU_PID, window_id: 1, x: 1, y: 1 } }] }],
     ] as const
     for (const [action, args] of refused) {
-      expect(await invoke(action, { ...args }), action).toMatchObject({ ok: false, code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+      const result = await invoke(action, { ...args })
+      expect(result, action).toMatchObject({ ok: false, code: 'invalid_args', message: expect.stringContaining('咕咕 itself') })
+      expect(result, action).toMatchObject({ message: expect.stringContaining("For webpages in this session's browser tabs, use browser_* tools.") })
     }
     expect(callTool).not.toHaveBeenCalled()
   })

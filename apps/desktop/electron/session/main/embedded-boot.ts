@@ -141,7 +141,7 @@ import { projectSettingsService } from '@main/core/projects/settings/project-set
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
 import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
-import { deleteSession } from '@main/core/sessions/deleteSession'
+import { archiveSession } from '@main/core/sessions/archiveSession'
 import { getSessions } from '@main/core/sessions/getSessions'
 import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
 export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
@@ -2012,7 +2012,7 @@ export async function disposeSessionpageAgentSession(input: {
   sessionId: string
 }): Promise<void> {
   await stopExactSessionpageSession(input).catch(() => false)
-  await deleteSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
     .catch(() => undefined)
 }
 
@@ -2201,17 +2201,9 @@ export async function emdashSessionpageInventory(): Promise<{
   }
 }
 
-/**
- * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
- * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
- * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
- * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
- * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
- * the session. Returns an unsubscribe fn.
- */
+/** Reconcile retained task/roster projections when archival, project visibility or runtime mounts change. */
 export function onEmdashSessionpageReapTrigger(
-  cb: (reason: string, info?: { deadSessionId?: string }) => void
+  cb: (reason: string) => void
 ): () => void {
   // ⚠️ 宿主把会话页后端的 main 打成一个 esbuild 包,其中一部分模块被包成 **lazy ESM 段**(`__esm(...)`):
   // 没被显式触碰过的段不会求值,于是这里的静态 binding 可能读到 undefined —— 实测 `sessionService` 就是
@@ -2230,21 +2222,14 @@ export function onEmdashSessionpageReapTrigger(
       )
     }
   }
-  // session:archived / session:deleted 都在行操作**之后**发、且与会话是否挂载无关 —— 归档一条用户从未
-  // 打开的会话照样发(它没有挂载可拆,所以 session:torn-down 对它根本不触发)。
-  sub('session:deleted', () =>
-    sessionEvents.on('session:deleted', (sessionId) =>
-      cb('session:deleted', { deadSessionId: sessionId }))
-  )
+  // Archival fires after persistence, including tasks that never had a runtime mount.
   sub('session:archived', () =>
     sessionEvents.on('session:archived', () =>
       cb('session:archived'))
   )
   sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
-  // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
-  // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
+  // App shutdown tears down runtimes while task rows remain; the inventory still decides eligibility.
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))
   )
@@ -2278,10 +2263,7 @@ function installExtensionAgentChangeFeed(): void {
   agentStatusWriter.on('agent:status', ({ sessionId }) => {
     notifyExtensionAgentsChanged(sessionId)
   })
-  // ❌ 不转发 session:deleted。那条推送在桥里要过一遍「这个 agent 这个 surface
-  // 看得见吗」,而被删掉的会话已经不在库里 —— 过滤器必然把它滤掉,于是这一路只会是
-  // 一条声称存在、实际永远静默的通道。删除该怎么告知是另一件事,值得单独设计;
-  // 装上一个不响的铃比没有铃更糟。
+
 }
 
 let platformCheckpointFeedInstalled = false
@@ -2343,9 +2325,6 @@ function installSessionsGoneFeed(): void {
       log.error(`[sessionpage] 订阅 ${label} 失败 —— 这一类会话消失的回收会缺失`, error)
     }
   }
-  sub('session:deleted', () =>
-    sessionEvents.on('session:deleted', (sessionId) => announceSessionsGone({ sessionId }))
-  )
   sub('session:archived', () =>
     sessionEvents.on('session:archived', (sessionId) => announceSessionsGone({ sessionId }))
   )

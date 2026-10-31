@@ -8,6 +8,8 @@ import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
+import { readDeliveryEnvelope, recoverDeliveryEnvelopes, renderDeliveryEnvelope } from '../../../../packages/core/src/local/agent/deliveryEnvelope'
+import { hermesPromptMeta, indexHermesPrompts, originalHermesPrompt } from '../../../../packages/session-core/src/acp/hermes-prompt'
 
 // The Hermes bridge end to end over its two real protocols: ACP on stdio to the test (standing in for Gugu's
 // runtime), the serve gateway's JSON-RPC over a real WebSocket to a fake `hermes serve` that plays scripted turns.
@@ -257,6 +259,27 @@ describe('hermes serve bridge', () => {
     expect(bridge.updates.map((u) => u.sessionUpdate)).toEqual(expect.arrayContaining(['agent_thought_chunk', 'agent_message_chunk', 'usage_update']))
   })
 
+  it('recovers an already received delivery from the actual Hermes merged resource/profile prompt', async () => {
+    const bridge = startBridge(PLATFORM_ENV)
+    await newSession(bridge)
+    const envelope = renderDeliveryEnvelope({ route: 'chat', from: 'Probe', fromId: 'user:probe', messageId: 'msg:accepted-prefixed', chat: 'probe', at: 'test', content: 'Hello' })
+    const prompt = [
+      { type: 'text', text: '<resource_changes>飞书已连接</resource_changes>' },
+      { type: 'text', text: '<gugu_profile_review>Review profile</gugu_profile_review>' },
+      { type: 'text', text: envelope },
+    ]
+    await bridge.request('session/prompt', { sessionId: 'stored-1', prompt })
+    const native = String(bridge.rpcs('prompt.submit')[0].text)
+    expect(native).toContain('<resource_changes>')
+    const originals = indexHermesPrompts([{ kind: 'message', role: 'user', text: envelope, _meta: hermesPromptMeta(prompt) }])
+    const original = originalHermesPrompt(native, originals)!
+    expect(readDeliveryEnvelope(native)).toBeNull()
+    const received = readDeliveryEnvelope(original)?.segments.flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? []
+    expect(received).toEqual(['msg:accepted-prefixed'])
+    expect(recoverDeliveryEnvelopes(envelope, [], false, new Set(received))).toBeNull()
+    expect(recoverDeliveryEnvelopes(envelope, [original])).toBeNull()
+  })
+
   it('steering joins the running turn (one answer for the prompt); idle steering asks for a prompt', async () => {
     const bridge = startBridge(PLATFORM_ENV)
     await newSession(bridge)
@@ -304,6 +327,20 @@ describe('hermes serve bridge', () => {
     expect(loaded.error).toBeUndefined()
     expect(bridge.rpcs('session.resume')[0]).toEqual({ session_id: 'stored-7', source: 'acp' })
     expect(bridge.updates.slice(0, 4).map((u) => u.sessionUpdate)).toEqual(['user_message_chunk', 'agent_thought_chunk', 'agent_message_chunk', 'tool_call'])
+  })
+
+  it('load without replay restores configuration and still streams the next live turn', async () => {
+    const bridge = startBridge(PLATFORM_ENV)
+    await bridge.request('initialize', { protocolVersion: 1, clientCapabilities: {} })
+    const loaded = await bridge.request('session/load', {
+      sessionId: 'stored-7', cwd: dir, mcpServers: [], _meta: { history: { replay: false } },
+    })
+    expect(loaded.error).toBeUndefined()
+    expect(option(loaded.result, 'model')).toBeDefined()
+    expect(bridge.updates.filter((u) => /message_chunk|thought_chunk|tool_call/.test(String(u.sessionUpdate)))).toEqual([])
+    const response = await bridge.request('session/prompt', { sessionId: 'stored-7', prompt: [{ type: 'text', text: 'next live input' }] })
+    expect(response.result).toEqual({ stopReason: 'end_turn' })
+    expect(bridge.updates.some((u) => u.sessionUpdate === 'agent_message_chunk')).toBe(true)
   })
 
   it('cancel interrupts the turn and its prompt ends cancelled', async () => {

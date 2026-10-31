@@ -190,6 +190,8 @@ export default {
     "unavailable": "This Agent does not exist or is not shared publicly"
   },
   "runtime": {
+    "groupMine": "Mine",
+    "groupOthers": "Others",
     "justNow": "just now",
     "messagePreview": {
       "connecting": "Connecting…",
@@ -375,9 +377,7 @@ export default {
       "avatar": "Avatar",
       "bio": "Bio",
       "bioPlaceholder": "Describe this Agent’s capabilities (optional)",
-      "confirmDelete": "Delete Agent “{{name}}”? This cannot be undone.",
       "deleteAgent": "Delete Agent",
-      "deleted": "Agent deleted",
       "deleteFailed": "Could not delete the Agent. Try again.",
       "deleting": "Deleting…",
       "emptyFile": "Avatar files cannot be empty",

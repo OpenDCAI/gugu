@@ -1,8 +1,10 @@
 import { WORKSPACE_ANCHOR } from '@renderer/features/tabs/tab-fullscreen';
 import { observer } from 'mobx-react-lite';
-import { Fragment, useEffect, type CSSProperties, type DragEvent } from 'react';
+import { Fragment, useEffect, useRef, type CSSProperties, type DragEvent } from 'react';
 import { useGroupRef } from 'react-resizable-panels';
 import { X } from '@/lib/icons';
+import { groupParticipantPanes } from '@renderer/features/chats/group-participant-panes';
+import { observeGroupParticipantWidth } from '@renderer/features/chats/group-participant-width';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
 import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
@@ -89,9 +91,12 @@ const BlockTree = observer(function BlockTree({ node }: { node: PaneLayoutNode }
 /** 块与块之间一根线(和格与格之间同一种)。拖它改份额,双击 = 等分。 */
 const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayoutNode, { type: 'split' }> }) {
   const groupRef = useGroupRef();
+  const groupElementRef = useRef<HTMLDivElement>(null);
   const ids = node.children.map(childPanelId);
   const idsKey = ids.join(',');
   const sizesKey = node.sizes.join(',');
+  const participantOwner = groupParticipantPanes.pairIn(node)?.chatId;
+  const participantWidth = groupParticipantPanes.rightWidth;
 
   useEffect(() => {
     const handle = groupRef.current;
@@ -107,6 +112,13 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
     // ids / sizes are read through their keys: a new array every render must not re-run this.
   }, [idsKey, sizesKey, groupRef]);
 
+  useEffect(() => {
+    const element = groupElementRef.current;
+    const handle = groupRef.current;
+    if (!element || !handle || !participantOwner) return;
+    return observeGroupParticipantWidth(element, node, handle, groupParticipantPanes);
+  }, [groupRef, idsKey, sizesKey, node.orientation, participantOwner, participantWidth]);
+
   // 这一刀下面换了一块(比如占一块的 App 被收走,旁边那一列塌成一块):这组整个重挂,按 node.sizes 重新摆。
   // 不重挂时新挂上的那块进不了库里的布局,只拿到 1% 宽(2026-10-09 实测挤成 19px);库文档给的做法就是按
   // 这组有哪几块换 key(react-resizable-panels v4「Conditional panels」)。块里的东西不怕重挂:会话页是贴上来的,
@@ -116,8 +128,17 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
       key={idsKey}
       orientation={node.orientation}
       groupRef={groupRef}
+      elementRef={groupElementRef}
       onLayoutChanged={(layout, meta) => {
-        if (meta.isUserInteraction) screenLayout.setSplitSizes(node.id, ids.map((id) => layout[id] ?? 0));
+        if (meta.isUserInteraction) {
+          screenLayout.setSplitSizes(node.id, ids.map((id) => layout[id] ?? 0));
+          const participant = groupParticipantPanes.pairIn(node);
+          const target = participant && node.children[participant.targetIndex];
+          if (target?.type === 'pane') {
+            const width = document.querySelector<HTMLElement>(`[data-screen-block="${target.paneId}"]`)?.getBoundingClientRect().width;
+            if (width) groupParticipantPanes.rememberWidth(width);
+          }
+        }
       }}
     >
       {node.children.map((child, index) => (

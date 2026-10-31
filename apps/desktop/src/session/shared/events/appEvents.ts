@@ -50,6 +50,8 @@ export const notificationFocusSessionChannel = defineEvent<{
   sessionId: string;
   /** On the screen view: beside what is there, the layout kept (a task card's click). */
   beside?: true;
+  /** Receipt for one group participant click; ordinary task opens never carry it. */
+  groupParticipantRequestId?: string;
 }>('notification:focus-session');
 
 /** Host-validated request to open a file without navigating away from the user's current surface. */

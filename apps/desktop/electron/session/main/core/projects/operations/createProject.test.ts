@@ -98,6 +98,7 @@ beforeEach(() => {
   mocks.ensureRootMock.mockReturnValue('ws-root');
   mocks.attachedOwnerMock.mockResolvedValue(undefined);
   mocks.rootOwnerMock.mockResolvedValue(undefined);
+  mocks.updateMock.mockReturnValue({ set: () => ({ where: () => ({ run: () => {} }) }) });
   mocks.attachFolderMock.mockResolvedValue({ success: true });
   mocks.valuesMock.mockReturnValue({ returning: () => ({ get: () => mocks.returningMock()[0] }) });
   mocks.openProjectMock.mockResolvedValue(undefined);
@@ -161,6 +162,31 @@ describe('createLocalProject', () => {
     expect(restored.rootFolderDetached).toBeUndefined();
     expect(mocks.attachFolderMock).toHaveBeenCalledWith('original-project', projectPath);
     expect(mocks.insertMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['root', 'attached'])('reopens an archived project from its %s folder without rebuilding memberships', async (kind) => {
+    const projectPath = tempProjectPath();
+    const original = { type: 'local', id: 'original-project', name: 'Original', path: projectPath,
+      archivedAt: '2026-10-30T10:00:00Z', repositoryWorkspaceId: 'original-root', baseRef: null };
+    (kind === 'root' ? mocks.rootOwnerMock : mocks.attachedOwnerMock).mockResolvedValue(original);
+    const restored = expectOk(await createLocalProject({ path: projectPath, name: 'New name', exactPath: true }));
+    expect(restored).toMatchObject({ id: 'original-project', repositoryWorkspaceId: 'original-root' });
+    expect(restored.archivedAt).toBeUndefined();
+    expect(mocks.emitMock).toHaveBeenCalledWith('project:created', restored);
+    expect(mocks.attachFolderMock).not.toHaveBeenCalled();
+    expect(mocks.insertMock).not.toHaveBeenCalled();
+  });
+
+  it('automatic history lookup does not restore an archived project', async () => {
+    const projectPath = tempProjectPath();
+    const archived = { type: 'local', id: 'original-project', name: 'Original', path: projectPath,
+      archivedAt: '2026-10-30T10:00:00Z', rootFolderDetached: true, repositoryWorkspaceId: 'original-root', baseRef: null };
+    mocks.rootOwnerMock.mockResolvedValue(archived);
+    const result = expectOk(await createLocalProject({ path: projectPath, name: 'History', exactPath: true, automatic: true, reuseExisting: true }));
+    expect(result).toEqual(archived);
+    expect(mocks.updateMock).not.toHaveBeenCalled();
+    expect(mocks.attachFolderMock).not.toHaveBeenCalled();
+    expect(mocks.emitMock).not.toHaveBeenCalled();
   });
 
   it('initializes git when the selected folder is not yet a repository', async () => {

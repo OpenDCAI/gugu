@@ -35,6 +35,8 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Mount the host's tooltip or source popover without coupling Solid to the host UI framework. */
+  onTooltipMount?: (target: { root: HTMLElement; text: string; onOpenOriginal?: () => void; originalLabel?: string }) => void | (() => void);
   /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
   onMessageTextMount?: (target: { root: HTMLElement; menuRoot?: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
   onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;

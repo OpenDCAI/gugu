@@ -64,7 +64,7 @@ export default {
     "wakeHint": "进入群聊后，无艾特消息会唤醒 Agent"
   },
   "confirmations": {
-    "deleteAgent": "删除 Agent「{{name}}」？删除后会移除它的群成员关系和运行状态记录。",
+    "deleteAgent": "永久删除 Agent「{{name}}」及其任务和任务历史？同时会移除它的群成员关系，此操作不可恢复。",
     "deleteContact": "删除联系人「{{name}}」？删除后将解除好友关系。",
     "dissolveGroup": "解散后所有成员将退出，确认解散群聊？",
     "leaveGroup": "确认退出该群聊？"

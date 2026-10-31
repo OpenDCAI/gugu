@@ -35,13 +35,15 @@ export function AgentConversationView({ layout, composerContent, shown = true, o
     const readable = (element: Element) => {
       const viewport = host.getBoundingClientRect();
       if ((composerContent || props.composer === 'slot') && (!slot || slot.getBoundingClientRect().height <= 0)) return false;
-      const bottom = slot ? Math.min(viewport.bottom, slot.getBoundingClientRect().top) : viewport.bottom;
+      const process = element.closest('[data-slot="conversation-process-steps"]')?.getBoundingClientRect();
+      const top = process ? Math.max(viewport.top, process.top) : viewport.top;
+      const bottom = Math.min(viewport.bottom, slot ? slot.getBoundingClientRect().top : viewport.bottom, process?.bottom ?? viewport.bottom);
       const body = element.querySelector('[data-user-card], [data-attachment-chip]') ?? element;
       const content = body.getBoundingClientRect();
       // A covered short bubble has not been read. A reply taller than the
       // viewport becomes eligible when its end reaches the readable region.
-      return content.width > 0 && content.height > 0 && content.bottom > viewport.top && content.bottom <= bottom
-        && (content.top >= viewport.top || content.height > bottom - viewport.top)
+      return bottom > top && content.width > 0 && content.height > 0 && content.bottom > top && content.bottom <= bottom
+        && (content.top >= top || content.height > bottom - top)
         && content.right > viewport.left && content.left < viewport.right;
     };
     const report = (elements: readonly Element[]) => {

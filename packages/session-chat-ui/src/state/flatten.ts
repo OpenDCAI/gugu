@@ -1,3 +1,4 @@
+import { decorateConversationDensity } from './conversation-density';
 import { conversationOutput } from './conversation-process';
 import { conversationMessages } from './conversation-messages';
 import { withSentReplies } from './sent-replies';
@@ -69,6 +70,7 @@ import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHead
 import { isEmptyAgentTurn } from './turn-visibility';
 import { processHookNotice } from '@session-chat/lib/hook-notice';
 
+export { lastConversationMessage } from './conversation-density';
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
 export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fold';
 
@@ -169,7 +171,8 @@ export function flattenTier(
   segmenters: Record<string, ItemSegmenter>,
   unitDefs?: Record<string, { margin?: Margin }>,
   prevKind?: string,
-  prevDayKey?: string
+  prevDayKey?: string,
+  previousConversation?: ChatMessage
 ): RenderUnit[] {
   turns = turns.map(turn => withSentReplies(turn, { allDestinations: ctx.agentConversation }));
   if (ctx.agentConversation) turns = conversationMessages(turns);
@@ -194,7 +197,7 @@ export function flattenTier(
   // is already on screen.
   let lastDayKey = prevDayKey;
   let conversationOwner: string | undefined;
-  let lastConversationPart: 'input' | 'head' | 'step' | 'body' | undefined;
+  let lastConversationPart: 'input' | 'head' | 'step' | 'body' | undefined = previousConversation ? (previousConversation.role === 'user' ? 'input' : 'body') : undefined;
 
   const processItem = (item: ChatItem | SyntheticItem, folds?: readonly FoldGate[], owner = conversationOwner): void => {
     if (isSubagentChild(item)) return;
@@ -229,10 +232,10 @@ export function flattenTier(
         : item.kind === 'message' && (item as ChatMessage).conversationPart === 'body' ? 'body'
         : conversationOwner ? 'step' : item.kind === 'message' && item.role === 'user' ? 'input' : undefined;
       if (lastConversationPart && part) {
-        // The 20px action lane is the message's trailing space, not another gap on top of it.
+        // Keep the normal segment gap below the hover action lane (#1062).
         group[0].gapBefore = part === 'step' ? (lastConversationPart === 'head' ? 4 : 0)
           : part === 'body' ? (lastConversationPart === 'step' ? 8 : 4)
-          : lastConversationPart === 'body' || lastConversationPart === 'input' ? 0 : 20;
+          : part === 'head' && lastConversationPart === 'body' ? 20 : lastConversationPart === 'body' || lastConversationPart === 'input' ? 0 : 20;
       }
       lastConversationPart = part;
     }
@@ -574,7 +577,7 @@ export function flattenTier(
     });
   }
 
-  return out;
+  return ctx.agentConversation ? decorateConversationDensity(out, previousConversation) : out;
 }
 
 /** 一段连续工具调用的摘要行 id：锚在段首那一行上（段首不变，展开状态就跟着不丢）。 */

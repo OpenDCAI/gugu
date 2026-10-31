@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
@@ -40,9 +40,10 @@ function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
 /** Park the pointer on a spot below the transcript, so no row is hovered. */
 async function hoverAway(host: HTMLElement) {
   const away = document.createElement('div');
+  away.dataset.testid = 'copy-hover-away';
   away.style.cssText = `position:fixed;left:0;top:${host.getBoundingClientRect().bottom + 10}px;width:10px;height:10px`;
   document.body.append(away);
-  await userEvent.hover(away);
+  await page.getByTestId('copy-hover-away').hover();
   away.remove();
 }
 
@@ -91,7 +92,7 @@ it('shows end actions only after done; preserves inspection, the divider, and me
 });
 
 it('in the conversation layout it is the reply bubble\'s own copy action, revealed only by hovering its row (#1041)', async () => {
-  const { state, context, host } = mount('none', true);
+  const { state, context, host, writeClipboardText } = mount('none', true);
   state.transcript.history.seed([
     { ...TURN, id: 'replied', seq: 0, endedAt: 9_000, outcome: { kind: 'done' },
       items: [{ ...TURN.items[0], id: 'prompt-0' }, { kind: 'message', id: 'answer', seq: 1, role: 'assistant', text: 'Answer.' }] },
@@ -100,6 +101,8 @@ it('in the conversation layout it is the reply bubble\'s own copy action, reveal
   await until('end actions mounted', () => host.querySelector('[data-slot="turn-completion"] button') != null);
   const completion = host.querySelector<HTMLElement>('[data-slot="turn-completion"]')!;
   const button = completion.querySelector<HTMLButtonElement>('[data-user-message-actions] button')!;
+  completion.dataset.testid = 'completion-copy-row';
+  button.dataset.testid = 'completion-copy-button';
   const replyCopy = host.querySelector<HTMLButtonElement>('[data-item-id="answer"] [data-user-message-actions] button')!;
   expect(replyCopy, 'the reply bubble has its own copy action').not.toBeNull();
   expect(completion.querySelectorAll('button')).toHaveLength(1);
@@ -110,9 +113,22 @@ it('in the conversation layout it is the reply bubble\'s own copy action, reveal
   await hoverAway(host);
   await untilStable('unhovered copy settles', () => getComputedStyle(button).opacity);
   expect(getComputedStyle(button).opacity, 'the copy button shows without hover').toBe('0');
-  await userEvent.hover(completion);
-  await until('hovered copy shows', () => getComputedStyle(button).opacity === '1');
+  expect(getComputedStyle(button).pointerEvents).toBe('none');
+  await page.getByTestId('completion-copy-row').hover();
+  await untilStable('hovered copy settles', () => getComputedStyle(button).opacity);
+  expect(completion.matches(':hover'), 'the real pointer is on the end row').toBe(true);
+  expect(getComputedStyle(button).opacity, 'hovering reveals the actual copy control').toBe('1');
+  expect(getComputedStyle(button).pointerEvents).toBe('auto');
   expect(getComputedStyle(replyCopy).opacity, 'hovering the end row leaked into the reply above').toBe('0');
+  await page.getByTestId('completion-copy-button').click();
+  expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith('message_send\nreplied (id=msg:sent)');
+  const reply = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"]')!;
+  reply.dataset.testid = 'reply-copy-row';
+  // A focused action stays visible; clicking the other row releases that focus.
+  await page.getByTestId('reply-copy-row').click();
+  await until('reply copy shows without the end action leaking', () => getComputedStyle(replyCopy).opacity === '1' && getComputedStyle(button).opacity === '0');
+  expect(getComputedStyle(replyCopy).pointerEvents).toBe('auto');
+  expect(getComputedStyle(button).pointerEvents).toBe('none');
   const caches = createChatCaches();
   const measured = turnCompletionUnitDef.measure(
     { kind: 'turn-completion', id: 'tool-only:completion', turnId: TURN.id, text: 'message_send' },

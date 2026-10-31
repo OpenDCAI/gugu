@@ -190,6 +190,8 @@ export default {
     "unavailable": "该 Agent 不存在或未公开分享"
   },
   "runtime": {
+    "groupMine": "我的",
+    "groupOthers": "其他人的",
     "justNow": "刚刚",
     "messagePreview": {
       "connecting": "正在连接…",
@@ -375,9 +377,7 @@ export default {
       "avatar": "头像",
       "bio": "简介",
       "bioPlaceholder": "描述这个 Agent 的能力（可选）",
-      "confirmDelete": "确认删除 Agent「{{name}}」？此操作不可恢复。",
       "deleteAgent": "删除 Agent",
-      "deleted": "已删除 Agent",
       "deleteFailed": "Agent 删除失败。请重试。",
       "deleting": "删除中…",
       "emptyFile": "头像文件不能为空",

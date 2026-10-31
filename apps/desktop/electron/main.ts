@@ -241,6 +241,7 @@ import {
   openOwnerDirectChatForAgent,
   cacheString,
   SESSION_CACHE_KEY,
+  PARKED_SESSION_CACHE_KEY,
   PROJECT_CACHE_KEY,
   provisionSessionpageAgentForSession,
   sessionpageAgentSessionForStart,
@@ -1104,8 +1105,7 @@ async function revokeAgentCards(agentUserId: string): Promise<void> {
 /**
  * 设备 runtime 删掉了名册上的一行(主账号与附加账号的宿主同用这一个)。
  * `owner-change`:换账号时归属未知的老行,连会话一起拆(原样)。
- * `cloud-gone`(#6938):云端已经没有这个 agent —— 只收回发给它的卡,❌ 不拆会话(会话是用户的工作,#4526)。
- * 会话下一次起来以新身份要卡;旧卡不撤,那一次就撞上 grant 里「同主人改 subject」的检查,点几次重试都一样。
+ * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:云端明确 removed,才删除任务历史。
  */
 async function onLocalAgentRosterRemoved(
   agent: { gugu_user_id: string | null; cache?: Record<string, unknown> | null },
@@ -1113,8 +1113,11 @@ async function onLocalAgentRosterRemoved(
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
-  if (reason === 'cloud-gone') {
+  if (reason === 'cloud-gone' || reason === 'cloud-removed') {
+    const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
+    await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
+    if (reason === 'cloud-removed' && sessionId) await removeDeletedAgentTask(sessionId)
     return
   }
   unregisterSessionpageDeliveryOwners(agentUserId)
@@ -2608,33 +2611,29 @@ ipcMain.on('owned-agents:changed', () => {
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
 
-// @@@4526 owner 删除一个自己的 agent 之后,释放它在这台机器上的足迹(花名册 / runtime session / 投递注册),
-// 并立一块按 conversation 记账的墓碑,让那条仍然活着的会话页会话不再被重新开户。
-//
-// 渲染层在 `remove_owned_agent` **成功之后**调它:云端身份确认没了,才轮得到"本机永久不可达"这个结论。
-// ❌ 不吞错。本机足迹没释放干净却让 UI 继续说「Agent deleted」,正是这张票要修的那个形状。
+// The cloud identity is already gone. Local cleanup cannot reverse that receipt.
+async function removeDeletedAgentTask(sessionId: string): Promise<void> {
+  const emdash = loadEmdashBridge()
+  if (!emdash) throw new Error('Task runtime is unavailable for confirmed Agent deletion')
+  await emdash.permanentlyDeleteAgentSession(sessionId)
+}
+
 ipcMain.handle('owned-agent:release-local-footprint', async (_e, arg: unknown) => {
   const agentUserId = (arg as { agentUserId?: unknown } | null)?.agentUserId
   if (typeof agentUserId !== 'string' || !agentUserId.trim()) {
     throw new Error('owned-agent release 缺 agentUserId')
   }
-  // @@@4526B ① 先取消在飞的那一轮。删除是用户唯一能想到的「停下它」的动作,UI 也确实回了
-  // `Agent deleted` —— 而实测里那一轮一路跑到 61.8s 正常回了 DONE,继续烧上游配额、产出写进一条
-  // 用户已经看不见的会话。取消走 conversation 键控 resolver(❌ 宿主不按 provider 名分支);
-  // 空闲时它是 no-op。❌ 不 catch:没停下来却回报已删除,正是这条缺陷本身。
-  // 进出各记一行。理由不是调试顺手:这条 IPC 一旦不生效,产品表现与"删干净了"**完全同形**——
-  // 联系人照样从通讯录消失(那是云端 RPC 删掉 identity.users 造成的,与本机这半无关),
-  // 于是"没释放足迹"就成了一次看不见的失败。这正是本票的形状,所以它必须留下痕迹。
+  // Preserve the cleanup failure in logs without reporting identity deletion as failed.
   const log = createLogger('sessionpage/turn-cancel')
   log.info({ agentUserId }, 'owner delete: release-local-footprint entered')
   try {
-    const result = await releaseDeletedOwnedAgent(agentUserId, { env: process.env })
+    const result = await releaseDeletedOwnedAgent(agentUserId, { env: process.env, removeBoundSession: removeDeletedAgentTask })
     log.info({ agentUserId, ...result }, 'owner delete: release-local-footprint done')
     return result
   } catch (error) {
     log.error(
       { agentUserId, error: (error as Error).message },
-      'owner delete: local footprint released, but the in-flight turn could NOT be cancelled',
+      'owner delete: confirmed identity deletion; local cleanup failed',
     )
     throw error
   }
@@ -3994,9 +3993,9 @@ async function applyAgentModelSelectionOnDevice(input: {
 }
 
 /**
- * #7199 个人助理搬去了别的设备(agent.retire):这台拆它的运行时 —— 停会话、删会话行、撤它排的已安排、摘花名册与缓存、
+ * #7199 个人助理搬去了别的设备(agent.retire):这台归档它的任务和名册、停运行时、撤它排的已安排、
  * 作废发给它的卡。❌ 删文件(工作目录、记忆都留着:搬坏了还有退路)。幂等:这台上本来就没有它 = `found:false`。
- * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再拆会话,最后摘名册记录(它是「这个绑定还看得见」的开关,留到最后让失败的一轮可重试)。
+ * 顺序:先撤已安排(会话还在,才查得到它们挂在哪条会话上),再归档名册与任务,保留绑定和历史以便恢复。
  */
 async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boolean; schedulesRemoved: number }> {
   const roster = await listAgents(process.env, { includeGuests: true })
@@ -4012,7 +4011,7 @@ async function retireSessionpageAgent(agentUserId: string): Promise<{ found: boo
   )
   // 等它写完(它是 async):不等的话下面拆会话时登记表里这个 agent 还在,投递可能又落到刚要停的会话上。
   await unregisterSessionpageDeliveryOwners(agentUserId)
-  // 先摘花名册(云端 presence 的周期写只遍历花名册),再停会话:停会话时冒出来的状态变化不会再被写成云端的「离线」。
+  // 先归档名册(云端 presence 的周期写只遍历活动视图),再停任务:停会话时冒出来的状态变化不会再被写成云端的「离线」。
   // 身份已经属于新家 —— 旧家 ❌ 报 offline、❌ 删云端身份(运行态按时间单调,后写的赢,旧家后写的 offline 会盖掉新家的 online)。
   await releaseAgentLocalFootprint({ agentUserId, identityRemoved: false, env: process.env })
   await disposeSessionpageAgentFromRoster(agent)
@@ -5220,11 +5219,8 @@ app.whenReady().then(async () => {
       tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
       return renamed
     })
-    const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
+    const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
-        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
-        // detach 不点名(会话还活着)。
-        deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
         getAuth: getSessionpageAuth,
         resolveDeviceId: localDeviceId,
         getInventory: () => emdash.emdashSessionpageInventory(),

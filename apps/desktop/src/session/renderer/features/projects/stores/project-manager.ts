@@ -197,12 +197,15 @@ export class ProjectManagerStore {
     if (inspection.existingProject) {
       if (machine) machineRegistry.register(machine, [inspection.existingProject.id]);
       else machineRegistry.claimLocal([inspection.existingProject.id]);
-      // #609 这个目录是替人登记的 workspace(~):人亲手加 ⇒ 交给那台机器把它记成项目(同一个 id)。
-      if (inspection.existingProject.kind === 'workspace' && !(data.mode === 'pick' && data.automatic)) {
+      // Explicitly adding a known directory claims a workspace or reopens its
+      // archived project through the host, retaining the original project id.
+      if ((inspection.existingProject.kind === 'workspace' || inspection.existingProject.archivedAt)
+        && !(data.mode === 'pick' && data.automatic)) {
         const claimed = await rpcOn(machine).projects.createProject({ type: 'local', path: targetPath, name: data.name, allowNonGit: true });
         if (!claimed.success) throw new Error(claimed.error.type);
+        if (inspection.existingProject.archivedAt) await this.ensureProjectLoaded(inspection.existingProject.id);
       }
-      if (inspection.existingProject.rootFolderDetached) {
+      if (inspection.existingProject.rootFolderDetached && !inspection.existingProject.archivedAt) {
         const attached = await rpcOn(machine).projects.attachProjectFolder(inspection.existingProject.id, targetPath);
         if (!attached.success) throw new Error(attached.error.message);
         await this.ensureProjectLoaded(inspection.existingProject.id);

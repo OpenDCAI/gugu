@@ -64,6 +64,9 @@ export const APP_INSTALL_ARGS = {
   source_message_id: z.string().min(1).describe('Instead: the chat message (msg:…) whose .guguext to install.').optional(),
   // App 市场方案 10-07: an App from the market, by its id or a name its card shows.
   market: z.string().min(1).describe('Instead: an App from the market — its id, or the name its card shows; @<version> (radar@0.1.2) for that version.').optional(),
+  // 5-minute game rounds 2-3 (10-29): an App installed on this computer — made in another chat, from the market or a card —
+  // had no way into a new chat; with chat_id its installed copy goes there, as a market App's does.
+  app: z.string().min(1).describe('Instead, with chat_id: an App installed on this computer, by its id — it goes into that chat; nothing is installed again.').optional(),
   // F15 chat_id / F40 data: the host (acp-engine-utils) does the chat's part after the install — the data file, the
   // check on it, the card. The install itself only words `next` with chat_id.
   chat_id: z.string().min(1).describe('A chat you are in; the App goes there as a card.').optional(),

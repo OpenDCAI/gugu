@@ -29,6 +29,11 @@ export async function registerHtmlPreview(
   return {
     ok: true,
     url: `${url}?r=0`,
+    assetsChanged: async (paths) => {
+      const result = await rpc.workspace.files.previewAssetsChanged(previewId, paths);
+      if (!result.success) throw new Error('Could not check preview dependencies');
+      return result.data;
+    },
     update: async (html) => {
       await rpc.workspace.files.setPreviewDocument(previewId, html);
       return `${url}?r=${++revision}`;

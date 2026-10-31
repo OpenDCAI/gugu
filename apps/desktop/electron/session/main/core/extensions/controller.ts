@@ -122,6 +122,9 @@ function readBundleReadme(rootDir: string): string | null {
  * what an extension declares *before* the user consents — installing is never
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
+/** marketRead 一次最多读这么多(精选截图几百 KB)。 */
+const MARKET_READ_MAX_BYTES = 2 * 1024 * 1024;
+
 export const extensionsController = createRPCController({
   variants: async (id: string) => {
     try { return { success: true as const, data: await extensionVariants(id) }; }
@@ -131,8 +134,8 @@ export const extensionsController = createRPCController({
     try { return { success: true as const, data: await switchExtensionVariant(id, name, consent) }; }
     catch (error) { return { success: false as const, error: error instanceof Error ? error.message : String(error) }; }
   },
-  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').OpenTarget }) =>
-    (await import('./gugu-links')).openLink(args.target),
+  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').OpenTarget; groupParticipantRequestId?: string }) =>
+    (await import('./gugu-links')).openLink(args.target, args.groupParticipantRequestId),
   resourceLink: async (target: Exclude<import('@gugu/core/shared/ui/guguLink').GuguLinkTarget, { kind: 'server-login' }>) =>
     (await import('./gugu-links')).linkTo(target),
   list: async () => {
@@ -599,6 +602,21 @@ export const extensionsController = createRPCController({
     } catch (error) {
       log.error('Failed to read extension version history:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  },
+
+  /**
+   * 下载站 `media/` 下的一个文件,base64:页面拿它缩一张精选卡的首帧占位图(渲染层自己读会被拦:下载站不发 CORS 头)。
+   * 形状同手机壳的 GuguAppStore.marketRead,页面两端一套代码;只读 `media/`,最多 MARKET_READ_MAX_BYTES。
+   */
+  marketRead: async (args: { path: string; maxBytes?: number }) => {
+    try {
+      const maxBytes = Math.min(args.maxBytes ?? MARKET_READ_MAX_BYTES, MARKET_READ_MAX_BYTES);
+      const bytes = await cloudExtensionMarket().media(args.path, maxBytes);
+      return { success: true as const, data: { base64: Buffer.from(bytes).toString('base64') } };
+    } catch (error) {
+      log.warn(`Market file not read: ${error instanceof Error ? error.message : String(error)}`);
+      return { success: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   },
 
