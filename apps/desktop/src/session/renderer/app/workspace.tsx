@@ -15,7 +15,10 @@ import { WorkspaceContentLayout, WorkspaceLayout } from '@renderer/lib/layout/wo
 import { NoticeHost } from '@/components/NoticeHost';
 import { SshKeyInstallToasts } from '@renderer/features/remote-hosts/ssh-key-install-toasts';
 import { observer } from 'mobx-react-lite';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ComponentType, type CSSProperties, type ReactNode } from 'react';
+import { appState } from '@renderer/lib/stores/app-state';
+import { registeredViews } from '@renderer/lib/layout/registered-views';
+import type { ViewDefinition } from './view-registry';
 import { PageShownContext, useRecentSessions, type SessionParams } from './recent-session-pages';
 import { ScreenBlockContext } from './screen-block-context';
 import { anchoredToBlock, BlockDropPreviewLayer, ScreenFrame, screenDropHandlers } from './screen-frame';
@@ -72,11 +75,7 @@ export function Workspace() {
             onScreenView={isScreenView(currentView)}
             current={currentView === 'session' ? (wrapParams as SessionParams) : null}
           >
-            {isScreenView(currentView) ? null : (
-              <WrapView {...wrapParams}>
-                <WorkspaceViewContent />
-              </WrapView>
-            )}
+            <WrapViews currentView={currentView} onScreenView={isScreenView(currentView)} WrapView={WrapView} wrapParams={wrapParams} />
           </ScreenArea>
         }
       />
@@ -128,7 +127,13 @@ const ScreenArea = observer(function ScreenArea({
   );
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" {...handlers}>
-      {onSessionView ? <ScreenFrame /> : null}
+      {/* @@@retained-screen — the screen stays mounted under Library & the other places: going back flips it visible,
+          its chat blocks keep their live message windows (no remount, no refetch, no restyle of the whole list). */}
+      <div style={onSessionView ? SHOWN_IN_PLACE : RETAINED_SURFACE_HIDDEN_STYLE}>
+        <PageShownContext.Provider value={onSessionView}>
+          <ScreenFrame />
+        </PageShownContext.Provider>
+      </div>
       {recentSessions.map(({ projectId, sessionId }) => {
         // Beside an App the page is where the App is: on another of gugu's tabs this screen is not drawn, its blocks with it.
         const peeked = peek?.sessionId === sessionId && (!embedVisible || !onSessionView || !screenLayout.blockOfSession(sessionId));
@@ -211,6 +216,64 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
     </div>
   );
 });
+
+/** A shown retained surface lays out as if the wrapper were not there. */
+const SHOWN_IN_PLACE: CSSProperties = { display: 'contents' };
+
+/**
+ * @@@retained-places — a view marked `retained` (资源库, App 市场, 助理) stays mounted once visited and is hidden like every
+ * retained surface (lib/retainedSurface.ts), so leaving it and coming back is a visibility flip, never a rebuild. Other
+ * wrap views are visits and come and go.
+ */
+const WrapViews = observer(function WrapViews({
+  currentView,
+  onScreenView,
+  WrapView,
+  wrapParams,
+}: {
+  currentView: string;
+  onScreenView: boolean;
+  WrapView: ComponentType<{ children: ReactNode } & Record<string, unknown>>;
+  wrapParams: Record<string, unknown>;
+}) {
+  const registry = registeredViews() as unknown as Record<string, ViewDefinition<Record<string, unknown>>>;
+  const isPlace = (viewId: string) => registry[viewId]?.retained === true;
+  const places = useRef<string[]>([]);
+  if (isPlace(currentView) && !places.current.includes(currentView)) places.current = [...places.current, currentView];
+  return (
+    <>
+      {places.current.map((viewId) => (
+        <RetainedPlace key={viewId} viewId={viewId} shown={viewId === currentView} />
+      ))}
+      {onScreenView || isPlace(currentView) ? null : (
+        <WrapView {...wrapParams}>
+          <WorkspaceViewContent />
+        </WrapView>
+      )}
+    </>
+  );
+});
+
+const RetainedPlace = observer(function RetainedPlace({ viewId, shown }: { viewId: string; shown: boolean }) {
+  const def = (registeredViews() as unknown as Record<string, ViewDefinition<Record<string, unknown>>>)[viewId];
+  const params = (appState.navigation.viewParamsStore as Record<string, Record<string, unknown> | undefined>)[viewId] ?? {};
+  const Wrap = (def.WrapView ?? Fragment) as ComponentType<{ children: ReactNode } & Record<string, unknown>>;
+  const Titlebar = def.TitlebarSlot ?? NoTitlebar;
+  const Main = def.MainPanel;
+  return (
+    <div style={shown ? SHOWN_IN_PLACE : RETAINED_SURFACE_HIDDEN_STYLE} data-retained-place={viewId}>
+      <PageShownContext.Provider value={shown}>
+        <Wrap {...params}>
+          <WorkspaceContentLayout titlebarSlot={<Titlebar />} mainPanel={<Main />} />
+        </Wrap>
+      </PageShownContext.Provider>
+    </div>
+  );
+});
+
+function NoTitlebar() {
+  return null;
+}
 
 function WorkspaceViewContent() {
   const { TitlebarSlot, MainPanel } = useWorkspaceSlots();

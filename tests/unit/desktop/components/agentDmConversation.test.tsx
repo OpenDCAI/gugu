@@ -51,7 +51,7 @@ it.each([false, true])('keeps the assistant on its IM bubbles and composer on mo
   probe.hostError = '此刻连不上「咕咕」。'
   const sendMessage = vi.fn<(content: string) => Promise<undefined>>(async () => undefined)
   await renderWithAppProviders(harness, createElement(ChatAreaPanel, {
-    activeTab: 'chats', assistantChat: true, mobile,
+    assistantChat: true, mobile,
     chrome: { placeholder: '和咕咕聊天', attachGlyph: null, typing: createElement('span', { 'data-assistant-typing': '' }, '正在处理'), hideRunningStatus: true },
   }), { chat: {
     activeChat: dm, activeChatId: dm.id, messages: [received],
@@ -74,7 +74,7 @@ it.each([false, true])('keeps the assistant on its IM bubbles and composer on mo
 
 it('still reports a real assistant IM read failure and retries without opening the host transcript', async () => {
   const refreshMessages = vi.fn(async () => {})
-  await renderWithAppProviders(harness, <ChatAreaPanel activeTab="chats" assistantChat />, { chat: {
+  await renderWithAppProviders(harness, <ChatAreaPanel assistantChat />, { chat: {
     activeChat: dm, activeChatId: dm.id, messages: [received], messagesError: new Error('IM read failed'), refreshMessages,
   } })
   expect(harness.container.querySelector('[data-testid="chat-load-failed"]')).not.toBeNull()
@@ -89,10 +89,10 @@ async function openOwnedAgentFromContacts() {
   function Entry() {
     const [opened, setOpened] = useState(false)
     return <ShellErrorBoundary><aside data-navigation=""><button onClick={() => setOpened(false)}>Contacts</button></aside>
-      <main>{opened ? <ChatAreaPanel activeTab="chats" openNonce={0} /> : <ContactsPanel activeTab="contacts" onSwitchToChat={() => setOpened(true)} />}</main>
+      <main>{opened ? <ChatAreaPanel openNonce={0} /> : <ContactsPanel onSwitchToChat={() => setOpened(true)} />}</main>
     </ShellErrorBoundary>
   }
-  await renderWithAppProviders(harness, createElement(Entry), { auth: { id: 'user-1' }, contacts: { contacts: [own] }, chat: {
+  await renderWithAppProviders(harness, createElement(Entry), { shellTab: 'contacts', auth: { id: 'user-1' }, contacts: { contacts: [own] }, chat: {
     activeChat: chat({ id: 'own-dm', kind: 'ai', peer_user_id: own.id }), activeChatId: 'own-dm', messages: [],
   } })
   const section = harness.container.querySelector('[data-testid="contacts-device-section"]')!
@@ -150,7 +150,7 @@ it('does not mark a hidden DM read even if an old visibility callback arrives', 
 
 it('routes the shared header search to the transcript find API and clears it on close', async () => {
   const setFollowingTail = vi.fn()
-  await renderWithAppProviders(harness, createElement(ChatAreaPanel, { activeTab: 'chats' }), { chat: {
+  await renderWithAppProviders(harness, createElement(ChatAreaPanel, {}), { chat: {
     activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) }, setFollowingTail,
   } })
   const transcript = probe.props as { onAtBottomChange: (atBottom: boolean) => void; onVisibleItems: (ids: string[]) => void }

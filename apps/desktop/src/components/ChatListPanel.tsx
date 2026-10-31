@@ -13,7 +13,6 @@ import { clearDraggedScreenContent, setDraggedScreenContent } from '../session/r
 import { Chip } from './ui/Chip'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
-import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useAssistantShell } from '../session/renderer/features/assistant/assistant-shell'
 import { isDuplicateAssistantChat } from '../lib/assistantChatList'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
@@ -38,6 +37,7 @@ import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatL
 import { useLongPress } from '../hooks/useLongPress'
 import { useRowContextMenu } from '../hooks/useRowContextMenu'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
+import { useShellTabIs } from '../lib/shellTab'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
 import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
@@ -77,7 +77,6 @@ function rowAgentStatus(
 }
 
 interface ChatListPanelProps {
-  activeTab?: SidebarTab
   mobile?: boolean
   /** 手机上列表被打开的会话 / 创建页整页盖住(隐藏不卸载)。 */
   hidden?: boolean
@@ -503,7 +502,6 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNe
 // ── Panel ──────────────────────────────────────────────────────────────────────
 
 export function ChatListPanel({
-  activeTab,
   mobile = false,
   hidden = false,
   onChatSelected,
@@ -517,6 +515,8 @@ export function ChatListPanel({
   onNewProject,
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
+  // The IM page's list (web / phone) is on screen when the shell shows 消息; the task page's sidebar copy never is.
+  const chatsShown = useShellTabIs('chats')
   const sidebarView = useSidebarChatView()
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
@@ -782,7 +782,7 @@ export function ChatListPanel({
   }
 
   useEffect(() => {
-    if (activeTab !== 'chats') return
+    if (!chatsShown) return
     const handleGlobalShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       if (
@@ -832,7 +832,7 @@ export function ChatListPanel({
 
     window.addEventListener('keydown', handleGlobalShortcut)
     return () => window.removeEventListener('keydown', handleGlobalShortcut)
-  }, [activeChatId, activeTopicChatId, activeTab, chats, selectChat, visibleChatIds])
+  }, [activeChatId, activeTopicChatId, chatsShown, chats, selectChat, visibleChatIds])
 
   const handleChatKeyDown = (event: Parameters<KeyboardEventHandler<HTMLDivElement>>[0], chat: ChatItem) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -928,7 +928,7 @@ export function ChatListPanel({
 
   return (
     <Pane paneRole="nav" mobile={mobile} data-phone-root-list={mobile ? 'chats' : undefined} style={NAV_PANE_STYLE}>
-      <HeaderSearch mobile={mobile} externalTrigger={mobile ? 'chats' : undefined} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
+      <HeaderSearch mobile={mobile} externalTrigger={mobile ? 'chats' : undefined} active={chatsShown && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
       <PaneHeader
         title={tMain(mobile ? 'shell.messagesMobile' : 'shell.chats')}
         leading={headerLeading}

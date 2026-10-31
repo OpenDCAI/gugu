@@ -50,7 +50,7 @@ export function AssistantTaskChatWindow({ agent, onClose,status,notice,pendingCo
             {dm.chatId && <IconButton aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: dm.chatId, viewportKey: assistantSlotKey('task-chat') } }))}><Search /></IconButton>}
           </>} />
         {notice}{waitingOnDm?<div className="task-chat-notice" role="status">{t('tasks.chatUnavailable')}</div>:null}{dm.chatId
-          ? <TaskChatScope chatId={dm.chatId}><ChatAreaPanel viewportKey={assistantSlotKey('task-chat')} activeTab="chats" mobile={mobile}
+          ? <TaskChatScope chatId={dm.chatId}><ChatAreaPanel viewportKey={assistantSlotKey('task-chat')} mobile={mobile}
               chrome={{ placeholder: t('chat.placeholder', { name: agent.display_name }), attachGlyph: mobile ? <Paperclip /> : <Plus />, hideRunningStatus: true,runtimeReady }} {...handlers} /></TaskChatScope>
           : pendingContent??<div className="assistant-task-chat-window__pending">
               {dm.failed

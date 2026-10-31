@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import {
   TITLEBAR_ACTION_EDGE_GAP_PX,
   TITLEBAR_ACTION_SLOT_GAP_PX,
@@ -83,11 +84,13 @@ function useTightRow(ref: RefObject<HTMLDivElement | null>): boolean {
         setTight(false);
       }
     };
-    check();
-    const resize = new ResizeObserver(check);
+    // ❌ check() synchronously here: a layout effect that reads geometry forces a layout in the middle of the commit
+    // (the first reader paid for restyling the whole page). The observer's first delivery comes after layout, before
+    // paint; flushSync keeps that first paint already collapsed.
+    const resize = new ResizeObserver(() => flushSync(check));
     resize.observe(row);
     if (bar) resize.observe(bar);
-    const mutation = new MutationObserver(check);
+    const mutation = new MutationObserver(() => flushSync(check));
     mutation.observe(row, { childList: true, subtree: true, characterData: true });
     return () => {
       resize.disconnect();
