@@ -529,7 +529,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
           tabManager: {
             tabs: [
               { kind: 'review', tabId: 'tab-review', sessionId: 'conversation-1', isPreview: false },
-              { kind: 'file-browser', tabId: 'tab-files', isPreview: false },
+              { kind: 'terminal', tabId: 'tab-files', terminalId: 'term-1', isPreview: false },
             ],
             activeTabId: 'tab-files',
           },
@@ -546,7 +546,7 @@ describe('WorkspaceViewModel default conversation tab', () => {
     const panes = viewModel.paneLayout.groups.map(({ pane }) =>
       pane.resolvedTabs.map((tab) => `${tab.isActive ? '*' : ''}${tab.kind}`)
     );
-    expect(panes).toEqual([['*session', '*file-browser', 'review']]);
+    expect(panes).toEqual([['*session', '*terminal', 'review']]);
     expect(viewModel.paneLayout.groups[0].pane.livePair).toMatchObject({ anchor: 'tab-chat', side: 'tab-files', sideAt: 'right' });
 
     viewModel.dispose();

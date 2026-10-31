@@ -7,8 +7,8 @@
     "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files" }
   },
   "author": "咕咕",
-  "version": "0.2.62",
-  "apiVersion": 24,
+  "version": "0.2.63",
+  "apiVersion": 25,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",
@@ -27,6 +27,6 @@
       }
     ],
     "mcpServers": [{ "tools": "tools.js" }],
-    "instructions": "workspace__list(chat_id)、create(chat_id,title,content)、read/delete(item_id)、edit(item_id,old,new)。人和 agent 改的是同一份,各自的改动都在。"
+    "instructions": "Conversation folders: workspace__list(chat_id), create(chat_id,title,content), read/delete(item_id), edit(item_id,old,new). Edits merge live."
   }
 }

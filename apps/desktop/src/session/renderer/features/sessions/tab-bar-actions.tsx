@@ -1,6 +1,6 @@
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
-import { Cable, FileText, Folder, Globe, Plus, SquareTerminal } from '@/lib/icons'
+import { Cable, Folder, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -79,7 +79,6 @@ const TaskAddItems = observer(function TaskAddItems() {
   const { data: agents } = useAgents();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
   const terminalEnabled = useTerminalEnabled();
-  const folder = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === WORKSPACE_APP_KIND && entry.enabled);
   const openTab = (kind: string) => sessionView.paneLayout.open(kind, {}, { preview: false, target: { paneId } });
   return (
     <>
@@ -88,7 +87,7 @@ const TaskAddItems = observer(function TaskAddItems() {
           blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
           blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
           openBrowser: () => pane.open('browser', { preview: false }),
-          openFiles: () => pane.open('file-browser', {}, { preview: false }),
+          openFiles: () => openTab(WORKSPACE_APP_KIND),
           openReview: () => sessionView.paneLayout.open('review', {}),
           openTerminal: () => void sessionView.openTerminalAsTab(),
           openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
@@ -96,12 +95,6 @@ const TaskAddItems = observer(function TaskAddItems() {
           canStartSideSession: canSideSession
         })
       )}
-      {/* 文件夹:预装的文件夹 App(和对话的「+」里同一个),放进这一格。 */}
-      {folder ? (
-        <DropdownMenuItem onClick={() => openTab(folder.kind)}>
-          <Folder className="size-3.5" /> {folder.title}
-        </DropdownMenuItem>
-      ) : null}
       {/* Installed Apps extend the menu without joining the built-in union: their kinds exist only at runtime, and
           widening that union would cost the exhaustiveness the built-ins get from it. Refs #2374.
           behavior tab-extensions「+」菜单分两段:上面那几项是给这条会话加的;这一段列已装的 App,点一个 = 把它放到
@@ -251,7 +244,7 @@ function renderWorkspaceActionMenuItem(
     case 'files':
       return (
         <DropdownMenuItem key={actionId} onClick={actions.openFiles}>
-          <FileText className="size-3.5" /> {translate('workspace.files')}
+          <Folder className="size-3.5" /> {translate('workspace.folder')}
           <span className="ml-auto">
           </span>
         </DropdownMenuItem>

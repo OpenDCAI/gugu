@@ -17,6 +17,7 @@ import { rpc } from '@renderer/lib/ipc';
 import { normalizeBrowserUrl } from '@shared/browser';
 import { COMMANDS, type CommandId } from '@shared/commands';
 import { runGitFetch, runGitPublishBranch, runGitPull, runGitPush } from './git-action-handlers';
+import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 import { startSideSession } from './start-side-session';
 import { terminalEnabledSnapshot } from '@renderer/features/settings/use-terminal-enabled';
 
@@ -95,7 +96,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
         },
         {
           ...sidebarChangesDef,
-          // #6780 旧侧栏的两个页签由会话里的 review / file-browser 页签接班(旧的 setSidebarTab 已无处挂载)。
+          // #6780 旧侧栏的两个页签由会话里的 review 页签和文件夹 App 接班(旧的 setSidebarTab 已无处挂载)。
           // 开页签与空态、「+」菜单点按钮是同一个动作;两种都是 single 挂载,已开着就只激活、❌ 开第二个。
           execute() {
             sessionView?.paneLayout.open('review', {});
@@ -104,7 +105,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
         {
           ...sidebarFilesDef,
           execute() {
-            sessionView?.paneLayout.open('file-browser', {}, { preview: false });
+            sessionView?.paneLayout.open(WORKSPACE_APP_KIND, {}, { preview: false });
           },
         },
         // ── Terminals ─────────────────────────────────────────────────────

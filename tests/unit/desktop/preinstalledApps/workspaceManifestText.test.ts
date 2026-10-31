@@ -11,7 +11,7 @@ import { parseExtensionManifest } from '../../../../apps/desktop/src/session/sha
 const manifest = parseExtensionManifest(
   JSON.parse(readFileSync(resolve(__dirname, '../../../../apps/desktop/preinstalled-apps/workspace/manifest.json'), 'utf8')),
 )
-const TOOLS_LINE = '- 文件夹 (workspace): workspace__list(chat_id)、create(chat_id,title,content)、read/delete(item_id)、edit(item_id,old,new)。人和 agent 改的是同一份,各自的改动都在。'
+const TOOLS_LINE = '- 文件夹 (workspace): Conversation folders: workspace__list(chat_id), create(chat_id,title,content), read/delete(item_id), edit(item_id,old,new). Edits merge live.'
 
 describe('the folder App: people read its subtitle, agents read its instructions', () => {
   test('the product page and the installed list show people a line in both languages, never the tool signatures', () => {
@@ -28,5 +28,10 @@ describe('the folder App: people read its subtitle, agents read its instructions
   test('<gugu_apps> gives agents the instructions, word for word', () => {
     const block = guguAppsBlock([{ extensionId: manifest.id, name: manifest.name, instructions: manifest.contributes.instructions! }], [])
     expect(block.split('\n')).toContain(TOOLS_LINE)
+  })
+
+  test('its line is one English line of at most 160 characters, for agents only (App 模型 v2)', () => {
+    const line = manifest.contributes.instructions!
+    expect([line.includes('\n'), line.length <= 160, /[\u4e00-\u9fff]/.test(line)]).toEqual([false, true, false])
   })
 })

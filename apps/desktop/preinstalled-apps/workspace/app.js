@@ -47,6 +47,8 @@ const STRINGS = {
     replaceOld: '替换原来的',
     dropNew: '不要新传的',
     done: '好',
+    workingCopy: '工作目录',
+    chatFolder: '对话的文件夹',
     noWorkspace: '这里没有对话的文件夹。在群里打开「群文件夹」、在私聊里打开「文件夹」，或者从对话里的文件「用文件夹打开」。',
     noFiles: '{folder}还是空的。',
     folderEmpty: '这个文件夹还是空的。',
@@ -232,6 +234,8 @@ const STRINGS = {
     replaceOld: 'Replace the old one',
     dropNew: 'Drop the new one',
     done: 'OK',
+    workingCopy: 'Working folder',
+    chatFolder: 'Conversation folder',
     noWorkspace: 'There is no chat folder here. Open Group folder in a group or Folder in a private chat, or open a file of one with it.',
     noFiles: 'No files here yet.',
     folderEmpty: 'This folder is empty.',
@@ -409,7 +413,11 @@ const state = {
   order: [], // the files on screen, in their order: what a range runs along
   locating: null, // 「在聊天中定位」 for a selection: { ids: message ids oldest first, at }
   showAppData: false,
+  // Which of its two roots the list shows: the conversation's folder (`chat`) or the working copy (`workspace`); null, both
+  // (a session's tab has both), for the person to pick.
+  root: null,
   folder: null, // the folder the list shows (子文件夹): a folder entry's id, null for the top
+  listed: new Set(), // a working copy's folders listed so far ('' the top): it is read one folder at a time
   dragging: null, // the entry being dragged onto a folder (desktop)
   mode: 'preview', // 阅读 first (owner 10-30, folder-docs)
   current: null, // { entry, file, view, unbind, offs: [] }
@@ -460,6 +468,12 @@ function can(capability) {
 }
 const canRead = () => can('files:read') || can('files:write')
 const canWrite = () => can('files:write')
+// A working copy is browsed and its files opened here; what is made, moved and uploaded goes to the conversation's folder.
+const inWorkspace = () => state.root === 'workspace'
+const canWriteHere = () => canWrite() && !inWorkspace()
+// The roots this page has: its conversation's folder, and — in a session's tab — that session's working copy.
+const rootsOf = (ctx) => [ctx?.chat ? 'chat' : null, ctx?.workspace && (ctx.capabilities ?? []).some((c) => c === 'files:read' || c === 'files:write') ? 'workspace' : null].filter(Boolean)
+const rootPlace = () => (inWorkspace() ? { workspace: state.ctx.workspace.id } : { chat: state.ctx.chat.id })
 
 function debounce(fn, ms) {
   let timer = null
@@ -520,13 +534,23 @@ async function applyContext(ctx) {
   state.t = stringsFor(ctx.locale, ctx.chat)
   document.documentElement.lang = isZh(ctx.locale) ? 'zh-CN' : 'en'
   renderChrome()
-  const inGroup = !!ctx.chat
+  const roots = rootsOf(ctx)
+  const inGroup = roots.length > 0
   // A page the host opened for one file (F3: its own page, bound to that file for life) shows that file only.
   document.body.classList.toggle('no-list', !inGroup || !canRead() || !!ctx.file)
-  if (previous?.chat?.id !== ctx.chat?.id || !!previous?.file !== !!ctx.file) {
-    // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed) — every call names its chat.
+  if (previous?.chat?.id !== ctx.chat?.id || previous?.workspace?.id !== ctx.workspace?.id || !!previous?.file !== !!ctx.file) {
+    // Adds, deletes and renames in this chat's workspace (§2.4: fed from workspace_changed), and in the working copy's
+    // folders listed here (the file panel's own pushes) — every call names its place.
     state.unwatch?.()
-    state.unwatch = inGroup && canRead() && !ctx.file ? gugu.files.onChanged({ chat: ctx.chat.id }, heard) : null
+    const watching = canRead() && !ctx.file
+      ? [ctx.chat && gugu.files.onChanged({ chat: ctx.chat.id }, heardIn('chat')), ctx.workspace && roots.includes('workspace') && gugu.files.onChanged({ workspace: ctx.workspace.id }, heardIn('workspace'))].filter(Boolean)
+      : []
+    state.unwatch = watching.length ? () => watching.forEach((stop) => stop()) : null
+    // One root: that one. Both: the person picks (the list shows the two), unless the one shown is still here.
+    state.root = roots.length === 1 ? roots[0] : roots.includes(state.root) ? state.root : null
+    state.folder = null
+    state.listed = new Set()
+    state.entries = []
     if (inGroup && canRead() && !ctx.file) {
       state.showAppData = false
       await refreshList(true)
@@ -560,11 +584,11 @@ function renderChrome() {
   $('select-files').textContent = state.selecting || state.picked.size ? t.pickDone : t.pick
   renderTools()
   $('new-label').textContent = t.new
-  $('new-doc').hidden = !canWrite()
+  $('new-doc').hidden = !canWriteHere()
   $('move-cancel').textContent = t.cancel
   $('conflicts-done').textContent = t.done
   $('upload-label').textContent = $('empty-upload').textContent = t.upload
-  $('upload').hidden = !canWrite()
+  $('upload').hidden = !canWriteHere()
   $('download').textContent = t.download
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
@@ -596,12 +620,13 @@ function renderChrome() {
 // The newest list asked is the one shown (an older one back later — another chat's — is dropped); what the chat says
 // while it is on its way goes over it again when it is back: the list may be from before (#7257).
 async function refreshList(readPreferences = false) {
-  if (!state.ctx?.chat || !canRead()) return
+  if (!state.root || !canRead()) return showList()
+  if (inWorkspace()) return listFolder(state.folder ?? '', true)
   const asked = (state.listing = { heard: [] })
   let entries
   let listError = null
   try {
-    const place = { chat: state.ctx.chat.id }
+    const place = rootPlace()
     const [listed, preferences] = await Promise.all([
       gugu.files.list(place),
       readPreferences ? gugu.files.viewPreferences(place) : null,
@@ -620,8 +645,36 @@ async function refreshList(readPreferences = false) {
   showList()
 }
 
-// What the chat says of its files (#7257): those as they are now, and the ids no longer there — into the list as it is,
-// never listed again.
+/**
+ * One folder of the working copy ('' the top), as the file panel has it: what is directly in it, into the list beside the
+ * folders read before — a folder of ten thousand files is never read whole. `again`: read it anew.
+ */
+async function listFolder(folder, again = false) {
+  if (!inWorkspace() || (!again && state.listed.has(folder))) return showList()
+  const workspace = state.ctx.workspace.id
+  let listed
+  try {
+    listed = await gugu.files.list({ workspace, folder })
+  } catch (error) {
+    if (state.ctx?.workspace?.id !== workspace) return
+    state.listError = error.code === 'denied' ? state.t.denied : fmt(state.t.failed, { e: error.message })
+    return showList()
+  }
+  if (!inWorkspace() || state.ctx?.workspace?.id !== workspace) return
+  const parent = folder || null
+  state.listed.add(folder)
+  state.listError = null
+  state.entries = [...state.entries.filter((entry) => (entry.parentId ?? null) !== parent), ...listed]
+  showList()
+}
+
+// What one root says of its files: heard only while that root is the one shown.
+const heardIn = (root) => (change) => {
+  if (state.root === root) heard(change)
+}
+
+// What the chat says of its files (#7257), or a working copy of a folder listed here: those as they are now, and the
+// ids no longer there — into the list as it is, never listed again.
 function heard(change) {
   if (change.kind !== 'entries') return
   state.listing?.heard.push(change)
@@ -674,7 +727,7 @@ const isFolder = (entry) => entry.type === 'folder'
 const visibleEntry = (entry) => state.showAppData || !entry.appState
 
 async function folderContextMenu(x, y) {
-  if (!state.ctx?.chat || state.ctx.file || !canRead()) return
+  if (!state.ctx?.chat || inWorkspace() || state.ctx.file || !canRead()) return
   const chat = state.ctx.chat.id
   const show = !state.showAppData
   try {
@@ -742,6 +795,7 @@ function renderList() {
   // The folder on screen is gone (deleted, or no longer seen): back to the top.
   if (state.folder && !state.entries.some((e) => e.id === state.folder)) state.folder = null
   renderCrumbs()
+  if (!state.root) return renderRoots()
   const needle = state.filter.trim().toLocaleLowerCase()
   // One clock for the whole list, the one relative times read (Date.now).
   const now = new Date(Date.now())
@@ -789,7 +843,33 @@ function renderList() {
   $('files-empty-message').textContent = state.listError
     ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : filtering && ofKind.length ? t.noFiltered
       : state.kind !== 'all' && shown.length ? t.noKind : state.folder ? t.folderEmpty : t.noFiles)
-  $('empty-upload').hidden = !canWrite() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0) || filtering
+  $('empty-upload').hidden = !canWriteHere() || !!needle || !!state.listError || (state.kind !== 'all' && shown.length > 0) || filtering
+}
+
+// A session's tab has two roots: its conversation's folder and its working copy — the list's top, each a folder to enter.
+function renderRoots() {
+  const t = state.t
+  // Drawn as the list draws a folder (listItem): the same row, a press enters it.
+  const row = (root, label) => {
+    const li = document.createElement('li')
+    li.className = 'file'
+    li.dataset.folder = ''
+    li.dataset.root = root
+    li.setAttribute('role', 'option')
+    const open = Object.assign(document.createElement('button'), { type: 'button', className: 'file-open' })
+    const title = Object.assign(document.createElement('span'), { className: 'file-title' })
+    title.append(Object.assign(document.createElement('span'), { className: 'file-name', textContent: label }))
+    open.append(folderMark(), title)
+    open.onclick = () => enterRoot(root)
+    li.append(open)
+    return li
+  }
+  $('file-list').classList.remove('as-grid')
+  $('file-list').replaceChildren(row('chat', t.chatFolder), row('workspace', t.workingCopy))
+  $('files-empty').hidden = true
+  $('empty-upload').hidden = true
+  state.order = []
+  renderTools([], new Date(Date.now()))
 }
 
 function sectionRow(text) {
@@ -947,7 +1027,8 @@ function sortMenu() {
 function renderCrumbs() {
   const nav = $('crumbs')
   const t = state.t
-  if (!state.folder || state.filter.trim()) {
+  const both = rootsOf(state.ctx).length > 1
+  if ((!state.folder && !(both && state.root)) || state.filter.trim()) {
     nav.hidden = true
     nav.replaceChildren()
     return
@@ -959,7 +1040,7 @@ function renderCrumbs() {
   up.className = 'back'
   up.innerHTML = '<gugu-icon name="chevron-left"></gugu-icon>'
   up.append(Object.assign(document.createElement('span'), { textContent: t.up }))
-  up.onclick = () => enterFolder(trail.length > 1 ? trail[trail.length - 2].id : null)
+  up.onclick = () => (trail.length ? enterFolder(trail.length > 1 ? trail[trail.length - 2].id : null) : enterRoot(null))
   const crumb = (text, folderId, current) => {
     const button = document.createElement('button')
     button.type = 'button'
@@ -970,7 +1051,15 @@ function renderCrumbs() {
     dropOnto(button, folderId)
     return button
   }
-  const parts = [up, crumb(t.title, null, false)]
+  const rootName = inWorkspace() ? t.workingCopy : both ? t.chatFolder : t.title
+  const parts = [up]
+  if (both) {
+    // The top of both roots: a press goes back to them.
+    const top = Object.assign(document.createElement('button'), { type: 'button', className: 'crumb', textContent: t.title })
+    top.onclick = () => enterRoot(null)
+    parts.push(top, Object.assign(document.createElement('span'), { className: 'crumb-sep', textContent: '/' }))
+  }
+  parts.push(crumb(rootName, null, !state.folder))
   trail.forEach((folder, i) => {
     parts.push(Object.assign(document.createElement('span'), { className: 'crumb-sep', textContent: '/' }))
     parts.push(crumb(shownName(folder), folder.id, i === trail.length - 1))
@@ -989,13 +1078,29 @@ function enterFolder(folderId) {
   }
   renderList()
   $('file-list').scrollTop = 0
+  // A working copy's folder is read when it is entered, once.
+  if (inWorkspace()) void listFolder(folderId ?? '')
+}
+
+// One of the two roots picked (null: back to both).
+function enterRoot(root) {
+  if (state.root === root) return enterFolder(null)
+  state.root = root
+  state.folder = null
+  state.entries = []
+  state.listed = new Set()
+  state.listError = null
+  hideBanner()
+  clearPicks()
+  renderList()
+  void refreshList(root === 'chat')
 }
 
 // A row or a crumb a dragged file can land on (desktop): the folder it stands for (null, the top).
 function dropOnto(el, folderId) {
   const fits = () => {
     const moving = state.dragging
-    if (!moving || !canWrite() || (moving.parentId ?? null) === folderId || moving.id === folderId) return false
+    if (!moving || !canWriteHere() || (moving.parentId ?? null) === folderId || moving.id === folderId) return false
     return !(isFolder(moving) && under(moving.id).some((e) => e.id === folderId))
   }
   el.addEventListener('dragover', (event) => {
@@ -1322,7 +1427,7 @@ function listItem(entry, now = new Date(Date.now())) {
     li.addEventListener('dragend', () => (state.dragging = null))
   }
   if (folder) {
-    if (canWrite() && !entry.systemRole) drag(entry.name, false)
+    if (canWriteHere() && !entry.systemRole) drag(entry.name, false)
   } else {
     // DataTransfer is writable only during dragstart, before any asynchronous host answer.
     void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
@@ -1380,9 +1485,9 @@ function rowMenu(li, entry) {
   const folder = isFolder(entry)
   const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
   const openWith = { text: t.openWith, run: () => openInHost(entry, true) }
-  const change = canWrite() && !entry.systemRole
+  const change = canWriteHere() && !entry.systemRole
     ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
-  const remove = canWrite() && !entry.systemRole && entry.canDelete
+  const remove = canWriteHere() && !entry.systemRole && entry.canDelete
     ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
   const groups = [[open]]
   if (folder) groups.push(change)
@@ -1437,7 +1542,7 @@ function fileMenu(li, open, entry) {
     if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') {
       event.preventDefault()
       show()
-    } else if (state.picked.size <= 1 && canWrite() && !entry.systemRole) {
+    } else if (state.picked.size <= 1 && canWriteHere() && !entry.systemRole) {
       if (event.key === 'F2') { event.preventDefault(); startRename(li, entry) }
       if (event.key === 'Delete' && entry.canDelete) {
         event.preventDefault()

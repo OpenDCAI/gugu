@@ -533,6 +533,7 @@ const enUSCoreMessages = {
   'workspace.terminalRemoved': 'This terminal was removed from the drawer.',
   'workspace.browser': 'Browser',
   'workspace.files': 'Files',
+  'workspace.folder': 'Folder',
   'workspace.sideTask': 'Side chat',
   'workspace.sideTaskUnavailable':
     'This task cannot be forked: side chat needs a local project and an agent that supports forking.',
@@ -1494,6 +1495,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'workspace.terminalRemoved': '这个终端已从抽屉里移除。',
   'workspace.browser': '浏览器',
   'workspace.files': '文件',
+  'workspace.folder': '文件夹',
   'workspace.sideTask': '侧边聊天',
   'workspace.sideTaskUnavailable': '这个会话无法创建侧边聊天：它需要本机项目，且该引擎支持分叉。',
   'chat.turnInProgress': '当前回合仍在进行',

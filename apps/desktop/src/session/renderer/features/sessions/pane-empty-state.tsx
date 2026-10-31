@@ -1,4 +1,5 @@
-import { ArrowRight, Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
+import { ArrowRight, Cable, Folder, Globe, Plus, SquareTerminal } from '@/lib/icons'
+import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
@@ -88,11 +89,12 @@ export function useSessionWorkspaceActions(
       icon: <Cable className="size-3.5" />,
       onClick: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false })
     },
+    // 文件夹:预装的文件夹 App —— 这个对话的文件夹和这条会话的工作目录,一个文件夹两个根(和对话的「+」里同一个)。
     files: {
       id: 'files',
-      label: translate('workspace.files'),
-      icon: <FileText className="size-3.5" />,
-      onClick: () => sessionView.paneLayout.open('file-browser', {}, { preview: false })
+      label: translate('workspace.folder'),
+      icon: <Folder className="size-3.5" />,
+      onClick: () => onOpenApp(WORKSPACE_APP_KIND)
     }
   };
 
