@@ -69,8 +69,8 @@ vi.mock('@gugu/core', () => ({
   removeAgentRuntimeSession: vi.fn(async (agentUserId: string) => {
     removedRuntimeSessions.push(agentUserId)
   }),
-  findReapedAgentForSession: vi.fn(async (sessionId: string) =>
-    (sessionId ? tombstones.find((t) => t.conversation_id === sessionId) : undefined) ?? null),
+  listReapedAgentsForSession: vi.fn(async (sessionId: string) =>
+    sessionId ? tombstones.filter((t) => t.conversation_id === sessionId) : []),
 }))
 vi.mock('@gugu/core/cloud/config', () => ({
   getSupabaseUrl: () => 'http://127.0.0.1:55321',
@@ -1276,6 +1276,25 @@ describe('#4526 A:owner 删除 ⇒ 释放本机足迹 + 墓碑挡住重新开户
     expect(takeBirthGroup).not.toHaveBeenCalled()
     expect(roster.map(row => row.gugu_user_id)).not.toContain(original!.guguAgentUserId)
     expect(tombstones[0].gugu_user_id).toBe(original!.guguAgentUserId)
+  })
+
+  it('restores again after a second removal of the same session', async () => {
+    const { provisionSessionpageAgentForSession } = await import(SUT)
+    const { releaseAgentLocalFootprint } = await import(FOOTPRINT)
+    const info = { sessionId: 'cycled-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha' }
+    const first = await provisionSessionpageAgentForSession(info, deps)
+    await settleCloud()
+    await releaseAgentLocalFootprint({ agentUserId: first!.guguAgentUserId, identityRemoved: true, env: deps.env })
+    const second = await provisionSessionpageAgentForSession({ ...info, replacesRemovedIdentity: first!.guguAgentUserId }, deps)
+    await settleCloud()
+    await releaseAgentLocalFootprint({ agentUserId: second!.guguAgentUserId, identityRemoved: true, env: deps.env })
+    expect(tombstones.filter(t => t.conversation_id === info.sessionId)).toHaveLength(2)
+    expect(await provisionSessionpageAgentForSession(info, deps)).toBeNull()
+    const third = await provisionSessionpageAgentForSession({ ...info, replacesRemovedIdentity: second!.guguAgentUserId }, deps)
+    await settleCloud()
+    expect(third!.guguAgentUserId).not.toBe(first!.guguAgentUserId)
+    expect(third!.guguAgentUserId).not.toBe(second!.guguAgentUserId)
+    expect(await provisionSessionpageAgentForSession(info, deps)).toMatchObject({ guguAgentUserId: third!.guguAgentUserId })
   })
 
   async function provisionOne(sessionId: string) {

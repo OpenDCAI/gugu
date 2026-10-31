@@ -53,9 +53,9 @@ vi.mock('@gugu/core', () => ({
     return { ...rec }
   }),
   writeAgentRuntimeSession: vi.fn(async () => undefined),
-  findReapedAgentForSession: vi.fn(async (sessionId: string, _env: unknown, ownerUserId?: string) => {
+  listReapedAgentsForSession: vi.fn(async (sessionId: string, _env: unknown, ownerUserId?: string) => {
     tombstoneLookups.push({ sessionId, ownerUserId })
-    return null
+    return []
   }),
 }))
 

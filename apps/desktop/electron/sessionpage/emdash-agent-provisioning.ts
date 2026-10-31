@@ -35,7 +35,7 @@ import { randomUUID } from 'node:crypto'
 import { createLogger } from '../lib/logger'
 import {
   createAgent,
-  findReapedAgentForSession,
+  listReapedAgentsForSession,
   listAgents,
   removeAgents,
   updateAgent,
@@ -741,16 +741,18 @@ export async function provisionSessionpageAgentForSession(
   const tombstoneOwner = (await deps.getAuth())?.userId
   const authMs = Date.now() - preLockAt
   const tombstoneAt = Date.now()
-  const reaped = await findReapedAgentForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)
-  if (reaped && reaped.gugu_user_id !== info.replacesRemovedIdentity) {
+  // Each archive-with-removal → Restore cycle leaves one tombstone for the same session.
+  const reaped = await listReapedAgentsForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)
+  const removedIds = new Set(reaped.map((entry) => entry.gugu_user_id))
+  if (removedIds.size > 0 && !(info.replacesRemovedIdentity && removedIds.has(info.replacesRemovedIdentity))) {
     const bound = (await listAgents(deps.env ?? process.env, { includeGuests: true })).find((agent) =>
       cacheString(agent.cache, SESSION_CACHE_KEY) === info.sessionId
       && cacheString(agent.cache, OWNER_CACHE_KEY) === tombstoneOwner)
-    // An explicit Restore already minted this session's replacement; the old identity remains tombstoned.
-    if (!bound || bound.gugu_user_id === reaped.gugu_user_id) return null
+    // An explicit Restore already minted this session's replacement; removed identities stay tombstoned.
+    if (!bound || removedIds.has(bound.gugu_user_id)) return null
   }
   // Later starts of the replacement still cannot consume the old identity's birth-group invitation.
-  if (reaped) info = { ...info, replacesRemovedIdentity: reaped.gugu_user_id }
+  if (reaped.length > 0 && !info.replacesRemovedIdentity) info = { ...info, replacesRemovedIdentity: reaped[0]!.gugu_user_id }
   const tombstoneMs = Date.now() - tombstoneAt
   const queuedAt = Date.now()
   return serialize(
