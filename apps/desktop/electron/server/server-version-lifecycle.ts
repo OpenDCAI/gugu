@@ -7,6 +7,9 @@ import { pruneVersions, readAccountVersionPin, writeAccountVersionPin, touchVers
 import { listAccounts } from './server-layout'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
+/** The staged package installed but did not boot an account: a boot failure, not an install failure. */
+export class AccountBootRejectedError extends Error {}
+
 export type UpgradeMarker = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number }
 const dataDir = (home: string) => path.join(home, 'data')
 
@@ -98,7 +101,8 @@ export function createServerVersionLifecycle(options: {
       flights.set(version, stage)
       try {
         Promise.resolve(work())
-          .then(() => (options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
+          .then(() => Promise.resolve((options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
+            .catch((error: unknown) => { throw new AccountBootRejectedError(error instanceof Error ? error.message : String(error)) }))
           .then(proof => { stage.ready = true; stage.runtimeOwned = proof ? proof.runtimeOwned : options.verifyBoot !== undefined; resolve() }, reject)
       } catch (error) { reject(error) }
       try { await flight } catch (error) {

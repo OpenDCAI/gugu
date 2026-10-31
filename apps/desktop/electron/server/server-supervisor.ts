@@ -20,7 +20,7 @@ import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
-import { accountDataDir, accountIsBusy, listAccounts, readAccountActivity, serverHome, supervisorDataDir } from './server-layout'
+import { accountDataDir, accountIsBusy, listAccounts, readAccountActivity, serverHome, supervisorDataDir, writeAccountChildState, type AccountChildState } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { addBadVersion, ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountVersionConverger } from './server-account-converge'
@@ -128,6 +128,12 @@ export async function runSupervisor(): Promise<void> {
   if (!serverScript) throw new Error('找不到 server.js 的路径(process.argv[1])')
   const children = new Map<string, Child>()
   const backoff = new Map<string, { failures: number; notBefore: number }>()
+  const childStates = new Map<string, AccountChildState>()
+  const noteChild = (userId: string, state: AccountChildState): void => {
+    if (childStates.get(userId) === state) return
+    childStates.set(userId, state)
+    writeAccountChildState(accountDataDir(userId), state)
+  }
   let stopping = false
 
   const layout = managedLayout()
@@ -163,12 +169,13 @@ export async function runSupervisor(): Promise<void> {
   const start = (userId: string): void => {
     // #6264 这个账号该跑哪一版:记着的那一版(装着)就从它的目录起;否则跑守护进程自己这一版。
     const pinned = versions.binaryFor(userId)
-    if (followSupervisor && !pinned && layout && !lifecycle?.ready(layout.version)) return
+    if (followSupervisor && !pinned && layout && !lifecycle?.ready(layout.version)) return noteChild(userId, 'not-started')
     const child = pinned
       ? spawn(pinned.binary, ['run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
       : spawn(process.execPath, [serverScript, 'run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
     const version = pinned?.version ?? process.env.GUGU_TASK_HOST_VERSION ?? null
     children.set(userId, { process: child, startedAt: Date.now(), version })
+    noteChild(userId, 'running')
     log.info('账号进程已启动', { account: userId, pid: child.pid, version })
     // 起不来(可执行文件没了、fd 用尽)时 Node 只发 'error' 不发 'exit':没人接会把守护进程带崩,
     // 接了但不收尾,这个账号会一直挂着一条死记录、再也不重启。两条路走同一个收尾。
@@ -186,6 +193,7 @@ export async function runSupervisor(): Promise<void> {
       const failures = ranFor < QUICK_EXIT_MS ? previous + 1 : 0
       const delay = failures === 0 ? 1_000 : Math.min(MAX_BACKOFF_MS, 2_000 * 2 ** (failures - 1))
       backoff.set(userId, { failures, notBefore: Date.now() + delay })
+      noteChild(userId, 'restarting')
       log.warn('账号进程退出了', { account: userId, ...reason, ranForMs: ranFor, restartInMs: delay })
     }
     child.on('exit', (code, signal) => settle({ code, signal }))

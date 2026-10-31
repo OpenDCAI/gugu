@@ -25,7 +25,7 @@ import {
 } from '@gugu/core/cloud/serverDesktopVersions'
 import { MATCH_MARK, readAccountVersionPin, versionBinary } from './server-account-versions'
 import { pickAttachAccount } from './account-call'
-import { listAccounts, type ServerAccount } from './server-layout'
+import { listAccounts, readAccountChildState, type AccountChildState, type ServerAccount } from './server-layout'
 import { readBadVersions } from './server-upgrade-guard'
 
 const ID = /^[A-Za-z0-9:_-]{1,128}$/
@@ -67,6 +67,7 @@ export type MatchDeps = {
   supervisorRunning: () => boolean
   /** 受控云电脑的守护进程(从它的进程环境读)跑的那一版;普通 SSH = null。账号只跟随它。 */
   managedSupervisorVersion?: () => Promise<string | null> | string | null
+  accountChildState?: (dataDir: string) => AccountChildState | null
   exists?: (file: string) => boolean
   /** 这个账号的升级状态文件(守护进程写的,见 server-account-converge.ts);没有 = null。 */
   readUpdateState?: (account: ServerAccount) => string | null
@@ -123,8 +124,13 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
   const waitMs = deps.waitMs ?? 10 * 60_000
   const deadline = now() + waitMs
   let seen = running()
-  // 账号已登录、守护进程活着却没有账号进程 = 守护进程正在(退避)重启它,❌ 说成「没在跑」。
-  const currentText = (version: string | null): string => version ?? (deps.supervisorRunning() ? '(正在重启)' : '(没在跑)')
+  // 没有账号进程时照守护进程记下的子进程状态说:退避重启中 / 没有能起的版本、没起,❌ 一律说成「正在重启」。
+  const currentText = (version: string | null): string => {
+    if (version) return version
+    if (!deps.supervisorRunning()) return '(没在跑)'
+    const child = (deps.accountChildState ?? readAccountChildState)(account.dataDir)
+    return child === 'restarting' ? '(正在重启)' : child === 'not-started' ? '(没有能启动的版本,未启动)' : '(正在启动)'
+  }
   while (now() < deadline) {
     seen = deps.runningVersion(account)
     if (seen === parsed.version) {
@@ -161,7 +167,9 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         err(`这台机器连不上下载站,装不了 ${parsed.version}:要把包传过来`)
         return 7
       }
-      err(`这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${currentText(seen)}`)
+      err(state.reason === 'boot-failed'
+        ? `${parsed.version} 在这台机器上启动失败过,冷却中不再自动尝试;检查后显式确认现在重启:match-version --account ${parsed.account} --apply ${parsed.version} --now。这个账号当前版本 ${currentText(seen)}`
+        : `这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${currentText(seen)}`)
       return 6
     }
     const replacement = readVersionSwitchRequest(account.dataDir, now())

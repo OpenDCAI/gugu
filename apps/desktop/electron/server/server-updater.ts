@@ -50,8 +50,9 @@ type Layout = { home: string; versions: string; current: string; running: string
  * 守护进程半路没了,这个文件不会让界面永远挂着「更新中」。
  */
 export type ServerUpdateStateWriter = {
-  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts)。 */
-  set: (state: 'downloading' | 'ready' | 'failed', version: string, reason?: 'unreachable' | 'runtime-unverified') => void
+  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts);
+   *  'boot-failed' = 装上了、起不来(冷却只认确认重启)。 */
+  set: (state: 'downloading' | 'ready' | 'failed', version: string, reason?: 'unreachable' | 'runtime-unverified' | 'boot-failed') => void
   clear: () => void
 }
 

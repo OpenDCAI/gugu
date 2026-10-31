@@ -20,7 +20,8 @@ import {
 } from './server-account-versions'
 import { accountDataDir, accountIsBusy, readAccountActivity, listAccounts, type ServerAccount } from './server-layout'
 import type { SupervisorLog } from './server-supervisor'
-import { addBadVersion, readBadVersions } from './server-upgrade-guard'
+import { addBadVersion, readBadVersions, type VersionFailureCause } from './server-upgrade-guard'
+import { AccountBootRejectedError } from './server-version-lifecycle'
 import {
   createServerUpdateStateWriter,
   DownloadSiteUnreachableError,
@@ -138,7 +139,8 @@ export function createAccountVersionConverger(options: {
   /** 下载站上还没有的版本:连着 404 了几次、到哪个时刻再看。 */
   const notPublished = new Map<string, { attempts: number; until: number }>()
   const unpublished = (version: string): boolean => now() < (notPublished.get(version)?.until ?? 0)
-  const failedAt = new Map<string, number>()
+  /** 装不上 / 起不来都记在这里(起不来的另记盘上 bad-versions):原因只有这一种分类。 */
+  const failedAt = new Map<string, { at: number; cause: VersionFailureCause }>()
   const switches = new Map<string, { version: string; previous: string | null; at: number; quickExits: number; ready: boolean }>()
   /** 刚请它换过去、旧进程还在收尾的账号:等它退干净再说,❌ 每一轮都再结束一次。 */
   const pending = new Map<string, string>()
@@ -153,11 +155,18 @@ export function createAccountVersionConverger(options: {
    */
   const failed = (version: string, request: { at: number; confirmed: boolean; target?: string } | null = null): boolean => {
     const cooling = (at: number, lifted: boolean): boolean => now() - at < VERSION_FAILURE_COOLDOWN_MS && !lifted
-    const installAt = failedAt.get(version) ?? -Infinity
-    const bootAt = (layout && readBadVersions(layout.home)[version]) ?? -Infinity
-    return cooling(installAt, !!request && request.at > installAt)
-      || cooling(bootAt, !!request?.confirmed && request.target === version && request.at > bootAt)
+    return failures(version).some(({ at, cause }) => cooling(at, cause === 'install'
+      ? !!request && request.at > at
+      : !!request?.confirmed && request.target === version && request.at > at))
   }
+  const failures = (version: string): { at: number; cause: VersionFailureCause }[] => {
+    const bootAt = layout ? readBadVersions(layout.home)[version] : undefined
+    return [failedAt.get(version), bootAt === undefined ? undefined : { at: bootAt, cause: 'boot' as const }]
+      .filter((entry): entry is { at: number; cause: VersionFailureCause } => !!entry && now() - entry.at < VERSION_FAILURE_COOLDOWN_MS)
+  }
+  /** 设备行 / CLI 说的原因:冷却中的那一笔里有起不来就说起不来。 */
+  const failureReason = (version: string): 'boot-failed' | undefined =>
+    failures(version).some(({ cause }) => cause === 'boot') ? 'boot-failed' : undefined
 
   const binaryFor = (userId: string): { binary: string; version: string } | null => {
     if (!layout) return null
@@ -200,8 +209,9 @@ export function createAccountVersionConverger(options: {
           log.info('下载站上还没有那一版,先跑次新的那一版,过一阵再看', { version, attempts, retryInMs, error: error.message })
           return
         }
-        failedAt.set(version, now())
-        state.set('failed', version, error instanceof DownloadSiteUnreachableError ? 'unreachable' : undefined)
+        const cause: VersionFailureCause = error instanceof AccountBootRejectedError ? 'boot' : 'install'
+        failedAt.set(version, { at: now(), cause })
+        state.set('failed', version, error instanceof DownloadSiteUnreachableError ? 'unreachable' : failureReason(version))
         log.warn('装那一版失败,过一阵再试', { version, error: error instanceof Error ? error.message : String(error) })
       })
   }
@@ -298,7 +308,7 @@ export function createAccountVersionConverger(options: {
             break
           case 'failed':
             // 设备行「更新没成功 · 重试」(随这个账号的心跳报;守护进程每分钟续写,它不在了自然过期)。
-            state.set('failed', plan.version)
+            state.set('failed', plan.version, failureReason(plan.version))
             break
           case 'stage':
             startStaging(account, plan.version, state)

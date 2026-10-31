@@ -27,6 +27,7 @@ import {
   recordDesktopReport,
   reportedDesktopVersion,
   requestVersionRetry,
+  requestVersionSwitch,
   VERSION_SWITCH_FILE,
 } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { parseServerUpdateState } from '../../../../packages/core/src/cloud/deviceHostInfo'
@@ -358,6 +359,46 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(update()).toMatchObject({ state: 'failed' })
   })
 
+  it('装上了、试跑账号起不来:记成「起不来」(reason=boot-failed);普通重试 ❌ 解除,只有绑定这一版的确认重启才再试', async () => {
+    signIn(U1)
+    installVersion('0.3.0')
+    report(U1, 'mbp', '0.3.1')
+    let t = NOW
+    const staged: string[] = []
+    const lifecycle = await verifiedLifecycle()
+    const rejecting = createServerVersionLifecycle({
+      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
+      verifyBoot: async () => { throw new Error('Account boot exited before serving (1)') },
+    })
+    const c = createAccountVersionConverger({
+      lifecycle: { ...lifecycle, stage: rejecting.stage },
+      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
+      log: quietLog,
+      running: () => '0.3.0',
+      restart: () => undefined,
+      now: () => t,
+      busy: () => false,
+      stage: async (v) => { staged.push(v) },
+    })
+    const update = () => JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))
+    c.converge(listAccounts())
+    await flush()
+    c.converge(listAccounts())
+    expect(staged).toEqual(['0.3.1'])
+    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1', reason: 'boot-failed' })
+    t += 1000
+    expect(requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dataDir(U1) }, t)).toBe(true)
+    c.converge(listAccounts())
+    await flush()
+    expect(staged).toEqual(['0.3.1'])
+    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1', reason: 'boot-failed' })
+    t += 1000
+    requestVersionSwitch(dataDir(U1), 'confirmed restart from desktop', t, true, '0.3.1')
+    c.converge(listAccounts())
+    await flush()
+    expect(staged).toEqual(['0.3.1', '0.3.1'])
+  })
+
   it('连不上下载站:设备行照报「更新没成功」,并记下 reason=unreachable(桌面读到它就把包的字节传过来);别的失败不带', async () => {
     signIn(U1)
     installVersion('0.3.0')
@@ -608,6 +649,24 @@ describe('gugu-server match-version', () => {
     expect(errors.pop()).toContain('0.3.1 还没装好,装好后会自己换过去')
     expect(await apply({ readUpdateState: () => failedAt(NOW + 500, 'unreachable') })).toBe(7)
     expect(errors.pop()).toContain('连不上下载站')
+  })
+
+  it('换过去失败的原因与当前版本照实说:起不来 ⇒ 说启动失败过、要确认重启;没有账号进程 ⇒ 照守护进程记的子进程状态说', async () => {
+    signIn(U1)
+    installVersion('0.3.0')
+    const errors: string[] = []
+    const apply = (reason: string | undefined, child: 'restarting' | 'not-started' | null) => {
+      let clock = NOW
+      return runMatchVersion(['--account', U1, '--apply', '0.3.1'], () => undefined, (l) => errors.push(l), {
+        home, runningVersion: () => null, supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
+        now: () => (clock += 100), accountChildState: () => child,
+        readUpdateState: () => JSON.stringify({ state: 'failed', version: '0.3.1', at: NOW + 500, ...(reason ? { reason } : {}) }),
+      })
+    }
+    expect(await apply('boot-failed', 'restarting')).toBe(6)
+    expect(errors.pop()).toMatch(/0\.3\.1 在这台机器上启动失败过.*--apply 0\.3\.1 --now.*当前版本 \(正在重启\)/)
+    expect(await apply(undefined, 'not-started')).toBe(6)
+    expect(errors.pop()).toMatch(/装 0\.3\.1 失败了.*\(没有能启动的版本,未启动\)/)
   })
 
   it('换过去:这个账号有 agent 在跑、守护进程在等空闲 ⇒ 当场退 8(桌面问人);--now 不退,请求带上「人确认过」', async () => {

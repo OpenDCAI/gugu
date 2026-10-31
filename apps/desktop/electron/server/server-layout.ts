@@ -215,3 +215,31 @@ export function writeServerConnectVia(
   fs.renameSync(tmp, file)
   return true
 }
+
+/**
+ * 守护进程眼里这个账号的子进程此刻在哪一步(守护进程在状态变化时写,CLI 读):在跑 / 退出后等着重启 / 没有能起的版本、没起。
+ * 只是给人看的一句话的来源,❌ 拿它判活(判活看 server.lock 的持有者)。
+ */
+export const ACCOUNT_CHILD_FILE = 'account-child.json'
+export type AccountChildState = 'running' | 'restarting' | 'not-started'
+
+export function writeAccountChildState(dataDir: string, state: AccountChildState, at = Date.now()): void {
+  const file = path.join(dataDir, ACCOUNT_CHILD_FILE)
+  const tmp = `${file}.${process.pid}.tmp`
+  try {
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ state, at }), { mode: 0o600 })
+    fs.renameSync(tmp, file)
+  } catch {
+    fs.rmSync(tmp, { force: true })
+  }
+}
+
+export function readAccountChildState(dataDir: string): AccountChildState | null {
+  try {
+    const value = (JSON.parse(fs.readFileSync(path.join(dataDir, ACCOUNT_CHILD_FILE), 'utf8')) as { state?: unknown }).state
+    return value === 'running' || value === 'restarting' || value === 'not-started' ? value : null
+  } catch {
+    return null
+  }
+}

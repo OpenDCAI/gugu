@@ -68,6 +68,8 @@ describe.runIf(process.platform !== 'win32')('account rollback across supervisor
     const error = vi.fn()
     const rc = await runMatchVersion(['--account', userId, '--apply', target, '--now'], vi.fn(), error, {
       home, runningVersion: () => current ?? null, supervisorRunning: () => true, now: () => clock,
+      // No real supervisor here: its child record for an account between quick exits is 'restarting'.
+      accountChildState: () => (current === undefined ? 'restarting' : 'running'),
       waitMs: 50_000,
       sleep: async () => {
         if (current === previous) {

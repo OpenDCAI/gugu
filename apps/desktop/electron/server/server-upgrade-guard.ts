@@ -1,4 +1,7 @@
 import { readUpgradeMarker, clearUpgradeMarker, pointCurrent, recordVerifiedSupervisorVersion, type UpgradeMarker } from './server-version-lifecycle'
+
+/** 一版在这台机器上为什么失败:装不上(下载 / 校验 / 试跑),或装上了起不来(盘上 bad-versions 只记这一种)。 */
+export type VersionFailureCause = 'install' | 'boot'
 export { UPGRADE_PENDING_FILE, readUpgradeMarker, writeUpgradeMarker, clearUpgradeMarker, pointCurrent, type UpgradeMarker } from './server-version-lifecycle'
 /**
  * #6264 升级看门狗:新版本切过去之后真的站稳了没有;没站稳就自动退回上一版(product spec 第 5 条
