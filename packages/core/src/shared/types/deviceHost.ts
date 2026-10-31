@@ -48,6 +48,8 @@ export interface DeviceServerUpdate {
   version: string
   /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
   busy_agents?: number
+  /** boot-failed (failed): it installed but did not start; only the confirmed restart for this version retries it. */
+  reason?: 'boot-failed'
 }
 
 export interface DeviceHostInfo {
