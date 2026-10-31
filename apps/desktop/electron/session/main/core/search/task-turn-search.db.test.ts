@@ -26,7 +26,11 @@ function turn(id: string, items: TranscriptTurn['items'], seq = 0): TranscriptTu
 const said = (id: string, role: 'user' | 'assistant', text: string) => ({ kind: 'message', id, seq: 0, role, text }) as TranscriptTurn['items'][number];
 
 const fixture = () => fixtureRef.current!;
-const indexed = () => fixture().sqlite.prepare('SELECT session_id, seq, role, text FROM turn_text_rows ORDER BY session_id, seq, id').all();
+// What the index holds, read back as the search reads it (turn_text keeps no copy of the text).
+const indexed = () => fixture().sqlite.prepare(`SELECT i.session_id, i.seq, json_extract(t.data, '$.items[' || i.item || '].role') AS role,
+  search_text(json_extract(t.data, '$.items[' || i.item || '].text')) AS text
+  FROM turn_text_items i JOIN session_turns t ON t.session_id = i.session_id AND t.seq = i.seq ORDER BY i.session_id, i.seq, i.id`).all();
+const ftsRows = () => (fixture().sqlite.prepare('SELECT count(*) AS n FROM turn_text').get() as { n: number }).n;
 const found = (query: string) => searchService.searchTaskTurns(query).map((hit) => hit.excerpt);
 
 describe('textCondition', () => {
@@ -34,11 +38,12 @@ describe('textCondition', () => {
     expect(textCondition(' deploy  数据库 登录 ', 't', ['c', 'd'])).toEqual({
       sql: "t MATCH ? AND (c LIKE ? ESCAPE '\\' OR d LIKE ? ESCAPE '\\')",
       params: ['"deploy" AND "数据库"', '%登录%', '%登录%'],
+      short: ['登录'],
     });
   });
 
   it('keeps a Chinese run whole: one substring, not words', () => {
-    expect(textCondition('修复登录问题', 't', ['c'])).toEqual({ sql: 't MATCH ?', params: ['"修复登录问题"'] });
+    expect(textCondition('修复登录问题', 't', ['c'])).toEqual({ sql: 't MATCH ?', params: ['"修复登录问题"'], short: [] });
   });
 
   it('escapes LIKE wildcards and FTS quotes', () => {
@@ -110,6 +115,7 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
 
     fixture().sqlite.exec("DELETE FROM sessions WHERE id = 's1'");
     expect(indexed()).toEqual([]);
+    expect(ftsRows()).toBe(0);
     expect(found('revised')).toEqual([]);
   });
 
@@ -121,11 +127,18 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
     expect(found('alpha')).toEqual(['newer alpha', 'older alpha']);
   });
 
+  it('finds a short piece as JSON stores it, quotes included', async () => {
+    await persistCommittedTurn({ sessionId: 's1', source: 'live', turn: turn('t0', [said('a', 'assistant', 'run "x" twice, then 回滚')]) });
+    expect(found('"x')).toEqual(['run "x" twice, then 回滚']);
+    expect(found('回滚')).toEqual(['run "x" twice, then 回滚']);
+    expect(found('x"y')).toEqual([]);
+  });
+
   it('backfills turns stored before the index existed', async () => {
     fixture().sqlite.exec(`INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES
       ('s1:0', 's1', 0, 't', '{"items":[{"kind":"message","id":"x","role":"user","text":"历史里的数据库迁移"}]}'),
       ('s1:1', 's1', 1, 't', 'not json')`);
-    fixture().sqlite.exec("DELETE FROM turn_text_rows; UPDATE kv SET value = '5' WHERE key = 'fts_version'");
+    fixture().sqlite.exec("DELETE FROM turn_text_items; UPDATE kv SET value = '5' WHERE key = 'fts_version'");
     await initializeDatabase(fixture().sqlite);
     expect(found('数据库迁移')).toEqual(['历史里的数据库迁移']);
     expect(found('数据迁移')).toEqual([]);

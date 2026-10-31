@@ -132,7 +132,8 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * revision, record append, truncation, session cascade) updates it in the same transaction, and nothing else writes it.
  * Only message items (what the person and the agent said, through `search_text`) are kept; thinking and tools are not searchable.
  * A stored turn whose data is not JSON has no items here, as for every other reader of session_turns.
- * `turn_text_rows` holds them keyed by (session_id, seq); `turn_text` is its trigram FTS5 index (external content).
+ * The text is not stored twice: `turn_text_items` only says where an item is (session_id, seq, its place in `items`), and
+ * `turn_text` is a contentless trigram FTS5 index of it; results read their text back from session_turns.
  * Rebuilt with the search index version, including a backfill of the existing turns.
  */
 /**
@@ -148,8 +149,8 @@ function registerSearchText(connection: BetterSqlite3.Database): void {
 }
 
 function ensureTurnText(connection: BetterSqlite3.Database): void {
-  const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq, json_extract(item.value, '$.id'), json_extract(item.value, '$.role'),
-      search_text(json_extract(item.value, '$.text')) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
+  // The message items of one stored turn: their place in `items` and what a person reads in them.
+  const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq, CAST(item.key AS INTEGER) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
     WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
   connection.exec(`
     DROP TRIGGER IF EXISTS session_turns_text_insert;
@@ -157,27 +158,28 @@ function ensureTurnText(connection: BetterSqlite3.Database): void {
     DROP TRIGGER IF EXISTS session_turns_text_delete;
     DROP TABLE IF EXISTS turn_text;
     DROP TABLE IF EXISTS turn_text_rows;
-    CREATE TABLE turn_text_rows (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
-      item_id TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL);
-    CREATE INDEX turn_text_rows_turn ON turn_text_rows (session_id, seq);
-    CREATE VIRTUAL TABLE turn_text USING fts5(text, content = 'turn_text_rows', content_rowid = 'id', tokenize = 'trigram case_sensitive 0');
-    CREATE TRIGGER turn_text_rows_insert AFTER INSERT ON turn_text_rows BEGIN
-      INSERT INTO turn_text (rowid, text) VALUES (NEW.id, NEW.text);
+    DROP TABLE IF EXISTS turn_text_items;
+    CREATE TABLE turn_text_items (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, seq INTEGER NOT NULL, item INTEGER NOT NULL);
+    CREATE INDEX turn_text_items_turn ON turn_text_items (session_id, seq);
+    CREATE VIRTUAL TABLE turn_text USING fts5(text, content = '', contentless_delete = 1, tokenize = 'trigram case_sensitive 0');
+    CREATE TRIGGER turn_text_items_insert AFTER INSERT ON turn_text_items BEGIN
+      INSERT INTO turn_text (rowid, text) SELECT NEW.id, search_text(json_extract(t.data, '$.items[' || NEW.item || '].text'))
+        FROM session_turns t WHERE t.session_id = NEW.session_id AND t.seq = NEW.seq;
     END;
-    CREATE TRIGGER turn_text_rows_delete AFTER DELETE ON turn_text_rows BEGIN
-      INSERT INTO turn_text (turn_text, rowid, text) VALUES ('delete', OLD.id, OLD.text);
+    CREATE TRIGGER turn_text_items_delete AFTER DELETE ON turn_text_items BEGIN
+      DELETE FROM turn_text WHERE rowid = OLD.id;
     END;
     CREATE TRIGGER session_turns_text_insert AFTER INSERT ON session_turns BEGIN
-      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('NEW')};
+      INSERT INTO turn_text_items (session_id, seq, item) ${messages('NEW')};
     END;
     CREATE TRIGGER session_turns_text_update AFTER UPDATE OF data ON session_turns BEGIN
-      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
-      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('NEW')};
+      DELETE FROM turn_text_items WHERE session_id = OLD.session_id AND seq = OLD.seq;
+      INSERT INTO turn_text_items (session_id, seq, item) ${messages('NEW')};
     END;
     CREATE TRIGGER session_turns_text_delete AFTER DELETE ON session_turns BEGIN
-      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
+      DELETE FROM turn_text_items WHERE session_id = OLD.session_id AND seq = OLD.seq;
     END;
-    INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('t').replace('FROM json_each', 'FROM session_turns AS t, json_each')};
+    INSERT INTO turn_text_items (session_id, seq, item) ${messages('t').replace('FROM json_each', 'FROM session_turns AS t, json_each')};
   `);
 }
 

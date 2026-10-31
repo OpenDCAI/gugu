@@ -38,12 +38,15 @@ const LOCAL_PROJECTS_ONLY = `NOT EXISTS (SELECT 1 FROM projects p
     CASE WHEN search_index.item_type = 'project' THEN search_index.item_id END)
     AND p.workspace_provider != 'local')`;
 
+/** A LIKE pattern for a piece of text anywhere, with LIKE's own characters escaped. */
+const likePattern = (text: string) => `%${text.replace(/[\\%_]/g, '\\$&')}%`;
+
 /**
  * One text, one condition, for every trigram index here: the text is split on whitespace and each piece is a substring
  * that must occur. A piece of three or more characters MATCHes the trigram index (a substring index, so no word
  * segmentation, Chinese included); a shorter one is a LIKE over the given columns. No pieces → null (nothing to search).
  */
-export function textCondition(text: string, ftsTable: string, likeColumns: readonly string[]): { sql: string; params: string[] } | null {
+export function textCondition(text: string, ftsTable: string, likeColumns: readonly string[]): { sql: string; params: string[]; short: string[] } | null {
   const words = text.split(/\s+/).filter(Boolean);
   if (!words.length) return null;
   const long = words.filter((word) => [...word].length >= 3), short = words.filter((word) => [...word].length < 3);
@@ -54,10 +57,13 @@ export function textCondition(text: string, ftsTable: string, likeColumns: reado
   }
   for (const word of short) {
     sql.push(`(${likeColumns.map((column) => `${column} LIKE ? ESCAPE '\\'`).join(' OR ')})`);
-    params.push(...likeColumns.map(() => `%${word.replace(/[\\%_]/g, '\\$&')}%`));
+    params.push(...likeColumns.map(() => likePattern(word)));
   }
-  return { sql: sql.join(' AND '), params };
+  return { sql: sql.join(' AND '), params, short };
 }
+
+/** One message item's readable text, read back from its stored turn (turn_text keeps no copy). */
+const ITEM_TEXT = `search_text(json_extract(t.data, '$.items[' || i.item || '].text'))`;
 
 class SearchService {
   initialize(): void {
@@ -115,13 +121,19 @@ class SearchService {
 
   /** What was said in local tasks (turn_text, kept by triggers on session_turns), newest first. */
   searchTaskTurns(query: string, limit = 30): TaskTurnHit[] {
-    const condition = textCondition(query, 'turn_text', ['r.text']);
+    const condition = textCondition(query, 'turn_text', [ITEM_TEXT]);
     if (!condition) return [];
-    const where = condition.sql.replace('turn_text MATCH ?', 'r.id IN (SELECT rowid FROM turn_text WHERE turn_text MATCH ?)');
-    const rows = sqlite.prepare(`SELECT r.session_id, r.item_id, r.role, r.text, s.title, s.project_id, s.archived_at, t.created_at
-      FROM turn_text_rows r JOIN sessions s ON s.id = r.session_id JOIN session_turns t ON t.session_id = r.session_id AND t.seq = r.seq
-      WHERE ${where} AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = s.project_id AND p.workspace_provider != 'local')
-      ORDER BY t.created_at DESC, r.id DESC LIMIT ?`).all(...condition.params, Math.min(Math.max(limit, 1), 100)) as {
+    // A short piece is first looked for in the stored JSON (where it is written as JSON writes it), then in each item.
+    const turns = condition.short.length
+      ? `(SELECT session_id, seq, data, created_at FROM session_turns WHERE ${condition.short.map(() => `data LIKE ? ESCAPE '\\'`).join(' AND ')})`
+      : 'session_turns';
+    const rows = sqlite.prepare(`SELECT i.session_id, json_extract(t.data, '$.items[' || i.item || '].id') AS item_id,
+        json_extract(t.data, '$.items[' || i.item || '].role') AS role, ${ITEM_TEXT} AS text, s.title, s.project_id, s.archived_at, t.created_at
+      FROM ${turns} t JOIN turn_text_items i ON i.session_id = t.session_id AND i.seq = t.seq JOIN sessions s ON s.id = i.session_id
+      WHERE ${condition.sql.replace('turn_text MATCH ?', 'i.id IN (SELECT rowid FROM turn_text WHERE turn_text MATCH ?)')}
+        AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = s.project_id AND p.workspace_provider != 'local')
+      ORDER BY t.created_at DESC, i.id DESC LIMIT ?`).all(...condition.short.map((piece) => likePattern(JSON.stringify(piece).slice(1, -1))),
+      ...condition.params, Math.min(Math.max(limit, 1), 100)) as {
         session_id: string; item_id: string; role: string; text: string; title: string; project_id: string; archived_at: string | null; created_at: string;
       }[];
     return rows.map((row) => ({ sessionId: row.session_id, projectId: row.project_id, title: row.title, archived: row.archived_at !== null,
