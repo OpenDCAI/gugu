@@ -211,7 +211,9 @@ describe('ASSISTANT_FIRST_TASK', () => {
   it('幂等(已有 today.json 就什么都不做)、先读「关于主人」再开口', () => {
     expect(ASSISTANT_FIRST_TASK).toContain('已经有 today.json 就是初始化过了')
     expect(ASSISTANT_FIRST_TASK).toContain('owner-profile.md')
-    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeGreaterThan(ASSISTANT_FIRST_TASK.indexOf('schedule_create'))
+    // 先读档案:定时的标题和开场问候都跟档案里开通时的界面语言。
+    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeLessThan(ASSISTANT_FIRST_TASK.indexOf('schedule_create'))
+    expect(ASSISTANT_FIRST_TASK.indexOf('owner-profile.md')).toBeLessThan(ASSISTANT_FIRST_TASK.indexOf('message_send'))
   })
 })
 
